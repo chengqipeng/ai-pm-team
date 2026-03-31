@@ -1,177 +1,119 @@
-# aPaaS 元数据体系 — PRD
+# aPaaS 元数据驱动平台体系建设 — PRD
 
-## 1. 产品概述
+> 版本：v2.0 | 日期：2026-03-31
+> 前置文档：[需求澄清](产品-需求澄清.md) | [方案设计](产品-方案设计.md)
+> 需求类型：`架构重构` | 特征标签：`数据模型变更`、`跨租户/权限`
 
-| 维度 | 内容 |
+---
+
+## 一、业务全景
+
+### 价值描述
+平台从硬编码建表模式升级为元模型驱动架构后，产品配置师和租户管理员可以通过可视化界面配置业务对象、字段、校验规则，无需开发介入即可完成业务扩展。出厂元数据与租户自定义元数据独立存储、独立升级，彻底消除升级时的全量回归问题。
+
+### 量化目标
+| 指标 | 当前值 | 目标值 | 衡量方式 |
+|:---|:---:|:---:|:---|
+| 新增业务对象耗时 | 2-4 周 | 10 分钟 | 配置到可用的端到端时间 |
+| 字段类型映射异常 | 月均 5-8 次 | 0 | 前端渲染异常工单数 |
+| 跨环境迁移失败率 | 15% | <1% | api_key 关联后迁移成功率 |
+| 元数据列表查询 | 未统计 | P95 < 200ms | APM 监控 |
+| 元数据合并读取 | 未统计 | P95 < 500ms | APM 监控 |
+| 元数据写入 | 未统计 | P95 < 1s | APM 监控 |
+
+### 范围（按优先级）
+| 优先级 | 功能点 |
 |:---|:---|
-| 产品名称 | aPaaS 元数据驱动平台 |
-| 版本 | V1.0 |
-| 目标 | 构建元模型驱动的三层元数据架构，实现业务对象声明式配置与动态扩展 |
-| 核心交付 | 元模型四表体系 + 大宽表存储 + Common/Tenant 合并 + 元数据管理 API + 可视化管理前端 |
+| P0（MVP） | 元模型四表体系、大宽表存储、合并读取引擎、CRUD API、数据迁移、Schema 校验、管理前端浏览 |
+| P1（V1） | 元数据变更日志、管理前端编辑、字段映射可视化、ItemTypeEnum 映射展示 |
+| P2（V2） | 计算字段子元模型恢复、Delta 增量覆盖、Module 打包分发 |
 
-## 2. 功能清单
+### 角色与权限
+| 角色 | 核心操作 | License/权限 |
+|:---|:---|:---|
+| 平台管理员 | 元模型注册、Common 元数据初始化、全部管理功能 | 平台级权限 |
+| 租户管理员 | Tenant 级元数据 CRUD、自定义对象/字段/选项值 | 租户管理员权限 |
+| 业务开发者 | 通过 API 读取元数据驱动业务逻辑 | API 调用权限 |
+| 产品配置师 | 可视化配置业务对象、字段、校验规则 | 配置管理权限 |
 
-### 2.1 元模型管理
+---
 
-| 功能 | 优先级 | 说明 |
-|:---|:---:|:---|
-| 元模型注册 | P0 | 通过 p_meta_model 注册新元模型类型 |
-| 元模型字段定义 | P0 | 通过 p_meta_item 定义元模型属性字段及 db_column 映射 |
-| 元模型关联定义 | P0 | 通过 p_meta_link 定义元模型间父子/引用关系 |
-| 元模型取值约束 | P0 | 通过 p_meta_option 定义枚举字段合法取值 |
-| 元模型浏览 API | P0 | listMetaModels / listMetaItems / getColumnMapping |
+## 二、信息架构
 
-### 2.2 元数据 CRUD
+```
+aPaaS 元数据驱动平台
+├── 元模型定义层（Schema）【核心新建】
+│   ├── p_meta_model（元模型注册）
+│   ├── p_meta_item（字段定义 + db_column 映射）
+│   ├── p_meta_link（元模型间关联）
+│   └── p_meta_option（字段取值约束）
+├── 元数据实例层（Data）【核心新建】
+│   ├── Common 级（p_common_metadata 大宽表）
+│   └── Tenant 级（p_tenant_* 独立快捷表 / p_tenant_metadata 共享表）
+├── 合并引擎【核心新建】
+│   ├── CommonMetadataConverter（大宽表行 ↔ 业务 Entity 转换）
+│   ├── MergeReadService（Common + Tenant 合并）
+│   └── DynamicTableNameHolder（写入路由）
+├── API 层【核心新建】
+│   ├── MetaRepoReadApi（6 个读接口）
+│   ├── MetaRepoWriteApi（6 个写接口）
+│   └── MetamodelBrowseApiService（内部浏览接口）
+└── 管理前端 metarepo-web【新建】
+    ├── 元模型列表/详情
+    ├── 元数据浏览（按 entity 分组）
+    ├── 元数据编辑（Tenant 级）【P1】
+    └── 字段映射可视化【P1】
+```
 
-| 功能 | 优先级 | 说明 |
-|:---|:---:|:---|
-| 元数据读取（合并） | P0 | Common + Tenant 合并读取，namespace 过滤，license 控制 |
-| 元数据创建 | P0 | Tenant 级创建，Schema 校验，DynamicTableNameHolder 路由 |
-| 元数据更新 | P0 | Tenant 覆盖 Common（同 apiKey 覆盖） |
-| 元数据删除 | P0 | 软删除 + 遮蔽删除（Common 数据插入 delete_flg=1 的 Tenant 记录） |
-| 级联操作 | P0 | 删除 entity 级联删除 item/entityLink/checkRule，删除 item 级联删除 pickOption/referenceFilter |
+---
 
-### 2.3 元数据管理前端（metarepo-web）
+## 三、详细功能设计
 
-| 功能 | 优先级 | 说明 |
-|:---|:---:|:---|
-| 元模型列表页 | P0 | 展示所有元模型，字段数、关联关系、存储配置 |
-| 元模型详情页 | P0 | 字段定义列表，db_column 映射，取值约束展示 |
-| 元数据浏览页 | P0 | 按 entity 分组浏览，Common/Tenant 来源标识 |
-| 元数据编辑 | P1 | Tenant 级元数据的创建/更新/删除表单 |
-| 字段映射可视化 | P1 | db_column → 大宽表物理列映射关系图 |
-| ItemTypeEnum 映射 | P1 | 字段类型编码 → 名称 → dbColumnPrefix 对照表 |
+### 3.1 元模型管理
 
-### 2.4 数据迁移
+**业务规则：**
+- BR-01：api_key 全局唯一，camelCase 格式
+- BR-02：必须指定 enable_common 和 enable_tenant（至少一个为 1）
+- BR-03：db_table 指向 Tenant 级存储表，格式 p_tenant_{name}
+- BR-04：新表结构必须与 p_common_metadata 一致（+ tenant_id）
+- BR-05：元模型注册后，可通过 p_meta_item 定义字段，无需建新表即可存储元数据
 
-| 功能 | 优先级 | 说明 |
-|:---|:---:|:---|
-| item_type 编码转换 | P0 | 老编码→新 ItemTypeEnum 编码（剩余 3,333 条） |
-| db_column 重分配 | P0 | 按 entity 分组 + itemType 前缀递增分配 |
-| 关联字段标准化 | P0 | ID 关联→api_key 关联 |
-| globalPickItem 迁移 | P1 | ID→apiKey 引用转换 |
+**元模型字段定义规则：**
+- BR-06：db_column 三种映射方式——固定列名 / dbc_xxxN 扩展列 / 特殊映射
+- BR-07：固定列优先（api_key、label、namespace 等直接映射）
+- BR-08：dbc 列按 Java 字段数据类型选择前缀（varchar/textarea/int/smallint/bigint/decimal）
+- BR-09：同一元模型内同前缀按 item_order 递增分配序号
+- BR-10：不同元模型的 dbc 列序号独立分配，互不冲突
+- BR-11：列名格式统一 dbc_xxxN（无下划线分隔数字）
 
-### 2.5 待恢复能力
+### 3.2 元数据 CRUD
 
-| 功能 | 优先级 | 说明 |
-|:---|:---:|:---|
-| formulaCompute 子元模型 | P1 | 计算公式定义：公式表达式、空值处理、结果类型 |
-| formulaComputeItem 子元模型 | P1 | 公式明细：引用的字段列表 |
-| aggregationCompute 子元模型 | P1 | 汇总累计定义：汇总对象、汇总字段、汇总方式 |
-| aggregationComputeDetail 子元模型 | P1 | 汇总条件明细：过滤条件 |
-| computeFactor 子元模型 | P1 | 计算因子：公式/汇总共享变量定义 |
-| Delta 增量覆盖 | P2 | enable_delta + delta_scope + delta_mode |
-| Module 打包分发 | P2 | enable_package 元数据模块化 |
+**业务规则：**
+- BR-12：读取时 enable_common=1 且 enable_tenant=1 → 先查 Common 再查 Tenant，合并返回
+- BR-13：合并规则——Common 有 Tenant 无→用 Common，同 apiKey→Tenant 覆盖，Tenant delete_flg=1→隐藏
+- BR-14：namespace=product 需检查 license，无权限则隐藏
+- BR-15：所有写操作仅写入 Tenant 级表，Common 级由平台初始化写入
+- BR-16：写入前校验 p_meta_option 定义的取值范围
+- BR-17：写入前校验 p_meta_item 定义的必填/唯一约束
+- BR-18：删除 Common 数据 → 插入 delete_flg=1 的 Tenant 记录（遮蔽删除）
+- BR-19：级联删除遵循 p_meta_link.cascade_delete 配置
 
-## 3. 业务规则
-
-### 3.1 元模型注册规则
-- api_key 全局唯一，camelCase 格式
-- 必须指定 enable_common 和 enable_tenant（至少一个为 1）
-- db_table 指向 Tenant 级存储表，格式 p_tenant_{name}
-- 新表结构必须与 p_common_metadata 一致（CREATE TABLE ... LIKE + ALTER ADD tenant_id）
-
-### 3.2 元模型字段定义规则
-- db_column 三种映射：固定列名 / dbc_xxxN 扩展列 / 特殊映射
-- 固定列优先：api_key、label、namespace 等直接映射
-- dbc 列按 Java 字段数据类型选择前缀（varchar/textarea/int/smallint/bigint/decimal）
-- 同一元模型内同前缀按 item_order 递增分配序号
-- 不同元模型的 dbc 列序号独立分配
-- 列名格式统一 dbc_xxxN（无下划线分隔数字）
-
-### 3.3 元数据读取规则
-- enable_common=1 且 enable_tenant=1：先查 Common，再查 Tenant，合并返回
-- enable_common=1 且 enable_tenant=0：仅查 Common
-- enable_common=0 且 enable_tenant=1：仅查 Tenant
-- 合并规则：Common 有 Tenant 无→用 Common，同 apiKey→Tenant 覆盖，Tenant delete_flg=1→隐藏
-- namespace=product 需检查 license
-
-### 3.4 元数据写入规则
-- 所有写操作仅写入 Tenant 级表
-- Common 级数据由平台初始化或 Module 安装写入
-- 写入前校验 p_meta_option 定义的取值范围
-- 写入前校验 p_meta_item 定义的必填/唯一约束
-- 删除 Common 数据：插入 delete_flg=1 的 Tenant 记录（遮蔽删除）
-- 级联删除遵循 p_meta_link.cascade_delete 配置
-
-### 3.5 namespace 规则
-| namespace | 存储位置 | 写入方 | 可见性 |
+**读接口（MetaRepoReadApi）：**
+| 方法 | 路径 | 参数 | 返回 |
 |:---|:---|:---|:---|
-| system | p_common_metadata | 平台初始化 | 所有租户 |
-| product | p_common_metadata | Module 安装 | 受 license 控制 |
-| custom | p_tenant_* | 租户管理员 | 仅该租户 |
+| listEntities | GET /metarepo/read/entities | tenantId(header) | List\<XEntity\> |
+| getEntity | GET /metarepo/read/entity | apiKey | XEntity |
+| listItems | GET /metarepo/read/items | entityApiKey | List\<XEntityItem\> |
+| listPickOptions | GET /metarepo/read/pick-options | entityApiKey, itemApiKey | List\<XPickOption\> |
+| listCheckRules | GET /metarepo/read/check-rules | entityApiKey | List\<XCheckRule\> |
+| listEntityLinks | GET /metarepo/read/entity-links | entityApiKey | List\<XLink\> |
 
-### 3.6 国际化规则
-- 所有文本字段必须有对应 xxxKey 国际化字段
-- Key 格式：XdMDObj.{entityApiKey}、XdMDItem.{itemApiKey} 等
-- 运行时通过 p_meta_i18n_resource 查找翻译
-
-## 4. 字段类型体系（ItemTypeEnum）
-
-| 编码 | 名称 | dbColumnPrefix | 说明 |
-|:---:|:---|:---|:---|
-| 1 | TEXT | dbc_varchar | 文本 |
-| 2 | NUMBER | dbc_bigint | 数字 |
-| 3 | DATE | dbc_bigint | 日期 |
-| 4 | PICKLIST | dbc_int | 单选 |
-| 5 | LOOKUP | dbc_bigint | 查找关联 |
-| 6 | FORMULA | null | 公式（不占物理列） |
-| 7 | ROLLUP | null | 汇总（不占物理列） |
-| 8 | TEXTAREA | dbc_textarea | 长文本 |
-| 9 | BOOLEAN | dbc_smallint | 布尔 |
-| 10 | CURRENCY | dbc_decimal | 货币 |
-| 11 | PERCENT | dbc_decimal | 百分比 |
-| 12 | EMAIL | dbc_varchar | 邮箱 |
-| 13 | PHONE | dbc_varchar | 电话 |
-| 14 | URL | dbc_varchar | URL |
-| 15 | DATETIME | dbc_bigint | 日期时间 |
-| 16 | MULTIPICKLIST | dbc_varchar | 多选 |
-| 17 | MASTER_DETAIL | dbc_bigint | 主从关联 |
-| 18 | GEOLOCATION | dbc_varchar | 地理位置 |
-| 19 | IMAGE | dbc_varchar | 图片 |
-| 20 | AUTONUMBER | dbc_varchar | 自动编号 |
-| 21 | JOIN | null | 引用（不占物理列） |
-| 22 | AUDIO | dbc_varchar | 语音 |
-| 27 | COMPUTED | null | 计算字段（不占物理列） |
-
-## 5. 验收标准
-
-### 5.1 元模型管理
-- [ ] 可通过 p_meta_model 注册新元模型，无需建表即可存储元数据
-- [ ] p_meta_item 字段定义完整覆盖 6 种元模型共 176 个字段
-- [ ] p_meta_link 正确定义 5 条层级关系
-- [ ] p_meta_option 正确约束 17 个枚举字段的 62 个选项值
-
-### 5.2 元数据 CRUD
-- [ ] 读取接口正确合并 Common + Tenant 数据
-- [ ] 写入接口正确路由到 Tenant 级独立表
-- [ ] 删除操作正确执行遮蔽删除和级联删除
-- [ ] Schema 校验拦截非法取值
-
-### 5.3 数据迁移
-- [ ] 所有 item_type 编码转换为新 ItemTypeEnum
-- [ ] 所有 db_column 格式统一为 dbc_xxxN
-- [ ] 所有关联字段从 ID 转换为 api_key
-- [ ] 迁移后业务功能回归通过
-
-### 5.4 性能
-- [ ] 元数据列表查询 P95 < 200ms
-- [ ] 元数据合并读取 P95 < 500ms
-- [ ] 元数据写入 P95 < 1s
-
-### 5.5 前端
-- [ ] 元模型列表正确展示所有已注册元模型
-- [ ] 元数据浏览正确区分 Common/Tenant 来源
-- [ ] ItemTypeEnum 映射从 API 加载，失败回退前端硬编码
-
-## 6. 审核清单
-
-| 检查项 | 状态 |
-|:---|:---:|
-| 业务规则完整且无歧义 | ⬜ |
-| 接口规格可直接用于技术设计 | ⬜ |
-| 字段类型体系覆盖所有业务场景 | ⬜ |
-| 数据迁移方案可执行 | ⬜ |
-| 验收标准可测试 | ⬜ |
-| 性能指标明确 | ⬜ |
-| 兼容性（MySQL + PostgreSQL）已考虑 | ⬜ |
+**写接口（MetaRepoWriteApi）：**
+| 方法 | 路径 | 参数 | 说明 |
+|:---|:---|:---|:---|
+| createEntity | POST /metarepo/write/entity | XEntity body | 创建 Tenant 级对象 |
+| updateEntity | PUT /metarepo/write/entity | XEntity body | Tenant 覆盖 Common |
+| deleteEntity | DELETE /metarepo/write/entity | apiKey | 遮蔽删除 + 级联 |
+| createItem | POST /metarepo/write/item | XEntityItem body | 创建字段 |
+| updateItem | PUT /metarepo/write/item | XEntityItem body | 更新字段 |
+| deleteItem | DELETE /metarepo/write/item | apiKey, entityApiKey | 级联删除 pickOption/referenceFilter |
