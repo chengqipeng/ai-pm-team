@@ -1,0 +1,12 @@
+.DS_Store
+node_modules
+.idea/workspace.xml
+.idea/
+.tmp/
+temp/
+result/
+product-specs/
+tools/.venv
+tools/.env
+.env
+repos/

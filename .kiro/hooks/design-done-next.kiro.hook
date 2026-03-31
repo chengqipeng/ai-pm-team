@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "方案设计完成提醒",
+  "description": "当方案设计文档创建后，自动提醒产品经理进入PRD撰写阶段",
+  "version": "2",
+  "when": {
+    "type": "fileCreated",
+    "patterns": [
+      "product-specs/*/产品-方案设计.md"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "方案设计文档已创建完成。请提醒用户：1) 检查方案设计质量（现状复用是否充分、用户故事是否符合INVEST、核心流程是否含异常处理、模块划分是否合理）；2) 确认无误后，说「进入下一阶段」即可进入 PRD 撰写。"
+  }
+}

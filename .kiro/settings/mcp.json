@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "wiki": {
+      "command": "{your-python-path}",
+      "args": [
+        "{your-wiki-mcp-server-path}/wiki_mcp_server.py"
+      ],
+      "env": {
+        "WIKI_URL": "https://wiki.ingageapp.com",
+        "WIKI_USER": "{your-wiki-username}"
+      },
+      "disabled": false,
+      "autoApprove": [
+        "wiki_list_spaces",
+        "wiki_search",
+        "wiki_get_page",
+        "wiki_get_page_tree",
+        "wiki_get_pages_by_space",
+        "wiki_get_attachments",
+        "wiki_batch_get_pages"
+      ]
+    }
+  }
+}

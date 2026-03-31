@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "PRD完成提醒",
+  "description": "当PRD文档创建后，自动提醒产品经理检查PRD质量并确认交付",
+  "version": "2",
+  "when": {
+    "type": "fileCreated",
+    "patterns": [
+      "product-specs/*/产品-PRD.md"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "PRD文档已创建完成。请提醒用户：1) 逐章检查PRD质量（开发能否看懂、测试能否写用例、验收标准是否可验证）；2) 检查文末的审核清单；3) 审核通过后，产品设计阶段即完成，可交付研发团队。"
+  }
+}
