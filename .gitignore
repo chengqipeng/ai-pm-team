@@ -6,4 +6,3 @@ node_modules
 temp/
 result/
 repos/
-tools/.env
