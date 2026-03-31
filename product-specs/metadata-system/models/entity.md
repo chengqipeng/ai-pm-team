@@ -36,31 +36,31 @@
 | customEntitySeq | dbc_int2 | 对象排序号 | Integer | — |
 | businessCategory | dbc_int3 | 业务分类 | Integer | — |
 | enableFlg | dbc_smallint3 | 启用标记 | Integer(0/1) | 0=否, 1=是 |
-| enableHistoryLog | dbc_smallint5 | 启用历史日志 | Integer(0/1) | — |
+| historyLogFlg | dbc_smallint5 | 启用历史日志 | Integer(0/1) | — |
 | enableConfig | dbc_bigint1 | 启用配置位 | Long(位掩码) | — |
-| enableBusinessType | dbc_smallint1 | 启用业务类型 | Integer(0/1) | — |
-| enableCheckRule | dbc_smallint2 | 启用校验规则 | Integer(0/1) | — |
-| enableDuplicateRule | dbc_int4 | 启用查重规则 | Integer | — |
-| enableScriptExecutor | dbc_int5 | 启用脚本执行器 | Integer | — |
+| businessTypeFlg | dbc_smallint1 | 启用业务类型 | Integer(0/1) | — |
+| checkRuleFlg | dbc_smallint2 | 启用校验规则 | Integer(0/1) | — |
+| duplicateRuleFlg | dbc_int4 | 启用查重规则 | Integer | — |
+| scriptExecutorFlg | dbc_int5 | 启用脚本执行器 | Integer | — |
 | archivedFlg | dbc_int6 | 已归档 | Integer | — |
-| enableGroupMember | dbc_int7 | 启用组成员 | Integer | — |
-| enableDynamicFeed | dbc_int8 | 启用动态 | Integer | — |
+| groupMemberFlg | dbc_int7 | 启用组成员 | Integer | — |
+| dynamicFeedFlg | dbc_int8 | 启用动态 | Integer | — |
 
 ### Java Entity 额外字段（非 p_meta_item 定义，由 Java 类直接持有）
 
 | Java 字段 | 类型 | 说明 |
 |:---|:---|:---|
 | detailFlg | Integer(0/1) | 明细对象标记 |
-| enableTeam | Integer(0/1) | 启用团队 |
-| enableSocial | Integer(0/1) | 启用社交 |
+| teamFlg | Integer(0/1) | 启用团队 |
+| socialFlg | Integer(0/1) | 启用社交 |
 | hiddenFlg | Integer(0/1) | 隐藏标记 |
 | searchable | Integer(0/1) | 可搜索 |
-| enableSharing | Integer(0/1) | 启用共享 |
-| enableScriptTrigger | Integer(0/1) | 启用脚本触发器 |
-| enableActivity | Integer(0/1) | 启用活动 |
-| enableReport | Integer(0/1) | 启用报表 |
-| enableRefer | Integer(0/1) | 启用引用 |
-| enableApi | Integer(0/1) | 启用API |
+| sharingFlg | Integer(0/1) | 启用共享 |
+| scriptTriggerFlg | Integer(0/1) | 启用脚本触发器 |
+| activityFlg | Integer(0/1) | 启用活动 |
+| reportFlg | Integer(0/1) | 启用报表 |
+| referFlg | Integer(0/1) | 启用引用 |
+| apiFlg | Integer(0/1) | 启用API |
 | enableFlow | Long | 启用流程 |
 | enablePackage | Long | 启用打包 |
 | typeProperty | String | 类型扩展属性JSON |

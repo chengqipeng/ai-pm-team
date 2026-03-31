@@ -79,14 +79,14 @@
 | uniqueKeyFlg | dbc_smallint4 | 是否唯一键 | Integer(0/1) |
 | creatable | dbc_smallint5 | 新建时可赋值 | Integer(0/1) |
 | updatable | dbc_smallint6 | 可更新 | Integer(0/1) |
-| enableHistoryLog | dbc_smallint7 | 历史记录跟踪 | Integer(0/1) |
-| enableDeactivate | dbc_smallint8 | 允许禁用 | Integer(0/1) |
+| historyLogFlg | dbc_smallint7 | 历史记录跟踪 | Integer(0/1) |
+| deactivateFlg | dbc_smallint8 | 允许禁用 | Integer(0/1) |
 | readonlyStatus | dbc_int4 | 只读状态 | Integer |
 | visibleStatus | dbc_int5 | 可见状态 | Integer |
-| enableSort | dbc_int6 | 允许排序 | Integer(0/1) |
+| sortFlg | dbc_int6 | 允许排序 | Integer(0/1) |
 | encryptFlg | dbc_smallint10 | 加密字段 | Integer(0/1) |
 | markdownFlg | dbc_smallint11 | Markdown编辑器 | Integer(0/1) |
-| enableReferItemFilter | dbc_smallint12 | 关联字段增强过滤 | Integer(0/1) |
+| referItemFilterFlg | dbc_smallint12 | 关联字段增强过滤 | Integer(0/1) |
 
 ### 关联/LOOKUP 相关
 
@@ -99,7 +99,7 @@
 | canBatchCreate | dbc_smallint24 | 允许批量新建 | Integer(0/1) |
 | copyWithParentFlg | dbc_smallint25 | 随父复制 | Integer(0/1) |
 | maskFlg | dbc_smallint26 | 是否掩码显示 | Integer(0/1) |
-| enableMultiDetail | dbc_smallint27 | 启用多明细 | Integer(0/1) |
+| multiDetailFlg | dbc_smallint27 | 启用多明细 | Integer(0/1) |
 | batchCreateMode | dbc_int | 批量创建模式 | Integer |
 | batchCreateLinkByBusinessType | dbc_smallint | 按业务类型批量创建 | Integer |
 | joinItem | dbc_varchar12 | 引用字段 | String |
