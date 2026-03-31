@@ -1,114 +1,136 @@
 ---
 inclusion: auto
-description: NeoAgent产品定位、Agent矩阵、平台能力、数据模型与全局基线约束
+description: aPaaS元数据驱动平台产品定位、三层架构、微服务矩阵、数据模型与全局基线约束
 ---
 
-# NeoAgent 产品上下文
+# aPaaS 元数据驱动平台 产品上下文
 
 ## 产品定位
-AI驱动的企业级智能中枢，以Agent为核心载体，整合提示词模板、AI知识库、MCP生态、大模型管理、安全合规等全栈能力，深度联动CRM平台流程引擎与业务数据。
-核心价值：从"流程驱动"到"智能驱动"，实现"需求识别-智能处理-结果反馈-持续优化"的完整业务闭环。
+aPaaS 元数据驱动平台，以元模型为核心，构建"元模型定义→元数据实例→业务数据"三层架构，实现业务对象的声明式配置与动态扩展。
+核心价值：从"硬编码建表"到"配置即生效"，新增业务对象从 2-4 周缩短至 10 分钟，支撑 SaaS 多租户规模化。
 
 ## 三大核心优势
-1. "意图-动作-结果"全闭环智能执行：自然语言/快捷指令 → 意图识别 → 匹配主题与操作 → 联动CRM数据/知识库/第三方服务 → 实时生成结果
-2. 零门槛定制与资产高效复用：可视化设计器+自然语言配置，支持智能体/提示词模板/操作的复用与统一维护
-3. 全场景安全合规与数据可控：权限继承-动态脱敏-内容审查-审计日志四重防护，支持自携模型
+1. 元模型驱动的 Schema-on-Read：通过 p_meta_model + p_meta_item 声明式定义元模型，大宽表 dbc_xxxN 扩展列存储元数据实例，新增元模型零 DDL
+2. Common/Tenant 双层隔离与合并：出厂元数据（system/product）独立升级，租户自定义元数据互不影响，合并读取透明覆盖
+3. api_key 全链路关联：禁止 ID 关联，跨环境迁移一致性，人类可读，支持 Module 打包分发
 
-## 核心Agent矩阵
+## 三层架构
 
-### 销售助理Agent（操作提效）
-全天候数据助力，负责自动补全信息、管理待办事项、推荐资源，将销售从繁琐的数据录入中解放。
-- 百事通：多源RAG检索（CRM 50+实体+知识库+互联网），自然语言查询
-- 智能录入CRM数据：语音/录音/文字/企微会话/图片/文档多模态录入，AI自动识别回填字段
-- 拜访话题推荐：结合方法论+知识库+CRM数据，个性化沟通话题
-- 智能会议纪要：腾讯会议实时转写→结构化纪要→自动同步活动记录
-- 智能撰写邮件：自定义阶段邮件模板+AI生成润色
-- 智能生成工作报告：聚合CRM+BI数据，自定义模板
-- 活动记录质检：按业务类型+职能灵活定义评估模板
-- 智能商机查重：规则匹配+GenAI语义分析两阶段查重，支持多套模板
-- 智能推荐客户：基于老客户推荐相似潜客，支持地理位置推荐
-- 合同质检：一致性检查+风险条款识别+财务合规核对
+```
+第一层：元模型注册（p_meta_model）
+  定义"有哪些类型的元数据"，当前 7 种元模型
+  db_table 指向各元模型的 Tenant 级存储表
+第二层：元模型字段定义（p_meta_item）
+  定义每种元模型有哪些属性字段，当前 176 个字段定义
+  db_column 映射到大宽表的 dbc_xxxN 列
+第三层：元数据实例
+  Common 级：统一存储在 p_common_metadata 大宽表
+  Tenant 级：高数据量→独立快捷表，低数据量→共享 p_tenant_metadata
+```
 
-### 销售经理Agent（决策赋能）
-数据驱动的战略专家，提供客户洞察、商机评估、风险预警与Pipeline分析。
-- 智能客户洞察：整合工商/财务/舆情/CRM多源数据，自动生成结构化洞察报告+行动建议，支持一键转任务
-- 商机健康度评估：基于CCS/BANT/C139等方法论，多维度评估+雷达图+风险标签+行动建议
-- 智能合同质检：L2C三节点质检（起草/用印前/归档），完整性+一致性+风险条款识别
-- 智能生成行动建议：结合客户状态与销售策略，3-5条个性化建议→一键转任务
+## 代码仓库说明
 
-### 渠道Agent
-- 智能拜访规划：规则+AI生成拜访清单+路线规划
-- 智能推荐拜访策略：基于历史记录+订单+库存推荐策略
-- 智能总结拜访记录：实时录音→转写→场景化总结模板
+| 仓库 | 路径 | 定位 | 技术栈 |
+|:---|:---|:---|:---|
+| 新项目（apass_new_projects） | repos/apass_new_projects/ | **所有产品修改必须在此仓库** | Spring Boot + Spring Cloud + MyBatis-Plus |
+| 老项目（apass_old_projects） | repos/apass_old_projects/ | **仅作为参考，不做修改** | Spring Boot + Dubbo + Zookeeper + RESTEasy |
 
-### 分析师Agent
-- 基于指标智能检索视图：自然语言查询BI报表
-- 基于指标智能生成视图：自然语言生成BI视图
-- 智能归因分析和洞察：对话式分析+历史对比+AI归因
+> ⚠️ 硬约束：所有新功能开发、Bug 修复、架构重构均在 apass_new_projects 中进行。apass_old_projects 仅用于理解老系统逻辑、数据迁移对照、历史行为参考。
 
-### 服务Agent
-- 客服机器人Agent：RAG+大模型，冷启动自动梳理知识条目
-- 智能质检Agent：全量会话质检，自定义规则和评分标准
-- 座席辅助Agent：实时推荐答案+客户情绪分析
-- 工单Agent：智能总结+解决方案推荐+资产设备洞察+现场操作推荐+派工质检
-
-### 营销Agent
-- 智能潜客推荐：AI识别存量客户特征→全网查询相似潜客
-- 存量客群圈选：自然语言描述→智能生成圈选规则
-- 适购产品推荐：智能算法推荐交叉销售
-- 客户旅程画布：可视化SOP+自动化执行+数据分析
-
-### 企微会话智能Agent
-- 智能话题洞察/话术推荐/自动打标签/客户洞察/会话总结/会话质检
-
-## NeoAgent平台能力
-| 模块 | 说明 |
-|:---|:---|
-| 智能体管理 | 可视化设计器，主题+操作编排，多版本管理，推理调试 |
-| 智能体操作库 | 系统标准操作（产品级资产）+ 自定义操作（租户级资产）|
-| 提示词模板 | 可视化编辑器，动态变量绑定CRM数据，多版本管理 |
-| AI知识库 | 关联CRM知识文档，自动/手动同步，最大召回数+最小匹配度 |
-| MCP广场 | 第三方服务聚合，标准协议对接，双向能力开放 |
-| 模型管理 | 自携模型（含私有部署），按场景分配模型 |
-| 内容审查 | 实时关键词监测，敏感信息拦截 |
-| 智能录入配置 | 配置录入业务对象+字段描述，精准意图识别 |
-| 审计日志 | 配置操作+运行情况全记录 |
-| 用量管理 | 智能资源点统一计费，自动预警 |
-
-
-## 数据模型（核心实体）
-| 实体 | 说明 | 关键字段 |
+### 新项目（apass_new_projects）— 微服务矩阵
+| 服务 | 职责 | 代码路径 |
 |:---|:---|:---|
-| Account（客户）| 客户 | id, name, industry, scale |
-| Opportunity（商机）| 商机 | id, customer_id, stage, amount |
-| ActivityRecord（活动记录）| 活动 | id, type, customer_id, content |
-| Agent（智能体）| 智能体 | id, name, config, status |
-| Lead（线索）| 线索 | id, name, source, score |
-| Contact（联系人）| 联系人 | id, name, role, account_id |
-| Quotation（报价单）| 报价 | id, opportunity_id, amount |
+| paas-metarepo-service | 元数据仓库核心：元模型管理 + 元数据 CRUD + Common/Tenant 合并读取 | repos/apass_new_projects/paas-metarepo-service/ |
+| paas-metarepo-web | 元数据可视化管理前端（React 19 + Antd 6 + Vite 8） | repos/apass_new_projects/paas-metarepo-web/ |
+| paas-metadata-service | 元数据对外服务层，适配新元数据读取接口 | repos/apass_new_projects/paas-metadata-service/ |
+| paas-entity-service | 实体数据 CRUD，基于元数据驱动 | repos/apass_new_projects/paas-entity-service/ |
+| paas-layout-service | 布局渲染，依赖元数据字段定义 | repos/apass_new_projects/paas-layout-service/ |
+| paas-rule-service | 规则执行，依赖 checkRule 元数据 | repos/apass_new_projects/paas-rule-service/ |
+| paas-privilege-service | 权限服务 | repos/apass_new_projects/paas-privilege-service/ |
+| paas-gateway | API 网关 | repos/apass_new_projects/paas-gateway/ |
+| framework-basic | 基础框架（核心 + Spring Boot 自动配置） | repos/apass_new_projects/framework-basic/ |
+| framework-common | 公共工具库 | repos/apass_new_projects/framework-common/ |
+
+### 老项目（apass_old_projects）— 仅供参考
+| 服务 | 职责 | 参考价值 |
+|:---|:---|:---|
+| paas-metarepo-service | 老版元数据仓库 | 老编码体系、老数据结构对照 |
+| paas-metadata-service | 老版元数据服务 | 老接口契约参考 |
+| paas-customize-service | 自定义数据 CRUD + 字段映射 + 审批流 | 老业务逻辑、数据权限、实体映射参考 |
+| neo-apaas-layout-service | 布局服务（JAX-RS + Dubbo） | 老布局 API Schema、聚合层逻辑参考 |
+| paas-privilege-service | 老版权限服务 | 权限模型参考 |
+| apps-ingage-admin | 管理后台 | 老管理界面参考 |
+| platform-sns-dal | 数据访问层 | 老 DAO 层、SQL 参考 |
+
+## 数据架构
+| 数据库 | 用途 | 表前缀 |
+|:---|:---|:---|
+| paas_metarepo_common | 元模型定义（p_meta_*）+ Common 级元数据（p_common_metadata） | p_meta_*、p_common_* |
+| paas_metarepo | Tenant 级元数据（p_tenant_*）+ 运行时数据 | p_tenant_*、p_meta_log |
+
+## 核心数据模型
+| 实体 | 说明 | 主键/唯一标识 |
+|:---|:---|:---|
+| MetaModel（元模型） | 元模型注册，定义元数据类型 | api_key 全局唯一 |
+| MetaItem（元模型字段） | 元模型属性字段定义，db_column 映射 | (metamodel_api_key, api_key) |
+| MetaLink（元模型关联） | 元模型间父子/引用关系 | api_key 全局唯一 |
+| MetaOption（元模型选项） | 枚举字段合法取值 | (metamodel_api_key, item_api_key, option_code) |
+| CommonMetadata（Common 元数据） | 大宽表，固定列 + 130 个 dbc_xxxN 扩展列 | (metamodel_api_key, api_key) |
+| TenantMetadata（Tenant 元数据） | 与 Common 结构一致 + tenant_id | (tenant_id, metamodel_api_key, api_key) |
+| Entity（业务对象） | 业务视图，CommonMetadataConverter 转换 | api_key |
+| EntityItem（字段） | 业务视图 | (entity_api_key, api_key) |
+| EntityLink（关联关系） | 业务视图 | api_key |
+| CheckRule（校验规则） | 业务视图 | (entity_api_key, api_key) |
+| PickOption（选项值） | 业务视图 | (entity_api_key, item_api_key, api_key) |
+
+## 技术栈
+| 层级 | 技术 | 版本 |
+|:---|:---|:---|
+| 后端框架 | Spring Boot + Spring Cloud | — |
+| ORM | MyBatis-Plus | — |
+| 数据库 | MySQL + PostgreSQL（双兼容） | — |
+| 主键策略 | 雪花算法 BIGINT | — |
+| 前端框架 | React | 19.2 |
+| UI 组件库 | Ant Design | 6.3 |
+| 构建工具 | Vite | 8.0 |
+| 类型系统 | TypeScript | 5.9 |
 
 ## 全局基线约束
-- 核心实体命名：account（客户）、opportunity（商机）、activityRecord（活动记录），不使用customer等混名
-- 字段apiName：统一camelCase英文，展示名用简短中文，尽量给出helpText
-- AI结果优先用JSON字段存储，设计中说明JSON schema及与实体字段的映射
-- Prompt视为产品对象：需说明输入变量（来源实体/字段）和输出JSON契约
-- XOQL查询：不使用子查询/嵌套查询，通过实体字段路径表达关联
-- 严格遵循CRM权限体系（RBAC）
-- 所有AI调用需记录token消耗
-- 敏感数据需脱敏处理
-- 接口响应时间<3s（P95）
+1. 元数据表禁止使用自增 ID 作为主键，统一使用 api_key 或联合主键
+2. 元数据之间的关联禁止使用 ID（entity_id、item_id），统一使用 api_key 关联
+3. 字段 apiName 统一 camelCase 英文，展示名用简短中文，尽量给出 helpText
+3a. p_meta_item.api_key 统一 camelCase，与 Java Entity 字段名一致，禁止 snake_case
+3b. 布尔字段：启用能力用 `enableXxx`（不加 Flg），状态标记用 `xxxFlg`，禁止 `is` 前缀
+3c. 禁止非标准缩写（如 Busi→BusinessType），复合词正确驼峰（如 CheckRule 不是 Checkrule）
+4. 所有文本字段必须有对应 xxxKey 国际化字段（label→labelKey, description→descriptionKey）
+5. 数据库表名统一 snake_case，元模型定义表前缀 p_meta_，Common 表前缀 p_common_，Tenant 表前缀 p_tenant_
+6. 大宽表列名格式统一 dbc_xxxN（无下划线分隔数字），如 dbc_varchar8、dbc_int1
+7. 所有 DDL 必须同时兼容 MySQL 和 PostgreSQL，禁止 AUTO_INCREMENT、ENGINE、COMMENT、BOOLEAN、ENUM
+8. namespace 三分类：system（系统出厂）、product（业务产品，受 license 控制）、custom（租户自定义）
+9. Common 级数据由平台初始化或 Module 安装写入，业务层不直接写入 Common 表
+10. 接口响应时间：元数据列表查询 P95 < 200ms，合并读取 P95 < 500ms，写入 P95 < 1s
+11. 前端请求体 camelCase → snake_case 转换，响应体 snake_case → camelCase 转换
+12. 敏感数据需脱敏处理，严格遵循 RBAC 权限体系
 
 ## 进行中 & 规划中
 | 方向 | 状态 | 说明 |
 |:---|:---:|:---|
-| 提示词模板多模态扩展 | 🔄进行中 | 图片/文件变量类型，多模态大模型请求构建 |
-| 多模态录入升级 | 🔄进行中 | 图片/文档上传+多模态大模型直连+文件管理中心 |
-| 实时录音纪要 | 🔄进行中 | APP内一键录音→实时转写→场景化总结→action执行 |
-| 智能推荐销售资源 | 🔄进行中 | 匹配赢单团队+知识库案例 |
-| Agentic RAG | 📋规划中 | 复杂推理与幻觉解决 |
-| Multi-Agent | 📋规划中 | 多Agent协作编排 |
-| AI国际化 | 📋规划中 | 多语言支持 |
-| 工作流自动化 | 📋规划中 | 可视化流程编排 |
+| 数据迁移（item_type + db_column） | 🔄进行中 | 剩余 3,333 条 item_type 编码转换 + db_column 重分配 |
+| 元模型字段命名规范统一 | 🔄进行中 | p_meta_item api_key + Java 字段名统一 camelCase，消除缩写/前缀不一致 |
+| 元数据管理前端 | 🔄进行中 | metarepo-web：元模型浏览、元数据列表、字段映射可视化 |
+| 计算字段子元模型恢复 | 📋规划中 | formulaCompute/aggregationCompute 等 5 个子元模型 |
+| Delta 增量覆盖 | 📋规划中 | enable_delta + delta_scope + delta_mode |
+| Module 打包分发 | 📋规划中 | enable_package 元数据模块化 |
+| 元数据变更日志完善 | �规划中 | p_tenant_meta_log 全量写操作日志 |
+| 元数据写入 Schema 校验 | �规划中 | p_meta_option 取值范围 + p_meta_item 必填/唯一约束 |
+
+## 设计参考
+| 文档 | 路径 | 内容 |
+|:---|:---|:---|
+| 元数据设计规范 | product-specs/metadata-system/元数据设计规范.md | 存储、命名、关联、唯一性规范 |
+| 元模型设计体系 | product-specs/metadata-system/元模型设计体系.md | 三层架构、四表体系、完整字段定义 |
+| 元数据实例设计 | product-specs/metadata-system/元数据实例设计.md | 大宽表、合并机制、写入流程、Java 类体系 |
+| 数据迁移方案 | product-specs/metadata-system/数据迁移方案.md | 老→新编码转换、db_column 重分配 |
 
 ## 功能现状文档索引
 > 优化已有功能时，请参考 context/features/ 下的详细文档
