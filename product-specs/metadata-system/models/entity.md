@@ -37,8 +37,8 @@
 | businessCategory | dbc_int3 | 业务分类 | Integer | — |
 | enableFlg | dbc_smallint3 | 启用标记 | Integer(0/1) | 0=否, 1=是 |
 | historyLogFlg | dbc_smallint5 | 启用历史日志 | Integer(0/1) | — |
-| enableConfig | dbc_bigint1 | 启用配置位 | Long(位掩码) | — |
-| businessTypeFlg | dbc_smallint1 | 启用业务类型 | Integer(0/1) | — |
+| configFlg | dbc_bigint1 | 配置开关 | Integer(0/1) | — |
+| busiTypeFlg | dbc_smallint1 | 启用业务类型 | Integer(0/1) | — |
 | checkRuleFlg | dbc_smallint2 | 启用校验规则 | Integer(0/1) | — |
 | duplicateRuleFlg | dbc_int4 | 启用查重规则 | Integer | — |
 | scriptExecutorFlg | dbc_int5 | 启用脚本执行器 | Integer | — |
@@ -54,15 +54,15 @@
 | teamFlg | Integer(0/1) | 启用团队 |
 | socialFlg | Integer(0/1) | 启用社交 |
 | hiddenFlg | Integer(0/1) | 隐藏标记 |
-| searchable | Integer(0/1) | 可搜索 |
+| searchableFlg | Integer(0/1) | 可搜索 |
 | sharingFlg | Integer(0/1) | 启用共享 |
 | scriptTriggerFlg | Integer(0/1) | 启用脚本触发器 |
 | activityFlg | Integer(0/1) | 启用活动 |
 | reportFlg | Integer(0/1) | 启用报表 |
 | referFlg | Integer(0/1) | 启用引用 |
 | apiFlg | Integer(0/1) | 启用API |
-| enableFlow | Long | 启用流程 |
-| enablePackage | Long | 启用打包 |
+| flowFlg | Integer(0/1) | 启用流程 |
+| packageFlg | Integer(0/1) | 启用打包 |
 | typeProperty | String | 类型扩展属性JSON |
 | extendProperty | String | 扩展属性 |
 
