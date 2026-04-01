@@ -9,6 +9,15 @@
 ## 概述
 定义 LOOKUP 类型字段的下拉过滤条件。当用户在 UI 上选择关联记录时，系统根据 filterFormula 过滤候选列表。
 
+## 存储路由
+| 层级 | 表名 | 说明 |
+|:---|:---|:---|
+| Common | `p_common_metadata` | 系统出厂过滤条件（WHERE metamodel_api_key='referenceFilter'） |
+| Tenant | `p_tenant_refer_filter` | 租户自定义过滤条件，结构与 p_common_metadata 一致 + tenant_id |
+
+- 读取：先查 Common，再查 Tenant，按 entity_api_key + item_api_key + api_key 合并
+- 写入：`DynamicTableNameHolder.executeWith('p_tenant_refer_filter')` 路由到 Tenant 表
+
 ## 字段定义（12 个）
 
 ### 基础信息（固定列映射）

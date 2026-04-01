@@ -9,6 +9,15 @@
 ## 概述
 定义两个 entity 之间的关联关系，支持 LOOKUP（查找）、主从、多对多三种关联类型。关联关系决定了字段的 LOOKUP 目标、级联删除策略和访问控制。
 
+## 存储路由
+| 层级 | 表名 | 说明 |
+|:---|:---|:---|
+| Common | `p_common_metadata` | 系统出厂关联（WHERE metamodel_api_key='entityLink'） |
+| Tenant | `p_tenant_entity_link` | 租户自定义关联，结构与 p_common_metadata 一致 + tenant_id |
+
+- 读取：先查 Common，再查 Tenant，按 api_key 合并
+- 写入：`DynamicTableNameHolder.executeWith('p_tenant_entity_link')` 路由到 Tenant 表
+
 ## 字段定义（9 个）
 
 ### 基础信息（固定列映射）

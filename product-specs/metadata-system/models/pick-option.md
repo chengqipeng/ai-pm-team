@@ -9,6 +9,15 @@
 ## 概述
 定义 PICKLIST（单选）和 MULTIPICKLIST（多选）类型字段的选项值列表。每个选项有唯一的 apiKey、显示标签和排序序号。
 
+## 存储路由
+| 层级 | 表名 | 说明 |
+|:---|:---|:---|
+| Common | `p_common_metadata` | 系统出厂选项值（WHERE metamodel_api_key='pickOption'） |
+| Tenant | `p_tenant_pick_option` | 租户自定义选项值，结构与 p_common_metadata 一致 + tenant_id |
+
+- 读取：先查 Common，再查 Tenant，按 entity_api_key + item_api_key + api_key 合并
+- 写入：`DynamicTableNameHolder.executeWith('p_tenant_pick_option')` 路由到 Tenant 表
+
 ## 字段定义（19 个）
 
 ### 基础信息（固定列映射）

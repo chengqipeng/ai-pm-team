@@ -9,6 +9,15 @@
 ## 概述
 定义 entity 上的数据校验规则。当用户创建或更新记录时，系统根据 checkFormula 执行校验，不通过则返回 checkErrorMsg。
 
+## 存储路由
+| 层级 | 表名 | 说明 |
+|:---|:---|:---|
+| Common | `p_common_metadata` | 系统出厂校验规则（WHERE metamodel_api_key='checkRule'） |
+| Tenant | `p_tenant_check_rule` | 租户自定义校验规则，结构与 p_common_metadata 一致 + tenant_id |
+
+- 读取：先查 Common，再查 Tenant，按 entity_api_key + api_key 合并
+- 写入：`DynamicTableNameHolder.executeWith('p_tenant_check_rule')` 路由到 Tenant 表
+
 ## 字段定义（18 个）
 
 ### 基础信息（固定列映射）

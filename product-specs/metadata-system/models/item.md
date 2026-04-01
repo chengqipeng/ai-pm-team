@@ -9,6 +9,16 @@
 ## 概述
 定义 entity 上的字段（如 Name、Phone、Industry）。每个字段有类型（itemType）、存储列（dbColumn）、权限控制、关联配置等属性。item 是字段数最多的元模型（101 个），按功能域分组。
 
+## 存储路由
+| 层级 | 表名 | 说明 |
+|:---|:---|:---|
+| Common | `p_common_metadata` | 系统出厂字段（WHERE metamodel_api_key='item'），所有租户共享 |
+| Tenant | `p_tenant_item` | 租户自定义字段，结构与 p_common_metadata 一致 + tenant_id |
+
+- 读取：先查 Common，再查 Tenant，按 entity_api_key + api_key 合并
+- 写入：`DynamicTableNameHolder.executeWith('p_tenant_item')` 路由到 Tenant 表
+- 删除 Common 字段：插入 delete_flg=1 的 Tenant 记录（遮蔽删除）
+
 ## 字段类型体系（ItemTypeEnum）
 
 | 编码 | 名称 | dbColumnPrefix | 说明 |
