@@ -3,11 +3,11 @@
 > 元模型 api_key：`entity`
 > p_meta_model 注册：enable_common=1, enable_tenant=1, db_table=`p_tenant_entity`
 > 父元模型：无（顶层）
-> 子元模型：item（字段）、entityLink（关联关系）、checkRule（校验规则）
+> 子元模型：item（字段）、entityLink（关联关系）、checkRule（校验规则）、busiType（业务类型）
 > Java Entity：`Entity.java` | API 模型：`XEntity.java`
 
 ## 概述
-定义平台中的业务对象（如 Account、Contact、Opportunity），是元数据体系的顶层实体。所有字段（item）、关联关系（entityLink）、校验规则（checkRule）都挂在 entity 下。
+定义平台中的业务对象（如 Account、Contact、Opportunity），是元数据体系的顶层实体。所有字段（item）、关联关系（entityLink）、校验规则（checkRule）、业务类型（busiType）都挂在 entity 下。
 
 ## 存储路由
 | 层级 | 表名 | 说明 |
@@ -31,8 +31,8 @@
 | labelKey | label_key | 多语言Key | String | 国际化 |
 | namespace | namespace | 命名空间 | String | system/product/custom |
 | description | description | 描述 | String | — |
-| customFlg | custom_flg | 自定义标记 | Integer(0/1) | 0=标准 1=自定义 |
-| deleteFlg | delete_flg | 删除标记 | Integer(0/1) | 软删除 |
+| customFlg | custom_flg | 自定义标记 | Integer(0/1) | 0=标准 1=自定义（基类提供） |
+| deleteFlg | delete_flg | 删除标记 | Integer(0/1) | 软删除（基类提供） |
 
 ### 扩展属性（dbc 列映射，32 个 p_meta_item 记录）
 
@@ -53,7 +53,6 @@
 | busiTypeFlg | dbc_smallint1 | 启用业务类型 | Integer(0/1) | — |
 | checkRuleFlg | dbc_smallint2 | 启用校验规则 | Integer(0/1) | — |
 | enableFlg | dbc_smallint3 | 启用标记 | Integer(0/1) | 0=否, 1=是 |
-| customFlg | dbc_smallint4 | 自定义标记 | Integer(0/1) | 0=标准, 1=自定义 |
 | historyLogFlg | dbc_smallint5 | 启用历史日志 | Integer(0/1) | — |
 | detailFlg | dbc_smallint6 | 明细对象 | Integer(0/1) | — |
 | teamFlg | dbc_smallint7 | 启用团队 | Integer(0/1) | — |
@@ -78,10 +77,10 @@
 |:---|:---|:---|
 | dbc_varchar | 1~4 | 4 |
 | dbc_int | 1~8 | 8 |
-| dbc_smallint | 1~16 | 16 |
+| dbc_smallint | 1~3, 5~16 | 15 |
 | dbc_bigint | 1~3 | 3 |
 | dbc_textarea | 1~2 | 2 |
-| 合计 | | 33（含 customFlg 固定列+dbc 双映射） |
+| 合计 | | 32（customFlg 已移至基类固定列，dbc_smallint4 空出） |
 
 ## 层级关系
 
@@ -91,11 +90,12 @@ entity（对象）
   │     ├── pickOption      ← itemApiKey 关联，级联删除
   │     └── referenceFilter ← itemApiKey 关联，级联删除
   ├── entityLink（关联关系） ← entityApiKey 关联，级联删除
-  └── checkRule（校验规则）  ← entityApiKey 关联，级联删除
+  ├── checkRule（校验规则）  ← entityApiKey 关联，级联删除
+  └── busiType（业务类型）  ← entityApiKey 关联，级联删除
 ```
 
 ## 业务规则
 - entity.apiKey 全局唯一
 - entityType=1（自定义对象）时 customFlg=1
-- 删除 entity 时级联删除所有子元数据（item/entityLink/checkRule）
+- 删除 entity 时级联删除所有子元数据（item/entityLink/checkRule/busiType）
 - namespace=system 的 entity 不可被租户删除（遮蔽删除）
