@@ -88,7 +88,13 @@
 entity（对象）
   ├── item（字段）          ← entityApiKey 关联，级联删除
   │     ├── pickOption      ← itemApiKey 关联，级联删除
-  │     └── referenceFilter ← itemApiKey 关联，级联删除
+  │     ├── referenceFilter ← itemApiKey 关联，级联删除
+  │     ├── formulaCompute  ← itemApiKey 关联，级联删除（仅 FORMULA 字段）
+  │     │     ├── formulaComputeItem ← computeApiKey 关联
+  │     │     └── computeFactor      ← computeApiKey 关联
+  │     └── aggregationCompute ← itemApiKey 关联，级联删除（仅 ROLLUP 字段）
+  │           ├── aggregationComputeDetail ← aggregateApiKey 关联
+  │           └── computeFactor            ← computeApiKey 关联
   ├── entityLink（关联关系） ← entityApiKey 关联，级联删除
   ├── checkRule（校验规则）  ← entityApiKey 关联，级联删除
   ├── busiType（业务类型）  ← entityApiKey 关联，级联删除
