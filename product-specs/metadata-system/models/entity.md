@@ -3,11 +3,11 @@
 > 元模型 api_key：`entity`
 > p_meta_model 注册：enable_common=1, enable_tenant=1, db_table=`p_tenant_entity`
 > 父元模型：无（顶层）
-> 子元模型：item（字段）、entityLink（关联关系）、checkRule（校验规则）、busiType（业务类型）
+> 子元模型：item（字段）、entityLink（关联关系）、checkRule（校验规则）、busiType（业务类型）、duplicateRule（查重规则）
 > Java Entity：`Entity.java` | API 模型：`XEntity.java`
 
 ## 概述
-定义平台中的业务对象（如 Account、Contact、Opportunity），是元数据体系的顶层实体。所有字段（item）、关联关系（entityLink）、校验规则（checkRule）、业务类型（busiType）都挂在 entity 下。
+定义平台中的业务对象（如 Account、Contact、Opportunity），是元数据体系的顶层实体。所有字段（item）、关联关系（entityLink）、校验规则（checkRule）、业务类型（busiType）、查重规则（duplicateRule）都挂在 entity 下。
 
 ## 存储路由
 | 层级 | 表名 | 说明 |
@@ -91,11 +91,14 @@ entity（对象）
   │     └── referenceFilter ← itemApiKey 关联，级联删除
   ├── entityLink（关联关系） ← entityApiKey 关联，级联删除
   ├── checkRule（校验规则）  ← entityApiKey 关联，级联删除
-  └── busiType（业务类型）  ← entityApiKey 关联，级联删除
+  ├── busiType（业务类型）  ← entityApiKey 关联，级联删除
+  └── duplicateRule（查重规则）← entityApiKey 关联，级联删除
+        ├── duplicateRuleCriteria  ← ruleApiKey 关联，级联删除
+        └── duplicateMatchingRule  ← ruleApiKey 关联，级联删除
 ```
 
 ## 业务规则
 - entity.apiKey 全局唯一
 - entityType=1（自定义对象）时 customFlg=1
-- 删除 entity 时级联删除所有子元数据（item/entityLink/checkRule/busiType）
+- 删除 entity 时级联删除所有子元数据（item/entityLink/checkRule/busiType/duplicateRule）
 - namespace=system 的 entity 不可被租户删除（遮蔽删除）
