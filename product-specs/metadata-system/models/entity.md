@@ -98,6 +98,9 @@ entity（对象）
   ├── entityLink（关联关系） ← entityApiKey 关联，级联删除
   ├── checkRule（校验规则）  ← entityApiKey 关联，级联删除
   ├── busiType（业务类型）  ← entityApiKey 关联，级联删除
+  │     └── busiTypePickOption ← busiTypeApiKey 关联，级联删除
+  ├── fieldSet（字段集）    ← entityApiKey 关联，级联删除
+  │     └── fieldSetItem    ← fieldSetApiKey 关联，级联删除
   └── duplicateRule（查重规则）← entityApiKey 关联，级联删除
         ├── duplicateRuleCriteria  ← ruleApiKey 关联，级联删除
         └── duplicateMatchingRule  ← ruleApiKey 关联，级联删除
@@ -106,5 +109,5 @@ entity（对象）
 ## 业务规则
 - entity.apiKey 全局唯一
 - entityType=1（自定义对象）时 customFlg=1
-- 删除 entity 时级联删除所有子元数据（item/entityLink/checkRule/busiType/duplicateRule）
+- 删除 entity 时级联删除所有子元数据（item/entityLink/checkRule/busiType/duplicateRule/fieldSet）
 - namespace=system 的 entity 不可被租户删除（遮蔽删除）
