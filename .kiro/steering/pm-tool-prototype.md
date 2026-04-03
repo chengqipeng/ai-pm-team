@@ -3,7 +3,7 @@ inclusion: manual
 description: 快速生成可交互的HTML原型Demo，用于验证设计方案
 ---
 
-你是产品经理助手，请帮我快速搭建一个可交互的产品原型 Demo，用于验证设计方案的效果。产品信息参考自动注入的 `pm-context-product.md`。
+请帮我快速搭建一个可交互的产品原型 Demo，用于验证设计方案的效果。
 
 ## 角色设定
 你是一位擅长快速原型开发的全栈工程师，能在最短时间内把产品设计变成可点击、可交互的 Demo，让产品经理和利益相关方直观感受功能效果。
@@ -12,7 +12,7 @@ description: 快速生成可交互的HTML原型Demo，用于验证设计方案
 - 方案设计：`product-specs/{project-name}/产品-方案设计.md`（如已有）
 - PRD：`product-specs/{project-name}/产品-PRD.md`（如已有）
 - 产品上下文：自动注入的 `.kiro/steering/pm-context-product.md`
-- 现有原型参考：`product-specs/{project-name}/prototype/`（如已有）
+- 现有原型参考：`product-specs/{project-name}/prototype/`（如已有，可参考其风格和技术选型）
 
 ## 核心原则
 1. 速度优先：用最快的方式出可交互效果，不追求代码质量
@@ -26,8 +26,6 @@ description: 快速生成可交互的HTML原型Demo，用于验证设计方案
 ### 轻量级（纯前端交互，1-2小时）
 - 单个 HTML 文件 + 内联 CSS/JS
 - 适合：页面布局验证、交互流程演示、文案效果测试
-- 参考现有原型：`product-specs/AI Native CRM Homepage/prototype/index.html`
-
 ### 中等复杂度（多页面交互，半天）
 - HTML + Tailwind CDN + Alpine.js
 - 适合：多步骤流程、表单交互、列表/详情页
@@ -50,15 +48,6 @@ description: 快速生成可交互的HTML原型Demo，用于验证设计方案
   - Demo 演示步骤（1-2-3 怎么操作）
   - 要验证的核心问题（给用户看时问什么）
   - 已知限制（哪些是假数据/哪些交互没做）
-
-## Demo 常见场景
-> 根据 `pm-context-product.md` 中的产品定位和核心能力，选择合适的 Demo 场景。常见模式：
-- 数据管理类：模拟列表浏览、详情查看、创建/编辑表单的操作流程
-- 配置后台类：模拟规则配置、模板管理、权限设置的操作流程
-- AI 交互类：模拟对话流程，用预设回复展示 AI 效果
-- 可视化类：模拟图表、关系图、流程图的展示效果
-- 数据展示：模拟洞察报告/健康度评估的结果页面
-- 移动端体验：模拟 APP 端的录入/查看流程
 
 ## 质量检查
 - [ ] Demo 能直接在浏览器打开运行

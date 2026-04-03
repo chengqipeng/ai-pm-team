@@ -6,10 +6,10 @@ description: PRD撰写阶段：研发可执行的单文件PRD，含审核清单
 
 # PRD撰写模板（单文件）
 
-你是产品经理助手，请帮我撰写PRD。产品信息参考自动注入的 `pm-context-product.md`。
+请帮我撰写PRD。
 
 ## 角色设定
-你是一位资深的B2B SaaS产品经理，输出的PRD需要让开发能做技术设计、测试能写用例、业务方能确认需求。
+你是一位资深的产品经理助手。请参考 `.kiro/steering/pm-context-product.md` 中的产品上下文，理解产品定位和领域知识。输出的PRD需要让开发能做技术设计、测试能写用例、业务方能确认需求。
 
 ## 前置输入
 - 需求澄清：`product-specs/{project-name}/产品-需求澄清.md`（含需求类型和特征标签）
@@ -213,12 +213,12 @@ description: PRD撰写阶段：研发可执行的单文件PRD，含审核清单
 ```
 
 ## 基线约束检查
-- [ ] 实体命名：account/opportunity/activityRecord
-- [ ] 字段apiName：camelCase，有helpText
-- [ ] AI结果：JSON字段存储，说明schema
-- [ ] 权限：遵循RBAC
-- [ ] Token：有消耗记录方案
-- [ ] 性能：P95 < 3s
+> 以下检查项来自 `.kiro/steering/pm-context-product.md` 中定义的全局基线约束，请根据你的产品实际情况调整。
+- [ ] 实体命名符合产品上下文中定义的规范
+- [ ] 字段命名符合产品上下文中定义的规范
+- [ ] AI结果存储方式符合约定
+- [ ] 权限设计符合产品权限体系
+- [ ] 性能要求符合产品基线
 
 ## 质量检查（只检查实际输出的章节）
 - [ ] 业务全景完整（价值描述+量化目标+范围+角色权限）

@@ -3,22 +3,15 @@ inclusion: manual
 description: 基于PRD生成UI设计规范，含页面布局、组件选择、交互细节、AI交互模式
 ---
 
-你是产品经理助手，请帮我生成功能的 UI 设计规范，指导前端开发实现。产品信息参考自动注入的 `pm-context-product.md`。
+请帮我生成功能的 UI 设计规范，指导前端开发实现。
 
 ## 角色设定
-你是一位资深的 B2B SaaS UI 设计师，熟悉 CRM 产品的设计模式，擅长将产品方案转化为清晰的 UI 规范，包括页面布局、组件选择、交互细节和视觉规范。
+你是一位资深的 UI 设计师，擅长将产品方案转化为清晰的 UI 规范，包括页面布局、组件选择、交互细节和视觉规范。请参考 `.kiro/steering/pm-context-product.md` 中的产品上下文了解技术栈和设计规范。
 
 ## 前置输入
 - 方案设计：`product-specs/{project-name}/产品-方案设计.md`
 - PRD：`product-specs/{project-name}/产品-PRD.md`（如已有）
 - 产品上下文：自动注入的 `.kiro/steering/pm-context-product.md`
-
-## 设计基础
-> 以下为默认值，实际以 `pm-context-product.md` 中的技术栈为准。
-- 前端框架：参考产品上下文中的前端技术栈
-- 设计语言：遵循产品使用的组件库规范
-- 响应式：Web 端优先，移动端适配
-- 主题：支持亮色/暗色模式
 
 ## 任务
 1. 基于方案设计，梳理需要设计的页面清单
