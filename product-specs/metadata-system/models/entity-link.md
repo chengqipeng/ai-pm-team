@@ -7,7 +7,7 @@
 > Java Entity：`EntityLink.java` | API 模型：`XLink.java`
 
 ## 概述
-定义两个 entity 之间的关联关系，支持 LOOKUP（查找）、主从、多对多三种关联类型。关联关系决定了字段的 LOOKUP 目标、级联删除策略和访问控制。
+定义两个 entity 之间的关联关系，支持 RELATION_SHIP（查找）、主从、多对多三种关联类型。关联关系决定了字段的 RELATION_SHIP 目标、级联删除策略和访问控制。
 
 ## 存储路由
 | 层级 | 表名 | 说明 |
@@ -40,7 +40,7 @@
 | parentEntityApiKey | dbc_varchar_2 | 父对象apiKey | String | 关联源 entity |
 | childEntityApiKey | dbc_varchar_3 | 子对象apiKey | String | 关联目标 entity |
 | descriptionKey | dbc_varchar_4 | 描述Key | String | — |
-| linkType | dbc_int_1 | 关联类型 | Integer | 0=LOOKUP, 1=主从, 2=多对多 |
+| linkType | dbc_int_1 | 关联类型 | Integer | 0=RELATION_SHIP, 1=主从, 2=多对多 |
 | detailLinkFlg | dbc_smallint_1 | 明细关联 | Integer(0/1) | 0=否, 1=是 |
 | cascadeDelete | dbc_smallint_2 | 级联删除 | Integer | 0=不级联, 1=级联删除, 2=阻止删除 |
 | accessControl | dbc_smallint_3 | 访问控制 | Integer | 0=无控制, 1=读写控制 |
@@ -51,5 +51,5 @@
 ## 业务规则
 - entityLink.apiKey 全局唯一
 - parentEntityApiKey 和 childEntityApiKey 必须指向已存在的 entity
-- linkType=1（主从）时，子对象的 LOOKUP 字段自动设置 cascadeDelete
+- linkType=1（主从）时，子对象的 RELATION_SHIP 字段自动设置 cascadeDelete
 - 删除 entity 时级联删除其下所有 entityLink

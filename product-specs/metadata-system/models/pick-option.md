@@ -7,7 +7,7 @@
 > Java Entity：`PickOption.java` | API 模型：`XPickOption.java`
 
 ## 概述
-定义 PICKLIST（单选）和 MULTIPICKLIST（多选）类型字段的选项值列表。每个选项有唯一的 apiKey、显示标签和排序序号。
+定义 SELECT（单选）和 MULTI_SELECT（多选）类型字段的选项值列表。每个选项有唯一的 apiKey、显示标签和排序序号。
 
 ## 存储路由
 | 层级 | 表名 | 说明 |
@@ -59,7 +59,7 @@
 - 定位方式：entity_api_key + item_api_key + api_key
 
 ## 业务规则
-- 仅 itemType=4（PICKLIST）或 itemType=16（MULTIPICKLIST）的字段可创建 pickOption
+- 仅 itemType=4（SELECT）或 itemType=16（MULTI_SELECT）的字段可创建 pickOption
 - 删除 item 时级联删除其下所有 pickOption
 - globalFlg=1 表示引用全局选项集
 - enableFlg=0 时选项在 UI 下拉中不显示但数据保留

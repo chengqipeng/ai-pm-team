@@ -26,8 +26,8 @@
 | 1 | TEXT | dbc_varchar | 文本 |
 | 2 | NUMBER | dbc_bigint | 数字 |
 | 3 | DATE | dbc_bigint | 日期 |
-| 4 | PICKLIST | dbc_int | 单选 |
-| 5 | LOOKUP | dbc_bigint | 查找关联 |
+| 4 | SELECT | dbc_int | 单选 |
+| 5 | RELATION_SHIP | dbc_bigint | 查找关联 |
 | 6 | FORMULA | null | 公式（不占物理列） |
 | 7 | ROLLUP | null | 汇总（不占物理列） |
 | 8 | TEXTAREA | dbc_textarea | 长文本 |
@@ -38,7 +38,7 @@
 | 13 | PHONE | dbc_varchar | 电话 |
 | 14 | URL | dbc_varchar | URL |
 | 15 | DATETIME | dbc_bigint | 日期时间 |
-| 16 | MULTIPICKLIST | dbc_varchar | 多选 |
+| 16 | MULTI_SELECT | dbc_varchar | 多选 |
 | 17 | MASTER_DETAIL | dbc_bigint | 主从关联 |
 | 18 | GEOLOCATION | dbc_varchar | 地理位置 |
 | 19 | IMAGE | dbc_varchar | 图片 |
@@ -98,7 +98,7 @@
 | markdownFlg | dbc_smallint11 | Markdown编辑器 | Integer(0/1) |
 | referItemFilterFlg | dbc_smallint12 | 关联字段增强过滤 | Integer(0/1) |
 
-### 关联/LOOKUP 相关
+### 关联/RELATION_SHIP 相关
 
 | api_key | db_column | label | 类型 |
 |:---|:---|:---|:---|

@@ -14,7 +14,7 @@
 
 核心场景：
 - 同一对象的不同记录类型展示不同的页面布局
-- 不同业务类型下 PICKLIST 字段显示不同的选项子集
+- 不同业务类型下 SELECT 字段显示不同的选项子集
 - 按业务类型控制职能权限（哪些角色可以看到哪些业务类型的数据）
 
 ## 老系统存储架构
@@ -25,7 +25,7 @@
 |:---|:---|:---|
 | 标准业务类型 | `b_entity_belong_type` | 系统预置，字段名与自定义表不完全一致 |
 | 自定义业务类型 | `p_custom_busitype` | 租户创建 |
-| 业务类型选项值 | `p_custom_busitype_pickoption` | 业务类型下的 PICKLIST 选项子集 |
+| 业务类型选项值 | `p_custom_busitype_pickoption` | 业务类型下的 SELECT 选项子集 |
 | 业务类型部门关联 | `p_custom_busitype_depart` | 业务类型与部门的关联 |
 
 > 注意：标准表 `b_entity_belong_type` 的字段命名与自定义表不一致（如 `belong_id` vs `entity_id`、`del_flg` vs `delete_flg`、`type_name` vs `label`），老系统通过 `MetaDtoKit.dealXItemMapSpecialAdd` 做特殊映射。

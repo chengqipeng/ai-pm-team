@@ -7,7 +7,7 @@
 > Java Entity：`ReferFilter.java` | API 模型：无独立 X 模型
 
 ## 概述
-定义 LOOKUP 类型字段的下拉过滤条件。当用户在 UI 上选择关联记录时，系统根据 filterFormula 过滤候选列表。
+定义 RELATION_SHIP 类型字段的下拉过滤条件。当用户在 UI 上选择关联记录时，系统根据 filterFormula 过滤候选列表。
 
 ## 存储路由
 | 层级 | 表名 | 说明 |
@@ -48,7 +48,7 @@
 | updatedAt | updated_at | Long(毫秒) |
 
 ## 业务规则
-- 仅 itemType=5（LOOKUP）或 itemType=17（MASTER_DETAIL）的字段可创建 referenceFilter
+- 仅 itemType=5（RELATION_SHIP）或 itemType=17（MASTER_DETAIL）的字段可创建 referenceFilter
 - filterMode=0 时无过滤，filterMode=1 时简单条件，filterMode=2 时使用公式
 - 删除 item 时级联删除其下所有 referenceFilter
 - activeFlg=0 时过滤规则不生效

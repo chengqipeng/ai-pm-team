@@ -9,7 +9,7 @@
 
 ## 概述
 
-业务类型选项值定义不同业务类型下 PICKLIST 字段的可选选项子集和默认值。当 entity 启用了多业务类型时，同一个 PICKLIST 字段在不同业务类型下可以显示不同的选项范围，并设置不同的默认选项。
+业务类型选项值定义不同业务类型下 SELECT 字段的可选选项子集和默认值。当 entity 启用了多业务类型时，同一个 SELECT 字段在不同业务类型下可以显示不同的选项范围，并设置不同的默认选项。
 
 典型场景：
 - 客户对象有"标准客户"和"PRM客户"两种业务类型
@@ -67,5 +67,5 @@
 - 同一 busiType + item 组合唯一（一个业务类型下一个字段只有一条配置）
 - optionCodes 是该业务类型下该字段可选的 pickOption 编码子集
 - defaultOptionCodes 必须是 optionCodes 的子集
-- 仅 PICKLIST(4) 和 MULTIPICKLIST(16) 类型的字段可配置
+- 仅 SELECT(4) 和 MULTI_SELECT(16) 类型的字段可配置
 - 删除 busiType 时级联删除其下所有 busiTypePickOption
