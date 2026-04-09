@@ -1,0 +1,29 @@
+{
+  "amazonq.trustCommands": [
+    "python *",
+    "python3 *",
+    "pip install *",
+    "pip3 install *",
+    "pip list*",
+    "pip freeze*",
+    "pytest *",
+    "python -m pytest*",
+    "ls *",
+    "cat *",
+    "find *",
+    "grep *",
+    "git status*",
+    "git log*",
+    "git diff*",
+    "git branch*",
+    "mkdir *",
+    "rm *",
+    "cp *",
+    "mv *",
+    "echo *",
+    "pwd",
+    "which *",
+    "npm *",
+    "node *"
+  ]
+}
