@@ -33,6 +33,7 @@ CORE_ENTITIES = [
     'salesOrder',      # 订单
     'contact',         # 联系人
     'salesOrderItem',  # 订单明细
+    'user',            # 用户（从 p_user 迁移）
 ]
 
 # ── 老表名映射 ──
@@ -44,6 +45,7 @@ OLD_TABLE_MAP = {
     'salesOrder':     ('a_sales_order',      'sales_order_name'),
     'contact':        ('a_contact',          'contact_name'),
     'salesOrderItem': ('a_sales_order_item', 'sales_order_item_name'),
+    'user':           ('p_user',             'name'),
 }
 
 # ── 老→新 itemType 编码映射 ──

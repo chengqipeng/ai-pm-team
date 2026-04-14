@@ -1,67 +1,64 @@
-# user — 用户实体元模型
+# user — 用户实体最终架构
 
-> 元模型 api_key：`user`
-> 存储：迁移至 `paas_entity_data.p_tenant_data_{N}` 大宽表
-> 原始表：`paas_metarepo.p_user`（待废弃）
-> 命名空间：system
-> 状态：📋 迁移中
+> 状态：✅ 已实施
 
-## 概述
+## 架构
 
-用户（User）是 aPaaS 平台的核心系统实体，存储租户下的所有用户信息。迁移到元数据驱动架构后，用户实体与其他业务实体（account、contact 等）共享统一的元数据管理能力，支持自定义字段扩展、布局配置、校验规则等。
+```
+p_user（认证表，精简）           p_tenant_data WHERE entity_api_key='user'（业务主表）
+├── id                           ├── id（同一个 ID）
+├── tenant_id                    ├── tenant_id
+├── phone ← 登录凭证             ├── name, depart_id, owner_id ← 固定列
+└── password_hash ← 仅此表       ├── dbc_varchar1 (userName/phone) ← 冗余
+                                 ├── dbc_varchar2 (realName)
+                                 ├── dbc_varchar5 (avatar)
+                                 ├── dbc_varchar6 (status)
+                                 ├── dbc_bigint1 (departId)
+                                 ├── dbc_bigint2 (roleId)
+                                 ├── dbc_varchar4 (jobTitle) ← 自定义
+                                 ├── dbc_varchar5 (workLocation) ← 自定义
+                                 ├── dbc_bigint4 (entryDate) ← 自定义
+                                 ├── dbc_varchar6 (employeeNo) ← 自定义
+                                 └── dbc_varchar7 (emergencyContact) ← 自定义
+```
 
-## 迁移方案
+## p_user 精简后保留字段
 
-### 源表结构（p_user）
-
-| 列名 | 类型 | 说明 |
+| 字段 | 用途 | 说明 |
 |:---|:---|:---|
-| id | BIGINT | 雪花ID |
-| tenant_id | BIGINT | 租户ID |
-| name | VARCHAR(100) | 姓名 |
-| phone | VARCHAR(20) | 手机号（登录凭证） |
-| email | VARCHAR(100) | 邮箱 |
-| status | SMALLINT | 1=启用 2=停用 |
-| user_type | SMALLINT | 0=普通用户 1=管理员 |
-| depart_id | BIGINT | 所属部门ID |
-| manager_id | BIGINT | 上级主管ID |
-| lock_auth_status | SMALLINT | 0=正常 1=锁定 |
-| avatar_url | VARCHAR(500) | 头像URL |
-| passport_id | BIGINT | 通行证ID |
-| created_at | BIGINT | 创建时间(ms) |
-| created_by | BIGINT | 创建人 |
-| updated_at | BIGINT | 更新时间(ms) |
-| updated_by | BIGINT | 更新人 |
+| id | 主键 | 与 p_tenant_data.id 一致 |
+| tenant_id | 租户隔离 | |
+| phone | 登录凭证 | 手机号登录 |
+| password_hash | 密码 | 安全敏感，不进大宽表 |
 
-### 目标：p_tenant_data 大宽表映射
+## p_user 已删除字段（迁移到 p_tenant_data）
 
-| 源列 | 目标 dbc 列 | item apiKey | item label | itemType |
-|:---|:---|:---|:---|:---|
-| name | name（固定列） | name | 姓名 | 1(文本) |
-| phone | dbc_varchar1 | phone | 手机号 | 13(电话) |
-| email | dbc_varchar2 | email | 邮箱 | 23(邮箱) |
-| avatar_url | dbc_varchar3 | avatarUrl | 头像 | 24(网址) |
-| status | dbc_smallint1 | status | 状态 | 2(单选) |
-| user_type | dbc_smallint2 | userType | 用户类型 | 2(单选) |
-| lock_auth_status | dbc_smallint3 | lockAuthStatus | 锁定状态 | 2(单选) |
-| depart_id | dbc_bigint1 | departId | 所属部门 | 10(关联) |
-| manager_id | dbc_bigint2 | managerId | 上级主管 | 10(关联) |
-| passport_id | dbc_bigint3 | passportId | 通行证ID | 5(整数) |
+| 原字段 | 迁移目标 | 说明 |
+|:---|:---|:---|
+| name | p_tenant_data.name | 固定列 |
+| email | dbc_varchar2 | 业务属性 |
+| status | dbc_varchar6 | 业务属性 |
+| user_type | dbc_smallint2 | 业务属性 |
+| depart_id | p_tenant_data.depart_id | 固定列 |
+| manager_id | dbc_bigint2 | 业务属性 |
+| lock_auth_status | dbc_smallint3 | 业务属性 |
+| avatar_url | dbc_varchar5 | 业务属性 |
+| passport_id | dbc_bigint3 | 业务属性 |
 
-### 元数据注册
+## API 架构
 
-entity 注册到 p_common_metadata（metamodel_api_key='entity'）：
-- api_key: user
-- label: 用户
-- namespace: system
-- entity_type: 2（系统对象）
-- enable_flg: 1
-- db_table: p_tenant_data_0（与其他系统实体共享）
+```
+前端 → Node BFF (/api/user/*) → Java 后端
+                                  ├── /auth/users (读 p_user)
+                                  └── /entity/data/user (读写 p_tenant_data)
 
-item 注册到 p_common_metadata（metamodel_api_key='item'）：
-- 10 个业务字段 + 系统固定字段（id, ownerId, createdAt 等）
+合并逻辑全部在 Node BFF 完成，前端只做展示。
+```
 
-pick_option 注册：
-- status: 1=启用, 2=停用
-- userType: 0=普通用户, 1=管理员
-- lockAuthStatus: 0=正常, 1=锁定
+| 前端调用 | BFF 路由 | 后端操作 |
+|:---|:---|:---|
+| listUsers() | GET /api/user/list | 读 /auth/users + /entity/data/user → 合并返回 |
+| createUser() | POST /api/user | 写 /auth/user/create + /entity/data/user |
+| updateUser() | PUT /api/user | 写 /auth/user/update + /entity/data/user |
+| toggleUser() | POST /api/user/toggle | 写两处 status |
+| deleteUser() | DELETE /api/user/:id | 删两处 |
