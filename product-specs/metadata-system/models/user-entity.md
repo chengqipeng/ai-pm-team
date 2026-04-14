@@ -22,6 +22,48 @@ p_user（认证表，精简）           p_tenant_data WHERE entity_api_key='use
                                  └── dbc_varchar7 (emergencyContact) ← 自定义
 ```
 
+## 字段映射与同步规则
+
+### name 与 realName 的关系
+
+| 字段 | 存储位置 | 来源 | 说明 |
+|:---|:---|:---|:---|
+| `name` | p_user.name / p_tenant_data.name | 固定列 | 所有实体都有的固定列，不在元数据 `p_common_metadata` 中定义，前端列表展示用此字段 |
+| `realName` | p_tenant_data.dbc_varchar2 | 元数据字段 | user 实体的元数据字段（label="姓名"），编辑弹框通过此字段渲染姓名输入 |
+
+两者表达同一含义（用户姓名），保留 `realName` 的原因：
+- `name` 是固定列，不在 `/metadata/items` 返回结果中，元数据驱动的编辑弹框无法渲染它
+- `realName` 在元数据表中有定义，编辑弹框通过它提供姓名编辑入口
+
+**同步规则**：
+- **读取（编辑回显）**：前端通过 `aliasMap` 将 `realName` 映射到 `p_user.name` 的值进行回显
+- **写入（保存）**：前端保存时自动将 `realName` 的值同步写入 `name` 固定列，确保列表展示一致
+
+```
+编辑弹框回显: user.name → values['realName']  (aliasMap: realName → name)
+保存时同步:   values['realName'] → payload['name']  (自动复制)
+```
+
+### userName 与 phone 的关系
+
+| 字段 | 存储位置 | 来源 | 说明 |
+|:---|:---|:---|:---|
+| `phone` | p_user.phone | 认证表固定列 | 登录凭证，`/auth/users` 返回此字段 |
+| `userName` | p_tenant_data.dbc_varchar1 | 元数据字段 | user 实体的元数据字段（label="用户名"），编辑弹框通过此字段渲染 |
+
+**同步规则**：与 name/realName 相同，读取时 `aliasMap: userName → phone`，保存时应同步。
+
+### 前端 aliasMap 完整定义
+
+```typescript
+// UserFormModal 初始化时的字段别名映射
+// 元数据 apiKey → p_user 返回的字段名（BFF 未启动时 fallback 兼容）
+const aliasMap: Record<string, string> = {
+  userName: 'phone',    // 元数据"用户名" ← p_user.phone
+  realName: 'name',     // 元数据"姓名"   ← p_user.name
+};
+```
+
 ## p_user 精简后保留字段
 
 | 字段 | 用途 | 说明 |

@@ -29,9 +29,16 @@ LOGIN_PASSWORD = '123456'
 # p_user 列 → user entity item apiKey 的映射
 # 左边是 /auth/users 返回的 camelCase 字段名
 # 右边是 user entity 的 item apiKey
+#
+# 重要同步规则：
+#   name ↔ realName：name 是固定列（列表展示用），realName 是元数据字段（编辑弹框用）。
+#                    两者表达同一含义（用户姓名），迁移时 name → realName，
+#                    前端编辑保存时 realName → name 自动同步。
+#   phone ↔ userName：phone 是 p_user 登录凭证，userName 是元数据字段（编辑弹框用）。
+#                     迁移时 phone → userName，前端编辑回显时 userName ← phone。
 USER_FIELD_MAP = {
-    'name':           'realName',       # 姓名 → realName (系统字段)
-    'phone':          'userName',       # 手机号 → userName (系统字段，用作登录名)
+    'name':           'realName',       # 姓名 → realName (元数据字段，与固定列 name 双向同步)
+    'phone':          'userName',       # 手机号 → userName (元数据字段，与 p_user.phone 双向同步)
     'email':          'email',          # 邮箱
     'status':         'status',         # 状态 1=启用 2=停用
     'userType':       'userType',       # 用户类型 0=普通 1=管理员
@@ -141,7 +148,15 @@ class UserMigrator:
                 log.info(f'  进度: {i + 1}/{len(users)}')
 
     def _transform_user(self, user):
-        """将 p_user 行转换为 p_tenant_data 格式"""
+        """
+        将 p_user 行转换为 p_tenant_data 格式。
+
+        关键同步逻辑：
+          - p_user.name → p_tenant_data.name（固定列，直接写入）
+          - p_user.name → realName（元数据字段 dbc_varchar2，通过 USER_FIELD_MAP 映射）
+          - p_user.phone → userName（元数据字段 dbc_varchar1，通过 USER_FIELD_MAP 映射）
+        这样前端列表读 name 固定列，编辑弹框读 realName/userName 元数据字段，两边数据一致。
+        """
         # 读取 camelCase 或 snake_case 字段
         def g(key):
             return user.get(key) or user.get(self._to_snake(key))
