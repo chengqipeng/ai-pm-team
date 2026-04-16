@@ -23,7 +23,7 @@
   │ 5. defaultAccess=2    │ 全员可见，跳过过滤，返回全部                        │
   │ 6. 无 dataPermission  │ 无权限配置，跳过过滤，返回全部                      │
   │ 7. hasFullDataAccess  │ 全量访问权限用户，跳过过滤（当前未实现，跳过）        │
-  │ 8. 部门匹配           │ depart_id 匹配用户部门，返回部门内数据（需 TODO 完成）│
+  │ 8. 部门匹配           │ depart_api_key 匹配用户部门，返回部门内数据（需 TODO 完成）│
   └──────────────────────┴──────────────────────────────────────────────────┘
 
 连接本地 PG 库，不连接历史库。
@@ -54,8 +54,8 @@ USER_OWNER_B = 80002    # 负责人 B，拥有 3 条数据
 USER_VIEWER  = 80003    # 普通查看者，无数据，但通过 share 可看到部分数据
 USER_NOBODY  = 80004    # 无任何权限的用户
 # 测试部门
-DEPT_SALES   = 90001
-DEPT_SUPPORT = 90002
+DEPT_SALES   = 'sales_dept'
+DEPT_SUPPORT = 'support_dept'
 
 
 # ═══════════════════════════════════════════════════════════
@@ -105,7 +105,7 @@ def setup_test_data():
     for i in range(5):
         cur.execute("""
             INSERT INTO paas_entity_data.p_tenant_data_0
-                (id, tenant_id, entity_api_key, name, owner_id, depart_id, delete_flg, lock_status, approval_status, created_at, updated_at)
+                (id, tenant_id, entity_api_key, name, owner_id, depart_api_key, delete_flg, lock_status, approval_status, created_at, updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, 0, 1, 0, %s, %s)
         """, (800000 + i, TEST_TENANT, TEST_ENTITY, f'TestData_A_{i}',
               USER_OWNER_A, DEPT_SALES, int(time.time()*1000), int(time.time()*1000)))
@@ -114,7 +114,7 @@ def setup_test_data():
     for i in range(3):
         cur.execute("""
             INSERT INTO paas_entity_data.p_tenant_data_0
-                (id, tenant_id, entity_api_key, name, owner_id, depart_id, delete_flg, lock_status, approval_status, created_at, updated_at)
+                (id, tenant_id, entity_api_key, name, owner_id, depart_api_key, delete_flg, lock_status, approval_status, created_at, updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, 0, 1, 0, %s, %s)
         """, (800010 + i, TEST_TENANT, TEST_ENTITY, f'TestData_B_{i}',
               USER_OWNER_B, DEPT_SUPPORT, int(time.time()*1000), int(time.time()*1000)))
@@ -407,7 +407,7 @@ def run_tests():
         # 数据
         for i in range(3):
             cur.execute("""INSERT INTO paas_entity_data.p_tenant_data_0
-                (id,tenant_id,entity_api_key,name,owner_id,depart_id,delete_flg,lock_status,approval_status,created_at,updated_at)
+                (id,tenant_id,entity_api_key,name,owner_id,depart_api_key,delete_flg,lock_status,approval_status,created_at,updated_at)
                 VALUES (%s,%s,%s,%s,%s,%s,0,1,0,%s,%s)""",
                 (810000+i, TEST_TENANT, ent, f'Public_{i}', USER_OWNER_A, DEPT_SALES, int(time.time()*1000), int(time.time()*1000)))
         # dataPermission: defaultAccess=2
@@ -449,7 +449,7 @@ def run_tests():
                        VALUES (900000202,%s,%s,0,0,%s,%s)""", (TEST_TENANT, ent, int(time.time()*1000), int(time.time()*1000)))
         for i in range(4):
             cur.execute("""INSERT INTO paas_entity_data.p_tenant_data_0
-                (id,tenant_id,entity_api_key,name,owner_id,depart_id,delete_flg,lock_status,approval_status,created_at,updated_at)
+                (id,tenant_id,entity_api_key,name,owner_id,depart_api_key,delete_flg,lock_status,approval_status,created_at,updated_at)
                 VALUES (%s,%s,%s,%s,%s,%s,0,1,0,%s,%s)""",
                 (820000+i, TEST_TENANT, ent, f'NoConfig_{i}', USER_OWNER_A, DEPT_SALES, int(time.time()*1000), int(time.time()*1000)))
         # 不插入 dataPermission！
@@ -514,13 +514,13 @@ def run_tests():
         # A 的 2 条数据
         for i in range(2):
             cur.execute("""INSERT INTO paas_entity_data.p_tenant_data_0
-                (id,tenant_id,entity_api_key,name,owner_id,depart_id,delete_flg,lock_status,approval_status,created_at,updated_at)
+                (id,tenant_id,entity_api_key,name,owner_id,depart_api_key,delete_flg,lock_status,approval_status,created_at,updated_at)
                 VALUES (%s,%s,%s,%s,%s,%s,0,1,0,%s,%s)""",
                 (830000+i, TEST_TENANT, ent, f'Mix_A_{i}', USER_OWNER_A, DEPT_SALES, int(time.time()*1000), int(time.time()*1000)))
         # B 的 3 条数据
         for i in range(3):
             cur.execute("""INSERT INTO paas_entity_data.p_tenant_data_0
-                (id,tenant_id,entity_api_key,name,owner_id,depart_id,delete_flg,lock_status,approval_status,created_at,updated_at)
+                (id,tenant_id,entity_api_key,name,owner_id,depart_api_key,delete_flg,lock_status,approval_status,created_at,updated_at)
                 VALUES (%s,%s,%s,%s,%s,%s,0,1,0,%s,%s)""",
                 (830010+i, TEST_TENANT, ent, f'Mix_B_{i}', USER_OWNER_B, DEPT_SUPPORT, int(time.time()*1000), int(time.time()*1000)))
         # share: A 可看 B 的第 1 条

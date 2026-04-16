@@ -1,5 +1,11 @@
 # 部门管理 CRUD 与数据权限刷新详细设计
 
+> ⚠️ 迁移说明（2026-04-16）：
+> - 部门已从独立表 `paas_auth.p_department` 迁移到元数据快捷表 `paas_metarepo.p_tenant_department`
+> - 用户表 `p_user.depart_id`（BIGINT）已迁移为 `p_user.depart_api_key`（VARCHAR），通过部门 api_key 关联
+> - Java 实体 `PlatformUser.departApiKey` 为 String 类型
+> - 本文档中的 `p_department`、`depart_id`、`parent_id` 等引用为设计阶段原始描述，实际实现详见 `DepartmentServiceImpl.java` 和 `role-department-metadata.md`
+
 ---
 
 ## 一、现状分析
@@ -51,7 +57,7 @@ p_department
 
 | 表 | 关联字段 | 说明 |
 |:---|:---|:---|
-| `p_user` (PlatformUser) | `depart_id` → `p_department.id` | 用户所属部门 |
+| `p_user` (PlatformUser) | `depart_api_key` → `p_tenant_department.api_key` | 用户所属部门 |
 | `p_data_share` | `subject_api_key` = 部门ID字符串, `subject_type=1` | 部门级 share 记录 |
 | `p_common_metadata` (sharingRule) | `from_subject_api_key` / `to_subject_api_key` | 共享规则引用部门 |
 

@@ -24,7 +24,7 @@ aPaaS 平台当前的业务对象管理采用"硬编码建表"模式——每新
 - 通过 Module 打包分发（规划中），实现业务能力的模块化交付
 
 ### 用户价值
-- 平台管理员可通过管理前端（metarepo-web）可视化浏览和管理元模型与元数据，无需依赖开发
+- 平台管理员可通过管理前端（paas-front-platform / front-admin）可视化浏览和管理元模型与元数据，无需依赖开发
 - 租户管理员可自定义业务对象和字段，满足个性化需求
 - 业务开发者通过统一 API 读写元数据，无需关心底层存储细节
 
@@ -64,7 +64,7 @@ aPaaS 平台当前的业务对象管理采用"硬编码建表"模式——每新
 - 元数据 CRUD API（6 读 + 6 写 + 内部浏览接口）
 - 数据迁移（item_type 编码转换 + db_column 重分配 + api_key 命名统一 + ID→apiKey 关联改造）
 - Schema 校验（p_meta_option 取值范围 + p_meta_item 必填/唯一约束）
-- 管理前端 metarepo-web（元模型浏览、元数据浏览）
+- 管理前端 paas-front-platform / front-admin（元模型浏览、元数据浏览）
 - 元数据变更日志（P1）
 - 管理前端编辑 + 字段映射可视化（P1）
 
@@ -102,3 +102,7 @@ aPaaS 平台当前的业务对象管理采用"硬编码建表"模式——每新
 | — | 禁止 ID 关联，统一使用 api_key | 跨环境迁移一致性，人类可读，支持 Module 打包分发 | 架构组 |
 | — | 布尔字段统一 xxxFlg 后缀，禁止 enable*/is* 前缀 | 消除命名不一致，Java Integer 三值语义（null/0/1）优于 Boolean | 架构组 |
 | — | DDL 同时兼容 MySQL 和 PostgreSQL | 多云部署需求，避免数据库锁定 | 架构组 |
+| 2026-04-16 | role/department 注册为独立元模型，数据存在 p_tenant_role/p_tenant_department | 角色和部门是元数据（定义），不是业务数据，应与 checkRule/busiType 同级 | 架构组 |
+| 2026-04-16 | user 保持 p_user 独立表（paas_auth），不迁移到 p_tenant_data | 认证安全列（phone/passport_id/密码相关）需要物理隔离和独立索引 | 架构组 |
+| 2026-04-16 | 禁止使用 public schema，默认 schema 改为 paas_metarepo | 所有表必须在明确的 schema 中，public 保持为空 | 架构组 |
+| 2026-04-16 | BFF 层禁止直连数据库，删除 server/ 目录 | 所有数据操作通过 Java 后端 REST 接口，前端通过 Vite 代理 | 架构组 |

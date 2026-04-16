@@ -2,15 +2,18 @@
 
 ## 一、结论
 
-**部门（department）当前不在元数据设计体系中，但应该纳入。**
+**部门（department）已纳入元数据体系。** 详见 [role-department-metadata.md](role-department-metadata.md)。
 
-| 维度 | 现状 | 目标 |
+| 维度 | 现状 | 状态 |
 |:---|:---|:---|
-| 元模型注册（p_meta_model） | ❌ 未注册 | ✅ 注册为 system 级 entity |
-| 字段定义（p_meta_item） | ❌ 无 | ✅ 注册 6+ 个字段映射 |
-| 数据存储 | 独立表 `p_department`（老架构） | 迁移到 `p_tenant_data` 大宽表 |
-| 前端管理 | 硬编码 `/auth/departments` API | 元数据驱动，支持自定义字段 |
-| 关联关系（p_meta_link） | ❌ 无 | ✅ 注册 entity_link（自关联 + 被引用） |
+| 元模型注册（p_meta_model） | ✅ 注册为独立元模型 api_key='department' | 已完成 |
+| 字段定义（p_meta_item） | ✅ 10 个业务字段 | 已完成 |
+| 数据存储 | ✅ `paas_metarepo.p_tenant_department`（10 条，2 租户） | 已迁移 |
+| 关联关系（entityLink） | ✅ 2 条（自关联 + 部门用户） | 已完成（已软删除老注册） |
+| 老表 `paas_auth.p_department` | ✅ 已删除 | 已清理 |
+| 老 entity 注册（p_common_metadata） | ✅ 已软删除 | 已清理 |
+| Java 代码 | ✅ DepartmentServiceImpl 查 p_tenant_department | 已完成 |
+| 前端管理 | 待改为元数据驱动 | 待实施 |
 
 ## 二、现状分析
 
@@ -60,7 +63,7 @@ department 是 **★必要** 的系统级实体，被所有核心业务实体引
 
 > | department | 6 | 所有实体的 departId 引用 | **★必要** | 组织架构，数据权限基础 |
 
-但在 27 个已注册的元模型中，department **没有**对应的 entity 注册和 item 定义。
+但在已注册的元模型中，department 已作为**独立元模型**注册到 `p_meta_model`（api_key='department'），数据存储在 `paas_metarepo.p_tenant_department`。
 
 ## 三、与 user 实体的对比
 

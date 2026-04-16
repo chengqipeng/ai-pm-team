@@ -213,7 +213,7 @@ class UserMigrator:
             'x-user-id': '1',
             'x-device-type': 'web',
             'x-language-code': 'zh',
-            'x-root-service': 'metarepo-web',
+            'x-root-service': 'paas-front-platform',
         }
         if self.token:
             headers['Authorization'] = f'Bearer {self.token}'

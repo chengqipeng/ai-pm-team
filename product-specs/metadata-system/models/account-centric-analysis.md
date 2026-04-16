@@ -59,7 +59,7 @@
     ┌────────┐  ┌────────────┐  ┌───────────┐  ┌────────────────┐
     │  user  │  │ department │  │ territory │  │ activityrecord │
     │  用户   │  │    部门     │  │   区域     │  │    活动记录     │
-    │(7 字段) │  │  (6 字段)   │  │  (5 字段)  │  │   (9 字段)     │
+    │(7 字段) │  │ (10 字段)   │  │  (5 字段)  │  │   (9 字段)     │
     └────────┘  └────────────┘  └───────────┘  └────────────────┘
        ↑ ownerId    ↑ departId     ↑ territoryId    ↑ recentActivityRecordId
        │            │              │                 │
@@ -292,7 +292,7 @@ product 引用了 5 个 specificationValue（规格值），但 specificationVal
 | 实体 | 字段数 | 与 account 关系 | 必要性 | 说明 |
 |---|---|---|---|---|
 | user | 7 | 所有实体的 ownerId/createdBy 引用 | ★必要 | 系统基础，不可缺少 |
-| department | 6 | 所有实体的 departId 引用 | ★必要 | 组织架构，数据权限基础 |
+| department | 10 | 所有实体的 departId 引用 | ★必要 | 组织架构，数据权限基础（独立元模型，存储在 p_tenant_department） |
 | territory | 5 | account/contact 的 territoryId 引用 | ◎重要 | 区域管理，可选模块 |
 | campaign | 9 | opportunity/lead 的 campaignId 引用 | ◎重要 | 市场活动，营销归因 |
 | activityrecord | 9 | contact/lead/opportunity 引用 | ◎重要 | 活动记录，跟进管理 |

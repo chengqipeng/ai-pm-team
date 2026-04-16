@@ -24,8 +24,8 @@ OWNER_A  = 80001    # 负责人 A
 OWNER_B  = 80002    # 负责人 B
 VIEWER   = 80003    # 通过 share 授权的查看者
 NOBODY   = 80004    # 无任何权限
-DEPT_S   = 90001    # 销售部
-DEPT_T   = 90002    # 技术部
+DEPT_S   = 'sales_dept'    # 销售部
+DEPT_T   = 'tech_dept'    # 技术部
 
 passed = failed = 0
 errors = []
@@ -109,7 +109,7 @@ def seed_meta_item():
 def make_env(ent, biz_data, share_data=None, dp_config=None):
     """
     为一个测试场景构造完整环境。
-    biz_data: [(id, owner_id, depart_id, name), ...]
+    biz_data: [(id, owner_id, depart_api_key, name), ...]
     share_data: [(id, data_id, subject_api_key), ...] or None
     dp_config: (defaultAccess, hierarchyAccess, ownerAccess) or None (不创建配置)
     """
@@ -130,7 +130,7 @@ def make_env(ent, biz_data, share_data=None, dp_config=None):
     cur.execute("DELETE FROM paas_entity_data.p_tenant_data_0 WHERE tenant_id=%s AND entity_api_key=%s", (T, ent))
     for did, oid, dept, name in biz_data:
         cur.execute("""INSERT INTO paas_entity_data.p_tenant_data_0
-            (id,tenant_id,entity_api_key,name,owner_id,depart_id,delete_flg,lock_status,approval_status,created_at,updated_at)
+            (id,tenant_id,entity_api_key,name,owner_id,depart_api_key,delete_flg,lock_status,approval_status,created_at,updated_at)
             VALUES (%s,%s,%s,%s,%s,%s,0,1,0,%s,%s)""",
             (did, T, ent, name, oid, dept, ts(), ts()))
 
@@ -354,7 +354,7 @@ def run_all():
     print("\n📦 9. defaultAccess=1（部门内可见）")
     ent = 'tp09dept'
     # 注意：UserSubjectService 的部门展开 TODO 未实现，
-    # 所以 depart_id 匹配不会生效，但 owner_id 匹配仍然有效
+    # 所以 depart_api_key 匹配不会生效，但 owner_id 匹配仍然有效
     make_env(ent,
         biz_data=[
             (700100,OWNER_A,DEPT_S,'A1'),(700101,OWNER_A,DEPT_S,'A2'),

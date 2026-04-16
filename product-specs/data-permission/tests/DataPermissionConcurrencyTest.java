@@ -236,7 +236,7 @@ public class DataPermissionConcurrencyTest {
         DataPermission getConfig() { return config; }
 
         /**
-         * 模拟 applyTo(QueryWrapper) — 纯内存操作。
+         * 模拟权限条件拼接 — 纯内存操作。
          * 返回生成的 SQL 条件片段（用于验证正确性）。
          */
         String applyTo() {
@@ -246,7 +246,7 @@ public class DataPermissionConcurrencyTest {
             if (config.getDefaultAccess() != null && config.getDefaultAccess() > 0 && subjects != null) {
                 for (UserSubject s : subjects) {
                     if (s.getType() == UserSubject.DEPART) {
-                        sb.append(" OR depart_id = '").append(s.getSubjectApiKey()).append("'");
+                        sb.append(" OR depart_api_key = '").append(s.getSubjectApiKey()).append("'");
                     }
                 }
             }
