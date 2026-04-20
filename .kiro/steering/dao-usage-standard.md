@@ -22,6 +22,7 @@ fileMatchPattern: "**/*.java"
 7. **禁止硬编码 dbc 列名**（如 `r.get("dbc_varchar5")`），已元模型化的数据必须走标准元数据链路
 8. **禁止手动构造 Map 做 JSON 字段名转换**，直接返回 Entity 对象，Jackson 全局 SNAKE_CASE 自动转换
 9. **`@IgnoreTenantLine` 的 Entity 禁止使用 `lambdaQuery()`**，必须使用 `list(Wrapper)` / `getOne(Wrapper)` 等已覆盖方法
+10. **禁止在 Controller 中通过 `@RequestHeader` 获取 tenantId / userId**，从 `GlobalContext` 获取（AuthTokenInterceptor 已从 JWT 注入）。例外：`/auth/login`
 
 ## 详细规范
 

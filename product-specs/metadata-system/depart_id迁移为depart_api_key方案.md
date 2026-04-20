@@ -1,5 +1,7 @@
 # depart_id 迁移为 depart_api_key 方案
 
+> 状态：✅ p_user 已完成（2026-04-16），p_tenant_data 分片表待执行
+
 ## 一、变更范围
 
 将所有表的 `depart_id BIGINT`（引用部门 ID）改为 `depart_api_key VARCHAR(255)`（引用部门 api_key）。

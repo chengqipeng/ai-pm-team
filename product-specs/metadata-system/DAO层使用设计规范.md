@@ -113,6 +113,22 @@ String parentApiKey = dept.getDeptParentApiKey();
 
 已元模型化的数据（role、department 等）必须通过 `IMetadataMergeReadService` / `IMetadataMergeWriteService` 标准链路操作，字段映射由 `CommonMetadataConverter` 根据 `p_meta_item` 自动完成。
 
+### 2.8 禁止在 Controller 中通过 @RequestHeader 获取 tenantId / userId
+
+```java
+// ❌ 禁止：从 header 获取租户 ID
+public Map<String, Object> listRoles(
+        @RequestHeader("x-tenant-id") Long tenantId) { ... }
+
+// ✅ 正确：从 GlobalContext 获取（AuthTokenInterceptor 已从 JWT 注入）
+public Map<String, Object> listRoles() {
+    Long tenantId = currentTenantId();  // GlobalContext.getSystemContext().getTenantId()
+    ...
+}
+```
+
+> 例外：`/auth/login` 接口——用户未登录，无 JWT token，需从 header 获取前端传入的 tenantId。
+
 ---
 
 ## 3. Service 层继承规范
@@ -317,3 +333,11 @@ public class ExcelTaskServiceImpl extends DataBaseServiceImpl<ExcelTask> {
 | operatelog | `OperateLog.java` | 从 framework-dao 移到业务层，加 `@IgnoreTenantLine` | 2026-04-16 |
 | operatelog | `OperateLogBaseDao.java` | 删除（框架不再需要） | 2026-04-16 |
 | operatelog | `MetaOperateLogDao.java` / `EntityOperateLogDao.java` | 直接继承 DataBaseServiceImpl | 2026-04-16 |
+| auth | `AuthApiService.java` | 删除所有 `@RequestHeader("x-tenant-id"/"x-user-id")`，改用 `GlobalContext` + `currentTenantId()`/`currentUserId()` | 2026-04-16 |
+| sql | `init_local_dev.py` | 新增 `enable_tenant_intercept` DDL + `depart_api_key` DDL + 存量数据迁移 | 2026-04-16 |
+| sql | `seed_and_verify_paas_auth.py` / `seed_100_users.py` | `depart_id` → `depart_api_key` | 2026-04-16 |
+| dto | `UserSubject.java` | 从 `service/datapermission/` 移到 `common/dto/`，删除死字段 `subjectId` | 2026-04-16 |
+| sql | `init_local_dev.py` | 新增步骤 3.1c：每个 entity 自动补充 Common 级 defaultBusiType（defaultFlg=1） | 2026-04-16 |
+| converter | `CommonMetadataConverter.java` | 反射遍历跳过 static 字段，修复列名常量导致的转换失败 | 2026-04-16 |
+| dao | `MetaServiceImpl.java` | 同上，mergeNonNull 跳过 static 字段 | 2026-04-16 |
+| dao | `MetadataMergeReadServiceImpl.java` | 同上，fillNullFields 跳过 static 字段 | 2026-04-16 |

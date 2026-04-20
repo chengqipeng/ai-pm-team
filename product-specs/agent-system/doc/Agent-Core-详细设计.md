@@ -21,7 +21,7 @@ class PluginContext:
     # 可选 Plugin（未启用时为 None，对应的 Tool 通过 is_enabled() 自动隐藏）
     memory: MemoryPluginInterface | None        # 长期记忆
     notification: NotificationPluginInterface | None  # 通知推送
-    search: SearchPluginInterface | None        # 网络搜索 + 网页提取
+    search: SearchPluginInterface | None        # 网络搜索
     company: CompanyDataPluginInterface | None   # 企业工商数据
     financial: FinancialDataPluginInterface | None  # 上市公司财务数据
     
@@ -786,18 +786,7 @@ LLM 返回 tool_use: {"name": "company_info", "input": {"keyword": "华为"}}
     "required": ["query"]
 }
 
-# web_fetch (Tavily Extract API)
-{
-    "type": "object",
-    "properties": {
-        "urls": {
-            "type": "array", "items": {"type": "string"},
-            "description": "要提取内容的 URL 列表（最多 5 个）",
-            "maxItems": 5
-        }
-    },
-    "required": ["urls"]
-}
+
 ```
 
 #### 工商数据类（1 个）
@@ -892,7 +881,6 @@ query_data           → ServiceBackend.query_data()       → paas-entity-servi
 analyze_data          → ServiceBackend.aggregate_data()   → paas-entity-service API
 query_permission        → ServiceBackend.query_permission() → paas-privilege-service API
 web_search              → 直接 HTTP                         → 网络搜索服务 API
-web_fetch               → 直接 HTTP                         → 网页内容提取服务 API
 company_info            → 直接 HTTP                         → 企业工商数据服务 API
 financial_report        → 直接 HTTP                         → 上市公司财务数据服务 API
 api_call                → ServiceBackend.call_external_api()→ 租户配置的外部 URL
@@ -1261,12 +1249,12 @@ Phase 2: 初始化 Plugin
 
 Phase 3: 注册全部 Tool（统一由 ToolRegistry 管理）
   tool_registry = ToolRegistry()
-  注册全部 17 个 Tool:
+  注册全部 15 个 Tool:
   ├── 平台内置（始终可用）:
   │   query_schema, query_data, analyze_data, query_permission,
   │   api_call, mcp_tool, ask_user, delegate_task, start_async_task
   ├── 依赖 Plugin（通过 is_enabled() 检查 Plugin 是否可用，未启用时 LLM 看不到）:
-  │   web_search, web_fetch          → is_enabled = context.search is not None
+  │   web_search          → is_enabled = context.search is not None
   │   company_info                   → is_enabled = context.company is not None
   │   financial_report               → is_enabled = context.financial is not None
   │   search_memories, save_memory → is_enabled = context.memory is not None
@@ -1368,7 +1356,7 @@ sequenceDiagram
     AF->>TR: Phase 3: 注册内置工具 (13个)
     AF->>TR: Phase 4: 初始化外部数据 Plugin (search/company/financial)
     AF->>TR: 应用工具白名单/黑名单过滤
-    Note over AF,TR: 所有 17 个 Tool 统一注册，依赖 Plugin 的 Tool 通过 is_enabled() 控制可见性
+    Note over AF,TR: 所有 15 个 Tool 统一注册，依赖 Plugin 的 Tool 通过 is_enabled() 控制可见性
     
     AF->>SR: Phase 5: 注册技能 (12个内置 + 自定义)
     
@@ -1531,7 +1519,7 @@ DelegateTaskTool.call():
     "name": "researcher",
     "task": "深度调研华为2025年的AI战略布局",
     "agent_type": "researcher",
-    "tools": ["web_search", "web_fetch", "company_info", "financial_report"],
+    "tools": ["web_search", "company_info", "financial_report"],
     "max_llm_calls": 50
   })
 
@@ -1614,7 +1602,6 @@ StartAsyncTaskTool.call():
 │
 ├── 外部信息工具（获取平台外部的信息）
 │   ├── web_search          网络搜索（Tavily）
-│   ├── web_fetch           网页内容提取（Tavily）
 │   ├── company_info        企业工商信息（天眼查）
 │   └── financial_report    上市公司财报（巨潮资讯）
 │
@@ -1647,7 +1634,7 @@ StartAsyncTaskTool.call():
 | **运营分析** | analytics | query_data, analyze_data, financial_report, web_search, search_memories | 数据统计、趋势分析、异常检测、生成报告 | 20 |
 | **平台配置** | config | query_schema, modify_schema, query_data, modify_data, query_permission, search_memories, ask_user | 配置业务对象、字段规则、校验规则、权限设置 | 15 |
 | **数据管理** | data_ops | query_data, modify_data, analyze_data, query_schema, ask_user | 数据清理、批量更新、数据迁移、数据校验 | 30 |
-| **外部调研** | research | web_search, web_fetch, company_info, financial_report, search_memories | 行业调研、竞品分析、政策法规查询、企业尽调 | 25 |
+| **外部调研** | research | web_search, company_info, financial_report, search_memories | 行业调研、竞品分析、政策法规查询、企业尽调 | 25 |
 | **通用** | general | 继承主 Agent 全部（除编排工具） | 无法归类到上述域的任务 | 20 |
 
 **关键设计原则**：

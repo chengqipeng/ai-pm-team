@@ -152,7 +152,11 @@ entity（对象）
 ## 业务规则
 
 - busiType.apiKey 在同一 entity 内唯一
-- 每个 entity 至少有一个 defaultFlg=1 的业务类型
+- **每个 entity 必须有一个 Common 级 defaultBusiType**（api_key='defaultBusiType', defaultFlg=1, enableFlg=1）
+  - 作为出厂数据存储在 `p_common_metadata`（namespace='system'）
+  - 新增 entity 时自动创建对应的 defaultBusiType
+  - `init_local_dev.py` 的 `fix_data()` 步骤 3.1c 自动检查并补充
+- 每个 entity 至少有一个 defaultFlg=1 的业务类型（可以是 Common 级出厂的，也可以是 Tenant 级覆盖的）
 - enableFlg=0 时业务类型在 UI 中不可选但已有数据保留
 - 删除 entity 时级联删除其下所有 busiType
 - specialFlg 用于标识特殊业务场景（退货单、PRM 等），普通业务类型 specialFlg=0 或 null

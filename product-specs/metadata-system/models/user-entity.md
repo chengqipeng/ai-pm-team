@@ -50,11 +50,33 @@ user 实体的字段定义遵循标准 Common/Tenant 双层架构：
 
 | 层级 | 存储表 | 内容 | namespace |
 |:---|:---|:---|:---|
-| Common（出厂） | p_common_metadata | 系统预置字段（userName, realName, avatar, status, departId, roleId, lastLoginAt） | system |
+| Common（出厂） | p_common_metadata | 系统预置字段（realName→name, userName→phone, email, status, departApiKey→depart_api_key, busitypeApiKey→busitype_api_key, roleApiKey→role_api_key 等） | system |
 | Tenant（个性化） | p_tenant_item | 租户自定义字段（jobTitle, workLocation, entryDate 等） | custom |
 
 通过 `IMetadataMergeReadService.listMergedByEntityApiKey("item", "user")` 合并读取，
 与 Account、Contact 等业务实体完全一致。
+
+### 核心固定列字段（Common 级 item 元数据）
+
+| apiKey | label | db_column | itemType | 必填 | 默认值 | 说明 |
+|:---|:---|:---|:---|:---|:---|:---|
+| realName | 姓名 | name | TEXT(1) | ✅ | — | 保存时同步到 name 固定列 |
+| userName | 手机号 | phone | PHONE(13) | ✅ | — | 登录用户名 |
+| email | 邮箱 | email | EMAIL(12) | — | — | — |
+| status | 状态 | status | SELECT(4) | — | 1（启用） | 1=启用 2=停用 |
+| departApiKey | 所属部门 | depart_api_key | TEXT(1) | — | companyRoot | 部门 apiKey |
+| busitypeApiKey | 用户类型 | busitype_api_key | TEXT(1) | — | internalUser | 内部/外部/虚拟 |
+| roleApiKey | 角色 | role_api_key | TEXT(1) | — | — | 虚拟字段，通过 p_user_role 关联 |
+
+### 用户类型（busiType，entity_api_key='user'）
+
+| apiKey | label | defaultFlg | 说明 |
+|:---|:---|:---|:---|
+| internalUser | 内部用户 | 1（默认） | 正式员工 |
+| externalUser | 外部用户 | 0 | 外部合作伙伴 |
+| virtualUser | 虚拟用户 | 0 | 系统自动化账号 |
+
+> 已废弃字段：`userType`（原普通用户/管理员）、`isVirtual`（原是否虚拟用户），统一通过 busiType 区分。
 
 ## 数据读写流程
 

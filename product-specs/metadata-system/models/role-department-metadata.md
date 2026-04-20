@@ -20,9 +20,10 @@
 | role 元模型注册 | `paas_metarepo_common.p_meta_model`（api_key='role'） | db_table=p_tenant_role |
 | role 字段定义 | `paas_metarepo_common.p_meta_item`（metamodel_api_key='role'） | 6 个字段 |
 | role 元数据 | `paas_metarepo.p_tenant_role` | 7 条（2 租户） |
-| department 元模型注册 | `paas_metarepo_common.p_meta_model`（api_key='department'） | db_table=p_tenant_department |
+| department 元模型注册 | `paas_metarepo_common.p_meta_model`（api_key='department'） | enable_common=1, db_table=p_tenant_department |
 | department 字段定义 | `paas_metarepo_common.p_meta_item`（metamodel_api_key='department'） | 10 个字段 |
-| department 元数据 | `paas_metarepo.p_tenant_department` | 10 条（2 租户） |
+| department Common 数据 | `paas_metarepo_common.p_common_metadata`（metamodel_api_key='department'） | 1 条：companyRoot（全公司根部门） |
+| department Tenant 数据 | `paas_metarepo.p_tenant_department` | 10 条（2 租户） |
 | 用户-角色关联 | `paas_auth.p_user_role` | 业务数据表，保留不动 |
 
 ### 2.2 已清理的老存储

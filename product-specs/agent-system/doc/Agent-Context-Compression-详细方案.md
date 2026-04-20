@@ -1,451 +1,1345 @@
 # Agent 上下文压缩详细方案
 
-> 本文档定义 Agent 系统的上下文管理和压缩机制。上下文窗口是 Agent 最稀缺的资源——所有对话历史、工具结果、系统提示词都在争夺有限的 token 空间。压缩策略直接决定了 Agent 能处理多复杂的任务。
+> 本文档按具体业务场景逐个分析压缩问题。每个场景走完"问题→方案→副作用→解决副作用"的完整链路。
 
 ---
 
-## 一、问题定义
+## 一、场景总览
 
-### 1.1 上下文窗口的构成
+Agent 执行过程中会遇到以下 7 类上下文膨胀场景：
 
-```
-一次 LLM 调用的 token 分配:
-
-┌─────────────────────────────────────────────────────┐
-│                  模型上下文窗口                        │
-│              （如 DeepSeek: 64K tokens）               │
-│                                                      │
-│  ┌──────────────┐                                    │
-│  │ System Prompt │  ~2K tokens（固定）                 │
-│  │ 工具定义       │  ~3K tokens（16 个工具的 schema）   │
-│  └──────────────┘                                    │
-│  ┌──────────────┐                                    │
-│  │ 对话历史      │  动态增长（每轮 +500~5000 tokens）  │
-│  │ 工具调用结果   │  可能很大（单次查询结果 10K+）       │
-│  └──────────────┘                                    │
-│  ┌──────────────┐                                    │
-│  │ 输出空间      │  ~8K tokens（max_tokens 配置）      │
-│  └──────────────┘                                    │
-│                                                      │
-│  可用于对话历史的空间 = 窗口大小 - system - 工具定义 - 输出 │
-│  ≈ 64K - 2K - 3K - 8K = 51K tokens                  │
-│                                                      │
-└─────────────────────────────────────────────────────┘
-```
-
-### 1.2 为什么需要压缩
-
-一个典型的 2B 业务任务（如"分析上个月的销售数据并生成报告"）可能产生：
-- 5 轮 LLM 对话 × 500 tokens/轮 = 2,500 tokens
-- 3 次 query_data 调用 × 5,000 tokens/结果 = 15,000 tokens
-- 1 次 analyze_data 调用 × 3,000 tokens = 3,000 tokens
-- 1 次 web_search 调用 × 2,000 tokens = 2,000 tokens
-- 总计: ~22,500 tokens
-
-如果任务更复杂（10+ 步骤），很容易超过 51K 的可用空间。不压缩就会：
-1. LLM 调用失败（超出上下文窗口）
-2. 早期的重要信息被截断
-3. LLM 的推理质量下降（上下文太长时注意力分散）
+| 编号 | 场景 | 触发频率 | 膨胀量 | 紧急程度 |
+|------|------|---------|--------|---------|
+| S1 | 搜索返回大量文本 | 高 | 单次 5K-50K | 中 |
+| S2 | 业务数据查询返回大量记录 | 高 | 单次 10K-100K | 高 |
+| S3 | 财报/工商数据返回结构化大文本 | 中 | 单次 10K-30K | 中 |
+| S4 | 多轮对话历史累积 | 必然 | 每轮 +500-2000 | 渐进 |
+| S5 | 多步骤任务的工具结果堆积 | 高 | 5-20 个结果累积 | 渐进 |
+| S6 | 元数据定义查询（schema）返回完整结构 | 中 | 单次 5K-20K | 低 |
+| S7 | 子 Agent 返回的汇总结果 | 低 | 单次 2K-10K | 低 |
 
 ---
 
-## 二、压缩策略体系
+## 二、逐场景详细分析
 
-### 2.1 五层压缩策略（按执行顺序）
+### S1: 搜索返回大量文本
+
+**典型触发**: 用户说"搜一下 CRM 行业 2025 年趋势"，web_search 返回 AI answer + 5 条结果。
+
+#### 问题链分析
 
 ```
-每轮 LLM 调用前，ContextMiddleware.before_step() 按以下顺序执行:
-
-Layer 1: 工具结果预算控制（Tool Result Budget）
-  ↓ 每个工具结果不超过 max_result_size_chars
-Layer 2: 大结果外置（Result Eviction）
-  ↓ 超大结果写入文件，用摘要+路径替代
-Layer 3: 历史裁剪（History Snip）
-  ↓ 保留最近 N 轮，裁剪更早的
-Layer 4: 旧结果清理（Microcompact）
-  ↓ 清除旧的工具调用结果，只保留最近的
-Layer 5: LLM 摘要压缩（Summarize）
-  ↓ 调用 LLM 对历史对话生成摘要
-
-触发条件:
-  Layer 1-2: 每轮都执行（轻量，无 LLM 调用）
-  Layer 3-4: 上下文占比 > 50% 时执行（轻量，无 LLM 调用）
-  Layer 5:   上下文占比 > 85% 时执行（重量，需要 LLM 调用）
+原始问题: web_search 返回 40K 字符，占上下文 ~10K tokens
+  │
+  ├── 方案 A: 直接保留全部
+  │   副作用: 占用 20% 上下文空间，后续步骤空间不足
+  │   副作用: LLM 注意力分散，可能忽略搜索结果中的关键信息
+  │
+  ├── 方案 B: 截断到 max_result_size_chars (30K)
+  │   副作用: 第 4、5 条搜索结果可能被截断
+  │   → 但搜索结果按相关性排序，前 3 条通常最重要
+  │   → 可接受的信息损失
+  │   副作用: 截断位置可能在句子中间
+  │   → 解决: 按结果条目边界截断，不在单条结果中间切
+  │
+  ├── 方案 C: 只保留搜索摘要，丢弃原文
+  │   副作用: 用户后续问"第 3 条结果的详细内容"时无法回答
+  │   → 解决: 保留每条结果的 URL，LLM 可以换关键词重新搜索
+  │
+  └── 方案 D: 写入文件，上下文中只放摘要
+      副作用: LLM 看不到完整内容，推理质量下降
+      副作用: 需要额外的文件管理机制
+      → 搜索结果通常不需要完整保留，方案 B+C 更合适
 ```
 
-### 2.2 Layer 1: 工具结果预算控制
+#### 最终方案
 
-**时机**: 每次工具调用返回后立即执行（在 ExecutionNode 内部）
-
-**逻辑**:
 ```
-tool_result = await tool.call(input, context)
+web_search 返回结果时:
 
-budget = tool.max_result_size_chars  # 每个工具有自己的预算
+1. 按条目边界截断（不在单条结果中间切）:
+   results = search_response["results"]  # 5 条结果
+   output_parts = []
+   total_chars = 0
+   for r in results:
+       entry = f"[{r['title']}]({r['url']})\n{r['content']}\n"
+       if total_chars + len(entry) > 30000:  # max_result_size_chars
+           output_parts.append(f"... 还有 {len(results) - len(output_parts)} 条结果未显示")
+           break
+       output_parts.append(entry)
+       total_chars += len(entry)
 
-if len(tool_result.content) > budget:
-    # 截断，保留头部 + 尾部
-    head = tool_result.content[:budget * 0.7]   # 前 70%
-    tail = tool_result.content[-budget * 0.2:]  # 后 20%
-    tool_result.content = (
-        head + 
-        f"\n\n... [结果已截断，原始 {len(tool_result.content)} 字符，"
-        f"保留前 {len(head)} + 后 {len(tail)} 字符] ...\n\n" +
-        tail
-    )
-```
+2. 如果 search_depth="advanced" 且有 AI answer:
+   优先返回 answer（通常 <500 字符），附上来源 URL
+   answer 已经是搜索结果的精华，不需要保留全部原文
 
-**各工具的预算配置**:
-
-| 工具 | max_result_size_chars | 理由 |
-|------|----------------------|------|
-| query_data | 50,000 | 查询结果可能包含多条记录 |
-| modify_data | 5,000 | 操作结果通常很短 |
-| analyze_data | 30,000 | 统计结果中等大小 |
-| query_schema | 100,000 | 元数据定义需要完整，截断会导致理解错误 |
-| modify_schema | 5,000 | 操作结果通常很短 |
-| query_permission | 20,000 | 权限配置中等大小 |
-| web_search | 30,000 | 搜索结果 |
-| web_fetch | 50,000 | 网页内容可能很长 |
-| company_info | 30,000 | 工商信息 |
-| financial_report | 50,000 | 财报数据可能很大 |
-| ask_user | 无限制 | 用户输入不截断 |
-| search_memories | 20,000 | 记忆搜索结果 |
-| save_memory | 1,000 | 确认信息很短 |
-| send_notification | 1,000 | 确认信息很短 |
-
-### 2.3 Layer 2: 大结果外置（Result Eviction）
-
-**时机**: 工具结果超过 budget 的 2 倍时，不截断而是外置到文件
-
-**逻辑**:
-```
-if len(tool_result.content) > budget * 2:
-    # 结果太大，截断不够，需要外置
-    file_path = await checkpoint_store.save_tool_result(
-        session_id, tool_use_id, tool_result.content
-    )
-    
-    # 生成摘要替代原始内容
-    summary = _generate_local_summary(tool_result.content, max_chars=2000)
-    
-    tool_result.content = (
-        f"{summary}\n\n"
-        f"[完整结果已保存到文件: {file_path}，共 {len(original)} 字符。"
-        f"如需查看完整内容，请使用相关工具重新查询。]"
-    )
+3. 保留所有结果的 URL:
+   即使内容被截断，URL 始终保留
+   LLM 后续可以换更精确的关键词重新搜索
 ```
 
-**本地摘要生成**（不调用 LLM，纯规则）:
+#### function call 的上下文组织与压缩时机
+
+**核心原则: 当轮使用完整内容，下轮压缩工具结果。**
+
+LLM 的 function call 流程中，搜索结果在当轮被完整使用，LLM 基于完整内容生成回复。回复本身就是对搜索结果的"消化"——关键信息已经写进了 assistant 消息中。因此下一轮可以安全压缩 tool_result。
+
+```
+=== 第 N 轮: 搜索 + 回复（tool_result 完整保留）===
+
+messages 结构:
+  [system]       系统提示词 + 工具定义                    ~5K tokens（固定）
+  [user]         "帮我查一下华为2025年的研发投入"          ~30 tokens
+  [assistant]    tool_use: web_search({query: "..."})     ~50 tokens
+  [tool_result]  {answer: "1923亿元...", results: [...]}  ~2100 tokens ← 完整保留
+                 ↑ LLM 看到完整的搜索结果，提取精确数字
+  [assistant]    "华为2025年研发投入为1923亿元，           ~100 tokens ← LLM 的回复
+                  占营收21.8%，近十年累计超1.38万亿元。"
+                 ↑ 关键信息已经从 tool_result "消化"到这里
+
+第 N 轮总上下文: ~7.3K tokens（安全，不需要压缩）
+
+
+=== 第 N+1 轮: 用户追问（tool_result 可以压缩）===
+
+压缩前的 messages:
+  [system]       ~5K tokens
+  [user]         "帮我查一下华为2025年的研发投入"          ~30 tokens
+  [assistant]    tool_use: web_search(...)                ~50 tokens
+  [tool_result]  {answer: "...", results: [...]}          ~2100 tokens ← 冗余
+  [assistant]    "华为2025年研发投入为1923亿元..."          ~100 tokens ← 信息在这里
+  [user]         "那腾讯呢？"                             ~10 tokens
+
+ContextMiddleware.before_step() 检查:
+  这个 tool_result 不在最近 5 个之内? → 压缩
+  
+压缩后的 messages:
+  [system]       ~5K tokens
+  [user]         "帮我查一下华为2025年的研发投入"          ~30 tokens
+  [assistant]    tool_use: web_search(...)                ~50 tokens
+  [tool_result]  "[已压缩: 搜索'华为2025年研发投入']"      ~20 tokens ← 节省 2080 tokens
+  [assistant]    "华为2025年研发投入为1923亿元..."          ~100 tokens ← 完整保留
+  [user]         "那腾讯呢？"                             ~10 tokens
+
+第 N+1 轮总上下文: ~5.2K tokens
+```
+
+**为什么压缩 tool_result 是安全的**:
+
+```
+1. LLM 的回复已经包含了关键信息
+   tool_result 中的 "1923亿元" → 已经在 assistant 消息 "研发投入为1923亿元" 中
+   压缩 tool_result 不会丢失任何 LLM 已经提取的信息
+
+2. assistant 消息不会被 Microcompact 清理
+   Microcompact 只清理 tool_result（工具返回的原始数据）
+   assistant 消息（LLM 的回复）永远保留（直到 Layer 3 历史裁剪）
+
+3. 如果用户追问搜索结果中的其他细节
+   例: "搜索结果中第 2 条说了什么"
+   → tool_result 已被压缩，LLM 无法回答
+   → LLM 应该重新搜索（web_search 是幂等的，重搜成本低）
+   → 或者回复: "之前的搜索结果已不在上下文中，我重新搜索一下"
+
+4. 压缩的粒度是 tool_result 整条，不是部分截断
+   要么完整保留（最近 5 个），要么整条替换为一行摘要
+   不会出现"截断到一半导致 JSON 格式错误"的问题
+```
+
+**多次搜索的上下文管理**:
+
+```
+如果一个任务中搜索了 3 次:
+
+  [tool_result_1] 搜索"华为研发投入"    ~2100 tokens
+  [assistant_1]   "华为研发投入1923亿"   ~100 tokens
+  [tool_result_2] 搜索"腾讯研发投入"    ~2100 tokens
+  [assistant_2]   "腾讯研发投入689亿"    ~100 tokens
+  [tool_result_3] 搜索"CRM行业趋势"     ~2100 tokens  ← 最近的，完整保留
+  [assistant_3]   正在生成...
+
+Microcompact 策略:
+  tool_result_3: 最近的 → 完整保留（LLM 当前正在使用）
+  tool_result_2: 第 2 近 → 完整保留（可能还需要引用）
+  tool_result_1: 第 3 近 → 如果在最近 5 个之内则保留，否则压缩
+
+  即使 tool_result_1 被压缩:
+  → assistant_1 "华为研发投入1923亿" 仍然完整保留
+  → LLM 在生成 assistant_3 时仍然能看到之前的结论
+```
+
+#### 后续步骤的影响
+
+```
+如果用户后续问"第 3 条结果说了什么":
+  → LLM 可以用更精确的关键词重新搜索获取更多细节
+
+如果搜索结果在后续轮次被 Microcompact 清理:
+  → URL 也被清理了 → LLM 无法重新获取
+  → 解决: 如果 LLM 在搜索后提取了关键信息写入回复，信息已经在对话历史中
+  → 如果没有提取 → 信息确实丢失了 → 这是可接受的（旧搜索结果的价值随时间衰减）
+```
+
+
+#### S1 补充: 用户需要从搜索结果中提取精确数据
+
+**典型触发**: 用户说"华为 2025 年研发投入具体是多少亿"或"对比华为和腾讯最近三年的营收数据"。
+
+**核心矛盾**: 摘要提高了信息密度但丢失了精确性。AI answer 可能写"研发投入超过 1900 亿"，但用户要的是"1923 亿"。
+
+```
+问题链:
+
+用户: "华为 2025 年研发投入具体多少"
+  │
+  ├── 如果只返回 AI 摘要:
+  │   摘要: "华为 2025 年研发投入超过 1900 亿元"
+  │   问题: "超过 1900 亿"不是精确数字，用户不满意
+  │   问题: 用户追问"到底是多少"，LLM 无法从摘要中给出精确答案
+  │
+  ├── 如果返回 snippet:
+  │   snippet: "2025年研发投入达到1923亿元，约占全年收入的21.8%"
+  │   → snippet 中可能包含精确数字 ✅
+  │   → 但 snippet 是搜索引擎截取的片段，可能截断在关键数字中间
+  │   → 例: "研发投入达到192..." → 数字不完整 ❌
+  │
+  └── 根本原因: 压缩策略不应该是固定的，应该根据用户意图动态调整
+```
+
+**解决方案: 精确搜索 + 多源交叉验证**
+
+商业系统禁止直接抓取第三方网页（版权风险、合规风险、反爬风险），因此不能用 web_fetch。当搜索摘要中的数据不够精确时，采用以下策略：
+
+```
+策略 1: 精确关键词重新搜索
+  第一次搜索: "华为 2025 研发投入" → 摘要: "超过 1900 亿"（不够精确）
+  第二次搜索: "华为 2025 年报 研发投入 具体金额" → 摘要: "1923亿元"（精确）
+  
+  原理: 搜索引擎对更精确的关键词会返回更精确的 snippet
+  LLM 自主判断第一次结果是否足够，不够则换关键词重搜
+
+策略 2: 多源交叉验证
+  搜索 "华为 2025 研发投入" → 来源 A: "1923亿"
+  搜索 "华为 2025 年报 研发费用" → 来源 B: "1923亿元，占营收21.8%"
+  
+  两个来源数字一致 → 可信度高，直接使用
+  两个来源数字不一致 → 告知用户存在差异，附上来源
+
+策略 3: 优先使用结构化数据源
+  如果要查的是上市公司财务数据 → 优先用 financial_report（巨潮资讯 API，精确到分）
+  如果要查的是企业基本信息 → 优先用 company_info（天眼查 API，官方数据）
+  只有这些结构化数据源没有的信息，才用 web_search
+
+策略 4: 诚实告知精度限制
+  如果多次搜索仍无法获得精确数字:
+  → 回复: "根据公开报道，华为 2025 年研发投入约 1900 亿元以上，
+    具体精确数字建议查阅华为官方年报。"
+  → 不编造精确数字，不把模糊数据当精确数据用
+```
+
+**LLM 的决策流程**:
+
+```
+用户问精确数据时:
+
+1. 先判断是否有结构化数据源可用:
+   ├── 上市公司财务数据 → financial_report（精确）
+   ├── 企业工商信息 → company_info（精确）
+   └── 都不适用 → web_search
+
+2. 如果用 web_search:
+   ├── 第一次搜索，检查 answer/snippet 是否有精确数字
+   ├── 有 → 直接使用
+   ├── 没有 → 换更精确的关键词重搜（最多重搜 2 次）
+   └── 仍然没有 → 诚实告知"约 XX，建议查阅官方来源"
+
+3. 不做的事:
+   ├── ❌ 不抓取第三方网页（web_fetch 已禁用）
+   ├── ❌ 不编造精确数字
+   └── ❌ 不把搜索摘要中的模糊表述当精确数据
+```
+
+**具体执行示例**:
+
+```
+用户: "华为 2025 年研发投入具体是多少亿"
+
+Step 1: LLM 判断 → 华为是上市公司 → 优先用 financial_report
+  调用 financial_report(stock_code="002502", report_type="income_statement")
+  返回: 精确的利润表数据，含研发费用字段
+  → 直接回答精确数字
+
+  如果 financial_report 中没有研发费用明细（某些报表格式不含）:
+  
+Step 2: 降级到 web_search
+  调用 web_search(query="华为 2025 年报 研发投入 具体金额", search_depth="advanced")
+  返回:
+    answer: "华为2025年研发投入达到1923亿元，约占全年收入的21.8%"
+    snippet: "研发投入达到1923亿元"
+  → answer 中有精确数字 "1923亿元" ✅ → 直接使用
+
+用户: "对比华为和腾讯 2025 年的研发投入占比"
+
+Step 1: LLM 判断 → 两家都是上市公司 → 优先用 financial_report
+  调用 financial_report(stock_code="002502") → 华为数据
+  调用 financial_report(stock_code="00700") → 腾讯数据
+  → 两家的精确数据都有 → 直接对比
+
+  如果 financial_report 不可用（Plugin 未启用）:
+
+Step 2: 用 web_search + 精确关键词
+  搜索 1: "华为 2025 年报 研发投入金额" → "1923亿元"
+  搜索 2: "腾讯 2025 年报 研发费用金额" → "689亿元"
+  → 两次搜索各自返回精确数字 → 对比回答
+
+  如果搜索仍无精确数字:
+  → 回复: "根据公开报道，华为约 1923 亿元，腾讯约 689 亿元，
+    具体数字建议查阅两家公司的官方年报。"
+```
+
+**上下文占用**:
+
+```
+web_search 返回: ~2K 字符 → ~500 tokens
+对比返回搜索全文: ~40K 字符 → ~10K tokens
+节省: ~95%
+```
+
+**web_search 的 prompt 引导**:
+
+```
+"搜索互联网信息。返回 AI 摘要 + 来源列表（标题/URL/片段）。
+ 如果摘要和片段中已包含你需要的精确数据，直接使用。
+ 如果精确数据不足，可以换更精确的关键词重新搜索。
+ 注意: 不能直接抓取网页内容，只能使用搜索返回的信息。"
+```
+
+---
+
+### S2: 业务数据查询返回大量记录
+
+**典型触发**: 用户说"查一下所有活跃客户"，query_data 返回 500 条记录共 80K 字符。
+
+#### 问题链分析
+
+```
+原始问题: query_data 返回 500 条记录，80K 字符
+  │
+  ├── 方案 A: 截断到 50K (max_result_size_chars)
+  │   副作用: 只能看到前 ~300 条，后 200 条丢失
+  │   副作用: 用户问"一共多少条"时 LLM 不知道总数
+  │   → 解决: 截断时保留 total 字段
+  │
+  ├── 方案 B: 只返回前 N 条 + 总数
+  │   副作用: 用户可能需要看后面的记录
+  │   → 解决: 返回中包含分页提示 "共 500 条，当前显示第 1-20 条，可指定页码查看更多"
+  │   → LLM 可以再次调用 query_data(page=2) 获取下一页
+  │
+  ├── 方案 C: 写入文件，上下文中只放统计摘要
+  │   副作用: LLM 无法对具体记录做分析
+  │   → 如果用户要的是"分析"而非"查看"，摘要可能就够了
+  │   → 如果用户要的是"查看具体记录"，需要完整数据
+  │
+  └── 方案 D: 在 Tool 内部做预聚合
+      query_data 内部判断: 如果结果 > 100 条，自动切换为统计模式
+      副作用: 用户明确要看列表时不应该自动聚合
+      → 解决: 只在结果 > 100 条时附加统计摘要，不替代原始数据
+```
+
+#### 最终方案
+
+```
+query_data 返回结果时:
+
+1. 分页控制（在 Tool 内部，不依赖 LLM）:
+   默认 page_size = 20，最大 100
+   返回格式:
+   {
+     "total": 500,
+     "page": 1,
+     "page_size": 20,
+     "records": [...前 20 条...],
+     "hint": "共 500 条记录，当前显示第 1-20 条。如需查看更多，请指定 page 参数。"
+   }
+
+2. 如果 LLM 请求了 page_size > 50:
+   返回数据 + 附加统计摘要:
+   {
+     "total": 500,
+     "records": [...50 条...],
+     "summary": "按行业分布: 制造业 120 条, IT 95 条, 金融 80 条...",
+     "hint": "结果较多，已附加统计摘要。如需完整数据请分页查询。"
+   }
+
+3. 如果返回的 JSON 超过 max_result_size_chars (50K):
+   截断 records 数组（保留前 N 条使总大小 < 50K）
+   保留 total 和 summary
+   附加: "[结果已截断，显示前 {N} 条，共 {total} 条]"
+```
+
+#### function call 的上下文组织与压缩时机
+
+**核心原则: 当轮使用完整内容，下轮压缩工具结果。**
+
+LLM 的 function call 流程中，搜索结果在当轮被完整使用，LLM 基于完整内容生成回复。回复本身就是对搜索结果的"消化"——关键信息已经写进了 assistant 消息中。因此下一轮可以安全压缩 tool_result。
+
+```
+=== 第 N 轮: 搜索 + 回复（tool_result 完整保留）===
+
+messages 结构:
+  [system]       系统提示词 + 工具定义                    ~5K tokens（固定）
+  [user]         "帮我查一下华为2025年的研发投入"          ~30 tokens
+  [assistant]    tool_use: web_search({query: "..."})     ~50 tokens
+  [tool_result]  {answer: "1923亿元...", results: [...]}  ~2100 tokens ← 完整保留
+                 ↑ LLM 看到完整的搜索结果，提取精确数字
+  [assistant]    "华为2025年研发投入为1923亿元，           ~100 tokens ← LLM 的回复
+                  占营收21.8%，近十年累计超1.38万亿元。"
+                 ↑ 关键信息已经从 tool_result "消化"到这里
+
+第 N 轮总上下文: ~7.3K tokens（安全，不需要压缩）
+
+
+=== 第 N+1 轮: 用户追问（tool_result 可以压缩）===
+
+压缩前的 messages:
+  [system]       ~5K tokens
+  [user]         "帮我查一下华为2025年的研发投入"          ~30 tokens
+  [assistant]    tool_use: web_search(...)                ~50 tokens
+  [tool_result]  {answer: "...", results: [...]}          ~2100 tokens ← 冗余
+  [assistant]    "华为2025年研发投入为1923亿元..."          ~100 tokens ← 信息在这里
+  [user]         "那腾讯呢？"                             ~10 tokens
+
+ContextMiddleware.before_step() 检查:
+  这个 tool_result 不在最近 5 个之内? → 压缩
+  
+压缩后的 messages:
+  [system]       ~5K tokens
+  [user]         "帮我查一下华为2025年的研发投入"          ~30 tokens
+  [assistant]    tool_use: web_search(...)                ~50 tokens
+  [tool_result]  "[已压缩: 搜索'华为2025年研发投入']"      ~20 tokens ← 节省 2080 tokens
+  [assistant]    "华为2025年研发投入为1923亿元..."          ~100 tokens ← 完整保留
+  [user]         "那腾讯呢？"                             ~10 tokens
+
+第 N+1 轮总上下文: ~5.2K tokens
+```
+
+**为什么压缩 tool_result 是安全的**:
+
+```
+1. LLM 的回复已经包含了关键信息
+   tool_result 中的 "1923亿元" → 已经在 assistant 消息 "研发投入为1923亿元" 中
+   压缩 tool_result 不会丢失任何 LLM 已经提取的信息
+
+2. assistant 消息不会被 Microcompact 清理
+   Microcompact 只清理 tool_result（工具返回的原始数据）
+   assistant 消息（LLM 的回复）永远保留（直到 Layer 3 历史裁剪）
+
+3. 如果用户追问搜索结果中的其他细节
+   例: "搜索结果中第 2 条说了什么"
+   → tool_result 已被压缩，LLM 无法回答
+   → LLM 应该重新搜索（web_search 是幂等的，重搜成本低）
+   → 或者回复: "之前的搜索结果已不在上下文中，我重新搜索一下"
+
+4. 压缩的粒度是 tool_result 整条，不是部分截断
+   要么完整保留（最近 5 个），要么整条替换为一行摘要
+   不会出现"截断到一半导致 JSON 格式错误"的问题
+```
+
+**多次搜索的上下文管理**:
+
+```
+如果一个任务中搜索了 3 次:
+
+  [tool_result_1] 搜索"华为研发投入"    ~2100 tokens
+  [assistant_1]   "华为研发投入1923亿"   ~100 tokens
+  [tool_result_2] 搜索"腾讯研发投入"    ~2100 tokens
+  [assistant_2]   "腾讯研发投入689亿"    ~100 tokens
+  [tool_result_3] 搜索"CRM行业趋势"     ~2100 tokens  ← 最近的，完整保留
+  [assistant_3]   正在生成...
+
+Microcompact 策略:
+  tool_result_3: 最近的 → 完整保留（LLM 当前正在使用）
+  tool_result_2: 第 2 近 → 完整保留（可能还需要引用）
+  tool_result_1: 第 3 近 → 如果在最近 5 个之内则保留，否则压缩
+
+  即使 tool_result_1 被压缩:
+  → assistant_1 "华为研发投入1923亿" 仍然完整保留
+  → LLM 在生成 assistant_3 时仍然能看到之前的结论
+```
+
+#### 后续步骤的影响
+
+```
+如果用户说"看第 3 页":
+  → LLM 调用 query_data(page=3) → 返回第 41-60 条
+  → 之前第 1 页的结果还在上下文中
+  → 如果上下文紧张，第 1 页结果会被 Microcompact 清理
+  → 但 LLM 已经从第 1 页提取了关键信息
+
+如果用户说"导出全部数据":
+  → Agent 不应该把 500 条全部放进上下文
+  → 应该回复: "数据量较大（500 条），建议通过系统导出功能下载完整数据"
+  → 或者: 调用 analyze_data 做统计分析，而非逐条查看
+```
+
+---
+
+### S3: 财报/工商数据返回结构化大文本
+
+**典型触发**: 用户说"看看华为的财务状况"，financial_report 返回 3 年利润表共 25K 字符。
+
+#### 问题链分析
+
+```
+原始问题: financial_report 返回 25K 字符的财务数据
+  │
+  ├── 特殊性: 财务数据是结构化的（字段名 + 数值），不能随意截断
+  │   截断 F029N: 37497599.2 为 F029N: 3749 → 数据错误
+  │
+  ├── 方案 A: 按报告期截断（保留最近 N 期）
+  │   返回最近 4 个报告期（1 年），而非全部历史
+  │   副作用: 用户要看 5 年趋势时数据不够
+  │   → 解决: 返回中提示 "当前显示最近 4 期，如需更多历史请指定时间范围"
+  │
+  ├── 方案 B: 按字段过滤（只返回关键指标）
+  │   利润表有 50+ 个字段，大部分用户只关心: 营收、净利润、毛利率
+  │   副作用: 用户可能关心某个细分字段（如研发费用）
+  │   → 解决: 返回关键指标 + 完整字段列表，LLM 可以再次查询特定字段
+  │
+  └── 方案 C: Tool 内部做预处理
+      financial_report 内部: 原始数据 → 提取关键指标 → 格式化为可读文本
+      副作用: 丢失了原始数据的精确性
+      → 解决: 关键指标保留精确数值，非关键字段只保留字段名列表
+```
+
+#### 最终方案
+
+```
+financial_report 返回结果时:
+
+1. 默认只返回最近 4 个报告期
+
+2. 提取关键指标（在 Tool 内部预处理）:
+   从原始 50+ 字段中提取:
+   - 营业收入 (F006N)
+   - 净利润 (F029N)
+   - 总资产 (资产负债表)
+   - 资产负债率 (计算)
+   - 营收同比增长率 (计算)
+   
+   格式化为可读文本:
+   "华为技术有限公司 2025 年度利润表:
+    营业收入: 8,809 亿元（同比 +2.2%）
+    净利润: 680 亿元（同比 +8.6%）
+    ..."
+
+3. 附加完整字段列表（不含数值，只有字段名）:
+   "完整字段: F006N(营业收入), F007N(利息收入), F008N(手续费收入)..."
+   LLM 如需某个字段的具体数值，可以再次查询
+
+4. 如果用户明确要求"完整财报":
+   返回完整数据，但按报告期分块
+   每块 < max_result_size_chars
+```
+
+---
+
+### S4: 多轮对话历史累积
+
+**典型触发**: 用户和 Agent 进行了 30 轮对话，历史消息累积到 40K tokens。
+
+#### 问题链分析
+
+```
+原始问题: 30 轮对话 = ~40K tokens，接近上下文上限
+  │
+  ├── 方案 A: 裁剪早期历史（保留最近 20 条）
+  │   副作用: 用户在第 5 轮说的"我要简洁格式"被裁掉了
+  │   → LLM 后续生成冗长格式，用户不满
+  │   → 解决: 裁剪前提取用户偏好，保存到 memory-plugin
+  │   
+  │   副作用: 用户在第 8 轮确认的"删除条件"被裁掉了
+  │   → 后续 LLM 不记得用户确认过什么
+  │   → 解决: 关键决策点的信息应该在做出决策时就保存到 memory
+  │
+  ├── 方案 B: LLM 摘要压缩
+  │   副作用: 摘要可能遗漏某些细节
+  │   → 解决: 摘要 prompt 中明确要求保留"用户偏好、关键决策、数据发现"
+  │   
+  │   副作用: 摘要本身消耗一次 LLM 调用（~2K tokens 输出）
+  │   → 解决: 只在 >85% 时触发，不频繁调用
+  │   
+  │   副作用: 摘要后 LLM 的"记忆"变成了二手信息，可能产生幻觉
+  │   → 解决: 摘要中保留关键数据的精确数值，不用模糊表述
+  │
+  └── 方案 C: 压缩前记忆刷新（借鉴 Hermes）
+      在裁剪/摘要之前，先扫描即将被压缩的消息
+      提取业务知识保存到 memory-plugin
+      副作用: 增加了压缩的延迟（需要调用 memory-plugin）
+      → 解决: 记忆提取是异步的，不阻塞主流程
+      → 如果 memory-plugin 未启用，跳过此步骤
+```
+
+#### 最终方案
+
+```
+多轮对话压缩的三阶段:
+
+阶段 1: 预防（每轮执行，零成本）
+  ReflectionNode 在每轮结束时检查:
+  - 用户是否表达了偏好？→ 立即 save_memory
+  - 是否做出了关键决策？→ 立即 save_memory
+  - 是否发现了重要数据？→ 立即 save_memory
+  这样即使后续历史被裁剪，关键信息已经持久化
+
+阶段 2: 轻量压缩（上下文 >50%，无 LLM 调用）
+  a. 裁剪早期历史，保留最近 20 条
+  b. 清除旧工具结果（保留最近 5 个）
+  c. 在裁剪点插入标记: "[早期 {N} 条对话已压缩]"
+
+阶段 3: 重量压缩（上下文 >85%，需要 LLM 调用）
+  a. 记忆刷新: 扫描即将被压缩的消息 → memory-plugin 持久化
+  b. LLM 摘要: 将被压缩的消息生成 ~1500 字摘要
+  c. 重建历史: [摘要消息] + [最近 10 条消息]
+  d. 摘要 prompt 要求保留:
+     - 用户的原始请求
+     - 已完成的步骤和关键结果（含精确数值）
+     - 当前进展状态
+     - 用户表达的偏好和约束
+```
+
+---
+
+### S5: 多步骤任务的工具结果堆积
+
+**典型触发**: "分析销售数据并生成报告"任务执行了 8 个步骤，产生 8 个工具结果共 60K tokens。
+
+#### 问题链分析
+
+```
+原始问题: 8 个工具结果堆积在上下文中
+  步骤 1: query_schema → 5K（客户实体定义）
+  步骤 2: query_data → 8K（客户列表）
+  步骤 3: analyze_data → 3K（按行业统计）
+  步骤 4: query_data → 8K（商机列表）
+  步骤 5: analyze_data → 3K（按阶段统计）
+  步骤 6: web_search → 5K（行业趋势）
+  步骤 7: financial_report → 10K（竞品财报）
+  步骤 8: LLM 生成报告 → 需要参考以上所有结果
+  │
+  ├── 问题: 步骤 8 需要参考所有前序结果，但上下文放不下
+  │
+  ├── 方案 A: Microcompact — 清除旧结果
+  │   副作用: 步骤 1 的 schema 定义被清除 → 步骤 8 不知道字段含义
+  │   → 解决: query_schema 结果受保护，不被清除
+  │   
+  │   副作用: 步骤 2 的客户列表被清除 → 步骤 8 无法引用具体客户
+  │   → 解决: 步骤 3 的统计结果已经包含了步骤 2 的关键信息
+  │   → 清除步骤 2 的原始数据是安全的（统计结果是其摘要）
+  │
+  ├── 方案 B: 每个步骤完成后，LLM 先提取关键发现
+  │   步骤 2 完成后，LLM 回复: "查询到 500 个活跃客户，制造业最多(120)"
+  │   这段文本 ~100 tokens，远小于原始 8K 的查询结果
+  │   后续清除步骤 2 的工具结果时，关键信息已在 LLM 的回复中
+  │   副作用: 需要 LLM 每步都做总结，增加 LLM 调用次数
+  │   → 这不是副作用，这是 Agent 正常的推理过程
+  │
+  └── 方案 C: 分阶段执行，每阶段独立上下文
+      用子 Agent 执行每个步骤，主 Agent 只收集结果
+      副作用: 子 Agent 之间没有共享上下文，无法交叉引用
+      → 解决: 主 Agent 在委托时传递前序步骤的关键发现
+```
+
+#### 最终方案
+
+```
+多步骤任务的工具结果管理:
+
+1. 受保护的结果（不被 Microcompact 清除）:
+   - query_schema 的结果（元数据定义全程需要）
+   - 最近 5 个工具结果（LLM 可能还在使用）
+   - 标记为 is_error=True 的结果（LLM 需要知道什么失败了）
+
+2. 可清除的结果（替换为一行摘要）:
+   - 超过 5 轮前的 query_data 结果（原始数据已被 LLM 消化）
+   - 超过 5 轮前的 web_search 结果（搜索结果时效性强）
+   - 超过 5 轮前的 analyze_data 结果（统计数据已被 LLM 引用）
+
+3. 清除时的摘要格式:
+   "[步骤 2 的查询结果已压缩: 查询了 account 实体，返回 500 条记录]"
+   保留: 工具名、实体名、记录数
+   丢弃: 具体的记录内容
+
+4. 如果 LLM 后续需要已清除的数据:
+   → LLM 可以重新调用 query_data 获取
+   → 这比保留所有历史结果在上下文中更高效
+```
+
+---
+
+### S6: 元数据定义查询返回完整结构
+
+**典型触发**: 用户说"客户这个对象有哪些字段"，query_schema 返回 15K 字符的完整定义。
+
+#### 问题链分析
+
+```
+原始问题: query_schema 返回完整的 Entity 定义（30+ 字段 + 关联 + 规则）
+  │
+  ├── 特殊性: 元数据定义不能截断
+  │   截断后 LLM 不知道某个字段存在 → 构建查询条件时遗漏
+  │   截断后 LLM 不知道字段类型 → 传错参数类型
+  │
+  ├── 方案 A: 不截断，保留完整定义
+  │   副作用: 15K 字符占用大量上下文
+  │   → 但这是必要的成本，元数据定义是后续所有操作的基础
+  │
+  ├── 方案 B: 分层返回（先概览，按需详情）
+  │   第一次返回: 字段名列表 + 类型（~2K）
+  │   LLM 需要某个字段的详细定义时再查询
+  │   副作用: 增加了 LLM 调用次数
+  │   → 但大幅减少了上下文占用
+  │
+  └── 方案 C: 在 Microcompact 中保护 schema 结果
+      即使其他工具结果被清除，schema 结果始终保留
+      副作用: 如果查询了多个实体的 schema，都保留会很大
+      → 解决: 只保护最近查询的 2 个实体的 schema
+```
+
+#### 最终方案
+
+```
+query_schema 的分层返回策略:
+
+1. 默认返回概览层（~2K tokens）:
+   {
+     "entity": "account",
+     "label": "客户",
+     "item_count": 32,
+     "items_summary": [
+       {"api_key": "companyName", "label": "公司名称", "type": "VARCHAR", "required": true},
+       {"api_key": "industry", "label": "行业", "type": "PICK_LIST", "required": false},
+       ...所有字段的 api_key + label + type + required
+     ],
+     "links": [
+       {"target": "opportunity", "type": "LOOKUP", "label": "关联商机"}
+     ],
+     "hint": "如需某个字段的完整定义（选项值、校验规则等），请指定 item_api_key 参数"
+   }
+
+2. 指定 item_api_key 时返回详情层:
+   query_schema(entity="account", item_api_key="industry")
+   → 返回 industry 字段的完整定义（选项值列表、校验规则等）
+
+3. Microcompact 保护规则:
+   - 最近 2 个实体的 schema 概览层结果受保护
+   - 字段详情层结果不保护（可以重新查询）
+```
+
+---
+
+### S7: 子 Agent 返回的汇总结果
+
+**典型触发**: 主 Agent 委托 research 子 Agent "调研竞品 A 的定价策略"，子 Agent 返回 8K 字符的调研报告。
+
+#### 问题链分析
+
+```
+原始问题: delegate_task 返回 8K 字符的子 Agent 结果
+  │
+  ├── 特殊性: 这是子 Agent 已经消化过的信息，不是原始数据
+  │   子 Agent 内部可能调用了 5 次工具，但只返回最终结论
+  │   信息密度比原始工具结果高得多
+  │
+  ├── 方案 A: 完整保留
+  │   8K 字符 ≈ 2K tokens，可接受
+  │   子 Agent 的结果通常是主 Agent 后续推理的关键输入
+  │
+  ├── 方案 B: 如果多个子 Agent 并行返回
+  │   3 个子 Agent × 8K = 24K 字符
+  │   副作用: 占用较多上下文
+  │   → 解决: 主 Agent 收到所有子 Agent 结果后，立即做综合分析
+  │   → 综合分析完成后，子 Agent 的原始结果可以被 Microcompact 清除
+  │
+  └── 方案 C: 子 Agent 内部控制返回大小
+      子 Agent 的 system_prompt 中要求: "最终回复控制在 3000 字以内"
+      副作用: 可能丢失细节
+      → 解决: 子 Agent 可以把详细数据保存到 memory，只返回摘要
+```
+
+#### 最终方案
+
+```
+子 Agent 结果的处理:
+
+1. 子 Agent 的 system_prompt 中注入大小限制:
+   "你的最终回复应控制在 3000 字以内。
+    如果有详细数据需要保留，使用 save_memory 保存，回复中只包含关键结论。"
+
+2. 主 Agent 收到子 Agent 结果后:
+   - 如果是单个子 Agent: 完整保留结果
+   - 如果是多个并行子 Agent: 收到所有结果后立即综合分析
+     综合分析完成后，原始子 Agent 结果可被 Microcompact 清除
+
+3. delegate_task 的 max_result_size_chars = 10000
+   超过 10K 的子 Agent 结果会被截断
+```
+
+
+---
+
+## 三、压缩触发时序与配置
+
+### 3.1 完整触发时序
+
+**设计原则: 永远不在用户等待的关键路径上调用 LLM 做摘要。**
+
+LLM 摘要压缩需要 3-5 秒额外延迟，对用户体验影响很大。因此采用"事前控制 + 规则压缩 + 异步摘要"三层策略：
+
+```
+第一道防线: 事前控制（Tool 层面，每次工具调用）
+  → 每个 Tool 的返回大小已经被 max_result_size_chars 控制
+  → web_search 只返回 AI answer + snippet（~2K），不返回全文
+  → query_data 默认 page_size=20（~3K），不返回大量记录
+  → query_schema 分层返回概览（~2K），不返回完整定义
+  → 如果每个 Tool 返回都 <5K，10 轮对话只占 ~15K tokens（29%），远低于阈值
+  → 大部分场景永远不需要压缩
+
+第二道防线: 规则压缩（ContextMiddleware，毫秒级，不阻塞）
+  ratio = estimated_tokens / (window_size - output_reserve)
+  
+  ratio <= 50%:  不压缩
+  50% < ratio <= 70%:  Layer 3（裁剪历史，keep_recent=20）+ Layer 4（清除旧结果）
+  70% < ratio <= 85%:  更激进的 Layer 3（keep_recent=10）+ Layer 4（keep_results=2）
+  ratio > 85%:  极端裁剪（keep_recent=5）+ 记忆刷新 + 启动异步摘要
+
+  所有规则压缩都是纯内存操作，毫秒级完成，用户无感知。
+
+第三道防线: 异步摘要（后台执行，不阻塞当前请求）
+  当 ratio > 85% 时:
+    1. 先用极端裁剪让上下文降到安全线（立即生效，不阻塞）
+    2. 同时后台启动 LLM 摘要任务（asyncio.create_task）
+    3. 当前轮 LLM 调用使用裁剪后的上下文（可能丢失一些早期信息）
+    4. 摘要完成后，替换裁剪标记为摘要文本（下一轮生效）
+    5. 如果摘要失败 → 保持裁剪状态，不影响主流程
+```
+
+**延迟对比**:
+
+| 场景 | 旧方案（同步摘要） | 新方案（异步摘要） |
+|------|-------------------|-------------------|
+| ratio < 50% | 0ms | 0ms |
+| 50% < ratio < 85% | ~5ms（规则压缩） | ~5ms（规则压缩） |
+| ratio > 85% | 3000-5000ms（LLM 摘要阻塞） | ~10ms（极端裁剪）+ 后台摘要 |
+
+**异步摘要的实现**:
+
 ```python
-def _generate_local_summary(content: str, max_chars: int = 2000) -> str:
-    """从大结果中提取关键信息，不调用 LLM"""
-    lines = content.split('\n')
+class ContextMiddleware:
+    def __init__(self):
+        self._pending_summary_task: asyncio.Task | None = None
+        self._pending_summary_text: str | None = None
     
-    # 策略 1: 如果是 JSON 数组，提取记录数和前 3 条
-    if content.strip().startswith('[') or '"records"' in content[:200]:
-        try:
-            data = json.loads(content)
-            records = data if isinstance(data, list) else data.get('records', [])
-            total = data.get('total', len(records)) if isinstance(data, dict) else len(records)
-            preview = json.dumps(records[:3], ensure_ascii=False, indent=2)
-            return f"共 {total} 条记录，前 3 条预览:\n{preview[:max_chars]}"
-        except json.JSONDecodeError:
-            pass
-    
-    # 策略 2: 取头部 + 尾部
-    if len(content) > max_chars:
-        head = content[:int(max_chars * 0.7)]
-        tail = content[-int(max_chars * 0.2):]
-        return f"{head}\n...\n{tail}"
-    
-    return content[:max_chars]
-```
-
-### 2.4 Layer 3: 历史裁剪（History Snip）
-
-**时机**: ContextMiddleware.before_step() 中，当上下文占比 > 50% 时执行
-
-**逻辑**:
-```
-estimated_tokens = context.llm.estimate_tokens(all_messages_text)
-window_size = context.llm.get_context_window_size()
-ratio = estimated_tokens / window_size
-
-if ratio > CONTEXT_COMPRESS_RATIO (0.5):
-    # 保留最近 N 轮对话，裁剪更早的
-    keep_recent = 20  # 保留最近 20 条消息
-    
-    if len(state.messages) > keep_recent:
-        snipped = state.messages[:-(keep_recent)]
-        state.messages = state.messages[-(keep_recent):]
+    async def before_step(self, state, node, context):
+        # 如果上一轮的异步摘要已完成，替换裁剪标记
+        if self._pending_summary_text:
+            self._apply_summary(state, self._pending_summary_text)
+            self._pending_summary_text = None
         
-        # 在裁剪点插入标记
-        state.messages.insert(0, Message(
-            role=MessageRole.SYSTEM,
-            content=f"[历史对话已裁剪，移除了 {len(snipped)} 条早期消息]"
-        ))
-```
-
-**裁剪规则**:
-1. 永远不裁剪 system prompt
-2. 保留最近 20 条消息（可配置）
-3. tool_use 和 tool_result 必须成对保留（不能只留 tool_use 没有 result）
-4. 裁剪点插入标记消息，让 LLM 知道有历史被移除
-
-### 2.5 Layer 4: 旧结果清理（Microcompact）
-
-**时机**: 与 Layer 3 同时执行（上下文占比 > 50%）
-
-**逻辑**: 对保留的消息中，清除旧的工具调用结果（只保留最近 5 个工具结果的完整内容，更早的替换为一行摘要）
-
-```
-tool_result_messages = [
-    (i, msg) for i, msg in enumerate(state.messages)
-    if msg.tool_result_blocks
-]
-
-if len(tool_result_messages) > 5:
-    # 保留最近 5 个工具结果，清除更早的
-    for idx, msg in tool_result_messages[:-5]:
-        for block in msg.tool_result_blocks:
-            if not block.is_error:  # 错误结果保留（LLM 需要知道什么失败了）
-                original_len = len(block.content)
-                block.content = f"[旧工具结果已压缩，原始 {original_len} 字符]"
-```
-
-**清理规则**:
-1. 错误结果不清理（LLM 需要知道什么失败了，避免重复犯错）
-2. 最近 5 个工具结果保留完整内容
-3. 更早的工具结果替换为一行摘要
-4. query_schema 的结果不清理（元数据定义在整个任务中都需要）
-
-### 2.6 Layer 5: LLM 摘要压缩（Summarize）
-
-**时机**: ContextMiddleware.before_step() 中，当上下文占比 > 85% 时执行
-
-**这是最重量级的压缩，需要调用 LLM。**
-
-**执行流程**:
-```
-if ratio > CONTEXT_FORCE_COMPRESS_RATIO (0.85):
+        ratio = self._estimate_ratio(state, context)
+        
+        if ratio <= 0.5:
+            return state
+        
+        if ratio <= 0.7:
+            state = self._snip_history(state, keep_recent=20)
+            state = self._microcompact(state, keep_results=5)
+            return state
+        
+        if ratio <= 0.85:
+            state = self._snip_history(state, keep_recent=10)
+            state = self._microcompact(state, keep_results=2)
+            return state
+        
+        # ratio > 0.85: 极端裁剪 + 异步摘要
+        messages_to_summarize = state.messages[:-5]  # 保留最近 5 条
+        
+        # 记忆刷新（同步，但很快——只是调用 memory-plugin 的 commit）
+        if context.memory:
+            await context.memory.flush_before_compress(messages_to_summarize)
+        
+        # 极端裁剪（立即生效）
+        state = self._snip_history(state, keep_recent=5)
+        state = self._microcompact(state, keep_results=1)
+        
+        # 启动异步摘要（不阻塞）
+        if not self._pending_summary_task or self._pending_summary_task.done():
+            self._pending_summary_task = asyncio.create_task(
+                self._async_summarize(messages_to_summarize, context)
+            )
+        
+        return state
     
-    # Step 1: 压缩前记忆刷新（借鉴 Hermes）
-    if context.memory is not None:
-        extracted = await context.memory.flush_before_compress(
-            messages_to_compress
-        )
-        # 将即将被压缩的消息中的业务知识提取并持久化
-        # 防止压缩后知识丢失
-    
-    # Step 2: 确定压缩范围
-    # 保护最后 N 条消息不被压缩
-    protect_last_n = 10
-    messages_to_compress = state.messages[:-protect_last_n]
-    messages_to_keep = state.messages[-protect_last_n:]
-    
-    # Step 3: 调用 LLM 生成摘要
-    compress_prompt = COMPRESS_PROMPT.format(
-        message_count=len(messages_to_compress),
-    )
-    
-    summary_response = await context.llm.call(
-        system_prompt=compress_prompt,
-        messages=[{
-            "role": "user",
-            "content": _format_messages_for_summary(messages_to_compress)
-        }],
-        max_tokens=2000,  # 摘要不超过 2000 tokens
-    )
-    
-    summary_text = _extract_text(summary_response)
-    
-    # Step 4: 重建消息历史
-    state.messages = [
-        Message(
-            role=MessageRole.SYSTEM,
-            content=f"[以下是之前对话的摘要]\n{summary_text}\n[摘要结束，以下是最近的对话]",
-        ),
-    ] + messages_to_keep
+    async def _async_summarize(self, messages, context):
+        """后台 LLM 摘要，完成后存储结果"""
+        try:
+            response = await context.llm.call(
+                system_prompt=COMPRESS_PROMPT,
+                messages=[{"role": "user", "content": self._format_for_summary(messages)}],
+                max_tokens=2000,
+            )
+            self._pending_summary_text = self._extract_text(response)
+        except Exception:
+            self._pending_summary_text = None  # 摘要失败，保持裁剪状态
 ```
 
-**压缩 Prompt**:
-```python
-COMPRESS_PROMPT = """你是一个对话摘要专家。请将以下 {message_count} 条对话消息压缩为一段简洁的摘要。
+### 3.2 各工具的结果预算
 
-## 必须保留的信息
-- 用户的原始请求和意图
-- 已完成的步骤和关键结果
-- 当前任务的进展状态（完成了什么，还剩什么）
-- 重要的数据发现和结论
-- 遇到的错误和解决方式
-- 用户表达的偏好和约束
+| 工具 | max_result_size_chars | 截断策略 | 理由 |
+|------|----------------------|---------|------|
+| query_data | 50,000 | 按记录条目截断 | 保留 total + 前 N 条完整记录 |
+| modify_data | 5,000 | 不截断（结果本身很短） | 操作确认信息 |
+| analyze_data | 30,000 | 按指标分组截断 | 保留所有分组的汇总行 |
+| query_schema | 100,000 | 不截断（分层返回控制大小） | 元数据定义需要完整 |
+| modify_schema | 5,000 | 不截断 | 操作确认信息 |
+| query_permission | 20,000 | 按角色截断 | 保留前 N 个角色的完整权限 |
+| web_search | 30,000 | 按搜索结果条目截断 | 保留前 3-5 条完整结果 + 所有 URL |
+| company_info | 30,000 | 不截断（单条企业信息通常 <10K） | 工商信息需要完整 |
+| financial_report | 50,000 | 按报告期截断 | 保留最近 4 期 + 关键指标 |
+| ask_user | 无限制 | 不截断 | 用户输入不能丢 |
+| search_memories | 20,000 | 按记忆条目截断 | 保留前 5 条完整记忆 |
+| save_memory | 1,000 | 不截断 | 确认信息 |
+| send_notification | 1,000 | 不截断 | 确认信息 |
+| delegate_task | 10,000 | 尾部截断 | 子 Agent 结果的精华在开头 |
+| start_async_task | 1,000 | 不截断 | 只返回 task_id |
 
-## 可以省略的信息
-- 工具调用的详细参数
-- 工具返回的原始数据（只保留关键数字和结论）
-- 中间的试错过程（只保留最终成功的方法）
-- 重复的确认对话
+### 3.3 Microcompact 保护规则
 
-## 输出格式
-直接输出摘要文本，不要加标题或格式标记。控制在 1500 字以内。"""
-```
+| 工具结果 | 是否受保护 | 理由 |
+|----------|-----------|------|
+| query_schema（最近 2 个实体） | ✅ 保护 | 元数据定义全程需要 |
+| is_error=True 的结果 | ✅ 保护 | LLM 需要知道什么失败了 |
+| 最近 5 个工具结果 | ✅ 保护 | LLM 可能还在使用 |
+| 其他旧工具结果 | ❌ 可清除 | 替换为一行摘要 |
 
----
-
-## 三、压缩触发的完整时序
-
-```
-ContextMiddleware.before_step(state, node, context):
-  
-  # 1. 估算当前上下文大小
-  all_text = state.system_prompt + ''.join(str(m.content) for m in state.messages)
-  estimated_tokens = context.llm.estimate_tokens(all_text)
-  window_size = context.llm.get_context_window_size()
-  ratio = estimated_tokens / (window_size - 8192)  # 减去输出空间
-  
-  # 2. 根据占比决定压缩级别
-  if ratio <= 0.5:
-      # 安全区间，不压缩
-      return state
-  
-  if ratio <= 0.85:
-      # 警告区间: 执行轻量压缩（Layer 3 + 4，无 LLM 调用）
-      state = _snip_history(state, keep_recent=20)
-      state = _microcompact(state, keep_recent_results=5)
-      
-      callbacks.on_status_change("executing", "compressing")
-      return state
-  
-  # 危险区间: 执行重量压缩（Layer 3 + 4 + 5，需要 LLM 调用）
-  callbacks.on_status_change("executing", "compressing")
-  
-  # 先刷新记忆
-  if context.memory:
-      await context.memory.flush_before_compress(
-          [{"role": m.role.value, "content": str(m.content)} 
-           for m in state.messages[:-10]]
-      )
-  
-  # 轻量压缩
-  state = _snip_history(state, keep_recent=20)
-  state = _microcompact(state, keep_recent_results=5)
-  
-  # 如果轻量压缩后仍然超过 85%，执行 LLM 摘要
-  new_ratio = _estimate_ratio(state, context)
-  if new_ratio > 0.85:
-      state = await _summarize(state, context, protect_last_n=10)
-  
-  return state
-```
-
----
-
-## 四、工具结果预算与压缩的协作
+### 3.4 压缩失败降级
 
 ```
-工具执行时（ExecutionNode 内部）:
-  tool_result = await tool.call(input, context)
-  │
-  ├── Layer 1: 结果预算控制
-  │   len(result) > max_result_size_chars?
-  │   → 截断（保留头 70% + 尾 20%）
-  │
-  ├── Layer 2: 大结果外置
-  │   len(result) > max_result_size_chars * 2?
-  │   → 写入文件 + 生成本地摘要替代
-  │
-  └── 追加到 state.messages
-
-下一轮 LLM 调用前（ContextMiddleware.before_step）:
-  │
-  ├── 估算上下文占比
-  │
-  ├── > 50%: Layer 3 + 4
-  │   → 裁剪早期历史
-  │   → 清除旧工具结果（保留最近 5 个）
-  │
-  └── > 85%: Layer 5
-      → 记忆刷新（防止知识丢失）
-      → LLM 摘要压缩
-```
-
----
-
-## 五、特殊场景处理
-
-### 5.1 query_schema 结果的保护
-
-元数据定义（query_schema 的结果）在整个任务执行过程中都需要——LLM 需要知道业务对象有哪些字段才能正确构建查询条件。
-
-**规则**: query_schema 的工具结果在 Layer 4（Microcompact）中不被清理，即使它不在最近 5 个结果中。
-
-```python
-def _microcompact(state, keep_recent_results=5):
-    # ...
-    for idx, msg in tool_result_messages[:-keep_recent_results]:
-        for block in msg.tool_result_blocks:
-            tool_name = _find_tool_name(block.tool_use_id, state.messages)
-            if tool_name == "query_schema":
-                continue  # 保护元数据定义，不清理
-            if not block.is_error:
-                block.content = f"[旧工具结果已压缩]"
-```
-
-### 5.2 子 Agent 的压缩策略
-
-子 Agent 有独立的上下文窗口，但轮次更少（默认 15-30 轮），通常不需要压缩。
-
-**规则**:
-- 子 Agent 的 ContextMiddleware 使用更激进的阈值：50% → 40%，85% → 70%
-- 子 Agent 不执行 Layer 5（LLM 摘要），因为轮次少，Layer 3+4 足够
-- 子 Agent 的 keep_recent 更小：20 → 10
-
-### 5.3 HITL 暂停恢复后的压缩
-
-用户可能在 HITL 暂停后很久才恢复（几分钟到几小时）。恢复时上下文可能已经很大。
-
-**规则**: `GraphEngine.resume()` 恢复后，在进入主循环前先执行一次 ContextMiddleware 压缩检查。
-
-### 5.4 压缩失败的降级
-
-Layer 5（LLM 摘要）可能失败（LLM 调用超时、限流等）。
-
-**降级策略**:
-```
-LLM 摘要失败:
+Layer 5（LLM 摘要）失败时:
   → 不中断主流程
-  → 降级为更激进的 Layer 3: keep_recent 从 20 降到 10
-  → 降级为更激进的 Layer 4: keep_recent_results 从 5 降到 2
-  → 记录日志: "LLM 摘要压缩失败，已降级为激进裁剪"
+  → 降级: keep_recent 从 20 降到 10
+  → 降级: keep_recent_results 从 5 降到 2
+  → 记录日志
+  → 如果降级后仍然 >85%:
+    → 最后手段: 只保留最近 5 条消息 + system prompt
+    → 注入: "[上下文已紧急压缩，早期对话信息丢失。如需回顾请询问用户。]"
 ```
 
 ---
 
-## 六、配置参数
+## 四、场景间的交叉影响
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| CONTEXT_COMPRESS_RATIO | 0.5 | 上下文占比超过此值触发轻量压缩 |
-| CONTEXT_FORCE_COMPRESS_RATIO | 0.85 | 上下文占比超过此值触发 LLM 摘要压缩 |
-| SNIP_KEEP_RECENT | 20 | 历史裁剪时保留的最近消息数 |
-| MICROCOMPACT_KEEP_RESULTS | 5 | 旧结果清理时保留的最近工具结果数 |
-| SUMMARIZE_PROTECT_LAST_N | 10 | LLM 摘要时保护的最近消息数 |
-| SUMMARIZE_MAX_TOKENS | 2000 | LLM 摘要的最大 token 数 |
-| SUB_AGENT_COMPRESS_RATIO | 0.4 | 子 Agent 的轻量压缩阈值 |
-| SUB_AGENT_FORCE_RATIO | 0.7 | 子 Agent 的强制压缩阈值 |
-| SUB_AGENT_KEEP_RECENT | 10 | 子 Agent 的历史保留数 |
+```
+S2（大量记录）发生后 → S5（结果堆积）加速
+  → 一次 query_data 返回 50K → 上下文立即占用 +12K tokens
+  → 如果连续 3 次 query_data → 36K tokens 被工具结果占用
+  → 触发 Layer 3+4 压缩 → 清除前 2 次的查询结果
+  → 但第 3 次的结果还在 → LLM 可以继续工作
+
+S1（搜索大文本）+ S3（财报大文本）同时发生:
+  → 用户: "搜一下华为的行业动态，顺便看看财报"
+  → web_search 返回 30K + financial_report 返回 25K = 55K
+  → 超过 50% 阈值 → 触发 Layer 3+4
+  → 但这两个结果都是最近的（在最近 5 个之内）→ 不会被清除
+  → 需要等后续步骤产生更多结果后，这两个才会被清除
+  → 如果上下文仍然紧张 → 触发 Layer 5 LLM 摘要
+
+S4（多轮对话）+ S6（schema 查询）:
+  → 30 轮对话 + 3 个实体的 schema 定义
+  → Layer 3 裁剪早期对话 → 但 schema 受保护不被清除
+  → 只保护最近 2 个实体的 schema → 第 1 个实体的 schema 被清除
+  → 如果 LLM 后续需要第 1 个实体的信息 → 重新调用 query_schema
+```
+
 
 ---
 
-## 七、与其他模块的交互
+## 附录: 完整 10 轮问答压缩流程模拟
 
-| 模块 | 交互方式 |
-|------|---------|
-| ExecutionNode | Layer 1+2 在工具执行后立即执行（ExecutionNode 内部） |
-| ContextMiddleware | Layer 3+4+5 在每轮 LLM 调用前执行（before_step） |
-| memory-plugin | Layer 5 执行前调用 flush_before_compress() 刷新记忆 |
-| CheckpointStore | Layer 2 的大结果外置写入 CheckpointStore |
-| AgentCallbacks | 压缩时触发 on_status_change("executing", "compressing") |
-| LLM Plugin | Layer 5 调用 LLM 生成摘要；estimate_tokens() 估算 token 数 |
-| AgentLimits | 阈值配置来源 |
+### 场景设定
+
+- 用户: 销售经理，要求 Agent 调研华为并生成竞品分析报告
+- 模型: DeepSeek-chat，上下文窗口 64K tokens
+- 可用空间: 64K - 5K(system) - 8K(output) = 51K tokens
+- 压缩阈值: 50% = 25.5K tokens, 85% = 43.3K tokens
+
+### 约定
+
+```
+每轮展示:
+  [messages 数组的精确内容]
+  [当前 token 占用 / 占比]
+  [是否触发压缩 → 压缩后的 messages]
+```
+
+---
+
+### 第 1 轮: 用户提问
+
+```
+─── LLM 调用前的 messages ───
+
+[0] system: "你是 aPaaS 平台的智能业务助手..." + 工具定义    ~5000 tokens（不计入可用空间）
+[1] user: "帮我调研一下华为，生成一份竞品分析报告"           ~25 tokens
+
+─── 当前占用: 25 / 51000 = 0.05% ───
+─── 压缩检查: 0.05% < 50% → 不压缩 ───
+
+─── LLM 响应 ───
+
+[2] assistant: tool_use: web_search({
+      query: "华为 2025 公司概况 主营业务 竞争优势",
+      search_depth: "advanced", include_answer: true
+    })                                                       ~60 tokens
+```
+
+### 第 2 轮: 搜索结果返回 + LLM 消化
+
+```
+─── LLM 调用前的 messages ───
+
+[0] system                                                   (不计)
+[1] user: "帮我调研一下华为..."                               25 tokens
+[2] assistant: tool_use: web_search(...)                     60 tokens
+[3] tool_result: {                                           2100 tokens
+      answer: "华为是全球领先的ICT基础设施和智能终端提供商，
+               2025年营收8809亿元，净利润680亿元，
+               研发投入1923亿元占营收21.8%...",
+      results: [
+        {title: "华为2025年报", url: "...", content: "...2212字符..."},
+        {title: "华为营收分析", url: "...", content: "...716字符..."},
+        {title: "华为业务板块", url: "...", content: "...822字符..."},
+        {title: "华为云计算", url: "...", content: "...1932字符..."},
+        {title: "华为终端", url: "...", content: "...2155字符..."}
+      ]
+    }
+
+─── 当前占用: 25 + 60 + 2100 = 2185 / 51000 = 4.3% ───
+─── 压缩检查: 4.3% < 50% → 不压缩 ───
+
+─── LLM 响应（基于完整搜索结果生成摘要）───
+
+[4] assistant: "根据搜索结果，华为2025年的基本情况如下:        350 tokens
+    - 营收: 8809亿元（同比+2.2%）
+    - 净利润: 680亿元（同比+8.6%）
+    - 研发投入: 1923亿元（占营收21.8%）
+    - 主要业务板块: ICT基础设施、终端、云计算、数字能源、智能汽车
+    - 员工: 约20.7万人，其中研发人员占53.7%
+    
+    接下来我查一下华为的财务详细数据。"
+```
+
+### 第 3 轮: 查财报
+
+```
+─── LLM 调用前的 messages ───
+
+[1] user: "帮我调研一下华为..."                               25
+[2] assistant: tool_use: web_search(...)                     60
+[3] tool_result: {answer: "...", results: [...]}             2100  ← 上轮搜索结果仍完整
+[4] assistant: "根据搜索结果，华为2025年..."                   350  ← LLM 的消化结果
+
+─── 当前占用: 2535 / 51000 = 5.0% ───
+─── 压缩检查: 5.0% < 50% → 不压缩 ───
+
+─── LLM 响应 ───
+
+[5] assistant: tool_use: financial_report({                  50 tokens
+      stock_code: "002502", report_type: "income_statement"
+    })
+```
+
+### 第 4 轮: 财报结果返回 + LLM 消化
+
+```
+─── LLM 调用前的 messages ───
+
+[1] user                                                     25
+[2] assistant: tool_use: web_search                          60
+[3] tool_result: 搜索结果                                     2100
+[4] assistant: "华为2025年基本情况..."                         350
+[5] assistant: tool_use: financial_report                    50
+[6] tool_result: {                                           3500 tokens
+      "报告期": "2025-12-31",
+      "营业收入": 880900000000,
+      "营业成本": 542700000000,
+      "毛利润": 338200000000,
+      "研发费用": 192300000000,
+      "净利润": 68000000000,
+      ...（利润表完整字段）
+    }
+
+─── 当前占用: 25+60+2100+350+50+3500 = 6085 / 51000 = 11.9% ───
+─── 压缩检查: 11.9% < 50% → 不压缩 ───
+
+─── LLM 响应 ───
+
+[7] assistant: "华为2025年利润表关键数据:                      400 tokens
+    - 营业收入: 8809亿元
+    - 营业成本: 5427亿元
+    - 毛利润: 3382亿元（毛利率38.4%）
+    - 研发费用: 1923亿元（占营收21.8%）
+    - 净利润: 680亿元（净利率7.7%）
+    
+    接下来查一下企业工商信息。"
+```
+
+### 第 5 轮: 查工商信息
+
+```
+─── LLM 调用前 ───
+
+[1]-[7] 同上                                                 6485
+[8] assistant: tool_use: company_info({keyword: "华为技术有限公司"})  40
+
+─── 当前占用: 6525 / 51000 = 12.8% ───
+─── 不压缩 ───
+```
+
+### 第 6 轮: 工商结果返回 + LLM 消化
+
+```
+─── LLM 调用前 ───
+
+[1]-[8] 同上                                                 6525
+[9] tool_result: {                                           1800 tokens
+      name: "华为技术有限公司",
+      creditCode: "914403001922038216",
+      regCapital: "4104113.182万人民币",
+      legalPersonName: "赵明路",
+      estiblishTime: "1987-09-15",
+      regStatus: "存续",
+      socialStaffNum: 58435,
+      industry: "计算机、通信和其他电子设备制造业",
+      businessScope: "程控交换机、传输设备..."
+    }
+
+─── 当前占用: 6525+1800 = 8325 / 51000 = 16.3% ───
+─── 不压缩 ───
+
+─── LLM 响应 ───
+
+[10] assistant: "华为工商信息:                                 250 tokens
+     - 全称: 华为技术有限公司
+     - 统一社会信用代码: 914403001922038216
+     - 注册资本: 4104113万元
+     - 法定代表人: 赵明路
+     - 成立日期: 1987年9月15日
+     - 参保人数: 58435人
+     
+     接下来搜索竞品信息进行对比。"
+```
+
+### 第 7 轮: 搜索竞品
+
+```
+─── LLM 调用前 ───
+
+[1]-[10] 同上                                                8575
+[11] assistant: tool_use: web_search({                       60
+       query: "华为竞品 中兴 爱立信 诺基亚 2025 对比"
+     })
+
+─── 当前占用: 8635 / 51000 = 16.9% ───
+─── 不压缩 ───
+```
+
+### 第 8 轮: 竞品搜索结果 + LLM 消化
+
+```
+─── LLM 调用前 ───
+
+[1]-[11] 同上                                                8635
+[12] tool_result: {answer: "...", results: [...]}            2200 tokens
+
+─── 当前占用: 10835 / 51000 = 21.2% ───
+─── 不压缩 ───
+
+─── LLM 响应 ───
+
+[13] assistant: "主要竞品对比:                                 500 tokens
+     | 公司 | 2025营收 | 研发占比 | 核心优势 |
+     | 华为 | 8809亿 | 21.8% | 全栈自研、5G领先 |
+     | 中兴 | 1252亿 | 18.2% | 性价比、运营商关系 |
+     | 爱立信 | ~2300亿 | 19.5% | 欧洲市场、开放架构 |
+     | 诺基亚 | ~2100亿 | 20.1% | 专利组合、企业网络 |
+     
+     接下来查一下中兴的财务数据做详细对比。"
+```
+
+### 第 9 轮: 查中兴财报 + 结果返回
+
+```
+─── LLM 调用前 ───
+
+[1]-[13] 同上                                                11335
+[14] assistant: tool_use: financial_report({stock_code: "000063"})  50
+[15] tool_result: {中兴利润表...}                             3200 tokens
+
+─── 当前占用: 14585 / 51000 = 28.6% ───
+
+─── ⚠️ 压缩检查: 28.6% > 25.5% (50% 阈值) → 触发 Layer 3 + Layer 4 ───
+
+Layer 4 Microcompact 执行:
+  当前有 5 个 tool_result: [3], [6], [9], [12], [15]
+  最近 5 个全部保留（刚好 5 个）→ 本轮不清理
+
+  但如果阈值设为 50%（25.5K），28.6% 还没到 → 实际不触发
+  
+  继续执行...
+
+─── LLM 响应 ───
+
+[16] assistant: "中兴通讯2025年利润表:                         350 tokens
+     - 营业收入: 1252亿元
+     - 净利润: 88亿元（净利率7.0%）
+     - 研发费用: 228亿元（占营收18.2%）
+     
+     现在我来生成完整的竞品分析报告。"
+```
+
+### 第 10 轮: 生成最终报告
+
+```
+─── LLM 调用前 ───
+
+messages 完整列表和 token 占用:
+
+  [1]  user: "帮我调研一下华为..."                    25
+  [2]  assistant: tool_use: web_search(华为)          60
+  [3]  tool_result: 华为搜索结果                      2100  ← 第 1 个 tool_result
+  [4]  assistant: "华为2025年基本情况..."              350
+  [5]  assistant: tool_use: financial_report(华为)    50
+  [6]  tool_result: 华为利润表                        3500  ← 第 2 个
+  [7]  assistant: "华为利润表关键数据..."              400
+  [8]  assistant: tool_use: company_info(华为)        40
+  [9]  tool_result: 华为工商信息                      1800  ← 第 3 个
+  [10] assistant: "华为工商信息..."                    250
+  [11] assistant: tool_use: web_search(竞品)          60
+  [12] tool_result: 竞品搜索结果                      2200  ← 第 4 个
+  [13] assistant: "主要竞品对比表..."                  500
+  [14] assistant: tool_use: financial_report(中兴)    50
+  [15] tool_result: 中兴利润表                        3200  ← 第 5 个
+  [16] assistant: "中兴利润表..."                      350
+  ─────────────────────────────────────────────
+  总计:                                               14935 tokens = 29.3%
+
+─── 压缩检查: 29.3% < 50% → 不压缩 ───
+
+→ LLM 看到所有 5 个 tool_result 的完整内容 + 所有 assistant 的消化结果
+→ 生成完整的竞品分析报告（~2000 tokens）
+
+[17] assistant: "# 华为竞品分析报告                    2000 tokens
+     
+     ## 一、华为公司概况
+     华为技术有限公司成立于1987年，注册资本4104113万元...
+     2025年实现营收8809亿元，净利润680亿元...
+     
+     ## 二、财务分析
+     | 指标 | 华为 | 中兴 |
+     | 营收 | 8809亿 | 1252亿 |
+     | 净利率 | 7.7% | 7.0% |
+     | 研发占比 | 21.8% | 18.2% |
+     
+     ## 三、竞争格局
+     ...
+     
+     ## 四、优劣势分析
+     ...
+     
+     ## 五、建议
+     ..."
+```
+
+### 第 11 轮（假设用户继续追问）
+
+```
+─── LLM 调用前 ───
+
+[1]-[17] 同上                                                16935 tokens
+[18] user: "报告中加上华为的专利数据"                          20 tokens
+
+─── 当前占用: 16955 / 51000 = 33.2% ───
+─── 压缩检查: 33.2% < 50% → 仍然不压缩 ───
+
+→ 即使 10 轮对话 + 5 次工具调用，上下文只占 33%
+→ 因为每个 Tool 的返回都控制在合理范围内（事前控制生效）
+```
+
+### 第 15 轮（假设继续深入调研，触发压缩）
+
+```
+假设又搜索了 4 次 + 查了 2 次财报，累积到:
+
+[1]-[26] 共 26 条消息                                        27000 tokens = 52.9%
+
+─── ⚠️ 压缩检查: 52.9% > 50% → 触发 Layer 3 + Layer 4 ───
+
+Layer 4 Microcompact:
+  当前有 9 个 tool_result: [3], [6], [9], [12], [15], [19], [21], [23], [25]
+  保留最近 5 个: [15], [19], [21], [23], [25]
+  压缩前 4 个: [3], [6], [9], [12]
+
+  [3]  tool_result: 华为搜索结果 2100 tokens
+       → "[已压缩: 搜索'华为2025公司概况'，返回5条结果]"  20 tokens
+       → 节省 2080 tokens
+       → 安全: [4] assistant "华为2025年基本情况..." 仍完整保留
+
+  [6]  tool_result: 华为利润表 3500 tokens
+       → "[已压缩: 查询华为利润表]"  15 tokens
+       → 节省 3485 tokens
+       → 安全: [7] assistant "华为利润表关键数据..." 仍完整保留
+
+  [9]  tool_result: 华为工商信息 1800 tokens
+       → "[已压缩: 查询华为工商信息]"  15 tokens
+       → 节省 1785 tokens
+       → 安全: [10] assistant "华为工商信息..." 仍完整保留
+
+  [12] tool_result: 竞品搜索结果 2200 tokens
+       → "[已压缩: 搜索'华为竞品对比']"  15 tokens
+       → 节省 2185 tokens
+       → 安全: [13] assistant "主要竞品对比表..." 仍完整保留
+
+  总节省: 2080 + 3485 + 1785 + 2185 = 9535 tokens
+  压缩后: 27000 - 9535 = 17465 tokens = 34.2%
+
+─── 压缩后回到安全区间，继续执行 ───
+```
+
+### 模拟总结
+
+```
+10 轮对话的上下文变化:
+
+轮次  占用tokens  占比    压缩?   说明
+ 1      25       0.05%   否     用户提问
+ 2     2185      4.3%    否     搜索结果 + LLM 消化
+ 3     2535      5.0%    否     LLM 决定查财报
+ 4     6085     11.9%    否     财报结果 + LLM 消化
+ 5     6525     12.8%    否     LLM 决定查工商
+ 6     8325     16.3%    否     工商结果 + LLM 消化
+ 7     8635     16.9%    否     LLM 决定搜竞品
+ 8    11335     22.2%    否     竞品搜索 + LLM 消化
+ 9    14585     28.6%    否     中兴财报 + LLM 消化
+10    16935     33.2%    否     LLM 生成最终报告
+11    16955     33.2%    否     用户追问
+...
+15    27000     52.9%    是     Microcompact 清除 4 个旧 tool_result → 34.2%
+
+关键发现:
+1. 事前控制有效: 每个 Tool 返回 1.8K-3.5K tokens，10 轮才到 33%
+2. 前 14 轮完全不需要压缩
+3. 第 15 轮触发 Microcompact（纯规则，毫秒级），节省 9.5K tokens
+4. 全程没有触发 LLM 摘要压缩（85% 阈值），零额外延迟
+5. 所有 assistant 消息（LLM 的消化结果）始终完整保留，信息不丢失
+```
