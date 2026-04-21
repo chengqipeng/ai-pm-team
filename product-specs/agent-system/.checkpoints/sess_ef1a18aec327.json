@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_ef1a18aec327",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 1,
+  "total_tool_calls": 0,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "{\"goal\": \"\\u6e05\\u7406\\u8fc7\\u671f\\u7ebf\\u7d22\", \"steps\": [{\"description\": \"\\u7edf\\u8ba1\\u8fc7\\u671f\\u7ebf\\u7d22\\u6570\\u91cf\"}, {\"description\": \"\\u786e\\u8ba4\\u540e\\u5220\\u9664\"}, {\"description\": \"\\u62a5\\u544a\\u7ed3\\u679c\"}]}"
+}

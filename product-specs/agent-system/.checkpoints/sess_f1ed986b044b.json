@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_f1ed986b044b",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 2,
+  "total_tool_calls": 1,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "系统中有 4 个活跃客户，按营收排序:\n1. 华为 8809 亿\n2. 腾讯 6090 亿\n3. 比亚迪 6020 亿\n4. 招商银行 3400 亿\n万科已标记为不活跃。"
+}

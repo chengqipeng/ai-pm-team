@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "deepagent"
+version = "0.1.0"
+description = "面向 2B CRM SaaS 的 Agent 系统 — 图状态机编排引擎"
+authors = ["AI Team"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+openai = "^1.30"          # DeepSeek API（OpenAI-Compatible）
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+pytest-asyncio = "^0.24"
+
+[tool.poetry.scripts]
+deepagent-demo = "demo:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

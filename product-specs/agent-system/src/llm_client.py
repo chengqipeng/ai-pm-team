@@ -1,8 +1,11 @@
 """
-LLM 客户端 — 真实 Anthropic Messages API 完整实现
+LLM 客户端 — DeepSeek OpenAI-Compatible API 完整实现
+
+DeepSeek API 兼容 OpenAI Chat Completions 格式，使用 openai SDK 调用。
+API 文档: https://platform.deepseek.com/api-docs
 
 借鉴源码:
-  - src/services/api/claude.ts: API 调用核心、流式处理
+  - src/services/api/claude.ts: API 调用核心（结构参考）
   - src/services/api/errors.ts: 错误分类
   - src/services/api/withRetry.ts: 重试逻辑
   - src/services/api/logging.ts: 用量追踪
@@ -12,11 +15,12 @@ from __future__ import annotations
 
 import os
 import time
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from .agent import LLMClient
+from .dtypes import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -65,43 +69,47 @@ class UsageTracker:
         }
 
 
-# ─── Anthropic API 客户端 — 完整实现 ───
+# ─── DeepSeek API 客户端 — 完整实现 ───
 
-class AnthropicClient(LLMClient):
+class DeepSeekClient(LLMClient):
     """
-    真实 Anthropic Messages API 客户端 (借鉴 services/api/claude.ts)
+    DeepSeek Chat API 客户端 — 基于 OpenAI-Compatible 接口
+
+    DeepSeek API 完全兼容 OpenAI Chat Completions 格式，使用 openai SDK 调用。
+    API Base: https://api.deepseek.com
+    文档: https://platform.deepseek.com/api-docs
 
     完整实现:
-    - 同步 messages.create 调用 (非流式，简化实现)
+    - 异步 chat.completions.create 调用 (非流式，简化实现)
     - 自动从环境变量/参数获取 API key
     - 完整的 usage 追踪
-    - 工具定义转换 (内部 schema → Anthropic tool format)
-    - 响应解析 (text/tool_use/thinking blocks)
+    - 工具定义转换 (内部 schema → OpenAI function calling format)
+    - 响应解析 (text/tool_calls blocks → 统一内部格式)
     - 错误处理与分类
     """
+
+    DEFAULT_BASE_URL = "https://api.deepseek.com"
 
     def __init__(
         self,
         api_key: str | None = None,
         base_url: str | None = None,
-        default_model: str = "claude-sonnet-4-20250514",
+        default_model: str = "deepseek-chat",
         default_max_tokens: int = 8192,
     ):
-        import anthropic
+        import openai
 
-        resolved_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        resolved_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
         if not resolved_key:
             raise ValueError(
-                "Anthropic API key required. Set ANTHROPIC_API_KEY env var "
+                "DeepSeek API key required. Set DEEPSEEK_API_KEY env var "
                 "or pass api_key parameter."
             )
 
-        kwargs: dict[str, Any] = {"api_key": resolved_key}
-        if base_url:
-            kwargs["base_url"] = base_url
-
-        self._client = anthropic.Anthropic(**kwargs)
-        self._async_client = anthropic.AsyncAnthropic(**kwargs)
+        self._async_client = openai.AsyncOpenAI(
+            api_key=resolved_key,
+            base_url=base_url or self.DEFAULT_BASE_URL,
+        )
         self._default_model = default_model
         self._default_max_tokens = default_max_tokens
         self._usage_tracker = UsageTracker()
@@ -115,13 +123,13 @@ class AnthropicClient(LLMClient):
         max_tokens: int = 0,
     ) -> dict:
         """
-        调用 Anthropic Messages API
+        调用 DeepSeek Chat Completions API
 
         参数:
           system_prompt: 系统提示词
-          messages: 对话消息列表 (Anthropic 格式)
+          messages: 对话消息列表 (OpenAI 格式)
           tools: 工具定义列表 (name/description/input_schema)
-          model: 模型名称
+          model: 模型名称 (deepseek-chat / deepseek-reasoner)
           max_tokens: 最大输出 token 数
 
         返回:
@@ -130,41 +138,49 @@ class AnthropicClient(LLMClient):
         model = model or self._default_model
         max_tokens = max_tokens or self._default_max_tokens
 
+        # 构建 OpenAI 格式的消息列表（system prompt 作为第一条 system 消息）
+        api_messages = [{"role": "system", "content": system_prompt}]
+        api_messages.extend(self._sanitize_messages(messages))
+
         # 构建请求参数
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
-            "system": system_prompt,
-            "messages": self._sanitize_messages(messages),
+            "messages": api_messages,
         }
 
         if tools:
             kwargs["tools"] = self._convert_tools(tools)
+            kwargs["tool_choice"] = "auto"
 
         start_time = time.monotonic()
 
         try:
-            response = await self._async_client.messages.create(**kwargs)
+            response = await self._async_client.chat.completions.create(**kwargs)
         except Exception as e:
             duration_ms = (time.monotonic() - start_time) * 1000
-            logger.error(f"API call failed after {duration_ms:.0f}ms: {e}")
+            logger.error(f"DeepSeek API call failed after {duration_ms:.0f}ms: {e}")
             raise
 
         duration_ms = (time.monotonic() - start_time) * 1000
 
         # 提取 usage
         usage = {}
-        if hasattr(response, "usage") and response.usage:
+        if response.usage:
             usage = {
-                "input_tokens": getattr(response.usage, "input_tokens", 0),
-                "output_tokens": getattr(response.usage, "output_tokens", 0),
-                "cache_creation_input_tokens": getattr(response.usage, "cache_creation_input_tokens", 0),
-                "cache_read_input_tokens": getattr(response.usage, "cache_read_input_tokens", 0),
+                "input_tokens": response.usage.prompt_tokens or 0,
+                "output_tokens": response.usage.completion_tokens or 0,
+                "cache_creation_input_tokens": getattr(
+                    response.usage, "prompt_cache_miss_tokens", 0
+                ),
+                "cache_read_input_tokens": getattr(
+                    response.usage, "prompt_cache_hit_tokens", 0
+                ),
             }
             self._usage_tracker.accumulate(usage, duration_ms)
 
         logger.info(
-            f"API #{self._usage_tracker.api_call_count}: "
+            f"DeepSeek API #{self._usage_tracker.api_call_count}: "
             f"model={model}, {duration_ms:.0f}ms, "
             f"in={usage.get('input_tokens', 0)}, out={usage.get('output_tokens', 0)}"
         )
@@ -173,10 +189,10 @@ class AnthropicClient(LLMClient):
 
     def _sanitize_messages(self, messages: list[dict]) -> list[dict]:
         """
-        清理消息格式，确保符合 Anthropic API 要求:
-        - 交替 user/assistant
-        - content 不能为空
-        - tool_result 必须在 user 消息中
+        清理消息格式，确保符合 OpenAI Chat Completions API 要求:
+        - role 必须是 system/user/assistant/tool
+        - content 不能为空字符串（可以为 None，当 assistant 有 tool_calls 时）
+        - tool_result 使用 role=tool + tool_call_id
         """
         sanitized = []
         for msg in messages:
@@ -184,85 +200,145 @@ class AnthropicClient(LLMClient):
             content = msg.get("content", "")
 
             # 跳过空消息
-            if not content:
+            if not content and role != "assistant":
                 continue
 
-            # 确保 content 格式正确
-            if isinstance(content, str) and not content.strip():
+            if isinstance(content, str) and not content.strip() and role != "assistant":
+                continue
+
+            # 处理 content 为 list 的情况（Anthropic 格式 → OpenAI 格式）
+            if isinstance(content, list):
+                # 提取文本部分
+                text_parts = []
+                tool_results = []
+                for block in content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "text":
+                            text_parts.append(block.get("text", ""))
+                        elif block.get("type") == "tool_result":
+                            tool_results.append(block)
+                
+                # tool_result 转为 OpenAI 的 role=tool 消息
+                for tr in tool_results:
+                    sanitized.append({
+                        "role": "tool",
+                        "tool_call_id": tr.get("tool_use_id", ""),
+                        "content": tr.get("content", ""),
+                    })
+                
+                # 文本部分作为普通消息
+                if text_parts:
+                    sanitized.append({"role": role, "content": "\n".join(text_parts)})
                 continue
 
             sanitized.append({"role": role, "content": content})
 
-        # 确保消息交替: 合并连续的同角色消息
+        # 确保消息交替: 合并连续的同角色消息（跳过 tool 消息）
         merged = []
         for msg in sanitized:
-            if merged and merged[-1]["role"] == msg["role"]:
-                # 合并同角色消息
-                prev_content = merged[-1]["content"]
-                curr_content = msg["content"]
+            if msg["role"] == "tool":
+                merged.append(dict(msg))
+                continue
+            if merged and merged[-1].get("role") == msg["role"] and msg["role"] != "tool":
+                prev_content = merged[-1].get("content", "")
+                curr_content = msg.get("content", "")
                 if isinstance(prev_content, str) and isinstance(curr_content, str):
                     merged[-1]["content"] = prev_content + "\n" + curr_content
-                elif isinstance(prev_content, list) and isinstance(curr_content, list):
-                    merged[-1]["content"] = prev_content + curr_content
-                elif isinstance(prev_content, str) and isinstance(curr_content, list):
-                    merged[-1]["content"] = [{"type": "text", "text": prev_content}] + curr_content
-                elif isinstance(prev_content, list) and isinstance(curr_content, str):
-                    merged[-1]["content"] = prev_content + [{"type": "text", "text": curr_content}]
+                else:
+                    merged.append(dict(msg))
             else:
                 merged.append(dict(msg))
-
-        # 确保第一条是 user 消息
-        if merged and merged[0]["role"] != "user":
-            merged.insert(0, {"role": "user", "content": "[conversation start]"})
 
         return merged if merged else [{"role": "user", "content": "[empty]"}]
 
     def _convert_tools(self, tools: list[dict]) -> list[dict]:
         """
-        转换工具定义为 Anthropic API 格式
+        转换工具定义为 OpenAI function calling 格式。
         内部格式: {name, description, input_schema}
-        API 格式: {name, description, input_schema} (基本一致，但需要确保 schema 合规)
+        OpenAI 格式: {type: "function", function: {name, description, parameters}}
         """
         converted = []
         for tool in tools:
             schema = tool.get("input_schema", {})
-            # 确保 schema 有 type: object
             if "type" not in schema:
                 schema["type"] = "object"
             if "properties" not in schema:
                 schema["properties"] = {}
 
             converted.append({
-                "name": tool["name"],
-                "description": tool.get("description", f"Tool: {tool['name']}"),
-                "input_schema": schema,
+                "type": "function",
+                "function": {
+                    "name": tool["name"],
+                    "description": tool.get("description", f"Tool: {tool['name']}"),
+                    "parameters": schema,
+                },
             })
         return converted
 
     def _parse_response(self, response: Any, usage: dict) -> dict:
-        """将 anthropic SDK 响应转为标准 dict"""
+        """
+        将 OpenAI SDK 响应转为统一的内部格式。
+        
+        OpenAI 格式:
+          response.choices[0].message.content  → 文本
+          response.choices[0].message.tool_calls  → 工具调用列表
+          response.choices[0].finish_reason  → stop/tool_calls/length
+        
+        内部格式（与原 Anthropic 格式兼容，引擎层无需改动）:
+          {content: [{type: "text", text: "..."}, {type: "tool_use", id, name, input}],
+           stop_reason: "end_turn" / "tool_use" / "max_tokens"}
+        """
+        choice = response.choices[0] if response.choices else None
+        if not choice:
+            return {
+                "id": response.id,
+                "content": [{"type": "text", "text": ""}],
+                "model": response.model,
+                "stop_reason": "end_turn",
+                "usage": usage,
+            }
+
+        message = choice.message
         content = []
-        for block in response.content:
-            if block.type == "text":
-                content.append({"type": "text", "text": block.text})
-            elif block.type == "tool_use":
+
+        # 解析文本内容
+        if message.content:
+            # DeepSeek-Reasoner 可能返回 reasoning_content
+            reasoning = getattr(message, "reasoning_content", None)
+            if reasoning:
+                content.append({"type": "thinking", "thinking": reasoning})
+            content.append({"type": "text", "text": message.content})
+
+        # 解析工具调用
+        if message.tool_calls:
+            for tc in message.tool_calls:
+                # 解析 arguments（JSON 字符串 → dict）
+                try:
+                    args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                except json.JSONDecodeError:
+                    args = {"_raw": tc.function.arguments}
+
                 content.append({
                     "type": "tool_use",
-                    "id": block.id,
-                    "name": block.name,
-                    "input": block.input if isinstance(block.input, dict) else {},
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "input": args,
                 })
-            elif block.type == "thinking":
-                content.append({
-                    "type": "thinking",
-                    "thinking": getattr(block, "thinking", ""),
-                })
+
+        # 映射 finish_reason: OpenAI → 内部格式
+        finish_reason_map = {
+            "stop": "end_turn",
+            "tool_calls": "tool_use",
+            "length": "max_tokens",
+            "content_filter": "end_turn",
+        }
+        stop_reason = finish_reason_map.get(choice.finish_reason, "end_turn")
 
         return {
             "id": response.id,
-            "content": content,
+            "content": content if content else [{"type": "text", "text": ""}],
             "model": response.model,
-            "stop_reason": response.stop_reason,
+            "stop_reason": stop_reason,
             "usage": usage,
         }
 

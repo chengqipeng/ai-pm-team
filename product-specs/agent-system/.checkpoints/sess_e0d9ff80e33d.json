@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_e0d9ff80e33d",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 7,
+  "total_tool_calls": 1,
+  "pause_reason": null,
+  "checkpoint_version": 5,
+  "final_answer": "华为技术有限公司，通信设备行业，207,000人，年营收8809亿，评分95。"
+}

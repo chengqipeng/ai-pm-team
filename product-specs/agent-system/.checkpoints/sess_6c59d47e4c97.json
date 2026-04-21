@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_6c59d47e4c97",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 3,
+  "total_llm_calls": 6,
+  "total_tool_calls": 1,
+  "pause_reason": null,
+  "checkpoint_version": 6,
+  "final_answer": "清理完成: 删除了 2 条过期线索（测试公司A的吴芳、测试公司B的郑浩），剩余 3 条有效线索。"
+}

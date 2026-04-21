@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_8ccb4a4b37cd",
+  "tenant_id": "demo",
+  "user_id": "user1",
+  "status": "completed",
+  "current_step_index": 2,
+  "total_llm_calls": 7,
+  "total_tool_calls": 0,
+  "pause_reason": null,
+  "checkpoint_version": 4,
+  "final_answer": "由于外部数据源暂时不可用，基于现有数据生成摘要：\n本月销售趋势整体向好，建议关注 negotiation 阶段的商机转化。"
+}

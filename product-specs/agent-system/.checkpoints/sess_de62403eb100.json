@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_de62403eb100",
+  "tenant_id": "demo",
+  "user_id": "user1",
+  "status": "completed",
+  "current_step_index": 3,
+  "total_llm_calls": 6,
+  "total_tool_calls": 2,
+  "pause_reason": null,
+  "checkpoint_version": 5,
+  "final_answer": "# 华为销售分析报告\n\n## 客户概况\n华为技术有限公司，通信设备行业，207,000 人，年营收 8809 亿。\n\n## 商机管道\n- ERP 实施: $45K (proposal 阶段)\n- CRM 部署: $28K (negotiation 阶段)\n- BI 平台: $15K (qualification 阶段)\n\n## 建议\n优先推进 CRM 部署项目（已进入谈判阶段），预计本月可关闭。"
+}

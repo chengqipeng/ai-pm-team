@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_652f1d2cb5ac",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 3,
+  "total_tool_calls": 1,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "# Pipeline 分析报告\n总商机: 7 个，总金额 373 万\n按阶段分布:\n- closing: 1个/18万 (即将成交)\n- negotiation: 2个/148万 (谈判中)\n- proposal: 2个/107万 (方案阶段)\n- qualification: 1个/15万\n- prospecting: 1个/85万\n平均赢单概率: 57.9%\n建议: 重点推进 negotiation 阶段的招行风控(120万)和华为CRM(28万)"
+}

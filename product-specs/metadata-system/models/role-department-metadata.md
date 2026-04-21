@@ -140,7 +140,7 @@ CREATE INDEX idx_p_user_role_rak ON paas_auth.p_user_role (tenant_id, role_api_k
 | departName | dbc_varchar1 | 部门名称 | 1(TEXT) | 1(VARCHAR) | 原有 |
 | departLevel | dbc_bigint2 | 部门层级 | 5(NUMBER) | 3(BIGINT) | 原有 |
 | departPath | dbc_varchar2 | 部门路径 | 1(TEXT) | 1(VARCHAR) | 原有 |
-| managerId | dbc_bigint3 | 部门负责人 | 10(RELATION_SHIP) | 3(BIGINT) | 原有 |
+| managerApiKey | dbc_varchar6 | 部门负责人 | 10(RELATION_SHIP) | 1(VARCHAR) | 原有（改造：id→apiKey） |
 | sortOrder | dbc_bigint4 | 排序 | 5(NUMBER) | 3(BIGINT) | 原有 |
 | enableFlg | dbc_smallint1 | 启用状态 | 31(BOOLEAN) | 6(SMALLINT) | 原有 |
 | deptCode | dbc_varchar3 | 部门编码 | 1(TEXT) | 1(VARCHAR) | 补充 |
@@ -199,10 +199,11 @@ CREATE INDEX idx_p_user_role_rak ON paas_auth.p_user_role (tenant_id, role_api_k
 | dbc_varchar4 | — | deptDescriptionKey |
 | dbc_varchar5 | roleParentApiKey（上级角色 api_key） | deptParentApiKey（上级部门 api_key） |
 | dbc_bigint2 | roleLevel（层级深度） | departLevel（部门层级） |
-| dbc_bigint3 | roleSortOrder（排序号） | managerId（部门负责人） |
+| dbc_bigint3 | roleSortOrder（排序号） | —（已迁移到 dbc_varchar6） |
 | dbc_bigint4 | — | sortOrder（排序） |
 | dbc_smallint1 | roleStatus（状态） | enableFlg（启用状态） |
 | dbc_smallint2 | — | deptStatus（状态） |
+| dbc_varchar6 | — | managerApiKey（部门负责人 api_key） |
 
 ## 五、特殊考虑
 

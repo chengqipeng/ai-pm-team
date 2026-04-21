@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_814bbe5769a0",
+  "tenant_id": "demo",
+  "user_id": "user1",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 1,
+  "total_tool_calls": 0,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "CRM 是客户关系管理（Customer Relationship Management）的缩写，是一种用于管理企业与客户之间互动的策略和技术。核心功能包括：客户信息管理、销售管道追踪、营销自动化、客服工单管理。"
+}

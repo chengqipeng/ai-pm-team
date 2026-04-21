@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_a87f2eaf730c",
+  "tenant_id": "demo",
+  "user_id": "user1",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 2,
+  "total_tool_calls": 0,
+  "pause_reason": null,
+  "checkpoint_version": 4,
+  "final_answer": "已删除过期线索记录 rec_001。"
+}

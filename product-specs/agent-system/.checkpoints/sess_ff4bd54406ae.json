@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_ff4bd54406ae",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 3,
+  "total_tool_calls": 2,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "华为有 6 个商机，总金额 $203K。"
+}

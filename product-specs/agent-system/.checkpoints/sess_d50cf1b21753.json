@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_d50cf1b21753",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 2,
+  "total_tool_calls": 1,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "华为技术有限公司，通信设备行业，207,000 人，2025 年营收 8809 亿。"
+}

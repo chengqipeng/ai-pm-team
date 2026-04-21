@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_71d9bdc829d0",
+  "tenant_id": "demo",
+  "user_id": "user1",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 2,
+  "total_tool_calls": 1,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "华为技术有限公司是一家总部位于深圳的通信设备企业，拥有约 207,000 名员工，2025 年营收达 8809 亿元。是全球领先的 ICT 基础设施和智能终端提供商。"
+}
