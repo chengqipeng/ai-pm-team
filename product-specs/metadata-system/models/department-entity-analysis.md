@@ -120,7 +120,7 @@ INSERT INTO p_common_metadata (id, metamodel_api_key, entity_api_key, api_key, l
 
 -- 3. entity_link 注册（自关联）
 INSERT INTO p_common_metadata (id, metamodel_api_key, api_key, label, namespace, ...) VALUES
-({id}, 'entityLink', 'department_department_parentId', '上级部门', 'system', ...);
+({id}, 'entityLink', 'department_to_department_parent', '上级部门', 'system', ...);
 ```
 
 ### 4.3 特殊考虑：树形结构

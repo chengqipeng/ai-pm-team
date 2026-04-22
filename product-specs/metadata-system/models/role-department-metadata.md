@@ -111,10 +111,10 @@ CREATE INDEX idx_p_user_role_rak ON paas_auth.p_user_role (tenant_id, role_api_k
 
 ### 3.3 role — entityLink 定义（2 条）
 
-| api_key | label | parent → child | cascadeDelete |
-|:---|:---|:---|:---|
-| role_role_parentId | 上级角色 | role → role | 2(阻止删除) |
-| role_user_roleId | 用户角色 | role → user | 0(不级联) |
+| api_key | label | parent → child | referItemApiKey | cascadeDelete |
+|:---|:---|:---|:---|:---|
+| role_to_role_parent | 上级角色 | role → role | roleParentApiKey | 2(阻止删除) |
+| role_to_user | 用户角色 | role → user | roleApiKey | 0(不级联) |
 
 ### 3.4 department — 独立元模型注册
 
@@ -150,10 +150,10 @@ CREATE INDEX idx_p_user_role_rak ON paas_auth.p_user_role (tenant_id, role_api_k
 
 ### 3.6 department — entityLink 定义（2 条）
 
-| api_key | label | parent → child | cascadeDelete |
-|:---|:---|:---|:---|
-| department_department_parentId | 上级部门 | department → department | 2(阻止删除) |
-| department_user_departId | 部门用户 | department → user | 0(不级联) |
+| api_key | label | parent → child | referItemApiKey | cascadeDelete |
+|:---|:---|:---|:---|:---|
+| department_to_department_parent | 上级部门 | department → department | deptParentApiKey | 2(阻止删除) |
+| department_to_user | 部门用户 | department → user | departApiKey | 0(不级联) |
 
 ## 四、业务数据分布
 

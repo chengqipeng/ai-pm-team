@@ -1,87 +1,84 @@
-"""
-LoopDetectionMiddleware — 循环检测
-
-对应 design.md §5.3.9:
-检测 LLM 是否在重复调用相同的工具（相同参数），防止无限循环。
-使用 after_model 钩子在每次 LLM 返回后检查。
-"""
-from __future__ import annotations
+"""循环检测中间件 — 直接继承 LangChain AgentMiddleware"""
 
 import hashlib
 import json
 import logging
-from collections import OrderedDict
+import threading
+from collections import OrderedDict, defaultdict
+from typing import Any
 
-from .base import PluginContext
-from ..state import GraphState
-from ..dtypes import Message, MessageRole
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain.agents.middleware.types import AgentMiddleware, AgentState
+from langgraph.config import get_config
+from langgraph.runtime import Runtime
 
 logger = logging.getLogger(__name__)
 
 
-class LoopDetectionMiddleware:
-    name = "loop_detection"
+class LoopDetectionMiddleware(AgentMiddleware):
+    """检测重复 tool_calls，warn → hard_limit 剥离"""
 
     def __init__(self, warn_threshold: int = 3, hard_limit: int = 5, window_size: int = 20):
-        self._warn_threshold = warn_threshold
-        self._hard_limit = hard_limit
-        self._window_size = window_size
-        self._history: list[str] = []  # MD5 hash 滑动窗口
+        super().__init__()
+        self.warn_threshold = warn_threshold
+        self.hard_limit = hard_limit
+        self.window_size = window_size
+        self._lock = threading.Lock()
+        self._history: OrderedDict[str, list[str]] = OrderedDict()
+        self._warned: dict[str, set[str]] = defaultdict(set)
 
-    async def before_step(self, state, context):
-        return state
+    def after_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        messages = state.get("messages", [])
+        if not messages:
+            return None
 
-    async def after_step(self, state, context):
-        return state
+        last_msg = messages[-1]
+        if not isinstance(last_msg, AIMessage):
+            return None
 
-    async def before_model(self, state, context):
-        return state
-
-    async def after_model(self, state: GraphState, response: dict, context: PluginContext) -> dict:
-        """每次 LLM 返回后检查是否有重复的 tool_calls"""
-        content = response.get("content", [])
-        tool_calls = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
-
+        tool_calls = getattr(last_msg, "tool_calls", None)
         if not tool_calls:
-            return response
+            return None
 
-        # 计算 tool_calls 的 hash
-        normalized = json.dumps(
-            [{"name": tc.get("name"), "input": tc.get("input")} for tc in tool_calls],
-            sort_keys=True, ensure_ascii=False,
+        try:
+            configurable = get_config().get("configurable", {})
+            thread_id = configurable.get("thread_id", "default")
+        except Exception:
+            thread_id = "default"
+
+        normalized = sorted(
+            [{"name": tc.get("name", ""), "args": tc.get("args", {})} for tc in tool_calls],
+            key=lambda tc: (tc["name"], json.dumps(tc["args"], sort_keys=True, default=str)),
         )
-        h = hashlib.md5(normalized.encode()).hexdigest()[:12]
+        call_hash = hashlib.md5(json.dumps(normalized, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
-        # 统计窗口内重复次数
-        self._history.append(h)
-        if len(self._history) > self._window_size:
-            self._history = self._history[-self._window_size:]
+        with self._lock:
+            if thread_id not in self._history:
+                self._history[thread_id] = []
+                while len(self._history) > 100:
+                    evicted, _ = self._history.popitem(last=False)
+                    self._warned.pop(evicted, None)
+            else:
+                self._history.move_to_end(thread_id)
 
-        count = self._history.count(h)
+            history = self._history[thread_id]
+            history.append(call_hash)
+            if len(history) > self.window_size:
+                history[:] = history[-self.window_size:]
 
-        if count >= self._hard_limit:
-            # 硬限制: 剥离 tool_calls，强制模型输出文本
-            logger.warning(f"LoopDetection: hard limit ({count}/{self._hard_limit}), stripping tool_calls")
-            response["content"] = [b for b in content if b.get("type") != "tool_use"]
-            if not response["content"]:
-                response["content"] = [{"type": "text", "text": "检测到重复调用，请换一种方法。"}]
-            # 注入警告消息
-            state.messages.append(Message(
-                role=MessageRole.SYSTEM,
-                content=f"[LOOP DETECTED] 你已连续 {count} 次调用相同的工具和参数。请停止重复调用，换一种方法或直接回答。",
-            ))
-        elif count >= self._warn_threshold:
-            # 警告: 注入提示但不阻止
-            logger.info(f"LoopDetection: warning ({count}/{self._warn_threshold})")
-            state.messages.append(Message(
-                role=MessageRole.SYSTEM,
-                content=f"[WARNING] 你已连续 {count} 次调用相同的工具。请考虑换一种方法。",
-            ))
+            count = history.count(call_hash)
 
-        return response
+            if count >= self.hard_limit:
+                logger.error("Loop hard limit: count=%d", count)
+                stripped = last_msg.model_copy(update={
+                    "tool_calls": [],
+                    "content": (last_msg.content or "") + "\n\n[强制停止] 重复工具调用超过安全限制。请直接给出最终答案。",
+                })
+                return {"messages": [stripped]}
 
-    async def before_tool_call(self, tool_name, input_data, state, context):
-        return input_data
+            if count >= self.warn_threshold and call_hash not in self._warned[thread_id]:
+                self._warned[thread_id].add(call_hash)
+                logger.warning("Repetitive tool calls: count=%d", count)
+                return {"messages": [HumanMessage(content="[循环检测] 你正在重复相同的工具调用。请停止调用工具，直接给出最终答案。")]}
 
-    async def after_tool_call(self, tool_name, result, state, context):
-        return result
+        return None

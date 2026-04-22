@@ -1,78 +1,147 @@
-"""
-MemoryMiddleware — 长期记忆注入，对应产品设计 §3.5.2 四层召回
-会话开始注入画像，每轮自动召回相关记忆。
-由 memory-plugin 提供，PluginContext.memory 不为 None 时生效。
-"""
+"""记忆中间件 — before_agent 检索注入，after_agent 异步提取更新"""
+
 from __future__ import annotations
 
+import asyncio
 import logging
-from .base import PluginContext
-from ..state import GraphState
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any
+
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain.agents.middleware.types import AgentMiddleware, AgentState
+from langgraph.config import get_config
+from langgraph.runtime import Runtime
 
 logger = logging.getLogger(__name__)
 
 
-class MemoryMiddleware:
-    name = "memory"
+class MemoryDimension(str, Enum):
+    USER_PROFILE = "user_profile"
+    CUSTOMER_CONTEXT = "customer_context"
+    TASK_HISTORY = "task_history"
+    DOMAIN_KNOWLEDGE = "domain_knowledge"
 
-    def __init__(self, memory_plugin):
-        self._memory = memory_plugin
-        self._profile_injected = False
 
-    async def before_step(self, state: GraphState, context: PluginContext) -> GraphState:
-        # Layer 1: 画像注入（仅首次）
-        if not self._profile_injected:
-            try:
-                profile_results = await self._memory.recall(
-                    "user profile", categories=["profile"], max_results=1,
-                )
-                if profile_results:
-                    entry = profile_results[0]
-                    content = entry.get("content", entry) if isinstance(entry, dict) else str(entry)
-                    state.memory_context = f"[用户画像] {content}"
-                    logger.info(f"Memory: injected user profile ({len(content)} chars)")
-            except Exception as e:
-                logger.warning(f"Memory profile injection failed: {e}")
-            self._profile_injected = True
+@dataclass
+class MemoryItem:
+    dimension: MemoryDimension
+    content: str
+    confidence: float = 1.0
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-        # Layer 2: 自动召回（每轮）
-        last_msg = self._get_last_user_message(state)
-        if last_msg and not self._is_trivial(last_msg):
-            try:
-                recalled = await self._memory.recall(last_msg, max_results=3)
-                if recalled:
-                    parts = []
-                    for r in recalled:
-                        content = r.get("content", r) if isinstance(r, dict) else str(r)
-                        category = r.get("category", "?") if isinstance(r, dict) else "?"
-                        parts.append(f"  - [{category}] {content}")
-                    state.memory_context += "\n[相关记忆]\n" + "\n".join(parts)
-                    logger.info(f"Memory: recalled {len(recalled)} entries")
-            except Exception as e:
-                logger.warning(f"Memory recall failed: {e}")
 
-        return state
+@dataclass
+class MemoryRetrievalResult:
+    items: list[MemoryItem] = field(default_factory=list)
+    query_used: str = ""
 
-    async def after_step(self, state: GraphState, context: PluginContext) -> GraphState:
-        return state
 
-    async def before_tool_call(self, tool_name, input_data, state, context):
-        return input_data
+@dataclass
+class MemoryExtractionResult:
+    items: list[MemoryItem] = field(default_factory=list)
+    source_thread_id: str = ""
 
-    async def after_tool_call(self, tool_name, result, state, context):
-        return result
 
-    @staticmethod
-    def _get_last_user_message(state: GraphState) -> str:
-        for msg in reversed(state.messages):
-            role_val = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
-            if role_val == "user":
-                if isinstance(msg.content, str):
-                    return msg.content
+class MemoryEngine(ABC):
+    """记忆引擎抽象接口"""
+    @abstractmethod
+    async def rewrite_query(self, messages: list, current_query: str) -> str: ...
+    @abstractmethod
+    async def retrieve(self, query: str, dimensions: list[MemoryDimension] | None = None,
+                       user_id: str | None = None, top_k: int = 5) -> MemoryRetrievalResult: ...
+    @abstractmethod
+    async def extract_and_update(self, messages: list, thread_id: str,
+                                 user_id: str | None = None) -> MemoryExtractionResult: ...
+
+
+class NoopMemoryEngine(MemoryEngine):
+    """空实现占位"""
+    async def rewrite_query(self, messages, current_query): return current_query
+    async def retrieve(self, query, dimensions=None, user_id=None, top_k=5):
+        return MemoryRetrievalResult(query_used=query)
+    async def extract_and_update(self, messages, thread_id, user_id=None):
+        return MemoryExtractionResult(source_thread_id=thread_id)
+
+
+class MemoryMiddleware(AgentMiddleware):
+    """记忆中间件"""
+
+    def __init__(self, engine: MemoryEngine | None = None,
+                 dimensions: list[MemoryDimension] | None = None, enabled: bool = True):
+        super().__init__()
+        self._engine = engine or NoopMemoryEngine()
+        self._dimensions = dimensions or list(MemoryDimension)
+        self._enabled = enabled
+
+    @property
+    def engine(self) -> MemoryEngine:
+        return self._engine
+
+    @engine.setter
+    def engine(self, value: MemoryEngine) -> None:
+        self._engine = value
+
+    async def abefore_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        if not self._enabled:
+            return None
+        messages = state.get("messages", [])
+        if not messages:
+            return None
+
+        current_query = self._get_current_query(messages)
+        if not current_query:
+            return None
+
+        configurable = get_config().get("configurable", {})
+        user_id = configurable.get("user_id")
+
+        try:
+            query = (await self._engine.rewrite_query(messages, current_query)
+                     if self._has_context(messages) else current_query)
+            result = await self._engine.retrieve(query, self._dimensions, user_id)
+            text = self._format_memory(result)
+            if text:
+                return {"messages": [SystemMessage(content=text)]}
+        except Exception as e:
+            logger.error("Memory retrieval failed: %s", e)
+        return None
+
+    async def aafter_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        if not self._enabled:
+            return None
+        messages = state.get("messages", [])
+        if len(messages) < 2:
+            return None
+        configurable = get_config().get("configurable", {})
+        thread_id = configurable.get("thread_id", "unknown")
+        user_id = configurable.get("user_id")
+        asyncio.create_task(self._async_extract(messages, thread_id, user_id))
+        return None
+
+    def _has_context(self, messages): return sum(1 for m in messages if isinstance(m, HumanMessage)) > 1
+    def _get_current_query(self, messages):
+        for msg in reversed(messages):
+            if isinstance(msg, HumanMessage):
+                return msg.content if isinstance(msg.content, str) else str(msg.content)
         return ""
 
-    @staticmethod
-    def _is_trivial(msg: str) -> bool:
-        """过滤问候/确认等不需要召回记忆的消息"""
-        trivial = ["你好", "好的", "谢谢", "ok", "是的", "对", "嗯", "hi", "hello"]
-        return msg.strip().lower() in trivial
+    def _format_memory(self, result: MemoryRetrievalResult) -> str | None:
+        if not result.items:
+            return None
+        labels = {d.value: d.value for d in MemoryDimension}
+        by_dim: dict[str, list] = {}
+        for item in result.items:
+            by_dim.setdefault(item.dimension.value, []).append(item)
+        sections = [f"【{labels.get(d, d)}】\n" + "\n".join(f"  - {i.content}" for i in items)
+                    for d, items in by_dim.items()]
+        return "<memory_context>\n" + "\n\n".join(sections) + "\n</memory_context>"
+
+    async def _async_extract(self, messages, thread_id, user_id):
+        try:
+            result = await self._engine.extract_and_update(messages, thread_id, user_id)
+            if result.items:
+                logger.info("Extracted %d memory items", len(result.items))
+        except Exception as e:
+            logger.error("Memory extraction failed: %s", e)

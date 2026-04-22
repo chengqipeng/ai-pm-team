@@ -1,147 +1,108 @@
-# neo_agent_v2 (design.md) vs DeepAgent 差异分析与待办
+# neo_agent_v2 vs DeepAgent — 代码级差异分析（最新）
 
-## 一、差异对比：谁的方案更优
-
-### 1.1 DeepAgent 多出的能力（建议保留）
-
-| 能力 | DeepAgent 实现 | design.md 是否有 | 评估 |
-|------|---------------|-----------------|------|
-| **TenantMiddleware** | 自动注入 tenant_id 到工具参数，记忆路径隔离 | 无 | **保留**。2B SaaS 必须有租户隔离，design.md 面向通用场景没考虑 |
-| **ContextMiddleware Layer 1** | 工具结果 >500 字符时代码提取摘要 + 虚拟文件保留原文 | 无（只有 Summarization） | **保留**。比 design.md 的 Summarization 更细粒度，在工具返回时就压缩，而不是等到 before_model |
-| **ContextMiddleware Layer 2** | MD5 去重（重复 ToolMessage 替换） | 无 | **保留**。design.md 的 LoopDetection 只检测重复 tool_calls，不检测重复 tool_results |
-| **HITLMiddleware** | is_destructive 检查 + 自定义规则 + resume 恢复 | ClarificationMiddleware（只处理 ask_clarification） | **保留并增强**。我们的 HITL 覆盖面更广（破坏性操作 + 自定义规则），design.md 的 Clarification 只处理一种工具 |
-| **SkillMiddleware** | 从 memory 召回 Skill 历史使用经验注入上下文 | 无独立中间件 | **保留**。design.md 的 Skill 经验在 SkillExecutor 内部，我们抽成独立中间件更灵活 |
-| **ReflectionNode** | 4 种反思策略（stuck/retry/replan/escalate） | 无 | **保留**。design.md 没有反思机制，LoopDetection 只是简单的循环检测 |
-| **PlanningNode** | 复杂任务自动分解为多步计划 | TodoMiddleware（注入 TODO 列表） | **保留**。我们的 PlanningNode 是主动规划，design.md 的 Todo 是被动注入 |
-| **before_tool_call / after_tool_call** | 独立的工具调用前后钩子 | 无（只有 wrap_tool_call） | **保留**。比 design.md 更细粒度，before_tool_call 可以修改参数，after_tool_call 可以修改结果 |
-| **Plugin 生命周期** | PluginRegistry + initialize/shutdown/health_check | 无 | **保留**。design.md 没有 Plugin 体系 |
-| **CRM 业务工具** | 5 个真实 CRUD 工具 + CrmSimulatedBackend | 无（通用框架） | **保留**。这是我们的业务层 |
-
-### 1.2 design.md 多出的能力（需要补齐）
-
-| 能力 | design.md 设计 | DeepAgent 现状 | 优先级 | 补齐方案 |
-|------|---------------|---------------|--------|---------|
-| **DanglingToolCallMiddleware** | 修复上一轮悬挂的 tool_calls（补充 error ToolMessage） | 无 | P1 | 新增中间件，在 before_step 中扫描 messages 补充缺失的 ToolMessage |
-| **ClarificationMiddleware** | 拦截 ask_clarification 工具，格式化后中断执行 | 无（我们的 ask_user 工具直接返回模拟回答） | P2 | 增强 ask_user 工具，支持 interrupt 模式 |
-| **OutputRenderMiddleware** | 将输出映射到 UI 组件（TableRenderer/ReportRenderer） | 无 | P2 | 新增中间件，在 after_step 中检测输出格式 |
-| **TitleMiddleware** | 首轮对话自动生成标题 | 无 | P3 | 简单实现：取第一条 HumanMessage 前 50 字符 |
-| **InputTransformMiddleware** | 输入预处理（多模态转换） | 无 | P3 | 预留骨架 |
-| **SubagentLimitMiddleware** | 限制单轮子 Agent 并发数 | 无（通过 max_llm_calls 间接限制） | P2 | 新增中间件，在 after_model 中检查 skills_tool 调用数量 |
-| **SubagentCache** | 子 Agent 实例缓存（LRU + TTL） | 无（每次创建新实例） | P2 | 在 SkillExecutor 中加缓存 |
-| **SubagentExecutor 双线程池** | IO Pool + CPU Pool 分离 | 无（直接 async） | P3 | 当前 async 方案在 Python 中已经足够 |
-| **YAML 配置文件** | AppConfig Pydantic + YAML/JSON + 环境变量覆盖 | AgentConfig dataclass + 代码传参 | P2 | 新增 YAML 加载器 |
-| **SSE 流式输出** | astream_events → SSE 事件流（token/tool_call/done） | yield state | P1 | 新增 stream_agent_response() 适配器 |
-| **NeoAgentV2Adapter** | 单例适配器层，懒加载 Agent | 无 | P1 | 新增适配器 |
-| **异常层次结构** | HarnessError + 9 个子类 | SkillExecutionError + SkillValidationError | P2 | 扩展异常体系 |
-| **OutputValidation 增强** | 检查实体缺失 + 工具使用不足 | 只检查长度 | P2 | 增强检查规则 |
-
-### 1.3 实现方案不同的（需要决策）
-
-| 能力 | design.md | DeepAgent | 决策建议 |
-|------|-----------|-----------|---------|
-| **编排引擎** | LangChain `create_agent` | 自研 `GraphEngine` | **迁移到 LangChain**。理由：跟随 LangChain 升级、社区生态、减少维护成本 |
-| **状态类型** | `ThreadState(MessagesState)` | `GraphState` dataclass | **迁移后自然对齐**。LangGraph 的 MessagesState 提供 messages reducer |
-| **工具错误处理** | 独立 `ToolErrorHandlingMiddleware` | ExecutionNode 内嵌 try/except | **抽成独立中间件**。更符合中间件架构 |
-| **fork 执行** | `SubagentExecutor` 线程池 | 直接 async 创建子 engine | **保持 async**。Python async 已经足够，线程池增加复杂度 |
-| **TODO 管理** | `TodoMiddleware` 注入 TODO 列表 | `PlanningNode` 主动规划 | **保留 PlanningNode**。主动规划比被动注入更强 |
+> 基于 neo_agent_v2 最新代码与 DeepAgent 当前代码的逐模块对比
 
 ---
 
-## 二、双方都没实现的功能
+## 一、模块对照表
 
-以下功能在 design.md 中有描述但标注为"预留骨架"或"空实现"，我们也没有实现：
-
-| 功能 | design.md 状态 | 说明 | 优先级 |
-|------|---------------|------|--------|
-| **多模态输入** | InputTransformMiddleware 中 MultimodalTransformer 为空骨架 | 图片/音频/视频输入处理 | P3 |
-| **UI 组件渲染** | OutputRenderMiddleware 中所有 Renderer 的 can_render() 返回 False | TableRenderer/ReportRenderer/DashboardRenderer | P2 |
-| **沙箱代码执行** | Features.sandbox_enabled 开关存在，但无实现 | 安全的代码执行环境 | P3 |
-| **MCP 工具集成** | Features.mcp_enabled 开关存在，配置结构定义了 | Model Context Protocol 外部工具 | P2 |
-| **向量存储记忆** | MemorySettings.vector_store 配置存在，MemoryEngine 为 NoopMemoryEngine | 基于向量检索的长期记忆 | P1 |
-| **记忆查询重写** | MemoryMiddleware 中 rewrite_query() 提到但未实现 | 多轮对话时重写查询以提高召回率 | P2 |
-| **Artifact 管理** | ThreadState.artifacts 字段 + artifacts_reducer 定义了 | Agent 生成的代码/文档制品管理 | P3 |
-| **计划模式** | TodoMiddleware 中 is_plan_mode 检查 | 用户显式进入计划模式，Agent 生成 TODO 列表 | P3 |
-| **模型提供商切换** | AppConfig.model.providers 配置 | 运行时切换 LLM 提供商（OpenAI/Anthropic/DeepSeek） | P2 |
-| **社区工具** | ToolSettings.community_tools 配置 | 加载社区贡献的工具包 | P3 |
+| neo_agent_v2 模块 | DeepAgent 对应 | 状态 | 差异说明 |
+|---|---|---|---|
+| `agents/lead_agent/agent.py` — `create_lead_agent()` | `langchain_agent.py` — `create_deep_agent()` | ✅ 已对齐 | 都调 `create_agent(model, tools, system_prompt, middleware, checkpointer)` |
+| `agents/lead_agent/prompt.py` — `build_system_prompt()` | `prompt_builder.py` — `build_system_prompt()` | ✅ 已对齐 | DeepAgent 版本结构一致，支持技能段落 + 记忆上下文 |
+| `agents/factory.py` — `make_lead_agent_with_model()` | `langchain_agent.py` — `create_deep_agent()` | ✅ 已对齐 | v2 的 factory.py 是旧入口，agent_factory.py 是新入口 |
+| `agents/agent_factory.py` — `AgentFactory` | `agent_factory.py` — `AgentFactory` | ✅ 已对齐 | 都有 LRU 缓存 + max_depth 限制 |
+| `agents/agent_config.py` — `AgentConfig` | 无独立文件 | ⚠️ 差异 | DeepAgent 用 `LangChainAgentConfig` dataclass，缺 YAML 定义支持 |
+| `agents/agent_loader.py` — `AgentLoader` | 无 | ❌ 缺失 | 从 definitions/ 目录自动发现 agent.yaml |
+| `agents/agent_registry.py` — `AgentRegistry` | 无 | ❌ 缺失 | 全局 Agent 配置注册表 |
+| `agents/features.py` — `Features` | 无 | ❌ 缺失 | 特性开关（sandbox/memory/subagent/guardrail/mcp） |
+| `agents/thread_state.py` — `ThreadState` | `state.py` — `GraphState` | ⚠️ 差异 | v2 用 LangGraph `MessagesState` + Artifact/ImageData；DeepAgent 用自定义 dataclass |
+| `agents/streaming.py` — `SSEEvent` | `streaming.py` — `SSEEvent` | ✅ 已对齐 | 代码几乎一致 |
+| `agents/checkpointer/provider.py` | `checkpointer.py` | ✅ 已对齐 | 都支持 SQLite，v2 额外有 Redis async |
+| **中间件（14 vs 13）** | | | |
+| `middlewares/agent_logging.py` | `middleware/agent_logging.py` | ✅ 已对齐 | v2 更详细（emoji 清理、GBK 兼容），DeepAgent 精简版 |
+| `middlewares/clarification.py` | `middleware/clarification.py` | ✅ 已对齐 | 逻辑一致 |
+| `middlewares/dangling_tool_call.py` | `middleware/dangling_tool_call.py` | ✅ 已对齐 | 代码一致 |
+| `middlewares/guardrail.py` | `middleware/guardrail.py` | ✅ 已对齐 | 代码一致 |
+| `middlewares/input_transform.py` | `middleware/input_transform.py` | ✅ 已对齐 | 骨架一致 |
+| `middlewares/loop_detection.py` | `middleware/loop_detection.py` | ✅ 已对齐 | 逻辑一致 |
+| `middlewares/memory.py` | `middleware/memory.py` | ✅ 已对齐 | 都有 MemoryEngine 协议 + NoopEngine |
+| `middlewares/output_render.py` | 无 | ❌ 缺失 | UI 组件渲染钩子（Table/Report/Dashboard） |
+| `middlewares/output_validation.py` | `middleware/output_validation.py` | ✅ 已对齐 | v2 更复杂（实体提取 + Skill 引用检查），DeepAgent 精简版 |
+| `middlewares/reflection.py` | 无 | ⏭️ 空文件 | v2 也是空文件，暂不需要 |
+| `middlewares/subagent_limit.py` | `middleware/subagent_limit.py` | ✅ 已对齐 | 逻辑一致 |
+| `middlewares/summarization.py` | `middleware/summarization.py` | ✅ 已对齐 | 逻辑一致 |
+| `middlewares/title.py` | `middleware/title.py` | ✅ 已对齐 | 逻辑一致 |
+| `middlewares/todo.py` | `middleware/todo.py` | ✅ 已对齐 | 逻辑一致 |
+| `middlewares/tool_error_handling.py` | `middleware/tool_error_handling.py` | ✅ 已对齐 | 代码一致 |
+| **工具系统** | | | |
+| `tools/skills_tool.py` — Pydantic `BaseTool` | `skills_tool.py` — Pydantic `BaseTool` | ✅ 已对齐 | 都用 `args_schema = SkillsToolInput` |
+| `tools/agent_tool.py` — Pydantic `BaseTool` | `agent_tool.py` — Pydantic `BaseTool` | ✅ 已对齐 | 都用 `args_schema = AgentToolInput` |
+| `tools/loader.py` — `ToolLoader` | 无独立文件 | ❌ 缺失 | 按名注册 + load_tools_by_names + 自动发现 |
+| **技能系统** | | | |
+| `skills/types.py` — `Skill` dataclass | `skills.py` — `SkillDefinition` dataclass | ✅ 已对齐 | 字段一致 |
+| `skills/parser.py` — `SkillParser` | `skills.py` — `SkillLoader.parse()` | ✅ 已对齐 | v2 拆分更细，功能等价 |
+| `skills/loader.py` — `SkillLoader` | `skills.py` — `SkillLoader` | ✅ 已对齐 | 功能等价 |
+| `skills/registry.py` — `SkillRegistry` | `skills.py` — `SkillRegistry` | ✅ 已对齐 | v2 多了 `__len__`/`__contains__` |
+| `skills/executor.py` — `SkillExecutor` | `skills.py` — `SkillExecutor` | ⚠️ 差异 | v2 的 fork 用 `AgentFactory.build()`；DeepAgent 仍用 `create_deep_agent()` |
+| `skills/validation.py` | `skills.py` — `SkillLoader.validate()` | ✅ 已对齐 | v2 拆分独立文件 |
+| `skills/installer.py` | 无 | ⏭️ 占位 | v2 也是 `raise NotImplementedError` |
+| **子 Agent 系统** | | | |
+| `subagents/config.py` — `SubagentConfig` | `subagent_config.py` — `SubagentConfig` | ⚠️ 差异 | v2 多了 `inherit_middleware`/`middleware_config` 字段 |
+| `subagents/factory.py` — `SubagentFactory` | 无 | ❌ 缺失 | 独立的子 Agent 工厂（与 AgentFactory 分离） |
+| `subagents/registry.py` — `SubagentRegistry` | `subagent_config.py` — `SubagentRegistry` | ⚠️ 差异 | v2 多了 `register_config()`/`get_config()` |
+| `subagents/executor.py` — `SubagentExecutor` | 无 | ❌ 缺失 | 双线程池（IO/CPU）异步执行 |
+| `subagents/builtins/` | 无 | ❌ 缺失 | bash_agent + general_purpose（桩实现） |
+| **记忆系统** | | | |
+| `memory/storage.py` — `MemoryStorage` | 无 | ❌ 缺失 | 原子文件 I/O（写临时文件 → os.rename） |
+| `memory/embedding.py` — `EmbeddingClient` | 无 | ❌ 缺失 | text-embedding-3-small 向量化 |
+| `memory/vector_store.py` — `ChromaVectorStore` | 无 | ❌ 缺失 | ChromaDB 向量检索 |
+| `memory/prompt.py` — `MemoryChunk` + `build_memory_prompt()` | 无 | ❌ 缺失 | 短期 + 长期记忆提示词构建 |
+| `memory/queue.py` — `DebounceQueue` | 无 | ❌ 缺失 | 防抖合并记忆更新请求 |
+| `memory/updater.py` — `MemoryUpdater` | 无 | ❌ 缺失 | LLM 提取关键信息更新记忆 |
+| **配置系统** | | | |
+| `config/loader.py` — `ConfigLoader` | 无 | ❌ 缺失 | YAML/JSON + 环境变量覆盖 |
+| `config/models.py` — `AppConfig` Pydantic | 无 | ❌ 缺失 | 类型化配置模型 |
+| **上传管理** | | | |
+| `uploads/manager.py` — `UploadManager` | 无 | ❌ 缺失 | 文件存储 + 文档转 Markdown |
+| **异常体系** | | | |
+| `exceptions.py` — 8 个异常类 | `exceptions.py` — 6 个异常类 | ⚠️ 差异 | DeepAgent 缺 `SandboxError`/`MCPConnectionError`/`VectorStoreError` |
+| **适配器** | | | |
+| `adapter.py` — `NeoAgentV2Adapter` | `adapter.py` — `NeoAgentV2Adapter` | ⚠️ 差异 | v2 多了 `execute_agui()` AG-UI 管道 |
 
 ---
 
-## 三、GraphEngine → LangChain 迁移方案
+## 二、剩余差距汇总
 
-### 3.1 迁移范围
+### 已完成对齐（上一轮实现）
+- ✅ 13 个中间件（vs v2 的 14 个，仅缺 OutputRender 骨架）
+- ✅ SkillsTool / AgentTool — Pydantic BaseTool
+- ✅ AgentFactory — LRU 缓存 + 深度限制
+- ✅ 统一异常体系
+- ✅ PromptBuilder 结构化提示词
 
-需要替换的文件：
-- `src/graph/engine.py` — GraphEngine → 用 `create_agent` 或 LangGraph StateGraph
-- `src/graph/router.py` — Router → LangGraph 条件边
-- `src/graph/state.py` — GraphState → 继承 MessagesState
-- `src/graph/factory.py` — AgentFactory → 调用 create_agent
-- `src/nodes/execution.py` — ExecutionNode → LangGraph 内置 ToolNode + 中间件
-- `src/nodes/planning.py` — PlanningNode → LangGraph 节点
-- `src/nodes/reflection.py` — ReflectionNode → LangGraph 节点
+### 仍需实现
 
-不需要改的文件：
-- `src/skills.py` — Skill 体系独立于编排引擎
-- `src/tools.py` — Tool 基类需要适配为 BaseTool
-- `src/middleware/*.py` — 中间件需要适配为 AgentMiddleware
-- `src/crm_*.py` — 业务层不变
-- `src/plugin.py` — Plugin 体系独立
+| 优先级 | 模块 | 说明 | 工作量 |
+|--------|------|------|--------|
+| P1 | `SkillExecutor.fork` 改用 `AgentFactory` | 当前仍每次 `create_deep_agent`，无缓存 | 1h |
+| P1 | `ToolLoader` | 按名注册 + `load_tools_by_names` + 目录自动发现 | 1h |
+| P1 | `SubagentConfig` 补齐字段 | 加 `inherit_middleware`/`middleware_config`/`middleware_names` | 0.5h |
+| P1 | `Features` 特性开关 | 控制中间件加载 | 0.5h |
+| P2 | `AgentLoader` + `AgentRegistry` | YAML 定义自动发现 | 2h |
+| P2 | `OutputRenderMiddleware` | UI 组件渲染骨架 | 0.5h |
+| P2 | `memory/` 完整体系 | Storage + Embedding + VectorStore + Queue + Updater + Prompt | 4h |
+| P2 | `config/` 配置体系 | ConfigLoader + AppConfig Pydantic | 2h |
+| P2 | `uploads/` 上传管理 | UploadManager + 文档转 Markdown | 1h |
+| P2 | `ThreadState` 替换 `GraphState` | MessagesState + Artifact + ImageData | 2h |
+| P2 | `SubagentFactory` + `SubagentExecutor` | 独立子 Agent 工厂 + 双线程池 | 2h |
+| P2 | `adapter.py` 补 AG-UI | `execute_agui()` 方法 | 1h |
+| P3 | 异常补齐 | SandboxError/MCPConnectionError/VectorStoreError | 0.5h |
 
-### 3.2 迁移风险
-
-| 风险 | 影响 | 缓解措施 |
-|------|------|---------|
-| LangChain API 不稳定 | create_agent 是新 API，可能变更 | 锁定版本，封装适配层 |
-| 中间件接口不兼容 | AgentMiddleware 的钩子签名与我们不同 | 写适配器包装现有中间件 |
-| 状态模型差异 | MessagesState 的 messages 是 LangChain Message 类型 | 需要转换层 |
-| 测试全部重写 | 26 个测试依赖 GraphEngine | 分阶段迁移，保持旧测试可运行 |
-
-### 3.3 建议方案
-
-**不建议一次性迁移**。建议分两步：
-
-**Phase 1（短期）：** 保持自研 GraphEngine，但让 Tool 和 Middleware 的接口与 LangChain 对齐
-- Tool 基类增加 `_arun()` / `_run()` 方法（兼容 BaseTool）
-- Middleware 增加 `awrap_tool_call` 方法（兼容 AgentMiddleware）
-- 状态模型增加 messages reducer（兼容 MessagesState）
-
-**Phase 2（中期）：** 引入 LangGraph 作为编排引擎
-- 用 LangGraph StateGraph 替换 GraphEngine
-- PlanningNode / ExecutionNode / ReflectionNode 转为 LangGraph 节点
-- Router 转为 LangGraph 条件边
-- 中间件通过 AgentMiddleware 适配器接入
-
----
-
-## 四、优先级排序
-
-### P0（必须做，阻塞上线）
-- [ ] SSE 流式输出 + NeoAgentV2Adapter 适配器
-- [ ] DanglingToolCallMiddleware（修复悬挂 tool_calls）
-
-### P1（应该做，影响体验）
-- [ ] 向量存储记忆（替换内存 MemoryPlugin）
-- [ ] Tool 接口对齐 LangChain BaseTool
-- [ ] Middleware 接口对齐 LangChain AgentMiddleware
-- [ ] ToolErrorHandlingMiddleware（从 ExecutionNode 抽出）
-
-### P2（可以做，提升质量）
-- [ ] SubagentCache（LRU + TTL）
-- [ ] SubagentLimitMiddleware
-- [ ] ClarificationMiddleware（增强 ask_user）
-- [ ] OutputRenderMiddleware（UI 组件映射）
-- [ ] OutputValidation 增强（实体+工具使用检查）
-- [ ] YAML 配置文件加载
-- [ ] 异常层次结构扩展
-- [ ] MCP 工具集成
-- [ ] 记忆查询重写
-- [ ] 模型提供商切换
-
-### P3（锦上添花）
-- [ ] TitleMiddleware
-- [ ] InputTransformMiddleware
-- [ ] 多模态输入
-- [ ] 沙箱代码执行
-- [ ] Artifact 管理
-- [ ] 计划模式
-- [ ] 社区工具
-- [ ] GraphEngine → LangGraph 迁移（Phase 2）
+### DeepAgent 独有（需保留）
+- `plugin.py` — Plugin 生命周期（v2 无此体系）
+- `crm_backend.py` + `crm_tools.py` + `crm_skills.py` — CRM 业务模拟
+- `tools.py` — Tool 高级特性（aliases/search_hint/should_defer/max_result_size_chars）
+- `llm_client.py` — MockLLMClient 可编程测试
+- `service_backend.py` — 微服务调用抽象
+- `async_agent.py` — fire-and-forget 异步任务

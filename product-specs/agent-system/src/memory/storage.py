@@ -1,0 +1,217 @@
+"""记忆存储 — 原子文件 I/O + SQLite FTS5 全文搜索
+
+MemoryStorage 提供两种存储模式：
+1. 文件模式：每用户一个 .md 文件，原子写入（写临时文件 → os.rename）
+2. SQLite FTS5 模式：全文搜索索引，支持快速语义检索
+"""
+from __future__ import annotations
+
+import logging
+import os
+import sqlite3
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+class MemoryStorage:
+    """原子文件 I/O + SQLite FTS5 全文搜索的记忆存储"""
+
+    def __init__(self, storage_dir: str = "./data/memory") -> None:
+        self._storage_dir = Path(storage_dir)
+        self._db_path = self._storage_dir / "memory.db"
+        self._conn: sqlite3.Connection | None = None
+
+    def _ensure_db(self) -> sqlite3.Connection:
+        """延迟初始化 SQLite + FTS5"""
+        if self._conn is not None:
+            return self._conn
+        self._storage_dir.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        # 创建 FTS5 虚拟表
+        self._conn.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+                user_id, dimension, content, metadata,
+                created_at UNINDEXED,
+                tokenize='unicode61'
+            )
+        """)
+        # 普通表用于精确查询
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                dimension TEXT NOT NULL DEFAULT '',
+                content TEXT NOT NULL,
+                metadata TEXT DEFAULT '{}',
+                created_at REAL NOT NULL
+            )
+        """)
+        self._conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id)
+        """)
+        self._conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_memories_dimension ON memories(user_id, dimension)
+        """)
+        self._conn.commit()
+        logger.info("MemoryStorage initialized: %s", self._db_path)
+        return self._conn
+
+    # ── FTS5 操作 ──
+
+    def add(self, user_id: str, content: str, dimension: str = "",
+            metadata: str = "{}") -> int:
+        """添加记忆条目，同时写入 FTS5 索引和普通表"""
+        conn = self._ensure_db()
+        now = time.time()
+        cursor = conn.execute(
+            "INSERT INTO memories (user_id, dimension, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, dimension, content, metadata, now),
+        )
+        row_id = cursor.lastrowid
+        conn.execute(
+            "INSERT INTO memory_fts (user_id, dimension, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, dimension, content, metadata, str(now)),
+        )
+        conn.commit()
+        return row_id
+
+    def search(self, query: str, user_id: str | None = None,
+               dimension: str | None = None, top_k: int = 5) -> list[dict]:
+        """FTS5 全文搜索，中文自动 fallback 到 LIKE"""
+        conn = self._ensure_db()
+
+        # FTS5 unicode61 对中文分词支持有限，优先尝试 FTS5，失败则 LIKE
+        # 构建 FTS5 查询：每个词用 OR 连接
+        words = query.strip().split()
+        if not words:
+            return []
+
+        # 尝试 FTS5
+        fts_terms = " OR ".join(f'"{w}"' for w in words if w)
+        conditions = [f"memory_fts MATCH '{fts_terms}'"]
+        params: list[Any] = []
+        if user_id:
+            conditions.append("user_id = ?")
+            params.append(user_id)
+        if dimension:
+            conditions.append("dimension = ?")
+            params.append(dimension)
+
+        where = " AND ".join(conditions)
+        sql = f"""
+            SELECT user_id, dimension, content, metadata, created_at, rank
+            FROM memory_fts WHERE {where}
+            ORDER BY rank LIMIT ?
+        """
+        params.append(top_k)
+
+        try:
+            rows = conn.execute(sql, params).fetchall()
+            if rows:
+                return [
+                    {"user_id": r[0], "dimension": r[1], "content": r[2],
+                     "metadata": r[3], "created_at": float(r[4]), "rank": r[5]}
+                    for r in rows
+                ]
+        except sqlite3.OperationalError:
+            pass
+
+        # FTS5 无结果或失败 → LIKE fallback
+        return self._search_like(query, user_id, dimension, top_k)
+
+    def _search_like(self, query: str, user_id: str | None,
+                     dimension: str | None, top_k: int) -> list[dict]:
+        """FTS5 查询失败时的 LIKE fallback"""
+        conn = self._ensure_db()
+        conditions = ["content LIKE ?"]
+        params: list[Any] = [f"%{query}%"]
+        if user_id:
+            conditions.append("user_id = ?")
+            params.append(user_id)
+        if dimension:
+            conditions.append("dimension = ?")
+            params.append(dimension)
+        where = " AND ".join(conditions)
+        sql = f"SELECT user_id, dimension, content, metadata, created_at FROM memories WHERE {where} ORDER BY created_at DESC LIMIT ?"
+        params.append(top_k)
+        rows = conn.execute(sql, params).fetchall()
+        return [
+            {"user_id": r[0], "dimension": r[1], "content": r[2],
+             "metadata": r[3], "created_at": r[4], "rank": 0.0}
+            for r in rows
+        ]
+
+    def get_by_user(self, user_id: str, dimension: str | None = None,
+                    limit: int = 50) -> list[dict]:
+        """按用户 ID 精确查询"""
+        conn = self._ensure_db()
+        if dimension:
+            rows = conn.execute(
+                "SELECT id, user_id, dimension, content, metadata, created_at FROM memories WHERE user_id = ? AND dimension = ? ORDER BY created_at DESC LIMIT ?",
+                (user_id, dimension, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, user_id, dimension, content, metadata, created_at FROM memories WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+        return [
+            {"id": r[0], "user_id": r[1], "dimension": r[2], "content": r[3],
+             "metadata": r[4], "created_at": r[5]}
+            for r in rows
+        ]
+
+    def count(self, user_id: str | None = None) -> int:
+        """统计记忆条目数"""
+        conn = self._ensure_db()
+        if user_id:
+            return conn.execute("SELECT COUNT(*) FROM memories WHERE user_id = ?", (user_id,)).fetchone()[0]
+        return conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+
+    def delete_by_user(self, user_id: str) -> int:
+        """删除用户所有记忆"""
+        conn = self._ensure_db()
+        conn.execute("DELETE FROM memories WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM memory_fts WHERE user_id = ?", (user_id,))
+        conn.commit()
+        return conn.total_changes
+
+    # ── 文件模式（短期记忆/用户画像） ──
+
+    def read_file(self, user_id: str) -> str:
+        """读取用户记忆文件"""
+        safe_id = user_id.replace("/", "_").replace("\\", "_").replace("..", "_")
+        path = self._storage_dir / f"{safe_id}.md"
+        try:
+            return path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return ""
+
+    def write_file(self, user_id: str, content: str) -> None:
+        """原子写入用户记忆文件（写临时文件 → os.rename）"""
+        safe_id = user_id.replace("/", "_").replace("\\", "_").replace("..", "_")
+        path = self._storage_dir / f"{safe_id}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.stem}_", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, str(path))
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+    def close(self) -> None:
+        if self._conn:
+            self._conn.close()
+            self._conn = None

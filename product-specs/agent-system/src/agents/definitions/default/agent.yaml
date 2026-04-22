@@ -1,0 +1,19 @@
+name: default
+description: CRM 智能业务助手（默认入口 Agent）
+model: deepseek-chat
+system_prompt: ""
+
+tools: []
+skills: []
+
+middleware:
+  inherit: true
+  names: []
+  config: {}
+
+features:
+  memory_enabled: true
+  subagent_enabled: true
+  guardrail_enabled: true
+  mcp_enabled: false
+  skill_autogen_enabled: false
