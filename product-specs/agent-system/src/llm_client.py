@@ -190,9 +190,9 @@ class DeepSeekClient(LLMClient):
     def _sanitize_messages(self, messages: list[dict]) -> list[dict]:
         """
         清理消息格式，确保符合 OpenAI Chat Completions API 要求:
-        - role 必须是 system/user/assistant/tool
-        - content 不能为空字符串（可以为 None，当 assistant 有 tool_calls 时）
-        - tool_result 使用 role=tool + tool_call_id
+        - assistant 消息中的 tool_use → tool_calls 字段
+        - tool_result → role=tool + tool_call_id
+        - 消息交替规则
         """
         sanitized = []
         for msg in messages:
@@ -202,48 +202,73 @@ class DeepSeekClient(LLMClient):
             # 跳过空消息
             if not content and role != "assistant":
                 continue
-
             if isinstance(content, str) and not content.strip() and role != "assistant":
                 continue
 
-            # 处理 content 为 list 的情况（Anthropic 格式 → OpenAI 格式）
+            # 处理 content 为 list 的情况
             if isinstance(content, list):
-                # 提取文本部分
                 text_parts = []
                 tool_results = []
+                tool_uses = []
                 for block in content:
                     if isinstance(block, dict):
-                        if block.get("type") == "text":
+                        btype = block.get("type", "")
+                        if btype == "text":
                             text_parts.append(block.get("text", ""))
-                        elif block.get("type") == "tool_result":
+                        elif btype == "tool_result":
                             tool_results.append(block)
-                
-                # tool_result 转为 OpenAI 的 role=tool 消息
+                        elif btype == "tool_use":
+                            tool_uses.append(block)
+
+                # assistant 消息包含 tool_use → 转为 OpenAI tool_calls 格式
+                if role == "assistant" and tool_uses:
+                    tool_calls = []
+                    for tu in tool_uses:
+                        tool_calls.append({
+                            "id": tu.get("id", ""),
+                            "type": "function",
+                            "function": {
+                                "name": tu.get("name", ""),
+                                "arguments": json.dumps(tu.get("input", {}), ensure_ascii=False),
+                            },
+                        })
+                    assistant_msg = {
+                        "role": "assistant",
+                        "tool_calls": tool_calls,
+                    }
+                    # 如果有文本部分，加到 content
+                    if text_parts:
+                        assistant_msg["content"] = "\n".join(text_parts)
+                    else:
+                        assistant_msg["content"] = None
+                    sanitized.append(assistant_msg)
+                    continue
+
+                # user 消息包含 tool_result → 转为 role=tool
                 for tr in tool_results:
                     sanitized.append({
                         "role": "tool",
                         "tool_call_id": tr.get("tool_use_id", ""),
                         "content": tr.get("content", ""),
                     })
-                
-                # 文本部分作为普通消息
+
                 if text_parts:
                     sanitized.append({"role": role, "content": "\n".join(text_parts)})
                 continue
 
             sanitized.append({"role": role, "content": content})
 
-        # 确保消息交替: 合并连续的同角色消息（跳过 tool 消息）
+        # 合并连续同角色消息（跳过 tool 和含 tool_calls 的 assistant）
         merged = []
         for msg in sanitized:
-            if msg["role"] == "tool":
+            if msg["role"] == "tool" or msg.get("tool_calls"):
                 merged.append(dict(msg))
                 continue
-            if merged and merged[-1].get("role") == msg["role"] and msg["role"] != "tool":
-                prev_content = merged[-1].get("content", "")
-                curr_content = msg.get("content", "")
-                if isinstance(prev_content, str) and isinstance(curr_content, str):
-                    merged[-1]["content"] = prev_content + "\n" + curr_content
+            if merged and merged[-1].get("role") == msg["role"] and not merged[-1].get("tool_calls"):
+                prev = merged[-1].get("content", "")
+                curr = msg.get("content", "")
+                if isinstance(prev, str) and isinstance(curr, str):
+                    merged[-1]["content"] = prev + "\n" + curr
                 else:
                     merged.append(dict(msg))
             else:

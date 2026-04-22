@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 from .base import PluginContext
-from ..graph.state import GraphState
+from ..state import GraphState
 from ..dtypes import MessageRole
 
 
@@ -34,7 +34,7 @@ class ContextMiddleware:
             # 尝试代码提取
             extracted = self._try_code_extract(content)
             if extracted:
-                from ..graph.state import FileInfo
+                from ..state import FileInfo
                 state.file_list.append(FileInfo(
                     file_path=f"/action_result/{tool_name}_{state.total_tool_calls}",
                     content=content,

@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_45760bb86686",
+  "tenant_id": "t1",
+  "user_id": "u1",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 2,
+  "total_tool_calls": 0,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "商机按阶段统计: closing 18万, negotiation 148万, proposal 107万。"
+}

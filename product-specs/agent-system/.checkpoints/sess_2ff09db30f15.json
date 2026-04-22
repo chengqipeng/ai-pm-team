@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_2ff09db30f15",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 2,
+  "total_llm_calls": 6,
+  "total_tool_calls": 2,
+  "pause_reason": null,
+  "checkpoint_version": 5,
+  "final_answer": "已清理2条过期线索。"
+}

@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_7ce6b08abf25",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 3,
+  "total_llm_calls": 8,
+  "total_tool_calls": 3,
+  "pause_reason": null,
+  "checkpoint_version": 5,
+  "final_answer": "华为360: 通信设备/深圳/20.7万人/8809亿。4个商机(安全审计即将关闭/CRM在谈判)。联系人: 张伟(IT总监)/李娜(采购经理)。建议联系张伟推进安全审计。"
+}

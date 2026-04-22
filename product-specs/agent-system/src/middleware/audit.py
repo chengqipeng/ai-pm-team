@@ -5,7 +5,7 @@ import time
 import logging
 
 from .base import PluginContext
-from ..graph.state import GraphState
+from ..state import GraphState
 
 logger = logging.getLogger(__name__)
 

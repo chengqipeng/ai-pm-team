@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_69c6c193cccd",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 3,
+  "total_tool_calls": 1,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "华为有4个商机，安全审计即将关闭，CRM部署在谈判中。"
+}

@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_82c10aec4e0e",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "paused",
+  "current_step_index": 2,
+  "total_llm_calls": 6,
+  "total_tool_calls": 1,
+  "pause_reason": "破坏性操作需要确认: modify_data",
+  "checkpoint_version": 5,
+  "final_answer": ""
+}

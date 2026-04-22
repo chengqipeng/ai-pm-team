@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_abd877292cf1",
+  "tenant_id": "tenant_001",
+  "user_id": "user_async",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 1,
+  "total_tool_calls": 0,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "腾讯数据中台项目金额62万，proposal阶段。"
+}

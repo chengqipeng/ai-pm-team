@@ -83,8 +83,8 @@ public class Department extends BaseMetaTenantEntity {
     private String deptParentApiKey;   // dbc_varchar5
     /** 部门层级 */
     private Long departLevel;          // dbc_bigint2
-    /** 部门负责人 */
-    private Long managerId;            // dbc_bigint3
+    /** 部门负责人 api_key */
+    private String managerApiKey;      // dbc_varchar6
     /** 排序 */
     private Long sortOrder;            // dbc_bigint4
     /** 启用状态 */

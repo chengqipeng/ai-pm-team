@@ -73,7 +73,7 @@ class AsyncSubAgentManager:
     async def _run(self, task: AsyncTask, engine_factory, config):
         try:
             from .graph.factory import AgentFactory
-            from .graph.state import GraphState
+            from .state import GraphState
             from .dtypes import Message, MessageRole
 
             engine, sys_prompt = AgentFactory.create(config)

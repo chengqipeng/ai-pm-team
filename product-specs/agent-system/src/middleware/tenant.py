@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .base import PluginContext
-from ..graph.state import GraphState
+from ..state import GraphState
 
 
 class TenantMiddleware:

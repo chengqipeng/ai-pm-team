@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_7778bb0eb450",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 2,
+  "total_tool_calls": 1,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "腾讯商机查询完成。"
+}

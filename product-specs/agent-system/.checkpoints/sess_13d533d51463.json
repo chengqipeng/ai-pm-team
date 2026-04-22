@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_13d533d51463",
+  "tenant_id": "tenant_001",
+  "user_id": "user_async",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 1,
+  "total_tool_calls": 0,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "[MockLLM: no more responses]"
+}

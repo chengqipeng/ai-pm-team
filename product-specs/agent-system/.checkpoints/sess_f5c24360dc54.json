@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_f5c24360dc54",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "max_turns",
+  "current_step_index": 3,
+  "total_llm_calls": 7,
+  "total_tool_calls": 2,
+  "pause_reason": null,
+  "checkpoint_version": 5,
+  "final_answer": "预算已耗尽。\n已完成: 查客户; 查商机; 查联系人\n未完成: 生成报告\n"
+}

@@ -1,8 +1,17 @@
-"""SkillMiddleware — 技能经验注入"""
+"""
+SkillMiddleware — 技能经验注入 + before_model 上下文增强
+
+对应 design.md §5.3.6 + §6.7:
+- before_step: 匹配 Skill → 从 memory 召回历史经验
+- before_model: 如果有匹配的 inline Skill，将经验注入到 LLM 上下文
+"""
 from __future__ import annotations
 
+import logging
 from .base import PluginContext
-from ..graph.state import GraphState
+from ..state import GraphState
+
+logger = logging.getLogger(__name__)
 
 
 class SkillMiddleware:
@@ -12,14 +21,17 @@ class SkillMiddleware:
         self._registry = skill_registry
 
     async def before_step(self, state: GraphState, context: PluginContext) -> GraphState:
-        """如果当前步骤涉及技能，注入历史使用经验"""
-        if not self._registry or not context.memory:
+        """匹配 Skill → 从 memory 召回历史使用经验"""
+        if not self._registry:
             return state
         step = state.current_step
         if not step:
             return state
-        # 搜索技能相关的历史经验
-        skill = self._registry.match_by_intent(step.description) if hasattr(self._registry, "match_by_intent") else None
+
+        skill = None
+        if hasattr(self._registry, 'match_by_intent'):
+            skill = self._registry.match_by_intent(step.description)
+
         if skill and context.memory:
             try:
                 memories = await context.memory.recall(
@@ -28,14 +40,27 @@ class SkillMiddleware:
                     max_results=2,
                 )
                 if memories:
-                    exp = "\n".join(f"- {m.get('content', m) if isinstance(m, dict) else str(m)}" for m in memories)
+                    exp = "\n".join(
+                        f"- {m.get('content', m) if isinstance(m, dict) else str(m)}"
+                        for m in memories
+                    )
                     state.memory_context += f"\n[技能经验: {skill.name}]\n{exp}"
-            except Exception:
-                pass
+                    logger.info(f"SkillMiddleware: injected experience for {skill.name}")
+            except Exception as e:
+                logger.warning(f"SkillMiddleware recall error: {e}")
+
         return state
 
     async def after_step(self, state: GraphState, context: PluginContext) -> GraphState:
         return state
+
+    async def before_model(self, state: GraphState, context: PluginContext) -> GraphState:
+        """每次 LLM 调用前 — 可在此注入 Skill 相关的上下文"""
+        return state
+
+    async def after_model(self, state: GraphState, response: dict, context: PluginContext) -> dict:
+        """每次 LLM 调用后 — 可在此检查 LLM 是否正确使用了 Skill"""
+        return response
 
     async def before_tool_call(self, tool_name, input_data, state, context):
         return input_data

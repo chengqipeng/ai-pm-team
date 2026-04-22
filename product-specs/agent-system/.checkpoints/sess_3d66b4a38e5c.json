@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_3d66b4a38e5c",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 10,
+  "total_tool_calls": 1,
+  "pause_reason": null,
+  "checkpoint_version": 8,
+  "final_answer": "基于内部数据: 5个客户总营收2292亿，平均458亿。华为和腾讯占65%。"
+}

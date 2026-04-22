@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from .base import PluginContext
-from ..graph.state import GraphState, AgentStatus
+from ..state import GraphState, AgentStatus
 
 
 @dataclass
@@ -39,6 +39,11 @@ class HITLMiddleware:
         return state
 
     async def before_tool_call(self, tool_name, input_data, state, context):
+        # 如果刚从 approve 恢复，放行一次
+        if getattr(state, "_hitl_approved_once", False):
+            state._hitl_approved_once = False
+            return input_data
+
         tool = context.tool_registry.find_by_name(tool_name) if context.tool_registry else None
 
         # 规则 1: 内置 — is_destructive

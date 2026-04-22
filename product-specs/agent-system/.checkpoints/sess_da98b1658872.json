@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_da98b1658872",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 2,
+  "total_tool_calls": 0,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "招行风控$120万(negotiation/75%)，有1个待办POC任务。"
+}
