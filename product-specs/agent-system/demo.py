@@ -13,7 +13,7 @@ DeepAgent 全功能 Demo — 覆盖所有 37 个测试场景
   F. 记忆系统（FTS5 存储 / FTSEngine / 防抖队列 / 记忆提示词）
   G. 多模型路由 / 自动技能生成 / AgentConfig YAML 发现
   H. ThreadState / OutputRender / Plugin 生命周期
-  I. 真实 DeepSeek API 端到端调用
+  I. 真实豆包 API 端到端调用
 """
 import asyncio
 import json
@@ -23,7 +23,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(__file__))
-os.environ.setdefault("DEEPSEEK_API_KEY", "sk-a86b7e7ca89e4a4283c0a8a7bcb34b9c")
+os.environ.setdefault("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
 
 passed = 0
 failed = 0
@@ -93,8 +93,8 @@ def demo_create_agent():
                                         arguments=["entity"], context="inline", when_to_use="校验"))
 
     config = LangChainAgentConfig(
-        model="deepseek-chat", api_key=os.environ["DEEPSEEK_API_KEY"],
-        api_base="https://api.deepseek.com", tool_registry=reg,
+        model="doubao-1-5-pro-32k-250115", api_key=os.environ["DOUBAO_API_KEY"],
+        api_base="https://ark.cn-beijing.volces.com/api/v3/", tool_registry=reg,
         skill_registry=skill_reg,
         system_prompt=_build_prompt(agent_name="CRM-Agent", skills=skill_reg.list_all()),
     )
@@ -243,8 +243,8 @@ def demo_exceptions():
     e4 = AuthorizationDeniedError("modify_data", "只读权限")
     check("AuthorizationDeniedError", "modify_data" in str(e4))
 
-    e5 = CredentialError("deepseek", "key expired")
-    check("CredentialError", "deepseek" in str(e5))
+    e5 = CredentialError("doubao", "key expired")
+    check("CredentialError", "doubao" in str(e5))
 
 
 async def demo_pydantic_skills_tool():
@@ -277,8 +277,8 @@ def demo_agent_factory():
     from src.agents.agent_factory import AgentFactory
     from langchain_openai import ChatOpenAI
 
-    model = ChatOpenAI(model="deepseek-chat", api_key=os.environ["DEEPSEEK_API_KEY"],
-                       base_url="https://api.deepseek.com")
+    model = ChatOpenAI(model="doubao-1-5-pro-32k-250115", api_key=os.environ["DOUBAO_API_KEY"],
+                       base_url="https://ark.cn-beijing.volces.com/api/v3/")
     from src.core.prompt_builder import build_system_prompt as _build
     factory = AgentFactory(default_model=model, default_system_prompt=_build(agent_name="CRM-Agent"))
     check("创建成功", factory is not None)
@@ -634,8 +634,8 @@ def demo_model_router():
     from src.core.model_router import ModelRouter, ModelRouterConfig, ModelConfig, TaskType
 
     config = ModelRouterConfig(
-        default=ModelConfig(model="deepseek-chat", api_key=os.environ["DEEPSEEK_API_KEY"]),
-        routes={TaskType.SIMPLE.value: ModelConfig(model="deepseek-chat", api_key=os.environ["DEEPSEEK_API_KEY"])},
+        default=ModelConfig(model="doubao-1-5-pro-32k-250115", api_key=os.environ["DOUBAO_API_KEY"]),
+        routes={TaskType.SIMPLE.value: ModelConfig(model="doubao-1-5-pro-32k-250115", api_key=os.environ["DOUBAO_API_KEY"])},
     )
     router = ModelRouter(config)
     check("总结→SIMPLE", router.classify_task("帮我总结") == TaskType.SIMPLE)
@@ -759,11 +759,11 @@ def demo_subagent_config():
 
 
 # ═══════════════════════════════════════════════════════════
-# I. 真实 DeepSeek API 端到端
+# I. 真实豆包 API 端到端
 # ═══════════════════════════════════════════════════════════
 
 async def demo_real_api():
-    section("真实 DeepSeek API 端到端调用")
+    section("真实豆包 API 端到端调用")
     from src.tools.base import ToolRegistry
     from src.tools.crm_backend import CrmSimulatedBackend
     from src.tools.crm_tools import register_crm_tools
@@ -777,13 +777,13 @@ async def demo_real_api():
     from src.core.prompt_builder import build_system_prompt as _bp
 
     config = LangChainAgentConfig(
-        model="deepseek-chat", api_key=os.environ["DEEPSEEK_API_KEY"],
-        api_base="https://api.deepseek.com", tool_registry=reg,
+        model="doubao-1-5-pro-32k-250115", api_key=os.environ["DOUBAO_API_KEY"],
+        api_base="https://ark.cn-beijing.volces.com/api/v3/", tool_registry=reg,
         system_prompt=_bp(agent_name="CRM-Agent"),
     )
     agent = create_deep_agent(config)
 
-    print("  ⏳ 调用 DeepSeek API...")
+    print("  ⏳ 调用豆包 API...")
     result = await agent.ainvoke({"messages": [{"role": "user", "content": "系统中有多少个客户？"}]})
     messages = result.get("messages", [])
     check("有返回消息", len(messages) > 0)

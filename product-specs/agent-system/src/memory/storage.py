@@ -126,10 +126,22 @@ class MemoryStorage:
 
     def _search_like(self, query: str, user_id: str | None,
                      dimension: str | None, top_k: int) -> list[dict]:
-        """FTS5 查询失败时的 LIKE fallback"""
+        """FTS5 查询失败时的 LIKE fallback — 多词 OR 匹配"""
         conn = self._ensure_db()
-        conditions = ["content LIKE ?"]
-        params: list[Any] = [f"%{query}%"]
+
+        # 拆分查询词，每个词一个 LIKE 条件，用 OR 连接
+        words = [w.strip() for w in query.split() if w.strip()]
+        if not words:
+            words = [query.strip()]
+
+        like_conditions = [f"content LIKE ?" for _ in words]
+        like_params: list[Any] = [f"%{w}%" for w in words]
+
+        # 组合：(word1 OR word2 OR ...) AND user_id AND dimension
+        word_clause = "(" + " OR ".join(like_conditions) + ")"
+        conditions = [word_clause]
+        params = list(like_params)
+
         if user_id:
             conditions.append("user_id = ?")
             params.append(user_id)

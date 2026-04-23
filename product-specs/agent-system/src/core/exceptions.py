@@ -63,3 +63,37 @@ class CredentialError(DeepAgentError):
         if detail:
             msg += f": {detail}"
         super().__init__(msg)
+
+
+# ── 模型工厂 ──
+
+class UnsupportedProviderError(DeepAgentError):
+    def __init__(self, provider_name: str):
+        self.provider_name = provider_name
+        super().__init__(f"不支持的模型提供商: {provider_name}")
+
+
+# ── 沙箱相关 ──
+
+class SandboxError(DeepAgentError):
+    """沙箱执行错误基类"""
+
+
+class SandboxTimeoutError(SandboxError):
+    """沙箱执行超时"""
+
+
+class PathEscapeError(SandboxError):
+    """路径逃逸尝试"""
+
+
+# ── MCP 相关 ──
+
+class MCPConnectionError(DeepAgentError):
+    """MCP 服务器连接失败"""
+
+
+# ── 向量存储 ──
+
+class VectorStoreError(DeepAgentError):
+    """向量存储连接失败或查询超时"""

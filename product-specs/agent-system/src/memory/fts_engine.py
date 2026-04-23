@@ -106,7 +106,19 @@ class FTSMemoryEngine(MemoryEngine):
         return self._storage
 
     async def rewrite_query(self, messages: list, current_query: str) -> str:
-        """多轮对话关键词提取 — 真实中文分词"""
+        """多轮对话查询改写 — LLM 优先，规则 fallback
+
+        LLM 可用时：调用 LLM 理解多轮上下文，提取核心检索意图
+        LLM 不可用时：规则提取中文关键词（N-gram + 实体名）
+        """
+        # LLM 改写（核心能力）
+        if self._llm is not None:
+            try:
+                return await self._llm_rewrite(messages, current_query)
+            except Exception as e:
+                logger.warning("LLM rewrite_query failed, fallback to rules: %s", e)
+
+        # 规则 fallback
         all_text = current_query
         human_count = 0
         for msg in reversed(messages):
@@ -120,6 +132,49 @@ class FTSMemoryEngine(MemoryEngine):
 
         keywords = _extract_chinese_keywords(all_text)
         return " ".join(keywords) if keywords else current_query
+
+    async def _llm_rewrite(self, messages: list, current_query: str) -> str:
+        """用 LLM 理解多轮对话上下文，改写为精准检索查询"""
+        # 构建对话上下文（最近 5 轮）
+        context_lines = []
+        count = 0
+        for msg in reversed(messages):
+            msg_type = getattr(msg, "type", "")
+            content = getattr(msg, "content", "")
+            if not isinstance(content, str) or not content.strip():
+                continue
+            if msg_type in ("human", "ai"):
+                context_lines.insert(0, f"[{msg_type}]: {content[:200]}")
+                count += 1
+                if count >= 10:
+                    break
+
+        prompt = (
+            "你是一个查询改写助手。根据以下多轮对话上下文，将用户的最新问题改写为"
+            "适合全文搜索的关键词查询。\n\n"
+            "要求：\n"
+            "1. 提取核心实体名（人名、公司名、产品名）\n"
+            "2. 提取关键业务概念（商机、客户、金额、阶段等）\n"
+            "3. 解析代词指代（'他'→具体人名，'那个'→具体实体）\n"
+            "4. 只输出关键词，用空格分隔，不要输出完整句子\n"
+            "5. 最多 10 个关键词\n\n"
+            "对话上下文：\n" + "\n".join(context_lines) + "\n\n"
+            f"当前问题：{current_query}\n\n"
+            "改写后的检索关键词："
+        )
+
+        result = await self._llm.ainvoke(prompt)
+        rewritten = getattr(result, "content", None) or str(result)
+        rewritten = rewritten.strip()
+
+        # 验证输出合理性（不超过 200 字符，不是完整句子）
+        if len(rewritten) > 200 or "。" in rewritten or "，" in rewritten:
+            # LLM 输出不合理，fallback 到提取关键词
+            keywords = _extract_chinese_keywords(rewritten)
+            return " ".join(keywords[:10]) if keywords else current_query
+
+        logger.info("LLM rewrite: '%s' → '%s'", current_query[:50], rewritten[:50])
+        return rewritten
 
     async def retrieve(
         self, query: str,
@@ -136,6 +191,10 @@ class FTSMemoryEngine(MemoryEngine):
         search_queries = [query]  # 原始查询
         if keywords:
             search_queries.append(" ".join(keywords[:5]))  # 关键词查询
+            # 每个关键词也单独搜一次（提高召回率）
+            for kw in keywords[:3]:
+                if len(kw) >= 2:
+                    search_queries.append(kw)
 
         dims = dimensions or list(MemoryDimension)
         seen_contents: set[str] = set()  # 去重

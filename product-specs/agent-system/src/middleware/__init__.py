@@ -16,6 +16,8 @@ from .subagent_limit import SubagentLimitMiddleware
 from .input_transform import InputTransformMiddleware, InputTransformer, MultimodalTransformer
 from .title import TitleMiddleware
 from .todo import TodoMiddleware
+from .file_process import FileProcessMiddleware
+from .multimodal_inject import MultimodalInjectMiddleware
 
 __all__ = [
     "AgentMiddleware",
@@ -40,4 +42,6 @@ __all__ = [
     "MultimodalTransformer",
     "TitleMiddleware",
     "TodoMiddleware",
+    "FileProcessMiddleware",
+    "MultimodalInjectMiddleware",
 ]

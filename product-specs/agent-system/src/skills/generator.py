@@ -34,10 +34,12 @@ class SkillGenerator:
         skills_dir: str = "./skills/auto-generated",
         min_tool_calls: int = 5,
         skill_registry: Any = None,
+        llm: Any = None,
     ) -> None:
         self._skills_dir = Path(skills_dir)
         self._min_tool_calls = min_tool_calls
         self._skill_registry = skill_registry
+        self._llm = llm  # LLM 实例，用于高质量技能生成
 
     def should_generate(self, messages: list) -> bool:
         """判断是否应该生成技能（工具调用数 >= 阈值）"""
@@ -46,8 +48,29 @@ class SkillGenerator:
         )
         return tool_call_count >= self._min_tool_calls
 
+    async def generate_with_llm(self, messages: list) -> str | None:
+        """LLM 驱动的技能生成（优先使用）
+
+        如果有 optimizer，委托给 SkillOptimizer.generate_from_conversation。
+        否则 fallback 到规则生成。
+        """
+        if self._llm is not None and self.should_generate(messages):
+            try:
+                from .optimizer import SkillOptimizer
+                from .tracker import SkillTracker
+                optimizer = SkillOptimizer(
+                    llm=self._llm,
+                    tracker=SkillTracker(),  # 临时 tracker
+                    skills_dir=str(self._skills_dir),
+                    skill_registry=self._skill_registry,
+                )
+                return await optimizer.generate_from_conversation(messages, self._min_tool_calls)
+            except Exception as e:
+                logger.warning("LLM 技能生成失败，fallback 到规则: %s", e)
+        return self.generate(messages)
+
     def generate(self, messages: list, task_description: str = "") -> str | None:
-        """从对话中生成 SKILL.md 文件
+        """从对话中生成 SKILL.md 文件（规则提取 fallback）
 
         返回生成的文件路径，失败返回 None
         """

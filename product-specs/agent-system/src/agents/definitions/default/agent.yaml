@@ -1,6 +1,6 @@
 name: default
 description: CRM 智能业务助手（默认入口 Agent）
-model: deepseek-chat
+model: doubao-1-5-pro-32k-250115
 system_prompt: ""
 
 tools: []

@@ -77,14 +77,36 @@ class SkillRegistry:
     def unregister(self, name: str) -> None:
         self._skills.pop(name, None)
 
-    def match_by_intent(self, intent: str) -> SkillDefinition | None:
-        """按意图关键词匹配技能"""
+    def match_by_intent(self, intent: str, tracker: Any = None) -> SkillDefinition | None:
+        """按意图匹配技能 — 关键词粗筛 + 度量加权精排
+
+        Args:
+            intent: 用户意图文本
+            tracker: SkillTracker 实例（可选），用于度量加权
+        """
+        # 关键词粗筛
+        candidates = []
         for skill in self._skills.values():
             if skill.when_to_use:
                 keywords = skill.when_to_use.split("|")
                 if any(kw.strip() in intent for kw in keywords):
-                    return skill
-        return None
+                    candidates.append(skill)
+
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return candidates[0]
+
+        # 多个候选 → 度量加权精排
+        if tracker is not None:
+            def _score(skill: SkillDefinition) -> float:
+                metrics = tracker.get_metrics(skill.name)
+                if metrics is None:
+                    return 0.5  # 新技能给中等分
+                return metrics.success_rate
+            candidates.sort(key=_score, reverse=True)
+
+        return candidates[0]
 
     def build_skills_prompt_section(self) -> str:
         """生成注入 system prompt 的 <skills> 标签内容"""
@@ -227,6 +249,8 @@ class SkillExecutor:
         self._subagent_registry = subagent_registry  # SubagentRegistry
         self._agent_factory = None  # AgentFactory，由外部注入
         self._current_depth = 0     # 当前嵌套深度，由外部注入
+        self._tracker = None        # SkillTracker，由外部注入
+        self._optimizer = None      # SkillOptimizer，由外部注入
 
     async def execute(
         self,
@@ -234,7 +258,9 @@ class SkillExecutor:
         arguments: dict[str, str],
         parent_thread_id: str = "",
     ) -> str:
-        """执行技能，返回结果文本"""
+        """执行技能，返回结果文本 — 自动追踪 + 触发优化"""
+        import time as _time
+
         skill = self._registry.get(skill_name)
         if not skill:
             raise SkillExecutionError(f"技能 '{skill_name}' 未注册")
@@ -242,12 +268,53 @@ class SkillExecutor:
         formatted_prompt = skill.format_prompt(arguments)
         logger.info(f"SkillExecutor: {skill_name} (context={skill.context})")
 
+        start_ms = _time.monotonic() * 1000
+
         if skill.context == "inline":
-            return await self._execute_inline(skill, formatted_prompt)
+            result = await self._execute_inline(skill, formatted_prompt)
         elif skill.context == "fork":
-            return await self._execute_fork(skill, formatted_prompt, arguments)
+            result = await self._execute_fork(skill, formatted_prompt, arguments)
         else:
             raise SkillExecutionError(f"未知的 context 模式: {skill.context}")
+
+        duration_ms = _time.monotonic() * 1000 - start_ms
+
+        # 自动追踪执行轨迹
+        if self._tracker is not None:
+            try:
+                from .tracker import SkillExecution
+                self._tracker.record(SkillExecution(
+                    skill_name=skill_name,
+                    arguments=arguments,
+                    tool_calls=[],  # inline 模式无法追踪具体工具调用
+                    total_tokens=len(result) // 2,  # 粗略估算
+                    duration_ms=duration_ms,
+                    output=result[:500],
+                    user_feedback="unknown",  # 后续由 MemoryMiddleware 更新
+                ))
+            except Exception as e:
+                logger.warning("SkillTracker record failed: %s", e)
+
+        # 异步触发优化（不阻塞主流程）
+        if self._optimizer is not None:
+            try:
+                import asyncio
+                should = await self._optimizer.should_optimize(skill_name)
+                if should:
+                    asyncio.create_task(self._async_optimize(skill_name))
+            except Exception as e:
+                logger.warning("SkillOptimizer check failed: %s", e)
+
+        return result
+
+    async def _async_optimize(self, skill_name: str) -> None:
+        """异步优化技能（不阻塞主流程）"""
+        try:
+            optimized = await self._optimizer.optimize(skill_name)
+            if optimized:
+                logger.info("技能 '%s' 已异步优化", skill_name)
+        except Exception as e:
+            logger.warning("异步优化失败: %s — %s", skill_name, e)
 
     async def _execute_inline(self, skill: SkillDefinition, prompt: str) -> str:
         """
@@ -262,126 +329,79 @@ class SkillExecutor:
     async def _execute_fork(
         self, skill: SkillDefinition, prompt: str, arguments: dict
     ) -> str:
+        """fork 模式 — 通过 AgentFactory 构建子 Agent 并执行
+
+        对齐 v2 SkillExecutor._execute_fork：
+        - 与 AgentTool 共用同一套 AgentFactory.build() 逻辑
+        - skill.agent 为空时用 "default"
+        - skill.prompt 作为 HumanMessage（任务指令），不是 system_prompt
         """
-        fork 模式 — 创建独立子 Agent 执行
+        if self._agent_factory is None:
+            raise SkillExecutionError(
+                skill_name=skill.name if hasattr(skill, 'name') else "",
+                detail="AgentFactory 未配置，无法执行 fork 模式技能",
+            )
 
-        对应 design.md §6.4 fork 模式:
-        - agent 为空: 通用执行（skill.prompt 作为 instruction）
-        - agent 非空: 加载 SubagentConfig 构建专属子 Agent
-        """
-        if not self._context or not self._context.llm:
-            raise SkillExecutionError("fork 模式需要 PluginContext.llm")
-
-        # 检查是否指定了子 Agent 配置
-        sub_config = None
-        if skill.agent and self._subagent_registry:
-            sub_config = self._subagent_registry.get(skill.agent)
-            if not sub_config:
-                logger.warning(f"SubagentConfig '{skill.agent}' not found, using generic fork")
-
-        if sub_config:
-            return await self._execute_fork_with_config(skill, prompt, arguments, sub_config)
-        else:
-            return await self._execute_fork_generic(skill, prompt, arguments)
-
-    async def _execute_fork_generic(
-        self, skill: SkillDefinition, prompt: str, arguments: dict
-    ) -> str:
-        """通用 fork — 用 create_deep_agent 创建子 Agent"""
-        from src.core.prompt_builder import build_fork_prompt
-        sub_system_prompt = build_fork_prompt(prompt)
-        sub_registry = self._build_sub_tool_registry(skill)
-        return await self._run_fork_agent(skill, sub_system_prompt, sub_registry, arguments)
-
-    async def _execute_fork_with_config(
-        self, skill: SkillDefinition, prompt: str, arguments: dict, sub_config: Any
-    ) -> str:
-        """指定 agent 的 fork — 加载 SubagentConfig"""
-        sub_system_prompt = sub_config.system_prompt or prompt
-        if prompt and sub_config.system_prompt:
-            sub_system_prompt += f"\n\n## 当前任务\n{prompt}"
-
-        from src.tools.base import ToolRegistry
-        sub_registry = ToolRegistry()
-        if sub_config.tool_names and self._context.tool_registry:
-            for tool_name in sub_config.tool_names:
-                tool = self._context.tool_registry.find_by_name(tool_name)
-                if tool:
-                    sub_registry.register(tool)
-        else:
-            sub_registry = self._build_sub_tool_registry(skill)
-
-        logger.info(f"Skill fork (agent={sub_config.name}): tools={len(sub_registry.all_tools)}")
-        return await self._run_fork_agent(skill, sub_system_prompt, sub_registry, arguments)
-
-    def _build_sub_tool_registry(self, skill: SkillDefinition):
-        """从主 Agent 的 registry 中裁剪工具集"""
-        from src.tools.base import ToolRegistry
-        sub_registry = ToolRegistry()
-        if skill.allowed_tools and self._context.tool_registry:
-            for tool_name in skill.allowed_tools:
-                tool = self._context.tool_registry.find_by_name(tool_name)
-                if tool:
-                    sub_registry.register(tool)
-        elif self._context.tool_registry:
-            for tool in self._context.tool_registry.all_tools:
-                if tool.name != "skills_tool":
-                    sub_registry.register(tool)
-        return sub_registry
-
-    async def _run_fork_agent(self, skill, system_prompt, tool_registry, arguments) -> str:
-        """用 AgentFactory（优先）或 create_deep_agent（fallback）创建并执行子 Agent"""
         from langchain_core.messages import AIMessage, HumanMessage
+        from uuid import uuid4
 
-        args_text = "\n".join(f"- {k}: {v}" for k, v in arguments.items()) if arguments else ""
-        instruction = skill.description
-        if args_text:
-            instruction += f"\n\n参数:\n{args_text}"
+        agent_name = skill.agent if skill.agent else "default"
 
-        # 优先使用 AgentFactory（带缓存 + 深度限制）
-        if self._agent_factory is not None:
-            logger.info(f"Skill fork: {skill.name} → 使用 AgentFactory")
-            agent_name = skill.agent or "default"
-            sub_agent = await self._agent_factory.build(agent_name)
-            from uuid import uuid4
-            sub_thread_id = f"skill-{skill.name}-{uuid4().hex[:8]}"
-            result = await sub_agent.ainvoke(
-                {"messages": [HumanMessage(content=instruction)]},
+        logger.info("[skill] Fork 执行: name=%s, agent=%s, depth=%d",
+                     skill.name, agent_name, self._current_depth)
+
+        # 通过 AgentFactory 获取或构建 Agent（和 AgentTool 同一套逻辑）
+        agent = await self._agent_factory.build(agent_name, self._current_depth)
+
+        # 构建任务指令（skill.prompt 作为 HumanMessage，不是 system_prompt）
+        task_instruction = self._build_task_instruction(skill, arguments)
+        messages = [HumanMessage(content=task_instruction)]
+
+        sub_thread_id = f"skill-{skill.name}-{uuid4().hex[:8]}"
+
+        try:
+            result = await agent.ainvoke(
+                {"messages": messages},
                 config={"configurable": {"thread_id": sub_thread_id}},
             )
-        else:
-            # Fallback: 直接创建（无缓存）
-            from src.agents.langchain_agent import create_deep_agent, LangChainAgentConfig
-            api_key = ""
-            api_base = "https://api.deepseek.com"
-            if hasattr(self._context, 'llm') and self._context.llm:
-                llm = self._context.llm
-                if hasattr(llm, '_async_client'):
-                    api_key = getattr(llm._async_client, 'api_key', '')
-                    api_base = str(getattr(llm._async_client, 'base_url', api_base))
+        except Exception as exc:
+            raise SkillExecutionError(
+                skill_name=skill.name,
+                detail=str(exc),
+            ) from exc
 
-            config = LangChainAgentConfig(
-                model=skill.model or "deepseek-chat",
-                api_key=api_key,
-                api_base=api_base,
-                tool_registry=tool_registry,
-                system_prompt=system_prompt,
-            )
-            sub_agent = create_deep_agent(config)
-            logger.info(f"Skill fork: {skill.name} → fallback create_deep_agent")
-            result = await sub_agent.ainvoke({
-                "messages": [{"role": "user", "content": instruction}]
-            })
+        output = self._extract_output(result)
+        logger.info("[skill] Fork 完成: name=%s, agent=%s, thread=%s, output_len=%d",
+                     skill.name, agent_name, sub_thread_id, len(output))
+        return output
 
-        # 提取最后一条 AI 消息作为结果
+    @staticmethod
+    def _build_task_instruction(skill: SkillDefinition, arguments: dict[str, str]) -> str:
+        """构建传递给子 Agent 的任务指令"""
+        formatted_prompt = skill.format_prompt(arguments)
+        parts = [f"请执行技能 '{skill.name}': {skill.description}"]
+        if arguments:
+            args_str = ", ".join(f"{k}={v}" for k, v in arguments.items())
+            parts.append(f"参数: {args_str}")
+        if formatted_prompt:
+            parts.append(f"\n{formatted_prompt}")
+        return "\n".join(parts)
+
+    @staticmethod
+    def _extract_output(result: dict[str, Any]) -> str:
+        """从 Agent 执行结果中提取最后一条 AIMessage 的内容"""
+        from langchain_core.messages import AIMessage
         messages = result.get("messages", [])
         for msg in reversed(messages):
-            if isinstance(msg, AIMessage) and msg.content:
-                if not getattr(msg, "tool_calls", None):
-                    logger.info(f"Skill fork: {skill.name} → 完成")
-                    return msg.content if isinstance(msg.content, str) else str(msg.content)
-
-        return "子 Agent 执行完成但无输出"
+            if isinstance(msg, AIMessage):
+                content = msg.content
+                if isinstance(content, list):
+                    return "".join(
+                        c.get("text", "") if isinstance(c, dict) else str(c)
+                        for c in content
+                    )
+                return str(content)
+        return ""
 
 
 class SkillExecutionError(Exception):

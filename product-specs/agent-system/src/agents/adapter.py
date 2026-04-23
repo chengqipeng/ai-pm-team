@@ -30,7 +30,7 @@ class NeoAgentV2Adapter:
             return self._agent
 
     async def _create_agent(self) -> CompiledStateGraph:
-        """创建 Agent — 子类可覆盖此方法自定义创建逻辑"""
+        """创建 Agent — 使用 build_middleware 动态组装中间件"""
         from src.agents.langchain_agent import create_deep_agent, LangChainAgentConfig
         from src.tools.base import ToolRegistry
         from src.tools.crm_backend import CrmSimulatedBackend
@@ -38,16 +38,11 @@ class NeoAgentV2Adapter:
         from src.skills.base import SkillRegistry
         from src.skills.crm_skills import register_crm_skills
         from src.core.prompt_builder import build_system_prompt
-        from src.middleware import (
-            ToolErrorHandlingMiddleware,
-            DanglingToolCallMiddleware,
-            SummarizationMiddleware,
-            LoopDetectionMiddleware,
-            AgentLoggingMiddleware,
-            MemoryMiddleware,
-        )
         from src.core.checkpointer import create_async_redis_checkpointer
+        from src.middleware.builder import build_middleware
         from src.memory.fts_engine import FTSMemoryEngine
+        from src.skills.tracker import SkillTracker
+        from src.skills.optimizer import SkillOptimizer
         import os
 
         backend = CrmSimulatedBackend()
@@ -57,43 +52,54 @@ class NeoAgentV2Adapter:
         skill_reg = SkillRegistry()
         register_crm_skills(skill_reg)
 
-        # 生产环境使用 Redis checkpointer
         checkpointer = await create_async_redis_checkpointer()
 
-        # 初始化长期记忆引擎（FTS5 + LLM 提取）
+        # 初始化 LLM（记忆提取 + 技能优化共用）
         from langchain_openai import ChatOpenAI
-        memory_llm = ChatOpenAI(
-            model="deepseek-chat",
-            api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
-            base_url="https://api.deepseek.com",
+        aux_llm = ChatOpenAI(
+            model="doubao-1-5-pro-32k-250115",
+            api_key=os.environ.get("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"),
+            base_url="https://ark.cn-beijing.volces.com/api/v3/",
             max_tokens=2048,
         )
+
+        # 初始化长期记忆引擎
         memory_engine = FTSMemoryEngine(
             storage_dir="./data/memory",
-            llm=memory_llm,
+            llm=aux_llm,
             debounce_seconds=5.0,
         )
 
+        # 初始化自改进学习循环
+        tracker = SkillTracker(db_path="./data/skill_metrics.db")
+        optimizer = SkillOptimizer(
+            llm=aux_llm,
+            tracker=tracker,
+            skills_dir="./skills/auto-generated",
+            skill_registry=skill_reg,
+            optimize_threshold=5,
+        )
+
+        system_prompt = build_system_prompt(agent_name="CRM-Agent", skills=skill_reg.list_all())
+
+        # 动态组装中间件
+        middlewares = build_middleware(
+            system_prompt=system_prompt,
+            skill_names=[s.name for s in skill_reg.list_all()],
+            tool_names=[t.name for t in reg.all_tools],
+            agent_name="CRM-Agent",
+            memory_engine=memory_engine,
+        )
+
         config = LangChainAgentConfig(
-            model="deepseek-chat",
-            api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
-            api_base="https://api.deepseek.com",
+            model="doubao-1-5-pro-32k-250115",
+            api_key=os.environ.get("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"),
+            api_base="https://ark.cn-beijing.volces.com/api/v3/",
             tool_registry=reg,
             skill_registry=skill_reg,
-            system_prompt=build_system_prompt(agent_name="CRM-Agent", skills=skill_reg.list_all()),
+            system_prompt=system_prompt,
             checkpointer=checkpointer,
-            middlewares=[
-                AgentLoggingMiddleware(
-                    skill_names=[s.name for s in skill_reg.list_all()],
-                    tool_names=[t.name for t in reg.all_tools],
-                    agent_name="CRM-Agent",
-                ),
-                DanglingToolCallMiddleware(),
-                SummarizationMiddleware(),
-                MemoryMiddleware(engine=memory_engine),
-                LoopDetectionMiddleware(),
-                ToolErrorHandlingMiddleware(),
-            ],
+            middlewares=middlewares,
         )
         return create_deep_agent(config)
 
@@ -102,22 +108,61 @@ class NeoAgentV2Adapter:
         thread_id: str,
         user_input: str,
         history: list[dict[str, Any]] | None = None,
+        files: list | None = None,
+        extend_params: dict[str, Any] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """执行 Agent，流式输出 SSE 事件"""
         from src.core.streaming import stream_agent_response
 
         agent = await self._ensure_agent()
         messages = _build_messages(user_input, history)
-        config = {"configurable": {"thread_id": thread_id}}
+        config = {
+            "configurable": {
+                "thread_id": thread_id,
+                "files": files or [],
+                "extend_params": extend_params or {},
+                "parsed_files": [],
+            },
+            "recursion_limit": 100,
+        }
 
         async for sse_event in stream_agent_response(agent, {"messages": messages}, config):
             yield sse_event.to_dict()
 
+    async def execute_agui(
+        self,
+        thread_id: str,
+        user_input: str,
+        run_id: str | None = None,
+        history: list[dict[str, Any]] | None = None,
+    ) -> AsyncGenerator[Any, None]:
+        """AG-UI 模式执行：输出标准 AG-UI 事件流
+
+        使用 AGUIConverter + ProgressiveRenderer 管道，
+        将 LangGraph astream_events 转换为 AG-UI 协议事件。
+        """
+        import uuid as _uuid
+        from src.agui import create_agui_pipeline
+
+        agent = await self._ensure_agent()
+        _run_id = run_id or _uuid.uuid4().hex
+
+        converter, renderer = create_agui_pipeline(
+            run_id=_run_id, thread_id=thread_id,
+            history_messages=history,
+        )
+
+        messages = _build_messages(user_input, history)
+        input_data = {"messages": messages}
+        config = {"configurable": {"thread_id": thread_id}}
+
+        astream = agent.astream_events(input_data, config=config, version="v2")
+        async for event in renderer.process(converter.convert(astream)):
+            yield event
+
 
 def _build_messages(user_input: str, history: list[dict] | None = None) -> list:
-    """将历史消息 + 用户输入转为 LangChain Message 列表"""
     from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-
     messages = []
     if history:
         for msg in history:
@@ -133,5 +178,4 @@ def _build_messages(user_input: str, history: list[dict] | None = None) -> list:
     return messages
 
 
-# 全局单例
 neo_agent_v2_adapter = NeoAgentV2Adapter()

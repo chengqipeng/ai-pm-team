@@ -32,7 +32,7 @@ class ModelConfig:
     """单个模型配置"""
     model: str
     api_key: str = ""
-    api_base: str = "https://api.deepseek.com"
+    api_base: str = "https://ark.cn-beijing.volces.com/api/v3/"
     temperature: float = 0.7
     max_tokens: int = 8192
 
@@ -40,7 +40,7 @@ class ModelConfig:
 @dataclass
 class ModelRouterConfig:
     """模型路由配置"""
-    default: ModelConfig = field(default_factory=lambda: ModelConfig(model="deepseek-chat"))
+    default: ModelConfig = field(default_factory=lambda: ModelConfig(model="doubao-1-5-pro-32k-250115"))
     routes: dict[str, ModelConfig] = field(default_factory=dict)
 
 
