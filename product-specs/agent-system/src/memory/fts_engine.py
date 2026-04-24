@@ -517,3 +517,34 @@ class FTSMemoryEngine(MemoryEngine):
     def submit_for_extraction(self, thread_id: str, messages: list) -> None:
         """提交到防抖队列（供 MemoryMiddleware.aafter_agent 调用）"""
         self._queue.submit(thread_id, messages)
+
+    # ── 面向 Agent 的记忆管理（供 ManageMemoryTool 调用） ──
+
+    def list_memories(self, user_id: str, keyword: str = "",
+                      dimension: str | None = None, limit: int = 20) -> list[dict]:
+        """列出用户记忆（可按关键词和维度筛选）"""
+        uid = user_id or "default"
+        return self._storage.search_and_list(uid, keyword, dimension, limit)
+
+    def delete_memories_by_keyword(self, user_id: str, keyword: str,
+                                   dimension: str | None = None) -> int:
+        """按关键词删除匹配的记忆"""
+        uid = user_id or "default"
+        matched = self._storage.search_and_list(uid, keyword, dimension, limit=100)
+        if not matched:
+            return 0
+        ids = [m["id"] for m in matched]
+        deleted = self._storage.delete_by_ids(ids)
+        logger.info("Deleted %d memories matching keyword '%s' for user %s", deleted, keyword, uid)
+        return deleted
+
+    def delete_memories_by_ids(self, ids: list[int]) -> int:
+        """按 ID 列表删除记忆"""
+        return self._storage.delete_by_ids(ids)
+
+    def clear_all_memories(self, user_id: str) -> int:
+        """清空用户所有记忆"""
+        uid = user_id or "default"
+        deleted = self._storage.delete_by_user(uid)
+        logger.info("Cleared all memories for user %s, deleted %d", uid, deleted)
+        return deleted

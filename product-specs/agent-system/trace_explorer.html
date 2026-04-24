@@ -97,7 +97,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-
 .span-detail{display:none;padding:8px 14px 14px 56px;font-size:11px;line-height:1.6}
 .span-card.exp .span-detail{display:block}
 .span-detail .dl{font-weight:600;color:var(--txt2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin:8px 0 3px}
-.span-detail .dc{color:var(--txt);word-break:break-all;white-space:pre-wrap;background:#f8f9fb;border-radius:6px;padding:8px 10px;font-family:'SF Mono',Menlo,monospace;font-size:10px;max-height:220px;overflow-y:auto;border:1px solid var(--border)}
+.span-detail .dc{color:var(--txt);word-break:break-all;white-space:pre-wrap;background:#f8f9fb;border-radius:6px;padding:8px 10px;font-family:'SF Mono',Menlo,monospace;font-size:11px;max-height:400px;overflow-y:auto;border:1px solid var(--border)}
 
 /* Child spans (vector_search / rerank) — 对齐 index.html */
 .span-children{padding:6px 14px 10px 56px}
@@ -222,10 +222,11 @@ function renderDet(trace){
       if(m.task_type)h+=`<span class="badge type">📌 ${m.task_type}</span>`;
       if(m.confidence!=null)h+=`<span class="badge tok">📊 ${(m.confidence*100).toFixed(0)}%</span>`;
     }else if(s.type==='llm_call'){
-      if(m.iteration!=null)h+=`<span class="badge tok">🔄 Iter ${m.iteration}</span>`;
+      if(m.iteration!=null)h+=`<span class="badge tok">🔄 第 ${m.iteration} 轮</span>`;
       const t=sTok(s);if(t)h+=`<span class="badge tok">🔤 ${fK(t)}</span>`;
       if(m.tool_calls&&m.tool_calls.length)h+=m.tool_calls.map(t=>`<span class="badge tool-b">🔧→${esc(t)}</span>`).join('');
-      if(m.is_final===true)h+=`<span class="badge final">✅ final</span>`;
+      if(m.is_final===true)h+=`<span class="badge final">✅ 最终回复</span>`;
+      if(m.is_final===false&&(!m.tool_calls||!m.tool_calls.length))h+=`<span class="badge tok">⏳ 思考中</span>`;
     }else if(s.type==='hierarchical_search'){
       if(m.search_type)h+=`<span class="badge type">📂 ${m.search_type}</span>`;
       if(m.hit_count!=null)h+=`<span class="badge hit">✅ ${m.hit_count} 条</span>`;
@@ -250,10 +251,24 @@ function renderDet(trace){
     }
     if(s.type==='intent_analysis'&&m.raw_intent){h+=`<div class="dl">原始输入</div><div class="dc">${esc(m.raw_intent)}</div>`}
     if(s.type==='tool_call'){
-      if(Object.keys(inp).length)h+=`<div class="dl">Input</div><div class="dc">${esc(JSON.stringify(inp,null,2))}</div>`;
-      if(Object.keys(out).length)h+=`<div class="dl">Output</div><div class="dc">${esc(JSON.stringify(out,null,2))}</div>`;
+      // 完整输入
+      const fullInput=inp.input||m.input||'';
+      if(fullInput){
+        let fmtInput=fullInput;
+        try{const p=typeof fullInput==='string'?JSON.parse(fullInput):fullInput;fmtInput=JSON.stringify(p,null,2)}catch(e){}
+        h+=`<div class="dl">工具输入参数</div><div class="dc">${esc(fmtInput)}</div>`;
+      }
+      // 完整输出
+      const fullOutput=out.output||m.output||'';
+      if(fullOutput){
+        let fmtOutput=fullOutput;
+        try{const p=typeof fullOutput==='string'?JSON.parse(fullOutput):fullOutput;fmtOutput=JSON.stringify(p,null,2)}catch(e){}
+        h+=`<div class="dl">工具输出结果</div><div class="dc">${esc(fmtOutput)}</div>`;
+      }
     }
-    if(s.type==='llm_call'&&m.tool_calls&&m.tool_calls.length){h+=`<div class="dl">工具调用</div><div class="dc">${m.tool_calls.map(t=>'→ '+esc(t)).join('\n')}</div>`}
+    if(s.type==='llm_call'&&m.tool_calls&&m.tool_calls.length){h+=`<div class="dl">工具调用决策</div><div class="dc">${m.tool_calls.map(t=>'→ 调用 '+esc(t)).join('\n')}</div>`}
+    if(s.type==='llm_call'&&m.output_preview){h+=`<div class="dl">LLM 输出内容</div><div class="dc">${esc(m.output_preview)}</div>`}
+    if(s.type==='llm_call'&&m.is_final===true&&!m.output_preview){h+=`<div class="dl">状态</div><div class="dc">最终回复（内容见底部 Agent 输出）</div>`}
     // Full metadata
     const skip=new Set(['items_preview','raw_intent','children','results','scored_items']);
     const rest=Object.entries(m).filter(([k])=>!skip.has(k));

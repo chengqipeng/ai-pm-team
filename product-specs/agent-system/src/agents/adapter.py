@@ -47,7 +47,6 @@ class NeoAgentV2Adapter:
 
         backend = CrmSimulatedBackend()
         reg = ToolRegistry()
-        register_crm_tools(reg, backend)
 
         skill_reg = SkillRegistry()
         register_crm_skills(skill_reg)
@@ -69,6 +68,8 @@ class NeoAgentV2Adapter:
             llm=aux_llm,
             debounce_seconds=5.0,
         )
+
+        register_crm_tools(reg, backend, memory_engine=memory_engine)
 
         # 初始化自改进学习循环
         tracker = SkillTracker(db_path="./data/skill_metrics.db")

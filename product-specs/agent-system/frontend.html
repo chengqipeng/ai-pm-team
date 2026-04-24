@@ -126,7 +126,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-
 .span-card.exp .span-detail{display:block}
 .span-detail .detail-section{margin-bottom:8px}
 .span-detail .detail-label{font-weight:600;color:var(--txt2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
-.span-detail .detail-content{color:var(--txt);word-break:break-all;white-space:pre-wrap;background:#f8f9fb;border-radius:6px;padding:6px 10px;font-family:'SF Mono',Menlo,monospace;font-size:10px;max-height:200px;overflow-y:auto;border:1px solid var(--border)}
+.span-detail .detail-content{color:var(--txt);word-break:break-all;white-space:pre-wrap;background:#f8f9fb;border-radius:6px;padding:6px 10px;font-family:'SF Mono',Menlo,monospace;font-size:11px;max-height:400px;overflow-y:auto;border:1px solid var(--border)}
 
 /* 子步骤（vector_search / rerank） */
 .span-children{padding:4px 12px 8px 52px}
@@ -348,14 +348,24 @@ function renderSpanCard(span) {
     if (span.type === 'intent_analysis' && meta.raw_intent) {
       detailHtml += `<div class="detail-section"><div class="detail-label">原始输入</div><div class="detail-content">${esc(meta.raw_intent)}</div></div>`;
     }
+    if ((span.type === 'tool_call' || span.type === 'tool_end') && meta.input) {
+      let fmtInput = meta.input;
+      try { const p = typeof meta.input === 'string' ? JSON.parse(meta.input) : meta.input; fmtInput = JSON.stringify(p, null, 2); } catch(e) {}
+      detailHtml += `<div class="detail-section"><div class="detail-label">工具输入参数</div><div class="detail-content">${esc(fmtInput)}</div></div>`;
+    }
     if ((span.type === 'tool_call' || span.type === 'tool_end') && meta.output) {
-      detailHtml += `<div class="detail-section"><div class="detail-label">工具输出</div><div class="detail-content">${esc(meta.output)}</div></div>`;
+      let fmtOutput = meta.output;
+      try { const p = typeof meta.output === 'string' ? JSON.parse(meta.output) : meta.output; fmtOutput = JSON.stringify(p, null, 2); } catch(e) {}
+      detailHtml += `<div class="detail-section"><div class="detail-label">工具输出结果</div><div class="detail-content">${esc(fmtOutput)}</div></div>`;
     }
     if (span.type === 'llm_call' && meta.tool_calls && meta.tool_calls.length) {
-      detailHtml += `<div class="detail-section"><div class="detail-label">工具调用</div><div class="detail-content">${meta.tool_calls.map(t=>'→ '+esc(t)).join('\n')}</div></div>`;
+      detailHtml += `<div class="detail-section"><div class="detail-label">工具调用决策</div><div class="detail-content">${meta.tool_calls.map(t=>'→ 调用 '+esc(t)).join('\n')}</div></div>`;
+    }
+    if (span.type === 'llm_call' && meta.output_preview) {
+      detailHtml += `<div class="detail-section"><div class="detail-label">LLM 输出内容</div><div class="detail-content">${esc(meta.output_preview)}</div></div>`;
     }
     // 通用 metadata 展示
-    const skipKeys = new Set(['items_preview','raw_intent','output','tool_calls','children','input']);
+    const skipKeys = new Set(['items_preview','raw_intent','output','tool_calls','children','input','tool_name','output_preview','is_final']);
     const remaining = Object.entries(meta).filter(([k])=>!skipKeys.has(k));
     if (remaining.length > 0) {
       detailHtml += `<div class="detail-section"><div class="detail-label">元数据</div><div class="detail-content">${remaining.map(([k,v])=>`${k}: ${typeof v==='object'?JSON.stringify(v,null,1):v}`).join('\n')}</div></div>`;
@@ -542,7 +552,7 @@ async function send(){
             liveIterCount = e.iteration || liveIterCount+1;
             addTag(`🧠 LLM #${e.iteration}`,'l');
             addLiveSpan({
-              type:'llm_call', name:`llm_call Iter ${e.iteration}`, status:'running',
+              type:'llm_call', name:`第 ${e.iteration} 轮思考`, status:'running',
               duration_ms:0, metadata:{iteration:e.iteration}
             });
           }

@@ -1,23 +1,45 @@
 {
   "mcpServers": {
     "wiki": {
-      "command": "{your-python-path}",
+      "command": "python3",
       "args": [
-        "{your-wiki-mcp-server-path}/wiki_mcp_server.py"
+        "tools/wiki_mcp_server.py"
       ],
       "env": {
         "WIKI_URL": "https://wiki.ingageapp.com",
-        "WIKI_USER": "{your-wiki-username}"
+        "WIKI_USER": "chengqp",
+        "WIKI_PASS": "chengqp"
       },
-      "disabled": false,
       "autoApprove": [
-        "wiki_list_spaces",
         "wiki_search",
         "wiki_get_page",
         "wiki_get_page_tree",
-        "wiki_get_pages_by_space",
-        "wiki_get_attachments",
-        "wiki_batch_get_pages"
+        "wiki_batch_get_pages",
+        "wiki_get_attachments"
+      ]
+    },
+    "tchub": {
+      "url": "https://tch.neoany.com/mcp",
+      "headers": {
+        "Authorization": "Bearer tch_ba51289a23d3e0f655590675a345f564347837bfda4caf39"
+      },
+      "autoApprove": [
+        "list_projects",
+        "list_features",
+        "search_documents",
+        "get_document",
+        "get_feature_context",
+        "get_agent_context",
+        "list_context_notes",
+        "search_context_notes",
+        "remember_context",
+        "write_handoff",
+        "list_memories",
+        "search_memories",
+        "create_memory",
+        "update_memory_lifecycle",
+        "promote_memory",
+        "download_document"
       ]
     }
   }

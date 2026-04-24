@@ -247,6 +247,29 @@ class MemoryStorage:
         overflow_ids = [r[0] for r in rows[max_count:]]
         return self.delete_by_ids(overflow_ids)
 
+    def search_and_list(self, user_id: str, keyword: str = "",
+                        dimension: str | None = None, limit: int = 20) -> list[dict]:
+        """按关键词搜索用户记忆（用于记忆管理展示）"""
+        conn = self._ensure_db()
+        conditions = ["user_id = ?"]
+        params: list = [user_id]
+        if dimension:
+            conditions.append("dimension = ?")
+            params.append(dimension)
+        if keyword:
+            conditions.append("content LIKE ?")
+            params.append(f"%{keyword}%")
+        where = " AND ".join(conditions)
+        rows = conn.execute(
+            f"SELECT id, user_id, dimension, content, metadata, created_at FROM memories WHERE {where} ORDER BY created_at DESC LIMIT ?",
+            params + [limit],
+        ).fetchall()
+        return [
+            {"id": r[0], "user_id": r[1], "dimension": r[2], "content": r[3],
+             "metadata": r[4], "created_at": r[5]}
+            for r in rows
+        ]
+
     # ── 文件模式（短期记忆/用户画像） ──
 
     def read_file(self, user_id: str) -> str:

@@ -103,7 +103,12 @@ class QueryDataTool(Tool):
         return ToolResult(content=json.dumps(result["data"], ensure_ascii=False, indent=2))
 
     def prompt(self):
-        return "查询业务数据。action: query=列表, get=单条, count=计数。entity_api_key: account/contact/opportunity/activity/lead"
+        return (
+            "查询业务数据。action: query=列表查询, get=按ID查单条, count=统计数量。"
+            "entity_api_key: account/contact/opportunity/activity/lead。"
+            "支持 filters（过滤条件，如 {owner_name:'张三', stage:'谈判'}）、"
+            "fields（返回字段列表）、order_by（排序，前缀-表示降序）、page/page_size（分页）。"
+        )
 
     def is_read_only(self, input_data): return True
     @property
@@ -150,7 +155,12 @@ class ModifyDataTool(Tool):
     def is_read_only(self, input_data): return False
 
     def prompt(self):
-        return "修改业务数据。action: create=创建, update=更新, delete=删除（删除需确认）"
+        return (
+            "修改业务数据。action: create=创建新记录, update=更新已有记录, delete=删除记录。"
+            "entity_api_key: account/contact/opportunity/activity/lead。"
+            "update/delete 时必须传 record_id。data 为要写入的字段键值对，如 {name:'新名称', amount:500000}。"
+            "删除操作需先向用户确认。"
+        )
 
 
 class AnalyzeDataTool(Tool):
@@ -213,7 +223,11 @@ class AskUserTool(Tool):
         q = input_data.get("question", "")
         return ToolResult(content=f"[用户回答] 确认，请继续。（问题: {q}）")
 
-    def prompt(self): return "向用户提问或确认"
+    def prompt(self):
+        return (
+            "向用户简单确认。仅用于数据修改/删除前的二次确认（如'确认删除该客户？'）。"
+            "信息不足或需求模糊时应使用 ask_clarification 而非本工具。"
+        )
 
 
 class AskClarificationTool(Tool):
@@ -278,7 +292,98 @@ class AskClarificationTool(Tool):
         )
 
 
-def register_crm_tools(registry: ToolRegistry, backend) -> None:
+class ManageMemoryTool(Tool):
+    """管理 Agent 记忆 — 查询、删除、清空
+
+    支持的操作：
+    - list: 列出记忆（可按关键词和维度筛选）
+    - delete: 按关键词删除匹配的记忆
+    - delete_by_ids: 按 ID 列表删除
+    - clear: 清空所有记忆
+    """
+
+    def __init__(self, memory_engine=None):
+        self._engine = memory_engine
+
+    @property
+    def name(self): return "manage_memory"
+
+    def input_schema(self):
+        return {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["list", "delete", "delete_by_ids", "clear"],
+                    "description": "操作类型: list=查看记忆, delete=按关键词删除, delete_by_ids=按ID删除, clear=清空全部",
+                },
+                "keyword": {
+                    "type": "string",
+                    "description": "搜索/删除的关键词（list 和 delete 时使用）",
+                },
+                "dimension": {
+                    "type": "string",
+                    "enum": ["task_history", "customer_context", "user_profile", "domain_knowledge"],
+                    "description": "记忆维度筛选（可选）",
+                },
+                "ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "要删除的记忆 ID 列表（delete_by_ids 时使用）",
+                },
+            },
+            "required": ["action"],
+        }
+
+    async def call(self, input_data, context, on_progress=None):
+        if self._engine is None:
+            return ToolResult(content="记忆引擎未初始化", is_error=True)
+
+        action = input_data.get("action", "")
+        keyword = input_data.get("keyword", "")
+        dimension = input_data.get("dimension")
+        user_id = "default"  # TODO: 从 context 获取
+
+        if action == "list":
+            memories = self._engine.list_memories(user_id, keyword, dimension)
+            if not memories:
+                return ToolResult(content="未找到匹配的记忆" + (f"（关键词: {keyword}）" if keyword else ""))
+            lines = []
+            for m in memories:
+                content_preview = m["content"][:150] + ("..." if len(m["content"]) > 150 else "")
+                lines.append(f"[ID:{m['id']}] [{m['dimension']}] {content_preview}")
+            return ToolResult(content=f"找到 {len(memories)} 条记忆:\n\n" + "\n\n".join(lines))
+
+        elif action == "delete":
+            if not keyword:
+                return ToolResult(content="删除操作需要提供 keyword 参数", is_error=True)
+            deleted = self._engine.delete_memories_by_keyword(user_id, keyword, dimension)
+            return ToolResult(content=f"已删除 {deleted} 条包含「{keyword}」的记忆")
+
+        elif action == "delete_by_ids":
+            ids = input_data.get("ids", [])
+            if not ids:
+                return ToolResult(content="需要提供 ids 参数", is_error=True)
+            deleted = self._engine.delete_memories_by_ids(ids)
+            return ToolResult(content=f"已删除 {deleted} 条记忆")
+
+        elif action == "clear":
+            deleted = self._engine.clear_all_memories(user_id)
+            return ToolResult(content=f"已清空所有记忆，共删除 {deleted} 条")
+
+        return ToolResult(content=f"未知操作: {action}", is_error=True)
+
+    def prompt(self):
+        return (
+            "管理 Agent 的对话记忆。当用户要求查看、删除、清理、忘记记忆时必须调用此工具。"
+            "action: list=查看/列出记忆, delete=按关键词删除记忆, delete_by_ids=按ID删除, clear=清空全部记忆。"
+            "示例：用户说'删除商机查询的记忆' → action=delete, keyword='商机'；"
+            "用户说'看看我的记忆' → action=list；"
+            "用户说'清空所有记忆' → action=clear。"
+        )
+
+
+def register_crm_tools(registry: ToolRegistry, backend, memory_engine=None) -> None:
     """注册全部 CRM 业务工具"""
     registry.register(QuerySchemaTool(backend))
     registry.register(QueryDataTool(backend))
@@ -286,3 +391,5 @@ def register_crm_tools(registry: ToolRegistry, backend) -> None:
     registry.register(AnalyzeDataTool(backend))
     registry.register(AskUserTool())
     registry.register(AskClarificationTool())
+    if memory_engine is not None:
+        registry.register(ManageMemoryTool(memory_engine))

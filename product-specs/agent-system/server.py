@@ -71,13 +71,14 @@ async def _get_agent(multimodal: bool = False):
 
         backend = CrmSimulatedBackend()
         reg = ToolRegistry()
-        register_crm_tools(reg, backend)
         skill_reg = SkillRegistry()
         register_crm_skills(skill_reg)
 
         aux_llm = ChatOpenAI(model="doubao-1-5-pro-32k-250115", api_key=os.environ["DOUBAO_API_KEY"],
                              base_url="https://ark.cn-beijing.volces.com/api/v3/", max_tokens=2048)
         memory_engine = FTSMemoryEngine(storage_dir="./data/memory", llm=aux_llm)
+
+        register_crm_tools(reg, backend, memory_engine=memory_engine)
 
         system_prompt = build_system_prompt(agent_name="CRM-Agent", skills=skill_reg.list_all())
         middlewares = build_middleware(
@@ -338,8 +339,13 @@ async def chat_stream(req: ChatRequest):
                                 **token_info,
                                 "tool_calls": tool_calls if tool_calls else [],
                                 "is_final": is_final,
-                                "output_preview": ai_content[:200] if is_final and ai_content else "",
+                                "output_preview": ai_content[:500] if ai_content else "",
                             })
+                            # 动态更新 span 名称 — 更友好的显示
+                            if is_final:
+                                s.name = f"第 {s.metadata.get('iteration','')} 轮思考 → 最终回复"
+                            elif tool_calls:
+                                s.name = f"第 {s.metadata.get('iteration','')} 轮思考 → 调用 {', '.join(tool_calls)}"
                             s.finish("success", token_info)
                             yield f"data: {json.dumps({'type': 'llm_end', 'duration_ms': round(s.duration_ms), 'tokens': token_info}, ensure_ascii=False)}\n\n"
                             break
@@ -347,22 +353,43 @@ async def chat_stream(req: ChatRequest):
                 elif kind == "on_tool_start":
                     tracer.increment_tool(trace_id)
                     tool_name = event.get("name", "")
-                    tool_input = str(data.get("input", ""))[:300]
+                    raw_input = data.get("input", {})
+                    # JSON 序列化输入参数（保留完整数据）
+                    if isinstance(raw_input, dict):
+                        tool_input_full = json.dumps(raw_input, ensure_ascii=False, default=str)
+                    elif isinstance(raw_input, str):
+                        tool_input_full = raw_input
+                    else:
+                        tool_input_full = str(raw_input)
                     current_tool_span = tracer.start_span(
                         trace_id, SpanType.TOOL_CALL, f"tool:{tool_name}",
-                        input_data={"tool_name": tool_name, "input": tool_input},
-                        metadata={"tool_name": tool_name, "input": tool_input[:200]},
+                        input_data={"tool_name": tool_name, "input": tool_input_full},
+                        metadata={"tool_name": tool_name, "input": tool_input_full[:200]},
                     )
-                    yield f"data: {json.dumps({'type': 'tool_start', 'tool_name': tool_name, 'input': tool_input[:200]}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'type': 'tool_start', 'tool_name': tool_name, 'input': tool_input_full[:200]}, ensure_ascii=False)}\n\n"
 
                 elif kind == "on_tool_end":
                     tool_name = event.get("name", "")
-                    output = str(data.get("output", ""))[:500]
+                    raw_output = data.get("output", "")
+                    # 提取 ToolMessage 的 content（而不是 repr）
+                    if hasattr(raw_output, "content"):
+                        output_content = raw_output.content if isinstance(raw_output.content, str) else str(raw_output.content)
+                    elif isinstance(raw_output, str):
+                        output_content = raw_output
+                    else:
+                        output_content = str(raw_output)
+                    # 尝试 JSON 格式化输出
+                    try:
+                        parsed = json.loads(output_content)
+                        output_full = json.dumps(parsed, ensure_ascii=False, indent=2)
+                    except (json.JSONDecodeError, TypeError):
+                        output_full = output_content
                     if current_tool_span and current_tool_span.status == "running":
-                        current_tool_span.metadata["output"] = output[:300]
+                        current_tool_span.metadata["output"] = output_full[:500]
                         current_tool_span.metadata["status"] = "success"
-                        current_tool_span.finish("success", {"output": output[:300]})
-                        yield f"data: {json.dumps({'type': 'tool_end', 'tool_name': tool_name, 'output': output[:200], 'duration_ms': round(current_tool_span.duration_ms)}, ensure_ascii=False)}\n\n"
+                        current_tool_span.input_data["input"] = tool_input_full if 'tool_input_full' in dir() else current_tool_span.input_data.get("input", "")
+                        current_tool_span.finish("success", {"output": output_full})
+                        yield f"data: {json.dumps({'type': 'tool_end', 'tool_name': tool_name, 'output': output_full[:300], 'duration_ms': round(current_tool_span.duration_ms)}, ensure_ascii=False)}\n\n"
                         current_tool_span = None
 
         except Exception as exc:
