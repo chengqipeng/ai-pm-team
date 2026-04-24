@@ -41,8 +41,8 @@
 | id | Long | 主键 | — |
 | objectId | Long | 所属对象 ID | entityApiKey |
 | itemDependencyId | Long | 所属依赖关系 ID | dependencyApiKey |
-| controlItemCode | Integer | 控制字段选项编码 | controlOptionCode |
-| dependentItemCodeList | String | 依赖字段选项编码列表（逗号分隔） | dependentOptionCodes |
+| controlItemCode | Integer | 控制字段选项编码 | controlOptionApiKey |
+| dependentItemCodeList | String | 依赖字段选项编码列表（逗号分隔） | dependentOptionApiKeys |
 
 ## 新系统字段设计
 
@@ -79,8 +79,8 @@
 | customFlg | custom_flg | 自定义标记 | Integer(0/1) | 固定列（基类） |
 | deleteFlg | delete_flg | 删除标记 | Integer(0/1) | 固定列（基类） |
 | dependencyApiKey | dbc_varchar1 | 所属依赖apiKey | String | 关联 itemDependency |
-| controlOptionCode | dbc_int1 | 控制选项编码 | Integer | 控制字段的 pickOption code |
-| dependentOptionCodes | dbc_varchar2 | 依赖选项编码列表 | String | 逗号分隔，如 "1,2,3" |
+| controlOptionApiKey | dbc_varchar2 | 控制选项apiKey | String | 关联 pickOption 的 apiKey |
+| dependentOptionApiKeys | dbc_array1 | 依赖选项apiKey列表 | List\<String\> | TEXT[] 数组类型，如 `["opt_a","opt_b"]`。详见 [多选字段数组类型设计方案](../多选字段数组类型设计方案.md) |
 | createdBy | created_by | 创建人 | Long | 固定列 |
 | createdAt | created_at | 创建时间 | Long | 固定列 |
 | updatedBy | updated_by | 修改人 | Long | 固定列 |

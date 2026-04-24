@@ -178,40 +178,40 @@ INSERT INTO p_common_metadata (
 -- ============================================================================
 -- 第六步：省→市 依赖明细（示例：北京、天津、河北）
 -- ============================================================================
--- controlOptionCode 使用省份的 optionOrder（与 dbc_int1 一致）
--- dependentOptionCodes 使用城市 api_key 的逗号分隔列表
+-- controlOptionApiKey 使用省份的 apiKey
+-- dependentOptionApiKeys 使用城市 apiKey 的 TEXT[] 数组
 
 INSERT INTO p_common_metadata (
     metamodel_api_key, api_key, entity_api_key, label, label_key,
     namespace, custom_flg, delete_flg,
-    dbc_varchar1, dbc_int1, dbc_varchar2,
+    dbc_varchar1, dbc_varchar2, dbc_array1,
     created_at, created_by, updated_at, updated_by
 ) VALUES
--- 北京(1) → 北京市
+-- 北京 → 北京市
 (
     'globalPickDependencyDetail', 'depBeijingCity', 'province',
     '北京→城市', NULL,
     'system', 0, 0,
     'provinceToCity',   -- dependencyApiKey (dbc_varchar1)
-    1,                  -- controlOptionCode (dbc_int1)
-    'beijingCity',      -- dependentOptionCodes (dbc_varchar2)
+    'beijing',          -- controlOptionApiKey (dbc_varchar2)
+    ARRAY['beijingCity'],  -- dependentOptionApiKeys (dbc_array1)
     UNIX_TIMESTAMP()*1000, 0, UNIX_TIMESTAMP()*1000, 0
 ),
--- 天津(2) → 天津市
+-- 天津 → 天津市
 (
     'globalPickDependencyDetail', 'depTianjinCity', 'province',
     '天津→城市', NULL,
     'system', 0, 0,
-    'provinceToCity', 2, 'tianjinCity',
+    'provinceToCity', 'tianjin', ARRAY['tianjinCity'],
     UNIX_TIMESTAMP()*1000, 0, UNIX_TIMESTAMP()*1000, 0
 ),
--- 河北(3) → 石家庄,唐山,秦皇岛,邯郸,邢台,保定,张家口,承德,沧州,廊坊,衡水
+-- 河北 → 石家庄,唐山,秦皇岛,邯郸,邢台,保定,张家口,承德,沧州,廊坊,衡水
 (
     'globalPickDependencyDetail', 'depHebeiCity', 'province',
     '河北→城市', NULL,
     'system', 0, 0,
-    'provinceToCity', 3,
-    'shijiazhuang,tangshan,qinhuangdao,handan,xingtai,baoding,zhangjiakou,chengde,cangzhou,langfang,hengshui',
+    'provinceToCity', 'hebei',
+    ARRAY['shijiazhuang','tangshan','qinhuangdao','handan','xingtai','baoding','zhangjiakou','chengde','cangzhou','langfang','hengshui'],
     UNIX_TIMESTAMP()*1000, 0, UNIX_TIMESTAMP()*1000, 0
 );
 -- ... 其余省份按同样规则继续
@@ -224,7 +224,7 @@ INSERT INTO p_common_metadata (
 INSERT INTO p_common_metadata (
     metamodel_api_key, api_key, entity_api_key, label, label_key,
     namespace, custom_flg, delete_flg,
-    dbc_varchar1, dbc_int1, dbc_varchar2,
+    dbc_varchar1, dbc_varchar2, dbc_array1,
     created_at, created_by, updated_at, updated_by
 ) VALUES
 -- 北京市 → 16 个区
@@ -233,8 +233,8 @@ INSERT INTO p_common_metadata (
     '北京市→区县', NULL,
     'system', 0, 0,
     'cityToDistrict',   -- dependencyApiKey (dbc_varchar1)
-    1,                  -- controlOptionCode (dbc_int1)
-    'bjDongcheng,bjXicheng,bjChaoyang,bjFengtai,bjShijingshan,bjHaidian,bjMentougou,bjFangshan,bjTongzhou,bjShunyi,bjChangping,bjDaxing,bjHuairou,bjPinggu,bjMiyun,bjYanqing',
+    'beijingCity',      -- controlOptionApiKey (dbc_varchar2)
+    ARRAY['bjDongcheng','bjXicheng','bjChaoyang','bjFengtai','bjShijingshan','bjHaidian','bjMentougou','bjFangshan','bjTongzhou','bjShunyi','bjChangping','bjDaxing','bjHuairou','bjPinggu','bjMiyun','bjYanqing'],
     UNIX_TIMESTAMP()*1000, 0, UNIX_TIMESTAMP()*1000, 0
 );
 -- ... 其余城市按同样规则继续

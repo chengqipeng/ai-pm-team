@@ -40,6 +40,10 @@ class SpanType(str, Enum):
     COMPRESSION = "compression"
     SUBAGENT = "subagent"
     ERROR = "error"
+    # 对齐 index.html 新增
+    CONTEXT_BUILD = "context_build"
+    INTENT_ANALYSIS = "intent_analysis"
+    HIERARCHICAL_SEARCH = "hierarchical_search"
 
 
 @dataclass
@@ -66,10 +70,16 @@ class Span:
             self.output_data = output
 
     def to_dict(self) -> dict[str, Any]:
+        # Normalize type: strip "SpanType." prefix if present
+        span_type = self.type
+        if isinstance(span_type, str) and span_type.startswith("SpanType."):
+            span_type = span_type.split(".", 1)[1].lower()
+        elif hasattr(span_type, 'value'):
+            span_type = span_type.value
         return {
             "span_id": self.span_id,
             "parent_id": self.parent_id,
-            "type": self.type,
+            "type": span_type,
             "name": self.name,
             "start_time": self.start_time,
             "end_time": self.end_time,
@@ -108,6 +118,8 @@ class Trace:
         self.status = status
 
     def to_dict(self) -> dict[str, Any]:
+        # Sort spans by start_time for correct chronological order
+        sorted_spans = sorted(self.spans, key=lambda s: s.start_time)
         return {
             "trace_id": self.trace_id,
             "thread_id": self.thread_id,
@@ -124,23 +136,24 @@ class Trace:
             "agent_output": self.agent_output[:500],
             "model": self.model,
             "agent_name": self.agent_name,
-            "spans": [s.to_dict() for s in self.spans],
+            "spans": [s.to_dict() for s in sorted_spans],
         }
 
     def to_timeline(self) -> list[dict]:
         """生成时间线视图（前端渲染用）"""
         if not self.spans:
             return []
+        sorted_spans = sorted(self.spans, key=lambda s: s.start_time)
         base_time = self.start_time
         return [{
             "span_id": s.span_id,
-            "type": s.type,
+            "type": s.to_dict()["type"],  # use normalized type
             "name": s.name,
             "offset_ms": round((s.start_time - base_time) * 1000, 1),
             "duration_ms": round(s.duration_ms, 1),
             "status": s.status,
             "metadata": s.metadata,
-        } for s in self.spans]
+        } for s in sorted_spans]
 
 
 class Tracer:
@@ -184,8 +197,16 @@ class Tracer:
             logger.warning("Trace not found: %s", trace_id)
             return Span(type=str(span_type), name=name)
 
+        # Normalize type to plain lowercase string
+        if isinstance(span_type, SpanType):
+            type_str = span_type.value
+        else:
+            type_str = str(span_type)
+            if type_str.startswith("SpanType."):
+                type_str = type_str.split(".", 1)[1].lower()
+
         span = Span(
-            type=str(span_type) if isinstance(span_type, SpanType) else span_type,
+            type=type_str,
             name=name, parent_id=parent_id,
             input_data=input_data or {}, metadata=metadata or {},
         )

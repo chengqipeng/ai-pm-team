@@ -31,13 +31,9 @@ class AgentLoggingMiddleware(AgentMiddleware):
     def __init__(
         self,
         system_prompt: str = "",
-        skill_names: list[str] | None = None,
-        tool_names: list[str] | None = None,
         agent_name: str = "",
     ) -> None:
         self._system_prompt = system_prompt
-        self._skill_names = skill_names or []
-        self._tool_names = tool_names or []
         self._agent_name = agent_name or "DeepAgent"
         self._loop_counters: dict[str, int] = defaultdict(int)
         self._agent_started: set[str] = set()
@@ -48,8 +44,7 @@ class AgentLoggingMiddleware(AgentMiddleware):
         if thread_id in self._agent_started:
             return None
         self._agent_started.add(thread_id)
-        logger.warning("[thread=%s] Agent 启动: skills=%s, tools=%s",
-                       thread_id, self._skill_names, self._tool_names)
+        logger.warning("[thread=%s] Agent [%s] 启动", thread_id, self._agent_name)
         return None
 
     def after_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:

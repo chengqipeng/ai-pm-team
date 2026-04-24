@@ -23,6 +23,18 @@ from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, System
 passed = 0
 failed = 0
 
+def _get_llm():
+    """获取真实 LLM 实例（豆包）"""
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(
+        model="doubao-1-5-pro-32k-250115",
+        api_key="651621e7-e495-4728-93ef-ed380e9ddcd1",
+        base_url="https://ark.cn-beijing.volces.com/api/v3/",
+        max_tokens=2048,
+    )
+
+
+
 def check(name, condition):
     global passed, failed
     if condition:
@@ -44,7 +56,7 @@ async def test_full_memory_lifecycle():
         from src.middleware.memory import MemoryMiddleware, MemoryDimension
 
         storage = MemoryStorage(storage_dir=tmp)
-        engine = FTSMemoryEngine(storage=storage, llm=None)  # 无 LLM，纯规则
+        engine = FTSMemoryEngine(storage=storage, llm=_get_llm())  # 无 LLM，纯规则
         mw = MemoryMiddleware(engine=engine, enabled=True)
 
         # ═══ Session 1: 用户查询客户，表达偏好 ═══
@@ -150,7 +162,7 @@ async def test_query_rewrite():
         from src.memory.fts_engine import FTSMemoryEngine
 
         storage = MemoryStorage(storage_dir=tmp)
-        engine = FTSMemoryEngine(storage=storage, llm=None)
+        engine = FTSMemoryEngine(storage=storage, llm=_get_llm())
 
         # 多轮对话：用户先问张三，再问 "他的商机"
         messages = [
@@ -179,7 +191,7 @@ async def test_dedup_task_history():
         from src.memory.fts_engine import FTSMemoryEngine
 
         storage = MemoryStorage(storage_dir=tmp)
-        engine = FTSMemoryEngine(storage=storage, llm=None)
+        engine = FTSMemoryEngine(storage=storage, llm=_get_llm())
 
         # 同一个 thread 执行两次
         msgs1 = [HumanMessage(content="查客户"), AIMessage(content="查到 5 个")]
@@ -216,7 +228,7 @@ async def test_time_decay():
         from src.memory.fts_engine import FTSMemoryEngine
 
         storage = MemoryStorage(storage_dir=tmp)
-        engine = FTSMemoryEngine(storage=storage, llm=None)
+        engine = FTSMemoryEngine(storage=storage, llm=_get_llm())
 
         # 写入一条 "旧" 记忆（手动设置 created_at 为 30 天前）
         conn = storage._ensure_db()
@@ -262,7 +274,7 @@ async def test_debounce_integration():
         from src.memory.fts_engine import FTSMemoryEngine
 
         storage = MemoryStorage(storage_dir=tmp)
-        engine = FTSMemoryEngine(storage=storage, llm=None, debounce_seconds=0.1)
+        engine = FTSMemoryEngine(storage=storage, llm=_get_llm(), debounce_seconds=0.1)
 
         # 快速提交 3 次到防抖队列
         engine.submit_for_extraction("thread-1", [
@@ -304,7 +316,7 @@ async def test_memory_prompt_injection():
         storage.add("u1", "华为科技是 VIP 客户，年营收 8809 亿", dimension="customer_context")
         storage.add("u1", "上次查询了 5 个客户和 7 个商机", dimension="task_history")
 
-        engine = FTSMemoryEngine(storage=storage, llm=None)
+        engine = FTSMemoryEngine(storage=storage, llm=_get_llm())
 
         # 检索
         result = await engine.retrieve("客户 商机", user_id="u1", top_k=5)

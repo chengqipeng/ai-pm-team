@@ -74,19 +74,28 @@ class MultimodalInjectMiddleware(AgentMiddleware):
         ):
             return None
 
-        # 构建多模态 content
+        # 构建多模态 content（OpenAI 兼容格式，豆包/DeepSeek/OpenAI 通用）
         multimodal_content: list[dict[str, Any]] = []
         if isinstance(original_content, str):
-            multimodal_content.append({"type": "input_text", "text": original_content})
+            multimodal_content.append({"type": "text", "text": original_content})
         elif isinstance(original_content, list):
             multimodal_content.extend(original_content)
 
         for att in attachments:
             att_type = att.get("type")
             if att_type == "input_image":
-                multimodal_content.append({"type": "input_image", "image_url": att["image_url"]})
+                # OpenAI 兼容格式: {"type": "image_url", "image_url": {"url": "..."}}
+                multimodal_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": att["image_url"]},
+                })
             elif att_type == "input_file":
-                multimodal_content.append({"type": "input_file", "file_url": att["file_url"]})
+                # 文档作为文本注入（多模态模型不直接支持文件 URL）
+                file_url = att.get("file_url", "")
+                multimodal_content.append({
+                    "type": "text",
+                    "text": f"[附件: {att.get('fileName', 'document')}] {file_url}",
+                })
 
         # 替换 HumanMessage
         new_messages = list(messages)

@@ -21,31 +21,38 @@
 
 ## 字段类型体系（ItemTypeEnum）
 
-| 编码 | 名称 | dbColumnPrefix | 说明 |
-|:---:|:---|:---|:---|
-| 1 | TEXT | dbc_varchar | 文本 |
-| 2 | NUMBER | dbc_bigint | 数字 |
-| 3 | DATE | dbc_bigint | 日期 |
-| 4 | SELECT | dbc_int | 单选 |
-| 5 | RELATION_SHIP | dbc_bigint | 查找关联 |
-| 6 | FORMULA | null | 公式（不占物理列） |
-| 7 | ROLLUP | null | 汇总（不占物理列） |
-| 8 | TEXTAREA | dbc_textarea | 长文本 |
-| 9 | BOOLEAN | dbc_smallint | 布尔 |
-| 10 | CURRENCY | dbc_decimal | 货币 |
-| 11 | PERCENT | dbc_decimal | 百分比 |
-| 12 | EMAIL | dbc_varchar | 邮箱 |
-| 13 | PHONE | dbc_varchar | 电话 |
-| 14 | URL | dbc_varchar | URL |
-| 15 | DATETIME | dbc_bigint | 日期时间 |
-| 16 | MULTI_SELECT | dbc_varchar | 多选 |
-| 17 | MASTER_DETAIL | dbc_bigint | 主从关联 |
-| 18 | GEOLOCATION | dbc_varchar | 地理位置 |
-| 19 | IMAGE | dbc_varchar | 图片 |
-| 20 | AUTONUMBER | dbc_varchar | 自动编号 |
-| 21 | JOIN | null | 引用（不占物理列） |
-| 22 | AUDIO | dbc_varchar | 语音 |
-| 27 | COMPUTED | null | 计算字段（不占物理列） |
+> 编码与后端 Java `ItemTypeEnum.java` 一致（新老编码一致，不做转换）。
+
+| 编码 | 名称 | DataType | dbColumnPrefix | 说明 |
+|:---:|:---|:---|:---|:---|
+| 1 | TEXT | VARCHAR | dbc_varchar | 文本 |
+| 2 | SELECT | VARCHAR | dbc_varchar | 单选 |
+| 3 | MULTI_SELECT | VARCHAR | dbc_varchar | 多选 |
+| 4 | TEXTAREA | TEXT | dbc_textarea | 长文本 |
+| 5 | NUMBER | BIGINT | dbc_bigint | 整数 |
+| 6 | CURRENCY | DECIMAL | dbc_decimal | 实数/货币 |
+| 7 | DATE | BIGINT | dbc_bigint | 日期 |
+| 8 | LAYOUT_LINE | null | — | 布局行（虚拟，不占物理列） |
+| 9 | AUTONUMBER | VARCHAR | dbc_varchar | 自动编号 |
+| 10 | REFER | BIGINT | dbc_bigint | 查找关联 |
+| 11 | NUMBER_OLD | BIGINT | dbc_bigint | 整数（老编码别名） |
+| 13 | PHONE_OLD | VARCHAR | dbc_varchar | 电话（老编码别名） |
+| 15 | DATETIME_OLD | BIGINT | dbc_bigint | 日期时间（老编码别名） |
+| 16 | MULTI_TAG | VARCHAR | dbc_varchar | 多选标签 |
+| 22 | PHONE | VARCHAR | dbc_varchar | 电话 |
+| 23 | EMAIL | VARCHAR | dbc_varchar | 邮箱 |
+| 24 | URL | VARCHAR | dbc_varchar | URL |
+| 26 | JOIN | null | — | 引用（虚拟，不占物理列） |
+| 27 | FORMULA | null | — | 计算（虚拟，不占物理列） |
+| 29 | IMAGE | VARCHAR | dbc_varchar | 图片 |
+| 31 | BOOLEAN | SMALLINT | dbc_smallint | 布尔 |
+| 32 | GEO | VARCHAR | dbc_varchar | 地理定位 |
+| 33 | PERCENT | DECIMAL | dbc_decimal | 百分比 |
+| 34 | MULTI_REFER | BIGINT | dbc_bigint | 多态关联 |
+| 38 | DATETIME | BIGINT | dbc_bigint | 日期时间 |
+| 39 | FILE | VARCHAR | dbc_varchar | 文件 |
+| 40 | RICHTEXT | TEXT | dbc_textarea | 富文本 |
+| 41 | MASTER_DETAIL | BIGINT | dbc_bigint | 主从关联 |
 
 ---
 
@@ -116,7 +123,7 @@
 | joinObject | dbc_varchar13 | 引用实体 | String |
 | joinLink | dbc_varchar14 | 引用Link | String |
 | linkLabel | dbc_varchar15 | 关联标签 | String |
-| referEntityApiKeys | dbc_varchar16 | 多态引用实体列表 | String(逗号分隔) |
+| referEntityApiKeys | dbc_array1 | 多态引用实体列表 | List\<String\> (TEXT[] 数组)。详见 [多选字段数组类型设计方案](../多选字段数组类型设计方案.md) |
 | entityOrData | dbc_smallint | 多态属性标识 | Integer |
 | groupKey | dbc_varchar17 | 多态分组Key | String |
 

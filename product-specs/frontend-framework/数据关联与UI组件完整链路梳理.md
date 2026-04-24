@@ -289,19 +289,30 @@ arr = arr.filter(item => {
 
 ## 六、受影响的场景
 
-不仅是省市区，所有依赖 `parent_metadata_api_key` 的场景都受影响：
+以下场景依赖 `parent_metadata_api_key` 固定列：
 
-| 场景 | 需要的字段 | 当前状态 |
-|:-----|:-----------|:---------|
-| 省→市→区级联 | parentMetadataApiKey | ❌ API 不返回 |
-| 角色树（上级角色） | parentMetadataApiKey | ❌ API 不返回（Role 也没有此字段） |
-| 部门树（上级部门） | deptParentApiKey (dbc_varchar5) | ✅ 通过 p_meta_item 映射到 Department.deptParentApiKey |
-| 选项集→子选项 | entityApiKey | ✅ GlobalPickOption 有此字段 |
-| 实体→字段 | entityApiKey | ✅ EntityItem 有此字段 |
+| 场景 | 需要的字段 | 当前状态 | 说明 |
+|:-----|:-----------|:---------|:-----|
+| 角色树（上级角色） | parentMetadataApiKey | ❌ API 不返回（但角色树实际用 roleParentApiKey dbc_varchar5） | 角色树已通过 dbc 列绕过 |
+| 部门树（上级部门） | deptParentApiKey (dbc_varchar5) | ✅ 通过 p_meta_item 映射到 Department.deptParentApiKey | 不依赖 parentMetadataApiKey |
+| 选项集→子选项 | entityApiKey | ✅ GlobalPickOption 有此字段 | 不依赖 parentMetadataApiKey |
+| 实体→字段 | entityApiKey | ✅ EntityItem 有此字段 | 不依赖 parentMetadataApiKey |
 
-**注意**：部门树能工作是因为它用的是 `deptParentApiKey`（dbc_varchar5 映射），不是 `parentMetadataApiKey`。角色树用的是 `roleParentApiKey`（dbc_varchar5 映射），也不是 `parentMetadataApiKey`。
+> ⚠️ **重要纠正**：省→市→区级联**不依赖** `parentMetadataApiKey`。
+> 省市区之间的关联通过 `globalPickDependency` + `globalPickDependencyDetail` 依赖体系实现：
+>
+> ```
+> 省份(guangdong)
+>   → 查 globalPickDependencyDetail WHERE dependencyApiKey='provinceToCity' AND controlOptionApiKey='guangdong'
+>   → 取 dependentOptionApiKeys = ["guangZhou","shenZhen",...] (TEXT[] 数组)
+>   → 查 globalPickOption WHERE entityApiKey='city' AND apiKey IN (...)
+> ```
+>
+> 正确的 UI 联动方式是使用 `chainQuery` 链式查询（`POST /meta/chain-query`），不是前端内存过滤 parentMetadataApiKey。
 
-所以 `parentMetadataApiKey` 这个固定列目前在整个系统中**从未被任何 API 返回过**。
+**注意**：部门树能工作是因为它用的是 `deptParentApiKey`（dbc_varchar5 映射），角色树用的是 `roleParentApiKey`（dbc_varchar5 映射）。这两个都不依赖 `parentMetadataApiKey` 固定列。
+
+`parentMetadataApiKey` 这个固定列目前在整个系统中**从未被任何 API 返回过**，也**没有任何已实现的业务场景依赖它**。
 
 ---
 
@@ -341,13 +352,15 @@ label: 上级选项
 
 ## 八、结论
 
-**根因是 CommonMetadataConverter 的 SKIP_FIELDS 设计决策**：当初认为 `parentMetadataApiKey` 是"系统管理字段，业务 Entity 不需要"，所以显式跳过了。
+**`parentMetadataApiKey` 固定列的现状**：被 CommonMetadataConverter 的 SKIP_FIELDS 跳过，API 不返回。但经过分析，当前系统中没有已实现的业务场景真正依赖它：
 
-但现在省市区层级关系、角色树、任何有层级的元数据都需要这个字段。
+- 省→市→区级联：通过 globalPickDependency 依赖体系 + chainQuery 链式查询实现，不需要 parentMetadataApiKey
+- 部门树/角色树：通过各自的 dbc 扩展列（deptParentApiKey / roleParentApiKey）实现，不需要 parentMetadataApiKey
 
-**推荐路径 A**：
-1. 从 SKIP_FIELDS 移除 `parentMetadataApiKey`
-2. 在 BaseMetaCommonEntity 中添加 `parentMetadataApiKey` 字段
-3. 这样所有元数据 API 自动返回层级关系，前端无需任何改动
+**是否需要打通 parentMetadataApiKey**：取决于未来是否有场景需要"通用的同模型层级关系"能力。如果有，推荐路径 A（从 SKIP_FIELDS 移除 + BaseMetaCommonEntity 添加字段）。如果没有，当前不需要改动。
 
-这是最小改动、最大收益的方案。改动仅涉及 2 个 Java 文件，不影响现有功能（新增字段，原来为 null 的记录返回 null，有值的返回值）。
+**省→市→区级联的正确实现路径**：
+1. 后端实现 `POST /meta/chain-query` 接口
+2. 前端 `useDataSource` 支持 `chainQueryRef` / `chainQuery` 配置
+3. 注册 `chainQueryTemplate` 元模型，预置 provinceToCity / cityToDistrict 模板
+4. 画布属性面板的"关联方式"下拉支持级联查询模板选项

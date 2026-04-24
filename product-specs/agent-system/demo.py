@@ -385,16 +385,28 @@ async def demo_clarification():
 
 
 async def demo_memory_middleware():
-    section("MemoryMiddleware + NoopEngine")
-    from src.middleware.memory import MemoryMiddleware, NoopMemoryEngine, MemoryDimension
-    engine = NoopMemoryEngine()
-    mw = MemoryMiddleware(engine=engine)
-    check("engine 属性", mw.engine is engine)
-    check("NoopEngine rewrite", await engine.rewrite_query([], "test") == "test")
-    result = await engine.retrieve("test")
-    check("NoopEngine retrieve 空", len(result.items) == 0)
-    extract = await engine.extract_and_update([], "thread1")
-    check("NoopEngine extract", extract.source_thread_id == "thread1")
+    section("MemoryMiddleware + FTSMemoryEngine（真实 LLM）")
+    from src.middleware.memory import MemoryMiddleware, MemoryDimension
+    from src.memory.fts_engine import FTSMemoryEngine
+    from src.memory.storage import MemoryStorage
+    from langchain_openai import ChatOpenAI
+    import tempfile, shutil
+
+    tmp = tempfile.mkdtemp()
+    try:
+        llm = ChatOpenAI(model="doubao-1-5-pro-32k-250115",
+                         api_key="651621e7-e495-4728-93ef-ed380e9ddcd1",
+                         base_url="https://ark.cn-beijing.volces.com/api/v3/", max_tokens=1024)
+        storage = MemoryStorage(storage_dir=tmp)
+        engine = FTSMemoryEngine(storage=storage, llm=llm)
+        mw = MemoryMiddleware(engine=engine)
+        check("engine 属性", mw.engine is engine)
+        check("FTSMemoryEngine rewrite", len(await engine.rewrite_query([], "test")) > 0)
+        result = await engine.retrieve("test")
+        check("空库检索返回空", len(result.items) == 0)
+        storage.close()
+    finally:
+        shutil.rmtree(tmp)
 
 
 async def demo_plugin_lifecycle():
@@ -606,12 +618,24 @@ async def demo_debounce_queue():
 
 
 async def demo_memory_updater():
-    section("MemoryUpdater (无 LLM fallback)")
+    section("MemoryUpdater (真实 LLM)")
     from src.memory.updater import MemoryUpdater
-    from langchain_core.messages import HumanMessage
-    updater = MemoryUpdater(llm=None)
-    result = await updater.extract_and_update([HumanMessage(content="test")], "existing")
-    check("无 LLM 返回现有", result == "existing")
+    from langchain_core.messages import HumanMessage, AIMessage
+    from langchain_openai import ChatOpenAI
+
+    llm = ChatOpenAI(model="doubao-1-5-pro-32k-250115",
+                     api_key="651621e7-e495-4728-93ef-ed380e9ddcd1",
+                     base_url="https://ark.cn-beijing.volces.com/api/v3/", max_tokens=1024)
+    updater = MemoryUpdater(llm=llm)
+
+    # 无消息时返回现有记忆
+    result = await updater.extract_and_update([], "existing")
+    check("空消息返回现有", result == "existing")
+
+    # 有消息时 LLM 提取
+    msgs = [HumanMessage(content="我喜欢用表格展示数据"), AIMessage(content="好的，我会用表格")]
+    result2 = await updater.extract_and_update(msgs, "用户偏好中文")
+    check("LLM 提取记忆", len(result2) > 0)
 
 
 def demo_memory_prompt():

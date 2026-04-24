@@ -17,6 +17,8 @@ aiosqlite = "^0.22.1"
 chromadb = "^1.5.8"
 fastapi = "^0.136.0"
 uvicorn = "^0.46.0"
+python-multipart = "^0.0.26"
+psycopg2-binary = "^2.9"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"

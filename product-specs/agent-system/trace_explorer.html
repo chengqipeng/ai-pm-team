@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepAgent Trace Explorer</title>
+<style>
+:root{--bg:#f7f8fa;--card:#fff;--border:#e5e7eb;--pri:#4f46e5;--pri-l:#eef2ff;--txt:#1f2937;--txt2:#6b7280;--txt3:#9ca3af;--r:10px;--sh:0 1px 3px rgba(0,0,0,.08)}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif;background:var(--bg);color:var(--txt)}
+.app{display:flex;height:100vh}
+.sidebar{width:240px;background:linear-gradient(180deg,#1e1b4b,#312e81);color:#e0e0e0;padding:20px 0;flex-shrink:0;overflow-y:auto}
+.sidebar h2{padding:0 20px 16px;font-size:17px;color:#fff;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.nav-item{padding:10px 20px;cursor:pointer;font-size:13px;transition:background .2s;display:flex;align-items:center;gap:8px;color:rgba(255,255,255,.6)}
+.nav-item:hover{background:rgba(255,255,255,.08);color:#fff}
+.nav-item.active{background:rgba(255,255,255,.15);color:#fff;border-left:3px solid #818cf8}
+.main{flex:1;overflow-y:auto;padding:24px}
+
+/* Header */
+.page-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.page-header h1{font-size:20px;font-weight:700}
+.filters{display:flex;gap:8px;align-items:center}
+.filters select,.filters input{padding:6px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--card)}
+.filters button{padding:6px 16px;background:var(--pri);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px}
+
+/* Trace table */
+.trace-table{width:100%;border-collapse:collapse;background:var(--card);border-radius:var(--r);overflow:hidden;box-shadow:var(--sh)}
+.trace-table th{background:#fafafa;padding:12px 14px;text-align:left;font-size:12px;color:var(--txt3);border-bottom:1px solid var(--border);font-weight:600}
+.trace-table td{padding:10px 14px;border-bottom:1px solid #f5f5f5;font-size:13px}
+.trace-table tr:hover{background:var(--pri-l);cursor:pointer}
+
+/* Badges */
+.badge{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600}
+.badge-success{background:#d1fae5;color:#065f46}
+.badge-error{background:#fee2e2;color:#991b1b}
+.badge-running{background:#dbeafe;color:#1e40af}
+
+/* Source tags */
+.stag{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:600}
+.stag-agent{background:#dbeafe;color:#1e40af}
+.stag-subagent{background:#fef3c7;color:#92400e}
+.stag-middleware{background:#f3f4f6;color:#6b7280}
+.stag-skill{background:#f3e8ff;color:#7c3aed}
+.stag-tool{background:#d1fae5;color:#065f46}
+
+/* ═══ Trace Detail — 对齐 index.html ═══ */
+.trace-header{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px 20px;margin-bottom:16px}
+.trace-header .title-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.trace-header .stats{display:flex;gap:16px;flex-wrap:wrap}
+.trace-header .stat{display:flex;flex-direction:column;align-items:center;background:var(--bg);border-radius:8px;padding:10px 16px;min-width:70px}
+.trace-header .stat .val{font-size:18px;font-weight:700;color:var(--pri)}
+.trace-header .stat .lbl{font-size:10px;color:var(--txt3);margin-top:2px}
+
+/* Source filter pills */
+.src-filters{display:flex;gap:8px;margin-bottom:16px}
+.src-pill{padding:5px 14px;border:1.5px solid var(--border);border-radius:20px;font-size:12px;cursor:pointer;background:var(--card);transition:all .2s;font-weight:500}
+.src-pill.active{border-color:var(--pri);color:var(--pri);background:var(--pri-l)}
+.src-pill:hover{border-color:var(--pri)}
+
+/* Phase separator */
+.phase-sep{padding:8px 16px;background:var(--bg);color:var(--txt3);font-size:11px;font-weight:600;letter-spacing:.5px;border-radius:6px;margin:8px 0}
+
+/* ═══ Span Card — 对齐 index.html 的 span-card ═══ */
+.span-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);margin-bottom:6px;overflow:hidden;transition:border-color .2s,box-shadow .2s;animation:fadeIn .3s}
+.span-card:hover{border-color:var(--pri);box-shadow:var(--sh)}
+.span-card.exp{border-color:var(--pri);box-shadow:0 2px 8px rgba(79,70,229,.12)}
+.span-head{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer}
+.span-head .sicon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.span-head .sicon.ctx{background:#e0e7ff;color:#4338ca}
+.span-head .sicon.mem{background:#dbeafe;color:#1d4ed8}
+.span-head .sicon.intent{background:#fae8ff;color:#a21caf}
+.span-head .sicon.llm{background:#dbeafe;color:#1e40af}
+.span-head .sicon.search{background:#d1fae5;color:#065f46}
+.span-head .sicon.tool{background:#fef3c7;color:#92400e}
+.span-head .sicon.extract{background:#e0e7ff;color:#4338ca}
+.span-head .sicon.done{background:#d1fae5;color:#065f46}
+.span-head .sicon.err{background:#fee2e2;color:#991b1b}
+.span-info{flex:1;min-width:0}
+.span-info .sname{font-weight:600;font-size:13px;color:var(--txt);display:flex;align-items:center;gap:6px}
+.span-info .sdesc{font-size:11px;color:var(--txt2);margin-top:3px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.span-info .sdesc .badge{display:inline-flex;align-items:center;gap:3px;padding:1px 7px;border-radius:4px;font-size:10px;font-weight:500}
+.span-info .sdesc .badge.tok{background:#dbeafe;color:#1e40af}
+.span-info .sdesc .badge.tool-b{background:#fef3c7;color:#92400e}
+.span-info .sdesc .badge.hit{background:#d1fae5;color:#065f46}
+.span-info .sdesc .badge.dim{background:#f3e8ff;color:#7c3aed}
+.span-info .sdesc .badge.type{background:#fce7f3;color:#be185d}
+.span-info .sdesc .badge.ok{background:#d1fae5;color:#065f46}
+.span-info .sdesc .badge.final{background:#d1fae5;color:#065f46}
+.span-dur{font-size:14px;font-weight:700;color:var(--pri);white-space:nowrap;min-width:55px;text-align:right}
+
+/* Progress bar */
+.span-bar{height:3px;background:#f3f4f6;border-radius:2px;margin:0 14px 0 56px}
+.span-bar .fill{height:100%;border-radius:2px;transition:width .3s}
+.fill.ctx{background:#818cf8}.fill.mem{background:#3b82f6}.fill.intent{background:#c026d3}.fill.llm{background:#3b82f6}.fill.search{background:#10b981}.fill.tool{background:#f59e0b}.fill.extract{background:#818cf8}
+
+/* Span detail (expanded) */
+.span-detail{display:none;padding:8px 14px 14px 56px;font-size:11px;line-height:1.6}
+.span-card.exp .span-detail{display:block}
+.span-detail .dl{font-weight:600;color:var(--txt2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin:8px 0 3px}
+.span-detail .dc{color:var(--txt);word-break:break-all;white-space:pre-wrap;background:#f8f9fb;border-radius:6px;padding:8px 10px;font-family:'SF Mono',Menlo,monospace;font-size:10px;max-height:220px;overflow-y:auto;border:1px solid var(--border)}
+
+/* Child spans (vector_search / rerank) — 对齐 index.html */
+.span-children{padding:6px 14px 10px 56px}
+.child-span{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:5px;font-size:12px;cursor:pointer;transition:border-color .2s,box-shadow .2s}
+.child-span:hover{border-color:var(--pri);box-shadow:var(--sh)}
+.child-span .csicon{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.child-span .csicon.vs{background:#d1fae5;color:#065f46}
+.child-span .csicon.rr{background:#fae8ff;color:#a21caf}
+.child-span .cinfo{flex:1;min-width:0}
+.child-span .cname{font-weight:600;color:var(--txt);font-size:12px}
+.child-span .cmeta{color:var(--txt2);font-size:10px;margin-top:1px;display:flex;gap:6px;flex-wrap:wrap}
+.child-span .cmeta .badge{display:inline-flex;align-items:center;gap:2px;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:500}
+.child-span .cdur{font-weight:700;color:var(--pri);font-size:12px;white-space:nowrap;min-width:45px;text-align:right}
+.child-span .ctoggle{color:var(--pri);font-size:11px;cursor:pointer;white-space:nowrap;font-weight:500}
+
+/* Child data list (collapsible) */
+.child-data{display:none;padding:6px 10px 6px 24px;margin:-2px 0 4px 0}
+.child-data.show{display:block}
+.child-data-item{padding:6px 10px;margin:3px 0;background:var(--card);border:1px solid var(--border);border-radius:6px;font-size:11px;line-height:1.5}
+.child-data-item .dim-tag{color:#7c3aed;font-size:10px;font-weight:600}
+.child-data-item .score{color:var(--pri);font-size:10px;margin-left:6px}
+.child-data-item .content{color:var(--txt);margin-top:2px;word-break:break-all}
+
+/* IO panel */
+.io-panel{background:var(--card);border:1px solid var(--border);border-radius:var(--r);margin-top:16px;padding:20px}
+.io-panel h3{font-size:14px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.io-block{padding:10px 14px;background:#f8f9fb;border-radius:8px;font-size:13px;line-height:1.7;margin-bottom:12px;max-height:300px;overflow-y:auto;border:1px solid var(--border)}
+
+.empty{text-align:center;color:var(--txt3);padding:60px 20px;font-size:13px}
+.loading{text-align:center;padding:40px;color:var(--txt3)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media(max-width:900px){.sidebar{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <h2>🔍 Trace Explorer</h2>
+    <div class="nav-item active" onclick="showTab('list')">📋 Trace 列表</div>
+    <div class="nav-item" onclick="showTab('detail')">🌊 Trace 详情</div>
+    <div class="nav-item" onclick="window.location.href='/sessions'">💬 会话历史</div>
+    <div class="nav-item" onclick="window.location.href='/'">🤖 返回对话</div>
+  </div>
+  <div class="main">
+    <div id="tab-list">
+      <div class="page-header"><h1>Trace Explorer</h1>
+        <div class="filters">
+          <select id="filter-status"><option value="">全部状态</option><option value="success">success</option><option value="error">error</option></select>
+          <input id="filter-thread" placeholder="Thread ID" style="width:140px">
+          <button onclick="loadTraces()">搜索</button>
+        </div>
+      </div>
+      <table class="trace-table"><thead><tr><th>时间</th><th>用户输入</th><th>状态</th><th>延迟</th><th>Token</th><th>迭代</th><th>工具</th><th>Agent</th></tr></thead>
+        <tbody id="trace-list-body"><tr><td colspan="8" class="loading">加载中</td></tr></tbody>
+      </table>
+    </div>
+    <div id="tab-detail" style="display:none">
+      <div class="page-header"><h1>Trace 详情</h1>
+        <button onclick="showTab('list')" style="padding:6px 16px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;font-size:13px">← 返回列表</button>
+      </div>
+      <div id="detail-content"><div class="empty">👈 从列表中选择一条 Trace</div></div>
+    </div>
+  </div>
+</div>
+<script>
+const API='';
+// ═══ Span 配置 — 对齐 index.html ═══
+const SC={
+  request:{icon:'👤',cls:'ctx',label:'用户输入'},response:{icon:'🤖',cls:'done',label:'Agent 输出'},
+  context_build:{icon:'📋',cls:'ctx',label:'上下文构建'},memory_retrieval:{icon:'🔍',cls:'mem',label:'记忆检索'},
+  intent_analysis:{icon:'🧠',cls:'intent',label:'意图分析'},llm_call:{icon:'🤖',cls:'llm',label:'LLM 调用'},
+  hierarchical_search:{icon:'🌲',cls:'search',label:'分层检索'},tool_call:{icon:'🔧',cls:'tool',label:'工具调用'},
+  memory_extract:{icon:'💾',cls:'extract',label:'记忆提取'},skill_select:{icon:'🎯',cls:'intent',label:'技能选择'},
+  skill_execute:{icon:'🎯',cls:'intent',label:'技能执行'},subagent:{icon:'🔀',cls:'tool',label:'子Agent'},
+  compression_check:{icon:'📦',cls:'ctx',label:'压缩检查'},loop_detection:{icon:'🔄',cls:'ctx',label:'循环检测'},
+  guardrail_check:{icon:'🛡️',cls:'ctx',label:'安全护栏'},content_review:{icon:'🛡️',cls:'ctx',label:'内容审查'},
+  pii_redact:{icon:'🔒',cls:'ctx',label:'PII脱敏'},output_validation:{icon:'✅',cls:'done',label:'输出校验'},
+  title_generate:{icon:'🏷️',cls:'ctx',label:'标题生成'},output_render:{icon:'🎨',cls:'ctx',label:'输出渲染'},
+  agent_logging:{icon:'📝',cls:'ctx',label:'日志'},dangling_tool_call_fix:{icon:'🔧',cls:'ctx',label:'悬空修复'},
+  file_process:{icon:'📂',cls:'ctx',label:'文件处理'},clarification:{icon:'❓',cls:'tool',label:'澄清追问'},
+  error:{icon:'❌',cls:'err',label:'错误'},done:{icon:'🏁',cls:'done',label:'完成'},
+};
+function gc(type){return SC[type]||{icon:'📋',cls:'ctx',label:type}}
+
+let curTraces=[],srcFilter=new Set(['agent','subagent','middleware','skill','tool']);
+function showTab(n){document.getElementById('tab-list').style.display=n==='list'?'':'none';document.getElementById('tab-detail').style.display=n==='detail'?'':'none';document.querySelectorAll('.nav-item').forEach((e,i)=>e.classList.toggle('active',i===(n==='list'?0:1)))}
+function fT(ts){if(!ts)return'—';const d=new Date(typeof ts==='number'&&ts>1e12?ts:ts*1000);return d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+function fD(ms){if(!ms||ms<=0)return'0ms';return ms>=1000?(ms/1000).toFixed(1)+'s':Math.round(ms)+'ms'}
+function fK(n){if(!n)return'0';return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1000?(n/1000).toFixed(1)+'K':String(n)}
+function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=String(s);return d.innerHTML}
+function trunc(s,n){if(!s)return'';s=String(s);return s.length>n?s.slice(0,n)+'...':s}
+function sTok(s){const m=s.metadata||{};return m.total_tokens||(m.input_tokens||0)+(m.output_tokens||0)||m.estimated_tokens||0}
+function assignSrc(s){if(s.source)return;if(['request','response','llm_call'].includes(s.type))s.source='agent';else if(s.type==='tool_call')s.source='tool';else if(['skill_select','skill_execute'].includes(s.type))s.source='skill';else if(s.type==='subagent')s.source='subagent';else s.source='middleware'}
+
+// ═══ Trace List ═══
+async function loadTraces(){const b=document.getElementById('trace-list-body');b.innerHTML='<tr><td colspan="8" class="loading">加载中</td></tr>';try{const r=await(await fetch(API+'/api/traces?limit=50')).json();curTraces=r.traces||[];renderList()}catch(e){b.innerHTML='<tr><td colspan="8" style="color:#991b1b;text-align:center">加载失败</td></tr>'}}
+function renderList(){const st=document.getElementById('filter-status').value,th=document.getElementById('filter-thread').value.trim();let f=curTraces;if(st)f=f.filter(t=>t.status===st);if(th)f=f.filter(t=>t.thread_id.includes(th));const b=document.getElementById('trace-list-body');if(!f.length){b.innerHTML='<tr><td colspan="8" class="empty">暂无数据</td></tr>';return}b.innerHTML=f.map(t=>`<tr onclick="loadDet('${t.trace_id}')"><td>${fT(t.start_time)}</td><td title="${esc(t.user_input)}">${esc(trunc(t.user_input,40))}</td><td><span class="badge badge-${t.status}">${t.status}</span></td><td>${fD(t.total_duration_ms)}</td><td>${fK(t.total_tokens)}</td><td>${t.iteration_count}</td><td>${t.tool_count}</td><td>${t.agent_name||'—'}</td></tr>`).join('')}
+
+// ═══ Trace Detail ═══
+async function loadDet(id){showTab('detail');const c=document.getElementById('detail-content');c.innerHTML='<div class="loading">加载中</div>';try{const r=await(await fetch(API+'/api/traces/'+id)).json();if(r.error){c.innerHTML='<div class="empty">'+r.error+'</div>';return}renderDet(r.trace)}catch(e){c.innerHTML='<div class="empty" style="color:#991b1b">加载失败</div>'}}
+
+function renderDet(trace){
+  const c=document.getElementById('detail-content'),spans=trace.spans||[],maxD=trace.total_duration_ms||1;
+  spans.forEach(assignSrc);
+  let cTok=trace.total_tokens||0;if(!cTok)spans.forEach(s=>{if(s.type==='llm_call')cTok+=sTok(s)});
+  const root=[],chMap={};
+  spans.forEach(s=>{const p=s.parent_id||s.parent_span_id||'';if(p)(chMap[p]=chMap[p]||[]).push(s);else root.push(s)});
+
+  function phase(s){if(['request','context_build','agent_logging','dangling_tool_call_fix','file_process','content_review','pii_redact','memory_retrieval'].includes(s.type)&&(!s.name||!s.name.includes('output')))return'ba';if(['memory_extract','title_generate','output_render','response'].includes(s.type))return'aa';return'rl'}
+
+  // ═══ Build badges (对齐 index.html renderSpanCard) ═══
+  function badges(s){
+    const m=s.metadata||{};let h='';
+    if(s.type==='context_build'){
+      if(m.message_count!=null)h+=`<span class="badge dim">📨 ${m.message_count} 条消息</span>`;
+      if(m.estimated_tokens!=null)h+=`<span class="badge tok">🔤 ~${fK(m.estimated_tokens)}</span>`;
+    }else if(s.type==='memory_retrieval'){
+      if(m.query_used)h+=`<span class="badge dim">🔎 "${trunc(m.query_used,25)}"</span>`;
+      if(m.hit_count!=null)h+=`<span class="badge hit">✅ 命中 ${m.hit_count} 条</span>`;
+      if(m.dimensions&&m.dimensions.length)h+=`<span class="badge dim">📂 ${m.dimensions.join(', ')}</span>`;
+    }else if(s.type==='intent_analysis'){
+      if(m.task_type)h+=`<span class="badge type">📌 ${m.task_type}</span>`;
+      if(m.confidence!=null)h+=`<span class="badge tok">📊 ${(m.confidence*100).toFixed(0)}%</span>`;
+    }else if(s.type==='llm_call'){
+      if(m.iteration!=null)h+=`<span class="badge tok">🔄 Iter ${m.iteration}</span>`;
+      const t=sTok(s);if(t)h+=`<span class="badge tok">🔤 ${fK(t)}</span>`;
+      if(m.tool_calls&&m.tool_calls.length)h+=m.tool_calls.map(t=>`<span class="badge tool-b">🔧→${esc(t)}</span>`).join('');
+      if(m.is_final===true)h+=`<span class="badge final">✅ final</span>`;
+    }else if(s.type==='hierarchical_search'){
+      if(m.search_type)h+=`<span class="badge type">📂 ${m.search_type}</span>`;
+      if(m.hit_count!=null)h+=`<span class="badge hit">✅ ${m.hit_count} 条</span>`;
+    }else if(s.type==='tool_call'){
+      if(m.input)h+=`<span class="badge dim">📥 ${trunc(m.input,35)}</span>`;
+      if(m.status)h+=`<span class="badge ${m.status==='error'?'type':'ok'}">${m.status==='error'?'❌':'✅'} ${m.status}</span>`;
+    }else if(s.type==='memory_extract'){
+      if(m.extracted_count!=null)h+=`<span class="badge hit">📝 提取 ${m.extracted_count} 条</span>`;
+    }else if(s.type==='content_review'){
+      h+=`<span class="badge ${m.passed===false?'type':'ok'}">${m.passed===false?'🚫 拦截':'✅ 通过'}</span>`;
+    }
+    return h;
+  }
+
+  // ═══ Build detail section ═══
+  function detail(s){
+    const m=s.metadata||{},inp=s.input||s.input_data||{},out=s.output||s.output_data||{};
+    let h='<div class="span-detail">';
+    // Structured by type
+    if(s.type==='memory_retrieval'&&m.items_preview&&m.items_preview.length){
+      h+=`<div class="dl">检索结果 (${m.hit_count||0}条)</div><div class="dc">${m.items_preview.map(i=>'['+esc(i.dimension)+'] '+esc(i.content)).join('\n\n')}</div>`;
+    }
+    if(s.type==='intent_analysis'&&m.raw_intent){h+=`<div class="dl">原始输入</div><div class="dc">${esc(m.raw_intent)}</div>`}
+    if(s.type==='tool_call'){
+      if(Object.keys(inp).length)h+=`<div class="dl">Input</div><div class="dc">${esc(JSON.stringify(inp,null,2))}</div>`;
+      if(Object.keys(out).length)h+=`<div class="dl">Output</div><div class="dc">${esc(JSON.stringify(out,null,2))}</div>`;
+    }
+    if(s.type==='llm_call'&&m.tool_calls&&m.tool_calls.length){h+=`<div class="dl">工具调用</div><div class="dc">${m.tool_calls.map(t=>'→ '+esc(t)).join('\n')}</div>`}
+    // Full metadata
+    const skip=new Set(['items_preview','raw_intent','children','results','scored_items']);
+    const rest=Object.entries(m).filter(([k])=>!skip.has(k));
+    if(rest.length)h+=`<div class="dl">Metadata</div><div class="dc">${esc(JSON.stringify(Object.fromEntries(rest),null,2))}</div>`;
+    h+='</div>';return h;
+  }
+
+  // ═══ Render child spans (vector_search/rerank — 对齐 index.html) ═══
+  function renderChildren(metaCh,maxD){
+    if(!metaCh||!metaCh.length)return'';
+    let h='<div class="span-children">';
+    metaCh.forEach((ch,ci)=>{
+      const chM=ch.metadata||{};
+      const isVs=ch.type==='vector_search';
+      const iconCls=isVs?'vs':'rr';
+      const icon=isVs?'🔎':'⚖️';
+      const items=chM.results||chM.scored_items||[];
+      const uid='cd_'+Math.random().toString(36).slice(2,8);
+
+      // Build badges
+      let chBadges='';
+      if(chM.dimension)chBadges+=`<span class="badge dim">📂 ${esc(chM.dimension)}</span>`;
+      if(chM.result_count!=null)chBadges+=`<span class="badge hit">${chM.result_count} 条结果</span>`;
+      if(chM.scored_count!=null)chBadges+=`<span class="badge hit">评分 ${chM.scored_count} 条</span>`;
+      if(chM.query)chBadges+=`<span class="badge tok">🔎 "${trunc(chM.query,18)}"</span>`;
+      if(chM.top_score!=null)chBadges+=`<span class="badge tok">⭐ ${chM.top_score}</span>`;
+
+      h+=`<div class="child-span" onclick="toggleChildData('${uid}',this)">
+        <div class="csicon ${iconCls}">${icon}</div>
+        <div class="cinfo">
+          <div class="cname">${esc(ch.name||ch.type)}</div>
+          <div class="cmeta">${chBadges}</div>
+        </div>
+        ${items.length?`<span class="ctoggle">📋 ${items.length}条 ▾</span>`:''}
+        <div class="cdur">${fD(ch.duration_ms||0)}</div>
+      </div>`;
+      if(items.length){
+        h+=`<div class="child-data" id="${uid}">`;
+        items.forEach((it,idx)=>{
+          h+=`<div class="child-data-item">
+            <span class="dim-tag">[${esc(it.dimension||chM.dimension||'')}]</span>
+            <span style="color:var(--txt3)">#${idx+1}</span>
+            ${it.confidence!=null?`<span class="score">score: ${it.confidence}</span>`:''}
+            <div class="content">${esc(it.content||'')}</div>
+          </div>`;
+        });
+        h+='</div>';
+      }
+    });
+    h+='</div>';return h;
+  }
+
+  // ═══ Render span card ═══
+  let lastP='';
+  function renderSpan(s,depth){
+    if(!srcFilter.has(s.source))return'';
+    const p=depth===0?phase(s):lastP;let ph='';
+    if(depth===0&&p!==lastP){lastP=p;ph=`<div class="phase-sep">${{ba:'▸ before_agent',rl:'▸ ReAct 循环',aa:'▸ after_agent'}[p]||p}</div>`}
+    const cfg=gc(s.type),barPct=Math.max(1,Math.round(s.duration_ms/maxD*100));
+    const children=chMap[s.span_id]||[],metaCh=(s.metadata||{}).children||[];
+    const sid='s_'+Math.random().toString(36).slice(2,8);
+
+    let h=ph+`<div class="span-card" id="${sid}" data-source="${s.source}" style="margin-left:${depth*20}px">
+      <div class="span-head" onclick="document.getElementById('${sid}').classList.toggle('exp')">
+        <div class="sicon ${cfg.cls}">${cfg.icon}</div>
+        <div class="span-info">
+          <div class="sname">${esc(s.name||cfg.label)} <span class="stag stag-${s.source}">${s.source}</span></div>
+          <div class="sdesc">${badges(s)}</div>
+        </div>
+        <div class="span-dur">${fD(s.duration_ms)}</div>
+      </div>
+      <div class="span-bar"><div class="fill ${cfg.cls}" style="width:${barPct}%"></div></div>
+      ${renderChildren(metaCh,maxD)}
+      ${detail(s)}
+    </div>`;
+    children.forEach(ch=>{h+=renderSpan(ch,depth+1)});
+    return h;
+  }
+
+  // ═══ Assemble ═══
+  let html=`<div class="trace-header">
+    <div class="title-row">
+      <div><strong>Trace:</strong> ${trace.trace_id} <span class="badge badge-${trace.status}" style="margin-left:6px">${trace.status}</span></div>
+      <div style="font-size:12px;color:var(--txt3)">${trace.thread_id?'Thread: '+trace.thread_id:''} | ${trace.agent_name||''} | ${trace.model||''}</div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="val">${fD(trace.total_duration_ms)}</div><div class="lbl">总耗时</div></div>
+      <div class="stat"><div class="val">${fK(cTok)}</div><div class="lbl">Token</div></div>
+      <div class="stat"><div class="val">${trace.iteration_count}</div><div class="lbl">迭代</div></div>
+      <div class="stat"><div class="val">${trace.tool_count}</div><div class="lbl">工具</div></div>
+      <div class="stat"><div class="val">${spans.length}</div><div class="lbl">Span</div></div>
+    </div>
+  </div>
+  <div class="src-filters">${['agent','subagent','middleware','skill','tool'].map(s=>`<span class="src-pill${srcFilter.has(s)?' active':''}" data-source="${s}" onclick="toggleSrc(this)">${{agent:'🤖 Agent',subagent:'🔀 SubAgent',middleware:'⚙️ Middleware',skill:'🎯 Skill',tool:'🔧 Tool'}[s]}</span>`).join('')}</div>`;
+
+  root.forEach(s=>{html+=renderSpan(s,0)});
+
+  if(trace.user_input||trace.agent_output){
+    html+=`<div class="io-panel">
+      ${trace.user_input?`<h3>👤 用户输入</h3><div class="io-block">${esc(trace.user_input)}</div>`:''}
+      ${trace.agent_output?`<h3>🤖 Agent 输出</h3><div class="io-block">${esc(trunc(trace.agent_output,3000))}</div>`:''}
+    </div>`;
+  }
+  c.innerHTML=html;
+}
+
+function toggleSrc(el){const s=el.dataset.source;if(srcFilter.has(s)){srcFilter.delete(s);el.classList.remove('active')}else{srcFilter.add(s);el.classList.add('active')}document.querySelectorAll('.span-card').forEach(r=>{if(r.dataset.source)r.style.display=srcFilter.has(r.dataset.source)?'':'none'})}
+function toggleChildData(uid,el){const d=document.getElementById(uid);if(!d)return;d.classList.toggle('show');const t=el.querySelector('.ctoggle');if(t)t.textContent=d.classList.contains('show')?'📋 收起 ▴':'📋 '+((d.children||[]).length)+'条 ▾'}
+
+loadTraces();
+</script>
+</body>
+</html>

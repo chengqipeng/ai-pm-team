@@ -18,7 +18,7 @@ itemType (UI 交互类型)
 |------|--------|--------|----------|-----------|---------|
 | 1 | TEXT | 文本 | VARCHAR(1) | dbc_varchar | 否 |
 | 2 | SELECT | 单选 | VARCHAR(1) | dbc_varchar | 否 |
-| 3 | MULTI_SELECT | 多选 | VARCHAR(1) | dbc_varchar | 否 |
+| 3 | MULTI_SELECT | 多选 | VARCHAR(300)[] | dbc_array | 否 |
 | 4 | TEXTAREA | 文本域 | TEXT(5) | dbc_textarea | 否 |
 | 5 | NUMBER | 整数 | BIGINT(3) | dbc_bigint | 否 |
 | 6 | CURRENCY | 实数/货币 | DECIMAL(4) | dbc_decimal | 否 |
@@ -65,7 +65,7 @@ itemType (UI 交互类型)
 |----------|---------|----------|---------|------|
 | 1 (TEXT) | 单行文本框 | `<input type="text">` | maxLength=300 | 默认文本输入 |
 | 2 (SELECT) | 下拉单选 | `<select>` | 选项来自 pickOption | 选项值从元数据加载 |
-| 3 (MULTI_SELECT) | 多选复选框组 | `<checkbox-group>` | 选项来自 pickOption | 多选，值以逗号分隔存储 |
+| 3 (MULTI_SELECT) | 多选复选框组 | `<checkbox-group>` | 选项来自 pickOption | 多选，值为 VARCHAR(300)[] 数组（`'{opt1,opt2}'`），存储在 dbc_array 列 |
 | 4 (TEXTAREA) | 多行文本域 | `<textarea rows="3">` | 无长度限制 | 长文本 |
 | 5 (NUMBER) | 数字输入框 | `<input type="number">` | step=1, 整数 | 不允许小数 |
 | 6 (CURRENCY) | 数字输入框 | `<input type="number">` | step=0.01, 小数位由 decimal 字段控制 | 显示千分位 |
@@ -220,7 +220,7 @@ function isFieldReadonly(item: XEntityItem, mode: string): boolean {
 | 6 (CURRENCY) | DECIMAL(20,4) | 千分位格式化 | 去除千分位符号 |
 | 33 (PERCENT) | DECIMAL(20,4) | 值×100 + "%" | 输入值÷100 |
 | 2 (SELECT) | VARCHAR option_code | 显示 option.label | 提交 option_code |
-| 3 (MULTI_SELECT) | VARCHAR 逗号分隔 | 拆分为标签数组 | 合并为逗号分隔字符串 |
+| 3 (MULTI_SELECT) | VARCHAR(300)[] 数组 | 直接使用数组 | 直接提交数组 |
 | 10 (RELATION_SHIP) | BIGINT 关联 ID | 显示关联记录 name | 提交关联记录 ID |
 
 ## 8. 预定义选项集字段

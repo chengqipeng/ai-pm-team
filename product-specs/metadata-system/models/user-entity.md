@@ -23,7 +23,7 @@ p_user（paas_auth schema）
     ├── dbc_decimal1~10   DECIMAL(20,4)
     ├── dbc_smallint1~10  SMALLINT
     ├── dbc_textarea1~5   TEXT
-    └── dbc_multi1~5      JSONB
+    └── dbc_array1~5      VARCHAR(300)[]
 ```
 
 ### p_user 与 p_tenant_data 的差异
@@ -37,10 +37,10 @@ p_user（paas_auth schema）
 | dbc_decimal | 1~140 | 1~10 |
 | dbc_smallint | 1~35 | 1~10 |
 | dbc_textarea | 1~20 | 1~5 |
-| dbc_multi | 1~30 | 1~5 |
+| dbc_array | 1~30 | 1~5 |
 | dbc_int / dbc_text | ❌ 不存在 | ❌ 不存在 |
 
-> ⚠️ 大宽表只有 6 种 dbc 列类型：varchar、bigint、decimal、smallint、textarea、multi。
+> ⚠️ 大宽表只有 6 种 dbc 列类型：varchar、bigint、decimal、smallint、textarea、array。
 > 元数据中 db_column 引用了 dbc_int1 或 dbc_text1 属于配置错误，
 > `EntityColumnResolver.isValidDbcColumn()` 会自动过滤并打印警告日志。
 

@@ -36,14 +36,21 @@
 
 ## 三、省市区场景的问题
 
-| 场景 | 左侧数据 | 右侧数据 | 期望关联字段 | 实际情况 | 状态 |
-|:-----|:---------|:---------|:-------------|:---------|:-----|
-| 省→市 | globalPickOption(province) | globalPickOption(city) | parentMetadataApiKey | SKIP_FIELDS 跳过，API 不返回 | ❌ |
-| 市→区 | globalPickOption(city) | globalPickOption(district) | parentMetadataApiKey | 同上 | ❌ |
+| 场景 | 左侧数据 | 右侧数据 | 关联方式 | 实际情况 | 状态 |
+|:-----|:---------|:---------|:---------|:---------|:-----|
+| 省→市 | globalPickOption(province) | globalPickOption(city) | chainQuery(provinceToCity) 通过 globalPickDependencyDetail 中间表 | 需要 `/meta/chain-query` 接口 | ⚠️ 需 chainQuery |
+| 市→区 | globalPickOption(city) | globalPickOption(district) | chainQuery(cityToDistrict) 通过 globalPickDependencyDetail 中间表 | 同上 | ⚠️ 需 chainQuery |
 
-### 问题根因
+> ⚠️ 省→市→区级联**不是**通过 `parentMetadataApiKey` 直接关联，而是通过 `globalPickDependency` + `globalPickDependencyDetail` 依赖体系实现。
 
-省市区的层级关系存在 `parent_metadata_api_key` 固定列中，但：
+### 补充说明
+
+> 虽然 `parent_metadata_api_key` 固定列中确实存储了省市区的层级关系数据，但省→市→区级联的正确实现路径
+> 是通过 `globalPickDependency` + `globalPickDependencyDetail` 依赖体系 + `chainQuery` 链式查询，
+> 不依赖 `parentMetadataApiKey` 字段的 API 返回。
+
+`parentMetadataApiKey` 固定列的技术断点仍然存在（SKIP_FIELDS 跳过、Entity 无此字段），
+但它不是省市区级联的阻塞项：
 
 1. `CommonMetadataConverter.SKIP_FIELDS` 包含 `parentMetadataApiKey`，转换时跳过
 2. `GlobalPickOption.java` 没有 `parentMetadataApiKey` 字段
@@ -177,9 +184,11 @@ Converter Step2 会把 `dbc_varchar5` 的值映射到 `Department.deptParentApiK
 
 ## 七、结论
 
-省市区级联需要的 `parentMetadataApiKey` 字段当前在 API 层断裂。有两条路径可修复，核心区别是：
+省市区级联通过 `globalPickDependency` + `globalPickDependencyDetail` 依赖体系 + `chainQuery` 链式查询实现，不依赖 `parentMetadataApiKey` 字段。
+
+`parentMetadataApiKey` 固定列当前在 API 层断裂（SKIP_FIELDS 跳过），但省市区场景不需要它。是否打通取决于未来是否有场景需要通用的同模型层级关系能力：
 
 - **路径 A**（改基类）：让 `parent_metadata_api_key` 成为所有元数据的通用能力，一劳永逸
 - **路径 B**（用 dbc 列）：和部门树/角色树保持一致的模式，不动基类
 
-两条路径都能让省市区级联工作，选择取决于 `parent_metadata_api_key` 这个固定列在系统中的定位：是通用层级能力，还是仅供内部使用。
+省→市→区的正确实现路径是 chainQuery：后端 `POST /meta/chain-query` + 前端 `chainQueryRef` 模板引用。

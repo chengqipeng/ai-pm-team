@@ -62,7 +62,7 @@ ITEM_TYPE_TO_BIZ_PREFIX = {
     4: 'dbc_varchar',   5: 'dbc_bigint',    8: 'dbc_textarea',
     9: 'dbc_smallint',  10: 'dbc_decimal',  11: 'dbc_decimal',
     12: 'dbc_varchar',  13: 'dbc_varchar',  14: 'dbc_varchar',
-    15: 'dbc_bigint',   16: 'dbc_multi',    17: 'dbc_bigint',
+    15: 'dbc_bigint',   16: 'dbc_array',    17: 'dbc_bigint',
     18: 'dbc_varchar',  19: 'dbc_varchar',  20: 'dbc_varchar',
     22: 'dbc_varchar',
 }

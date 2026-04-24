@@ -54,12 +54,12 @@
 | 1 | selfIntro | 自我介绍 | dbc_textarea1 | 长文本 |
 | 2 | — | 预留 | dbc_textarea2 | 租户自定义 |
 
-### decimal / multi 类型（仅预留）
+### decimal / array 类型（仅预留）
 
 | # | db_column | 说明 |
 |---|-----------|------|
 | 1 | dbc_decimal1 | 预留 |
-| 2 | dbc_multi1 | 预留（JSONB） |
+| 2 | dbc_array1 | 预留（VARCHAR(300)[]） |
 
 ## 移除的字段（共 35 个）
 
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS p_user (
     security_token      VARCHAR(255),
     open_id             VARCHAR(255),
 
-    -- dbc 扩展列（精简版：varchar×10 + bigint×10 + smallint×2 + decimal×1 + textarea×2 + multi×1 = 26 列）
+    -- dbc 扩展列（精简版：varchar×10 + bigint×10 + smallint×2 + decimal×1 + textarea×2 + array×1 = 26 列）
     dbc_varchar1  VARCHAR(300),  -- alias 别名
     dbc_varchar2  VARCHAR(300),  -- employeeCode 员工编号
     dbc_varchar3  VARCHAR(300),  -- unionId 唯一标识
@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS p_user (
     dbc_decimal1  DECIMAL(20,4), -- 预留
     dbc_textarea1 TEXT,           -- selfIntro 自我介绍
     dbc_textarea2 TEXT,           -- 预留
-    dbc_multi1    JSONB,          -- 预留
+    dbc_array1    VARCHAR(300)[],   -- 预留
 
     PRIMARY KEY (id)
 );
@@ -186,7 +186,7 @@ CREATE INDEX IF NOT EXISTS idx_puser_tid_updated ON p_user (tenant_id, updated_a
 | decimal | 10 | 1 | -9 |
 | smallint | 10 | 2 | -8 |
 | textarea | 5 | 2 | -3 |
-| multi(JSONB) | 5 | 1 | -4 |
+| array(VARCHAR(300)[]) | 5 | 1 | -4 |
 | **dbc 总计** | **110** | **26** | **-84** |
 
 ## 数据迁移 SQL（列号重映射）

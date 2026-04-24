@@ -84,6 +84,7 @@ class MemoryMiddleware(AgentMiddleware):
         self._engine = value
 
     async def abefore_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        """记忆检索注入 — 同时向 TracingMiddleware 记录 memory_retrieval span"""
         if not self._enabled:
             return None
         messages = state.get("messages", [])
@@ -97,18 +98,57 @@ class MemoryMiddleware(AgentMiddleware):
         configurable = get_config().get("configurable", {})
         user_id = configurable.get("user_id")
 
+        import time as _time
+        start = _time.monotonic()
+
         try:
             query = (await self._engine.rewrite_query(messages, current_query)
                      if self._has_context(messages) else current_query)
             result = await self._engine.retrieve(query, self._dimensions, user_id)
+
+            dur = (_time.monotonic() - start) * 1000
+
+            # 向 TracingMiddleware 记录 memory_retrieval span
+            self._record_retrieval_span(dur, query, result)
+
             text = self._format_memory(result)
             if text:
                 return {"messages": [SystemMessage(content=text)]}
         except Exception as e:
+            dur = (_time.monotonic() - start) * 1000
+            self._record_retrieval_span(dur, current_query, None, error=str(e))
             logger.error("Memory retrieval failed: %s", e)
         return None
 
+    def _record_retrieval_span(
+        self, duration_ms: float, query_used: str,
+        result: MemoryRetrievalResult | None, error: str = "",
+    ) -> None:
+        """向 TracingMiddleware 注入 memory_retrieval span"""
+        try:
+            from src.middleware.tracing import tracing_middleware
+            if error:
+                tracing_middleware.record_memory_retrieval(
+                    duration_ms=duration_ms, query_used=query_used,
+                    dimensions=[d.value for d in self._dimensions],
+                    hit_count=0,
+                )
+            else:
+                items = []
+                if result and result.items:
+                    items = [{"dimension": it.dimension.value, "content": it.content}
+                             for it in result.items]
+                tracing_middleware.record_memory_retrieval(
+                    duration_ms=duration_ms, query_used=query_used,
+                    dimensions=[d.value for d in self._dimensions],
+                    hit_count=len(result.items) if result else 0,
+                    items=items,
+                )
+        except Exception as e:
+            logger.debug("Failed to record memory_retrieval span: %s", e)
+
     async def aafter_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        """记忆提取 — 同时向 TracingMiddleware 记录 memory_extract span"""
         if not self._enabled:
             return None
         messages = state.get("messages", [])
@@ -139,9 +179,28 @@ class MemoryMiddleware(AgentMiddleware):
         return "<memory_context>\n" + "\n\n".join(sections) + "\n</memory_context>"
 
     async def _async_extract(self, messages, thread_id, user_id):
+        import time as _time
+        start = _time.monotonic()
         try:
             result = await self._engine.extract_and_update(messages, thread_id, user_id)
+            dur = (_time.monotonic() - start) * 1000
             if result.items:
                 logger.info("Extracted %d memory items", len(result.items))
+            # 向 TracingMiddleware 记录 memory_extract span
+            try:
+                from src.middleware.tracing import tracing_middleware
+                tracing_middleware.record_memory_extract(
+                    duration_ms=dur,
+                    extracted_count=len(result.items) if result else 0,
+                    dimensions=[it.dimension.value for it in result.items] if result else [],
+                )
+            except Exception:
+                pass
         except Exception as e:
+            dur = (_time.monotonic() - start) * 1000
             logger.error("Memory extraction failed: %s", e)
+            try:
+                from src.middleware.tracing import tracing_middleware
+                tracing_middleware.record_memory_extract(duration_ms=dur)
+            except Exception:
+                pass

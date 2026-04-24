@@ -4,371 +4,597 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DeepAgent CRM 助手</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
+:root{--bg:#f7f8fa;--card:#fff;--border:#e5e7eb;--pri:#4f46e5;--pri-l:#eef2ff;--txt:#1f2937;--txt2:#6b7280;--txt3:#9ca3af;--r:12px;--sh:0 1px 3px rgba(0,0,0,.08)}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;height:100vh;display:flex;flex-direction:column}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif;background:var(--bg);height:100vh;display:flex;flex-direction:column;color:var(--txt)}
 
-/* 顶部导航 */
-.topbar{background:#1a1a2e;color:#fff;padding:10px 24px;display:flex;align-items:center;gap:16px}
-.topbar h1{font-size:16px;font-weight:600}
-.topbar .tabs{display:flex;gap:4px;margin-left:32px}
-.topbar .tab{padding:6px 16px;border-radius:6px;font-size:13px;cursor:pointer;color:#aaa}
-.topbar .tab.active{background:rgba(255,255,255,.15);color:#fff}
-.topbar .tab:hover{color:#fff}
+/* 顶栏 */
+.top{background:linear-gradient(135deg,#1e1b4b,#312e81);color:#fff;padding:0 24px;height:52px;display:flex;align-items:center;gap:20px;flex-shrink:0}
+.top .logo{font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px}
+.top .nav{display:flex;gap:2px;margin-left:24px}
+.top .nav-item{padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer;color:rgba(255,255,255,.6);transition:.2s}
+.top .nav-item:hover{color:#fff}
+.top .nav-item.on{background:rgba(255,255,255,.15);color:#fff}
 
 /* 主体 */
-.main{flex:1;display:flex;overflow:hidden}
+.body{flex:1;display:flex;overflow:hidden}
 
-/* 左侧对话 */
-.chat-panel{flex:1;display:flex;flex-direction:column;background:#fff}
-.chat-messages{flex:1;overflow-y:auto;padding:16px 20px}
-.msg{margin-bottom:14px;display:flex;gap:10px}
-.msg.user{flex-direction:row-reverse}
-.msg-bubble{max-width:72%;padding:10px 14px;border-radius:10px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
-.msg.user .msg-bubble{background:#1a1a2e;color:#fff;border-bottom-right-radius:3px}
-.msg.assistant .msg-bubble{background:#f0f0f5;color:#333;border-bottom-left-radius:3px}
-.msg-avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
-.msg.user .msg-avatar{background:#1a1a2e;color:#fff}
-.msg.assistant .msg-avatar{background:#e8e8f0;color:#555}
-.tool-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;margin:2px 0;font-family:monospace}
-.tool-badge.start{background:#fff3e0;color:#e65100}
-.tool-badge.end{background:#e8f5e9;color:#2e7d32}
-.tool-badge.llm{background:#e3f2fd;color:#1565c0}
-.quick-bar{padding:8px 20px;display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid #eee}
-.quick-btn{background:#f5f5f5;border:1px solid #ddd;border-radius:14px;padding:4px 12px;font-size:11px;cursor:pointer;color:#555}
-.quick-btn:hover{background:#e8e8f0;border-color:#1a1a2e;color:#1a1a2e}
-.chat-input{padding:12px 20px;border-top:1px solid #e8e8e8;display:flex;gap:10px}
-.chat-input textarea{flex:1;border:1px solid #d0d0d0;border-radius:8px;padding:8px 12px;font-size:13px;resize:none;height:40px;outline:none;font-family:inherit}
-.chat-input textarea:focus{border-color:#1a1a2e}
-.chat-input button{background:#1a1a2e;color:#fff;border:none;border-radius:8px;padding:0 20px;font-size:13px;cursor:pointer}
-.chat-input button:disabled{background:#999;cursor:not-allowed}
+/* 左面板 */
+.left{flex:1;display:flex;flex-direction:column;background:var(--card);min-width:0}
+.msgs{flex:1;overflow-y:auto;padding:20px 24px}
+.m{margin-bottom:18px;display:flex;gap:12px;animation:fadeIn .3s}
+.m.u{flex-direction:row-reverse}
+.m .av{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.m.u .av{background:var(--pri);color:#fff}
+.m.a .av{background:linear-gradient(135deg,#e0e7ff,#c7d2fe);color:var(--pri)}
+.m .bub{max-width:75%;padding:12px 16px;border-radius:var(--r);font-size:14px;line-height:1.7;word-break:break-word}
+.m.u .bub{background:var(--pri);color:#fff;border-bottom-right-radius:4px}
+.m.a .bub{background:#f8f9fb;color:var(--txt);border-bottom-left-radius:4px;border:1px solid var(--border)}
+.m.a .bub table{width:100%;border-collapse:collapse;margin:8px 0;font-size:13px}
+.m.a .bub th,.m.a .bub td{border:1px solid var(--border);padding:6px 10px;text-align:left}
+.m.a .bub th{background:#f3f4f6;font-weight:600}
+.m.a .bub code{background:#f3f4f6;padding:1px 5px;border-radius:4px;font-size:12px}
+.m.a .bub pre{background:#1e1b4b;color:#e0e7ff;padding:12px;border-radius:8px;overflow-x:auto;margin:8px 0}
+.m.a .bub pre code{background:none;color:inherit;padding:0}
+.m.a .bub h1,.m.a .bub h2,.m.a .bub h3{margin:12px 0 6px;font-weight:600}
+.m.a .bub h2{font-size:15px}
+.m.a .bub h3{font-size:14px}
+.m.a .bub ul,.m.a .bub ol{padding-left:20px;margin:6px 0}
+.m.a .bub strong{color:var(--pri)}
+.tool-tag{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;font-size:11px;margin:2px 4px 2px 44px;font-family:'SF Mono',monospace}
+.tool-tag.s{background:#fef3c7;color:#92400e}
+.tool-tag.e{background:#d1fae5;color:#065f46}
+.tool-tag.l{background:#dbeafe;color:#1e40af}
+.quick{padding:10px 24px;display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--border)}
+.qb{background:var(--pri-l);border:1px solid #c7d2fe;border-radius:20px;padding:6px 14px;font-size:12px;cursor:pointer;color:var(--pri);transition:.2s}
+.qb:hover{background:var(--pri);color:#fff;border-color:var(--pri)}
+.input-area{padding:16px 24px;border-top:1px solid var(--border);background:#fafbfc}
+.input-row{display:flex;gap:10px;align-items:flex-end}
+.input-row textarea{flex:1;border:1.5px solid var(--border);border-radius:var(--r);padding:10px 14px;font-size:14px;resize:none;height:44px;outline:none;font-family:inherit;transition:.2s}
+.input-row textarea:focus{border-color:var(--pri);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
+.send-btn{background:var(--pri);color:#fff;border:none;border-radius:var(--r);padding:0 24px;height:44px;font-size:14px;cursor:pointer;font-weight:500;transition:.2s}
+.send-btn:hover{background:#4338ca}
+.send-btn:disabled{background:var(--txt3);cursor:not-allowed}
+.upload-btn{background:var(--card);border:1.5px solid var(--border);border-radius:var(--r);width:44px;height:44px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s}
+.upload-btn:hover{border-color:var(--pri);background:var(--pri-l)}
+.toolbar{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.tb{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:11px;cursor:pointer;color:var(--txt2);display:flex;align-items:center;gap:4px;transition:.2s}
+.tb:hover{border-color:var(--pri);color:var(--pri)}
+.file-pv{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.file-pv-item{display:flex;align-items:center;gap:6px;background:var(--pri-l);border:1px solid #c7d2fe;border-radius:8px;padding:4px 10px;font-size:11px;color:var(--pri)}
+.file-pv-item img{width:28px;height:28px;object-fit:cover;border-radius:4px}
+.file-pv-item .x{cursor:pointer;color:#dc2626;font-weight:700;margin-left:4px}
 
-/* 右侧 Trace 面板 */
-.trace-panel{width:420px;border-left:1px solid #e0e0e0;display:flex;flex-direction:column;background:#fafafa}
-.trace-tabs{display:flex;border-bottom:1px solid #e0e0e0}
-.trace-tab{flex:1;padding:10px;text-align:center;font-size:12px;cursor:pointer;color:#888;border-bottom:2px solid transparent}
-.trace-tab.active{color:#1a1a2e;border-bottom-color:#1a1a2e;font-weight:600}
-.trace-content{flex:1;overflow-y:auto;padding:12px}
+/* 右面板 */
+.right{width:480px;border-left:1px solid var(--border);display:flex;flex-direction:column;background:var(--bg);flex-shrink:0;transition:width .3s ease}
+.right.collapsed{width:0;border-left:none}
+.right.collapsed .right-inner{display:none}
+.right-inner{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+.panel-toggle{position:fixed;right:0;top:50%;transform:translateY(-50%);width:24px;height:64px;background:var(--card);border:1px solid var(--border);border-right:none;border-radius:8px 0 0 8px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--txt3);z-index:20;transition:background .2s,right .3s}
+.panel-toggle:hover{background:var(--pri-l);color:var(--pri)}
+.panel-toggle.inside{right:480px}
+.right-tabs{display:flex;border-bottom:1px solid var(--border);background:var(--card)}
+.right-tab{flex:1;padding:12px;text-align:center;font-size:12px;cursor:pointer;color:var(--txt3);border-bottom:2px solid transparent;transition:.2s;font-weight:500}
+.right-tab.on{color:var(--pri);border-bottom-color:var(--pri)}
+.right-body{flex:1;overflow-y:auto;padding:14px}
 
-/* Trace Explorer */
-.trace-list-item{background:#fff;border:1px solid #e8e8e8;border-radius:8px;padding:10px;margin-bottom:8px;cursor:pointer;font-size:12px}
-.trace-list-item:hover{border-color:#1a1a2e}
-.trace-list-item .tl-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-.trace-list-item .tl-input{color:#333;font-weight:500}
-.trace-list-item .tl-status{padding:2px 6px;border-radius:3px;font-size:10px}
-.trace-list-item .tl-status.success{background:#e8f5e9;color:#2e7d32}
-.trace-list-item .tl-status.error{background:#ffebee;color:#c62828}
-.trace-list-item .tl-status.running{background:#fff3e0;color:#e65100}
-.trace-list-item .tl-metrics{display:flex;gap:12px;color:#888;font-size:11px}
+/* ── 执行链路 Trace Span 样式（对齐 index.html） ── */
+.trace-header{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px}
+.trace-header .title{font-weight:700;font-size:13px;color:var(--txt);margin-bottom:8px}
+.trace-header .stats{display:flex;gap:12px;flex-wrap:wrap}
+.trace-header .stat{display:flex;flex-direction:column;align-items:center;background:var(--bg);border-radius:8px;padding:8px 12px;min-width:60px}
+.trace-header .stat .val{font-size:15px;font-weight:700;color:var(--pri)}
+.trace-header .stat .lbl{font-size:10px;color:var(--txt3);margin-top:2px}
 
-/* Trace 详情 — 时间线 */
-.trace-detail-header{background:#fff;border:1px solid #e8e8e8;border-radius:8px;padding:12px;margin-bottom:10px}
-.trace-detail-header h3{font-size:13px;margin-bottom:8px}
-.trace-detail-metrics{display:flex;gap:16px;font-size:11px;color:#666}
-.trace-detail-metrics .metric{text-align:center}
-.trace-detail-metrics .metric .val{font-size:16px;font-weight:700;color:#1a1a2e}
+/* 时间轴 */
+.timeline-bar{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:12px;position:relative;height:32px;overflow:hidden}
+.timeline-bar .tl-track{position:absolute;top:8px;left:12px;right:12px;height:16px;background:#f3f4f6;border-radius:4px}
+.timeline-bar .tl-labels{position:absolute;top:26px;left:12px;right:12px;display:flex;justify-content:space-between;font-size:9px;color:var(--txt3)}
 
-.timeline{position:relative}
-.timeline-bar{position:relative;height:8px;background:#e8e8e8;border-radius:4px;margin:12px 0 8px}
-.timeline-fill{position:absolute;height:100%;border-radius:4px;top:0}
+/* Span 卡片 */
+.span-card{background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:6px;overflow:hidden;transition:border-color .2s,box-shadow .2s;animation:fadeIn .3s}
+.span-card:hover{border-color:var(--pri);box-shadow:var(--sh)}
+.span-card.running{border-color:#fbbf24;border-style:dashed}
+.span-head{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer}
+.span-head .sicon{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.span-head .sicon.ctx{background:#e0e7ff;color:#4338ca}
+.span-head .sicon.mem{background:#dbeafe;color:#1d4ed8}
+.span-head .sicon.intent{background:#fae8ff;color:#a21caf}
+.span-head .sicon.llm{background:#dbeafe;color:#1e40af}
+.span-head .sicon.search{background:#d1fae5;color:#065f46}
+.span-head .sicon.tool{background:#fef3c7;color:#92400e}
+.span-head .sicon.extract{background:#e0e7ff;color:#4338ca}
+.span-head .sicon.done{background:#d1fae5;color:#065f46}
+.span-head .sicon.err{background:#fee2e2;color:#991b1b}
+.span-info{flex:1;min-width:0}
+.span-info .sname{font-weight:600;font-size:12px;color:var(--txt)}
+.span-info .sdesc{font-size:11px;color:var(--txt2);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.span-info .sdesc .badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:500}
+.span-info .sdesc .badge.tok{background:#dbeafe;color:#1e40af}
+.span-info .sdesc .badge.tool-b{background:#fef3c7;color:#92400e}
+.span-info .sdesc .badge.hit{background:#d1fae5;color:#065f46}
+.span-info .sdesc .badge.dim{background:#f3e8ff;color:#7c3aed}
+.span-info .sdesc .badge.type{background:#fce7f3;color:#be185d}
+.span-info .sdesc .badge.ok{background:#d1fae5;color:#065f46}
+.span-info .sdesc .badge.final{background:#d1fae5;color:#065f46}
+.span-dur{font-size:13px;font-weight:700;color:var(--pri);white-space:nowrap;min-width:50px;text-align:right}
 
-.span-item{background:#fff;border:1px solid #e8e8e8;border-radius:6px;padding:8px 10px;margin-bottom:6px;font-size:11px;display:flex;align-items:center;gap:8px}
-.span-item .span-icon{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
-.span-item .span-icon.llm{background:#e3f2fd;color:#1565c0}
-.span-item .span-icon.tool{background:#fff3e0;color:#e65100}
-.span-item .span-icon.memory{background:#f3e5f5;color:#7b1fa2}
-.span-item .span-icon.request{background:#e8f5e9;color:#2e7d32}
-.span-item .span-icon.error{background:#ffebee;color:#c62828}
-.span-item .span-icon.compress{background:#e0f7fa;color:#00838f}
-.span-item .span-icon.skill{background:#fce4ec;color:#c62828}
-.span-item .span-body{flex:1;min-width:0}
-.span-item .span-name{font-weight:600;color:#333}
-.span-item .span-meta{color:#888;font-size:10px;margin-top:2px}
-.span-item .span-dur{font-size:11px;color:#1a1a2e;font-weight:600;white-space:nowrap}
-.span-item .span-data{font-family:monospace;font-size:10px;color:#666;margin-top:4px;max-height:60px;overflow:hidden;word-break:break-all}
-.span-item.expanded .span-data{max-height:none}
-.span-item:hover{border-color:#1a1a2e;cursor:pointer}
+/* Span 展开详情 */
+.span-detail{display:none;padding:0 12px 10px 52px;font-size:11px;line-height:1.6}
+.span-card.exp .span-detail{display:block}
+.span-detail .detail-section{margin-bottom:8px}
+.span-detail .detail-label{font-weight:600;color:var(--txt2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.span-detail .detail-content{color:var(--txt);word-break:break-all;white-space:pre-wrap;background:#f8f9fb;border-radius:6px;padding:6px 10px;font-family:'SF Mono',Menlo,monospace;font-size:10px;max-height:200px;overflow-y:auto;border:1px solid var(--border)}
 
-.empty-state{text-align:center;color:#aaa;padding:40px;font-size:13px}
+/* 子步骤（vector_search / rerank） */
+.span-children{padding:4px 12px 8px 52px}
+.child-span{display:flex;align-items:center;gap:8px;padding:5px 10px;background:#f8f9fb;border-radius:6px;margin-bottom:4px;border-left:3px solid var(--border);font-size:11px}
+.child-span .cicon{font-size:12px;flex-shrink:0}
+.child-span .cname{font-weight:600;color:var(--txt);flex:1}
+.child-span .cmeta{color:var(--txt2);font-size:10px}
+.child-span .cdur{font-weight:700;color:var(--pri);font-size:11px;white-space:nowrap}
 
-@media(max-width:900px){.trace-panel{display:none}}
+/* 进度条 */
+.span-bar{height:3px;background:#f3f4f6;border-radius:2px;margin:0 12px 0 52px}
+.span-bar .fill{height:100%;border-radius:2px;transition:width .3s}
+.span-bar .fill.ctx{background:#818cf8}
+.span-bar .fill.mem{background:#3b82f6}
+.span-bar .fill.intent{background:#c026d3}
+.span-bar .fill.llm{background:#3b82f6}
+.span-bar .fill.search{background:#10b981}
+.span-bar .fill.tool{background:#f59e0b}
+.span-bar .fill.extract{background:#818cf8}
+
+/* 文档预览 */
+.doc-panel{display:none;flex-direction:column;height:100%}
+.doc-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--card)}
+.doc-header h3{font-size:14px;display:flex;align-items:center;gap:6px}
+.doc-actions{display:flex;gap:6px}
+.doc-actions button{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:11px;cursor:pointer;color:var(--txt2);transition:.2s}
+.doc-actions button:hover{border-color:var(--pri);color:var(--pri)}
+.doc-body{flex:1;overflow-y:auto;padding:24px 28px;background:var(--card);font-size:14px;line-height:1.8}
+.doc-body h1{font-size:22px;font-weight:700;margin:0 0 16px;padding-bottom:12px;border-bottom:2px solid var(--pri)}
+.doc-body h2{font-size:17px;font-weight:600;margin:20px 0 10px;color:var(--pri)}
+.doc-body h3{font-size:15px;font-weight:600;margin:16px 0 8px}
+.doc-body p{margin:8px 0}
+.doc-body ul,.doc-body ol{padding-left:24px;margin:8px 0}
+.doc-body li{margin:4px 0}
+.doc-body table{width:100%;border-collapse:collapse;margin:12px 0}
+.doc-body th,.doc-body td{border:1px solid var(--border);padding:8px 12px;text-align:left}
+.doc-body th{background:#f3f4f6;font-weight:600}
+.doc-body strong{color:var(--pri)}
+.doc-body blockquote{border-left:3px solid var(--pri);padding:8px 16px;margin:12px 0;background:var(--pri-l);border-radius:0 8px 8px 0}
+.doc-body code{background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:13px}
+.doc-body pre{background:#1e1b4b;color:#e0e7ff;padding:16px;border-radius:10px;overflow-x:auto;margin:12px 0}
+.doc-body pre code{background:none;color:inherit;padding:0}
+
+.empty{text-align:center;color:var(--txt3);padding:48px 20px;font-size:13px}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.running-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#f59e0b;animation:pulse 1s infinite;margin-right:4px}
+@media(max-width:900px){.right{display:none}}
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <h1>🤖 DeepAgent</h1>
-  <div class="tabs">
-    <div class="tab active" onclick="switchView('chat')">💬 对话</div>
-    <div class="tab" onclick="switchView('explorer')">🔍 Trace Explorer</div>
+<div class="top">
+  <div class="logo">🤖 DeepAgent</div>
+  <div class="nav">
+    <div class="nav-item on" onclick="switchNav(0)">💬 对话</div>
+    <div class="nav-item" onclick="window.location.href='/sessions'">📋 历史</div>
+    <div class="nav-item" onclick="window.location.href='/trace'">🔍 Trace</div>
   </div>
 </div>
 
-<div class="main">
-  <div class="chat-panel">
-    <div class="chat-messages" id="messages">
-      <div class="msg assistant"><div class="msg-avatar">🤖</div>
-        <div class="msg-bubble">你好！我是 CRM 智能业务助手。可以帮你查询客户、商机数据，分析 Pipeline，校验配置等。</div></div>
+<div class="body">
+  <div class="left">
+    <div class="msgs" id="msgs">
+      <div class="m a"><div class="av">🤖</div>
+        <div class="bub">你好！我是 CRM 智能业务助手 👋<br><br>我可以帮你：<br>• 📊 查询客户、商机、联系人数据<br>• 📈 分析 Pipeline、统计报表<br>• 🔍 校验元数据配置<br>• 🧹 批量数据清理<br><br>试试下面的快捷问题，或直接输入你的需求。</div></div>
     </div>
-    <div class="quick-bar">
-      <button class="quick-btn" onclick="sendQuick('系统中有多少个客户？')">📊 客户数量</button>
-      <button class="quick-btn" onclick="sendQuick('帮我查一下活跃客户，按营收排序')">🏢 活跃客户</button>
-      <button class="quick-btn" onclick="sendQuick('帮我分析商机 Pipeline，按阶段统计')">📈 Pipeline</button>
-      <button class="quick-btn" onclick="sendQuick('帮我校验商机的元数据配置')">🔍 配置校验</button>
+    <div class="quick">
+      <button class="qb" onclick="sq('系统中有多少个客户？')">📊 客户数量</button>
+      <button class="qb" onclick="sq('帮我查一下活跃客户，按营收排序')">🏢 活跃客户</button>
+      <button class="qb" onclick="sq('帮我分析商机 Pipeline，按阶段统计金额和数量')">📈 Pipeline 分析</button>
+      <button class="qb" onclick="sq('帮我校验商机的元数据配置')">🔍 配置校验</button>
+      <button class="qb" onclick="sq('帮我写一份本月商机分析报告')">📝 分析报告</button>
     </div>
-    <div class="chat-input">
-      <textarea id="input" placeholder="输入消息... (Enter 发送)" rows="1"
-                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}"></textarea>
-      <button id="sendBtn" onclick="sendMessage()">发送</button>
+    <div class="input-area">
+      <div class="input-row">
+        <input type="file" id="fi" style="display:none" accept="image/*,.pdf,.docx,.xlsx,.txt,.csv,.md" onchange="onFile(event)" multiple>
+        <button class="upload-btn" onclick="document.getElementById('fi').click()" title="上传文件">📎</button>
+        <textarea id="inp" placeholder="输入消息... (Enter 发送，Shift+Enter 换行)" rows="1"
+                  onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea>
+        <button class="send-btn" id="sbtn" onclick="send()">发送</button>
+      </div>
+      <div class="file-pv" id="fpv"></div>
+      <div class="toolbar">
+        <div class="tb" onclick="sq('用表格格式重新展示上面的数据')">📊 表格展示</div>
+        <div class="tb" onclick="sq('把上面的内容整理成正式报告')">📝 生成报告</div>
+        <div class="tb" onclick="sq('用更简洁的方式重新回答')">✂️ 精简</div>
+        <div class="tb" onclick="sq('补充更多细节和数据')">📖 展开</div>
+        <div class="tb" onclick="sq('给出具体的行动建议')">💡 建议</div>
+      </div>
     </div>
   </div>
 
-  <div class="trace-panel">
-    <div class="trace-tabs">
-      <div class="trace-tab active" id="tabLive" onclick="showTraceTab('live')">⚡ 实时链路</div>
-      <div class="trace-tab" id="tabExplorer" onclick="showTraceTab('explorer')">📋 Trace 列表</div>
-      <div class="trace-tab" id="tabDetail" onclick="showTraceTab('detail')">🔍 详情</div>
+  <div class="right" id="rightPanel">
+    <div class="right-inner">
+    <div class="right-tabs">
+      <div class="right-tab on" id="rtLive" onclick="rtab('live')">⚡ 实时链路</div>
+      <div class="right-tab" id="rtDoc" onclick="rtab('doc')">📄 文档</div>
     </div>
-    <div class="trace-content" id="traceContent">
-      <div class="empty-state" id="liveTrace">等待对话开始...</div>
-      <div style="display:none" id="explorerTrace"></div>
-      <div style="display:none" id="detailTrace"></div>
+    <div class="right-body">
+      <div id="pLive"><div class="empty">等待对话开始...</div></div>
+      <div id="pDoc" style="display:none">
+        <div class="doc-panel" id="docPanel">
+          <div class="doc-header">
+            <h3>📄 <span id="docTitle">文档预览</span></h3>
+            <div class="doc-actions">
+              <button onclick="copyDoc()">📋 复制</button>
+              <button onclick="downloadDoc()">⬇️ 下载</button>
+            </div>
+          </div>
+          <div class="doc-body" id="docBody"></div>
+        </div>
+      </div>
+    </div>
     </div>
   </div>
+  <div class="panel-toggle inside" id="panelToggle" onclick="togglePanel()" title="收起面板">◀</div>
 </div>
 
 <script>
-const API = '';
-let threadId = crypto.randomUUID().slice(0,12);
-let history = [];
-let currentTraceId = null;
+const A='';
+let tid=crypto.randomUUID().slice(0,12),hist=[],pf=[],lastDoc='',curTraceId=null;
+// 实时链路数据收集
+let liveSpans=[], liveStartTime=0, liveTotalTokens=0, liveIterCount=0, liveToolCount=0;
 
-// ── Tab 切换 ──
-function showTraceTab(tab) {
-  document.querySelectorAll('.trace-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
-  ['live','explorer','detail'].forEach(t => {
-    document.getElementById(t+'Trace').style.display = t===tab ? 'block' : 'none';
-  });
-  if (tab === 'explorer') loadTraceList();
+function switchNav(i){document.querySelectorAll('.nav-item').forEach((e,j)=>e.classList.toggle('on',i===j))}
+function rtab(t){['live','doc'].forEach(k=>{document.getElementById('rt'+k.charAt(0).toUpperCase()+k.slice(1)).classList.toggle('on',k===t);document.getElementById('p'+k.charAt(0).toUpperCase()+k.slice(1)).style.display=k===t?'block':'none'});if(t==='doc')document.getElementById('docPanel').style.display='flex'}
+
+function togglePanel(){
+  const panel=document.getElementById('rightPanel');
+  const btn=document.getElementById('panelToggle');
+  const isCollapsed=panel.classList.toggle('collapsed');
+  btn.classList.toggle('inside',!isCollapsed);
+  btn.innerHTML=isCollapsed?'▶':'◀';
+  btn.title=isCollapsed?'展开面板':'收起面板';
 }
 
-function switchView(view) {
-  document.querySelectorAll('.topbar .tab').forEach(t => t.classList.remove('active'));
-  if (view === 'explorer') {
-    document.querySelectorAll('.topbar .tab')[1].classList.add('active');
-    showTraceTab('explorer');
-  } else {
-    document.querySelectorAll('.topbar .tab')[0].classList.add('active');
-    showTraceTab('live');
+// 文件上传
+function onFile(e){for(const f of e.target.files)pf.push(f);rfpv();e.target.value=''}
+function rfpv(){const el=document.getElementById('fpv');el.innerHTML=pf.map((f,i)=>{const img=f.type.startsWith('image/')?`<img src="${URL.createObjectURL(f)}">`:'';return`<div class="file-pv-item">${img}${f.type.startsWith('image/')?'🖼️':'📄'} ${esc(f.name)}<span class="x" onclick="pf.splice(${i},1);rfpv()">✕</span></div>`}).join('')}
+async function uploadAll(){for(const f of pf){const fd=new FormData();fd.append('file',f);fd.append('thread_id',tid);try{await fetch(A+'/api/upload',{method:'POST',body:fd})}catch(e){}}pf=[];rfpv()}
+
+// ═══════════════════════════════════════════════════════════
+// Span 配置 — 图标、颜色、中文名
+// ═══════════════════════════════════════════════════════════
+const SPAN_CONFIG = {
+  context_build:        { icon:'📋', cls:'ctx',     label:'上下文构建' },
+  memory_retrieval:     { icon:'🔍', cls:'mem',     label:'记忆检索' },
+  intent_analysis:      { icon:'🧠', cls:'intent',  label:'意图分析' },
+  llm_call:             { icon:'🤖', cls:'llm',     label:'LLM 调用' },
+  hierarchical_search:  { icon:'🌲', cls:'search',  label:'分层检索' },
+  tool_call:            { icon:'🔧', cls:'tool',    label:'工具调用' },
+  memory_extract:       { icon:'💾', cls:'extract',  label:'记忆提取' },
+  // SSE 实时事件
+  llm_start:            { icon:'🧠', cls:'llm',     label:'LLM 调用' },
+  llm_end:              { icon:'✨', cls:'llm',     label:'LLM 完成' },
+  tool_start:           { icon:'⚡', cls:'tool',    label:'工具启动' },
+  tool_end:             { icon:'✅', cls:'tool',    label:'工具完成' },
+  done:                 { icon:'🏁', cls:'done',    label:'完成' },
+  error:                { icon:'❌', cls:'err',     label:'错误' },
+};
+
+function getSpanConfig(type) {
+  return SPAN_CONFIG[type] || { icon:'📋', cls:'ctx', label:type };
+}
+
+// ═══════════════════════════════════════════════════════════
+// 渲染单个 Span 卡片（index.html 风格）
+// ═══════════════════════════════════════════════════════════
+function renderSpanCard(span) {
+  const cfg = getSpanConfig(span.type);
+  const dur = span.duration_ms > 0 ? Math.round(span.duration_ms) : null;
+  const meta = span.metadata || {};
+  const isRunning = span.status === 'running';
+
+  // 构建描述 badges
+  let badges = '';
+  if (span.type === 'context_build') {
+    if (meta.message_count != null) badges += `<span class="badge dim">📨 ${meta.message_count} 条消息</span>`;
+    if (meta.estimated_tokens != null) badges += `<span class="badge tok">🔤 ~${fmtNum(meta.estimated_tokens)} tokens</span>`;
+  } else if (span.type === 'memory_retrieval') {
+    if (meta.query_used) badges += `<span class="badge dim">🔎 "${truncStr(meta.query_used, 30)}"</span>`;
+    if (meta.hit_count != null) badges += `<span class="badge hit">✅ 命中 ${meta.hit_count} 条</span>`;
+    if (meta.dimensions && meta.dimensions.length) badges += `<span class="badge dim">📂 ${meta.dimensions.join(', ')}</span>`;
+  } else if (span.type === 'intent_analysis') {
+    if (meta.task_type) badges += `<span class="badge type">📌 ${meta.task_type}</span>`;
+    if (meta.matched_skills && meta.matched_skills.length) badges += `<span class="badge hit">🎯 ${meta.matched_skills.join(', ')}</span>`;
+    if (meta.confidence != null) badges += `<span class="badge tok">📊 置信度 ${(meta.confidence*100).toFixed(0)}%</span>`;
+    if (meta.source) badges += `<span class="badge dim">⚙️ ${meta.source}</span>`;
+  } else if (span.type === 'llm_call' || span.type === 'llm_start') {
+    if (meta.iteration != null) badges += `<span class="badge tok">🔄 Iter ${meta.iteration}</span>`;
+    if (meta.output_tokens != null) badges += `<span class="badge tok">🔤 ${fmtNum(meta.output_tokens)}</span>`;
+    if (meta.tool_calls && meta.tool_calls.length) badges += `<span class="badge tool-b">🔧→${meta.tool_calls.join(', ')}</span>`;
+    if (meta.is_final === true) badges += `<span class="badge final">✅ final</span>`;
+    if (meta.is_final === false && !(meta.tool_calls && meta.tool_calls.length)) badges += `<span class="badge tok">⏳ 继续</span>`;
+  } else if (span.type === 'hierarchical_search') {
+    if (meta.search_type) badges += `<span class="badge type">📂 ${meta.search_type}</span>`;
+    if (meta.hit_count != null) badges += `<span class="badge hit">✅ 命中 ${meta.hit_count} 条</span>`;
+  } else if (span.type === 'tool_call' || span.type === 'tool_start' || span.type === 'tool_end') {
+    if (meta.input) badges += `<span class="badge dim">📥 ${truncStr(meta.input, 40)}</span>`;
+    if (meta.status) badges += `<span class="badge ${meta.status==='error'?'type':'ok'}">${meta.status==='error'?'❌':'✅'} ${meta.status}</span>`;
+  } else if (span.type === 'memory_extract') {
+    if (meta.extracted_count != null) badges += `<span class="badge hit">📝 提取 ${meta.extracted_count} 条</span>`;
+    if (meta.dimensions && meta.dimensions.length) badges += `<span class="badge dim">📂 ${[...new Set(meta.dimensions)].join(', ')}</span>`;
   }
-}
 
-// ── 实时 Trace ──
-function addLiveSpan(type, name, data, durationMs) {
-  const el = document.getElementById('liveTrace');
-  if (el.querySelector('.empty-state')) el.innerHTML = '';
-
-  const icons = {
-    'llm_start': ['llm','🧠'], 'llm_end': ['llm','🧠'], 'tool_start': ['tool','🔧'],
-    'tool_end': ['tool','✅'], 'token': ['llm','💬'], 'done': ['request','🏁'],
-    'error': ['error','❌'],
-  };
-  const [cls, icon] = icons[type] || ['request','📋'];
-  const dur = durationMs ? `<span class="span-dur">${durationMs}ms</span>` : '';
-  const dataStr = data ? `<div class="span-data">${esc(JSON.stringify(data).slice(0,200))}</div>` : '';
-
-  el.insertAdjacentHTML('afterbegin',
-    `<div class="span-item"><div class="span-icon ${cls}">${icon}</div>
-     <div class="span-body"><div class="span-name">${esc(name)}</div>${dataStr}</div>${dur}</div>`);
-}
-
-// ── Trace Explorer ──
-async function loadTraceList() {
-  const el = document.getElementById('explorerTrace');
-  el.innerHTML = '<div class="empty-state">加载中...</div>';
-  try {
-    const resp = await fetch(API + '/api/traces?limit=30');
-    const data = await resp.json();
-    if (!data.traces.length) { el.innerHTML = '<div class="empty-state">暂无 Trace</div>'; return; }
-    el.innerHTML = data.traces.map(t => `
-      <div class="trace-list-item" onclick="loadTraceDetail('${t.trace_id}')">
-        <div class="tl-header">
-          <span class="tl-input">${esc(t.user_input)}</span>
-          <span class="tl-status ${t.status}">${t.status}</span>
-        </div>
-        <div class="tl-metrics">
-          <span>⏱ ${t.total_duration_ms}ms</span>
-          <span>🔤 ${t.total_tokens}</span>
-          <span>🔄 ${t.iteration_count} iter</span>
-          <span>🔧 ${t.tool_count} tools</span>
-          <span>📊 ${t.span_count} spans</span>
-        </div>
-      </div>
-    `).join('');
-  } catch(e) { el.innerHTML = `<div class="empty-state">加载失败: ${e.message}</div>`; }
-}
-
-// ── Trace 详情 ──
-async function loadTraceDetail(traceId) {
-  showTraceTab('detail');
-  const el = document.getElementById('detailTrace');
-  el.innerHTML = '<div class="empty-state">加载中...</div>';
-  try {
-    const resp = await fetch(API + `/api/traces/${traceId}`);
-    const data = await resp.json();
-    const t = data.trace;
-    const tl = data.timeline;
-
-    let html = `<div class="trace-detail-header">
-      <h3>Trace: ${t.trace_id}</h3>
-      <div style="font-size:11px;color:#888;margin:4px 0">Thread: ${t.thread_id} | ${t.agent_name} | ${t.model}</div>
-      <div class="trace-detail-metrics">
-        <div class="metric"><div class="val">${Math.round(t.total_duration_ms)}ms</div>总耗时</div>
-        <div class="metric"><div class="val">${t.total_tokens}</div>Token</div>
-        <div class="metric"><div class="val">${t.iteration_count}</div>迭代</div>
-        <div class="metric"><div class="val">${t.tool_count}</div>工具</div>
-        <div class="metric"><div class="val">${t.spans.length}</div>Spans</div>
-      </div>
-    </div>`;
-
-    // 时间线条
-    if (t.total_duration_ms > 0) {
-      html += '<div class="timeline-bar">';
-      for (const s of tl) {
-        const left = (s.offset_ms / t.total_duration_ms * 100).toFixed(1);
-        const width = Math.max((s.duration_ms / t.total_duration_ms * 100), 1).toFixed(1);
-        const colors = {llm_call:'#1565c0',tool_call:'#e65100',request:'#2e7d32',response:'#2e7d32',
-                        memory_retrieve:'#7b1fa2',compression:'#00838f',error:'#c62828'};
-        const color = colors[s.type] || '#888';
-        html += `<div class="timeline-fill" style="left:${left}%;width:${width}%;background:${color}" title="${s.name} ${s.duration_ms}ms"></div>`;
+  // 展开详情内容
+  let detailHtml = '';
+  if (Object.keys(meta).length > 0) {
+    detailHtml = '<div class="span-detail">';
+    // 按类型渲染结构化详情
+    if (span.type === 'memory_retrieval' && meta.items_preview && meta.items_preview.length) {
+      detailHtml += '<div class="detail-section"><div class="detail-label">检索结果</div><div class="detail-content">';
+      for (const it of meta.items_preview) {
+        detailHtml += `[${esc(it.dimension)}] ${esc(it.content)}\n`;
       }
-      html += '</div>';
+      detailHtml += '</div></div>';
     }
+    if (span.type === 'intent_analysis' && meta.raw_intent) {
+      detailHtml += `<div class="detail-section"><div class="detail-label">原始输入</div><div class="detail-content">${esc(meta.raw_intent)}</div></div>`;
+    }
+    if ((span.type === 'tool_call' || span.type === 'tool_end') && meta.output) {
+      detailHtml += `<div class="detail-section"><div class="detail-label">工具输出</div><div class="detail-content">${esc(meta.output)}</div></div>`;
+    }
+    if (span.type === 'llm_call' && meta.tool_calls && meta.tool_calls.length) {
+      detailHtml += `<div class="detail-section"><div class="detail-label">工具调用</div><div class="detail-content">${meta.tool_calls.map(t=>'→ '+esc(t)).join('\n')}</div></div>`;
+    }
+    // 通用 metadata 展示
+    const skipKeys = new Set(['items_preview','raw_intent','output','tool_calls','children','input']);
+    const remaining = Object.entries(meta).filter(([k])=>!skipKeys.has(k));
+    if (remaining.length > 0) {
+      detailHtml += `<div class="detail-section"><div class="detail-label">元数据</div><div class="detail-content">${remaining.map(([k,v])=>`${k}: ${typeof v==='object'?JSON.stringify(v,null,1):v}`).join('\n')}</div></div>`;
+    }
+    detailHtml += '</div>';
+  }
 
-    // Span 列表
-    const spanIcons = {
-      request:['request','👤'], response:['request','🤖'], llm_call:['llm','🧠'],
-      tool_call:['tool','🔧'], memory_retrieve:['memory','🧠'], memory_extract:['memory','💾'],
-      compression:['compress','📦'], skill_select:['skill','🎯'], skill_execute:['skill','⚡'],
-      error:['error','❌'], before_agent:['request','📋'], after_agent:['request','📋'],
-    };
-
-    for (const s of t.spans) {
-      const [cls, icon] = spanIcons[s.type] || ['request','📋'];
-      const dur = s.duration_ms > 0 ? `<span class="span-dur">${Math.round(s.duration_ms)}ms</span>` : '';
-      const inputStr = s.input && Object.keys(s.input).length ? `<div class="span-data">IN: ${esc(JSON.stringify(s.input).slice(0,200))}</div>` : '';
-      const outputStr = s.output && Object.keys(s.output).length ? `<div class="span-data">OUT: ${esc(JSON.stringify(s.output).slice(0,200))}</div>` : '';
-      const metaStr = s.metadata && Object.keys(s.metadata).length ? `<div class="span-meta">${Object.entries(s.metadata).map(([k,v])=>k+':'+v).join(' | ')}</div>` : '';
-      html += `<div class="span-item" onclick="this.classList.toggle('expanded')">
-        <div class="span-icon ${cls}">${icon}</div>
-        <div class="span-body"><div class="span-name">${esc(s.name)}</div>${metaStr}${inputStr}${outputStr}</div>${dur}
+  // 子步骤（hierarchical_search 的 vector_search / rerank）
+  let childrenHtml = '';
+  const children = meta.children || span.children || [];
+  if (children.length > 0) {
+    childrenHtml = '<div class="span-children">';
+    for (const ch of children) {
+      const cIcon = ch.type === 'rerank' ? '⚖️' : '🔎';
+      const cLabel = ch.type === 'rerank' ? 'rerank' : 'vector_search';
+      const cDur = ch.duration_ms > 0 ? `${Math.round(ch.duration_ms)}ms` : '';
+      let cMeta = '';
+      if (ch.metadata) {
+        if (ch.metadata.dimension) cMeta += ch.metadata.dimension;
+        if (ch.metadata.result_count != null) cMeta += ` · ${ch.metadata.result_count} 条`;
+        if (ch.metadata.scored_count != null) cMeta += ` · 评分 ${ch.metadata.scored_count} 条`;
+        if (ch.metadata.query) cMeta += ` · "${truncStr(ch.metadata.query, 20)}"`;
+      }
+      childrenHtml += `<div class="child-span">
+        <span class="cicon">${cIcon}</span>
+        <span class="cname">${esc(cLabel)}</span>
+        ${cMeta ? `<span class="cmeta">${esc(cMeta)}</span>` : ''}
+        ${cDur ? `<span class="cdur">${cDur}</span>` : ''}
       </div>`;
     }
-
-    // 用户输入和 Agent 输出
-    html += `<div style="margin-top:12px;padding:10px;background:#fff;border:1px solid #e8e8e8;border-radius:8px;font-size:12px">
-      <div style="margin-bottom:8px"><b>👤 用户:</b> ${esc(t.user_input)}</div>
-      <div><b>🤖 Agent:</b> ${esc(t.agent_output)}</div>
-    </div>`;
-
-    el.innerHTML = html;
-  } catch(e) { el.innerHTML = `<div class="empty-state">加载失败: ${e.message}</div>`; }
-}
-
-// ── 对话 ──
-function addMessage(role, content) {
-  const div = document.getElementById('messages');
-  const avatar = role==='user'?'👤':'🤖';
-  div.insertAdjacentHTML('beforeend',
-    `<div class="msg ${role}"><div class="msg-avatar">${avatar}</div><div class="msg-bubble">${esc(content)}</div></div>`);
-  div.scrollTop = div.scrollHeight;
-}
-
-function addToolBadge(text, cls) {
-  const div = document.getElementById('messages');
-  div.insertAdjacentHTML('beforeend', `<div style="padding:0 20px 2px 48px"><span class="tool-badge ${cls}">${esc(text)}</span></div>`);
-  div.scrollTop = div.scrollHeight;
-}
-
-function sendQuick(text) { document.getElementById('input').value = text; sendMessage(); }
-
-async function sendMessage() {
-  const input = document.getElementById('input');
-  const btn = document.getElementById('sendBtn');
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = ''; btn.disabled = true;
-  addMessage('user', text);
-  history.push({role:'user',content:text});
-
-  // 重置实时 trace
-  document.getElementById('liveTrace').innerHTML = '';
-  showTraceTab('live');
-
-  const messagesDiv = document.getElementById('messages');
-  const msgDiv = document.createElement('div');
-  msgDiv.className = 'msg assistant';
-  msgDiv.innerHTML = '<div class="msg-avatar">🤖</div><div class="msg-bubble" id="streaming">思考中...</div>';
-  messagesDiv.appendChild(msgDiv);
-
-  let fullContent = '';
-  try {
-    const resp = await fetch(API+'/api/chat', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({message:text, thread_id:threadId, history:history.slice(0,-1)}),
-    });
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, {stream:true});
-      const lines = buffer.split('\n'); buffer = lines.pop()||'';
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const d = JSON.parse(line.slice(6));
-          if (d.type==='token') {
-            fullContent += d.content;
-            document.getElementById('streaming').textContent = fullContent;
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-          } else if (d.type==='tool_start') {
-            addToolBadge(`⚡ ${d.tool_name}`, 'start');
-            addLiveSpan('tool_start', `tool:${d.tool_name}`, {input:d.input});
-          } else if (d.type==='tool_end') {
-            addToolBadge(`✅ ${d.tool_name} (${d.duration_ms||0}ms)`, 'end');
-            addLiveSpan('tool_end', `tool:${d.tool_name}`, {output:(d.output||'').slice(0,100)}, d.duration_ms);
-          } else if (d.type==='llm_start') {
-            addToolBadge(`🧠 LLM iter ${d.iteration}`, 'llm');
-            addLiveSpan('llm_start', `llm_call iter ${d.iteration}`);
-          } else if (d.type==='llm_end') {
-            addLiveSpan('llm_end', `llm_call 完成`, d.tokens, d.duration_ms);
-          } else if (d.type==='error') {
-            fullContent += '\n❌ '+d.content;
-            document.getElementById('streaming').textContent = fullContent;
-            addLiveSpan('error', 'error', {error:d.content});
-          } else if (d.type==='done') {
-            currentTraceId = d.trace_id;
-            addLiveSpan('done', '完成', {trace_id:d.trace_id});
-          }
-        } catch(e){}
-      }
-    }
-  } catch(err) {
-    fullContent = '❌ 请求失败: '+err.message;
-    document.getElementById('streaming').textContent = fullContent;
+    childrenHtml += '</div>';
   }
 
-  const streamEl = document.getElementById('streaming');
-  if (streamEl) streamEl.removeAttribute('id');
-  history.push({role:'assistant',content:fullContent});
-  btn.disabled = false; input.focus();
+  return `<div class="span-card${isRunning?' running':''}" onclick="this.classList.toggle('exp')">
+    <div class="span-head">
+      <div class="sicon ${cfg.cls}">${isRunning?'<span class="running-dot"></span>':cfg.icon}</div>
+      <div class="span-info">
+        <div class="sname">${esc(span.name || cfg.label)}</div>
+        <div class="sdesc">${badges}</div>
+      </div>
+      <div class="span-dur">${dur != null ? dur+'ms' : (isRunning ? '...' : '')}</div>
+    </div>
+    ${childrenHtml}
+    ${detailHtml}
+  </div>`;
 }
 
-function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML}
+// ═══════════════════════════════════════════════════════════
+// 渲染 Trace 头部统计
+// ═══════════════════════════════════════════════════════════
+function renderTraceHeader(totalMs, tokens, iters, tools) {
+  return `<div class="trace-header">
+    <div class="title">执行链路</div>
+    <div class="stats">
+      <div class="stat"><div class="val">${totalMs != null ? fmtDur(totalMs) : '...'}</div><div class="lbl">总耗时</div></div>
+      <div class="stat"><div class="val">${fmtNum(tokens)}</div><div class="lbl">Token</div></div>
+      <div class="stat"><div class="val">${iters}</div><div class="lbl">迭代</div></div>
+      <div class="stat"><div class="val">${tools}</div><div class="lbl">工具</div></div>
+    </div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// 实时链路：添加 span 到面板
+// ═══════════════════════════════════════════════════════════
+function addLiveSpan(span) {
+  liveSpans.push(span);
+  refreshLivePanel();
+}
+
+function refreshLivePanel() {
+  const el = document.getElementById('pLive');
+  let html = renderTraceHeader(
+    liveSpans.length > 0 ? Date.now() - liveStartTime : null,
+    liveTotalTokens, liveIterCount, liveToolCount
+  );
+  // 按时间正序渲染（index.html 风格：从上到下）
+  for (const sp of liveSpans) {
+    html += renderSpanCard(sp);
+  }
+  el.innerHTML = html;
+  // 滚动到底部
+  const rb = document.querySelector('.right-body');
+  if (rb) rb.scrollTop = rb.scrollHeight;
+}
+
+function resetLive() {
+  liveSpans = [];
+  liveStartTime = Date.now();
+  liveTotalTokens = 0;
+  liveIterCount = 0;
+  liveToolCount = 0;
+  document.getElementById('pLive').innerHTML = '';
+}
+
+// 历史记录已迁移到 /sessions 独立页面
+
+// ═══════════════════════════════════════════════════════════
+// 工具函数
+// ═══════════════════════════════════════════════════════════
+function esc(t){if(!t)return '';const d=document.createElement('div');d.textContent=String(t);return d.innerHTML}
+function truncStr(s,n){if(!s)return '';s=String(s);return s.length>n?s.slice(0,n)+'...':s}
+function fmtNum(n){if(n==null)return '0';if(n>=1e6)return (n/1e6).toFixed(1)+'M';if(n>=1e3)return (n/1e3).toFixed(1)+'K';return String(n)}
+function fmtDur(ms){if(ms==null)return '...';ms=Math.round(ms);if(ms>=60000)return (ms/60000).toFixed(1)+'min';if(ms>=1000)return (ms/1000).toFixed(1)+'s';return ms+'ms'}
+
+// ═══════════════════════════════════════════════════════════
+// 文档预览
+// ═══════════════════════════════════════════════════════════
+function isDocContent(text){if(text.length>500)return true;if(/^#{1,3}\s/m.test(text))return true;if((text.match(/\|/g)||[]).length>6)return true;return false}
+function showDoc(text){lastDoc=text;document.getElementById('docTitle').textContent=extractTitle(text);document.getElementById('docBody').innerHTML=typeof marked!=='undefined'?marked.parse(text):text.replace(/\n/g,'<br>');document.getElementById('docPanel').style.display='flex';rtab('doc')}
+function extractTitle(t){const m=t.match(/^#{1,2}\s+(.+)/m);return m?m[1].slice(0,30):'文档预览'}
+function copyDoc(){navigator.clipboard.writeText(lastDoc);alert('已复制到剪贴板')}
+function downloadDoc(){const b=new Blob([lastDoc],{type:'text/markdown'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=(extractTitle(lastDoc)||'document')+'.md';a.click()}
+
+// ═══════════════════════════════════════════════════════════
+// 消息
+// ═══════════════════════════════════════════════════════════
+function addMsg(role,content){const d=document.getElementById('msgs');const av=role==='u'?'👤':'🤖';const rendered=role==='a'&&typeof marked!=='undefined'?marked.parse(content):esc(content);d.insertAdjacentHTML('beforeend',`<div class="m ${role}"><div class="av">${av}</div><div class="bub">${rendered}</div></div>`);d.scrollTop=d.scrollHeight}
+function addTag(text,cls){const d=document.getElementById('msgs');d.insertAdjacentHTML('beforeend',`<span class="tool-tag ${cls}">${esc(text)}</span>`);d.scrollTop=d.scrollHeight}
+function sq(t){document.getElementById('inp').value=t;send()}
+
+// ═══════════════════════════════════════════════════════════
+// 发送消息 + SSE 处理
+// ═══════════════════════════════════════════════════════════
+async function send(){
+  const inp=document.getElementById('inp'),btn=document.getElementById('sbtn'),text=inp.value.trim();
+  if(!text&&!pf.length)return;
+  inp.value='';btn.disabled=true;
+  if(pf.length)await uploadAll();
+  addMsg('u',text);hist.push({role:'user',content:text});
+
+  // 重置实时链路
+  resetLive();
+  rtab('live');
+
+  const d=document.getElementById('msgs');
+  const el=document.createElement('div');el.className='m a';
+  el.innerHTML='<div class="av">🤖</div><div class="bub" id="stm"><span style="color:var(--txt3)">思考中...</span></div>';
+  d.appendChild(el);
+
+  let full='';
+  let currentToolSpanIdx = -1;
+
+  try{
+    const r=await fetch(A+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,thread_id:tid,history:hist.slice(0,-1)})});
+    const rd=r.body.getReader(),dc=new TextDecoder();let buf='';
+
+    while(true){
+      const{done,value}=await rd.read();if(done)break;
+      buf+=dc.decode(value,{stream:true});const ls=buf.split('\n');buf=ls.pop()||'';
+
+      for(const l of ls){
+        if(!l.startsWith('data: '))continue;
+        try{
+          const e=JSON.parse(l.slice(6));
+
+          if(e.type==='token'){
+            full+=e.content;
+            const se=document.getElementById('stm');
+            if(se){if(typeof marked!=='undefined')se.innerHTML=marked.parse(full);else se.textContent=full}
+            d.scrollTop=d.scrollHeight;
+          }
+          else if(e.type==='tool_start'){
+            liveToolCount++;
+            addTag(`⚡ ${e.tool_name}`,'s');
+            currentToolSpanIdx = liveSpans.length;
+            addLiveSpan({
+              type:'tool_call', name:`tool:${e.tool_name}`, status:'running',
+              duration_ms:0, metadata:{input:e.input||'', status:'running'}
+            });
+          }
+          else if(e.type==='tool_end'){
+            addTag(`✅ ${e.tool_name} ${e.duration_ms||0}ms`,'e');
+            if(currentToolSpanIdx >= 0 && liveSpans[currentToolSpanIdx]){
+              liveSpans[currentToolSpanIdx].status = 'success';
+              liveSpans[currentToolSpanIdx].duration_ms = e.duration_ms || 0;
+              liveSpans[currentToolSpanIdx].metadata.output = e.output || '';
+              liveSpans[currentToolSpanIdx].metadata.status = 'success';
+              refreshLivePanel();
+            }
+            currentToolSpanIdx = -1;
+          }
+          else if(e.type==='llm_start'){
+            liveIterCount = e.iteration || liveIterCount+1;
+            addTag(`🧠 LLM #${e.iteration}`,'l');
+            addLiveSpan({
+              type:'llm_call', name:`llm_call Iter ${e.iteration}`, status:'running',
+              duration_ms:0, metadata:{iteration:e.iteration}
+            });
+          }
+          else if(e.type==='llm_end'){
+            // 找到最后一个 running 的 llm_call span 并完成它
+            for(let i=liveSpans.length-1;i>=0;i--){
+              if(liveSpans[i].type==='llm_call' && liveSpans[i].status==='running'){
+                liveSpans[i].status='success';
+                liveSpans[i].duration_ms=e.duration_ms||0;
+                if(e.tokens){
+                  liveSpans[i].metadata.output_tokens=(e.tokens.input_tokens||0)+(e.tokens.output_tokens||0);
+                  liveTotalTokens += liveSpans[i].metadata.output_tokens;
+                }
+                break;
+              }
+            }
+            refreshLivePanel();
+          }
+          else if(e.type==='done'){
+            curTraceId=e.trace_id;
+            // 添加完成标记
+            addLiveSpan({type:'done', name:'执行完成', status:'success', duration_ms:Date.now()-liveStartTime, metadata:{trace_id:e.trace_id}});
+          }
+          else if(e.type==='mw_span'){
+            // 实时中间件 span — 直接追加，按时间顺序
+            const sp = e.span;
+            addLiveSpan({
+              type: sp.type, name: sp.name, status: 'success',
+              duration_ms: sp.duration_ms || 0,
+              metadata: sp.metadata || {},
+              children: sp.children || [],
+            });
+          }
+          else if(e.type==='error'){
+            full+='\n❌ '+e.content;
+            addLiveSpan({type:'error', name:'错误', status:'error', duration_ms:0, metadata:{error:e.content}});
+          }
+        }catch(x){}
+      }
+    }
+  }catch(err){full='❌ 请求失败: '+err.message}
+
+  const se=document.getElementById('stm');if(se)se.removeAttribute('id');
+  hist.push({role:'assistant',content:full});
+  if(isDocContent(full))showDoc(full);
+  btn.disabled=false;inp.focus();
+}
+
+// 拖拽
+document.querySelector('.msgs').addEventListener('dragover',e=>{e.preventDefault();e.currentTarget.style.background='var(--pri-l)'});
+document.querySelector('.msgs').addEventListener('dragleave',e=>{e.currentTarget.style.background=''});
+document.querySelector('.msgs').addEventListener('drop',e=>{e.preventDefault();e.currentTarget.style.background='';for(const f of e.dataTransfer.files)pf.push(f);rfpv()});
 </script>
 </body>
 </html>

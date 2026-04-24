@@ -94,10 +94,10 @@ class QueryDataTool(Tool):
 
         # query
         result = await self._backend.query_data(
-            entity, input_data.get("filters", {}),
+            entity, input_data.get("filters") or {},
             fields=input_data.get("fields"),
-            page=input_data.get("page", 1),
-            page_size=input_data.get("page_size", 20),
+            page=input_data.get("page") or 1,
+            page_size=input_data.get("page_size") or 20,
             order_by=input_data.get("order_by"),
         )
         return ToolResult(content=json.dumps(result["data"], ensure_ascii=False, indent=2))
@@ -216,6 +216,68 @@ class AskUserTool(Tool):
     def prompt(self): return "向用户提问或确认"
 
 
+class AskClarificationTool(Tool):
+    """向用户澄清追问 — 信息不足或有歧义时中断执行并追问
+
+    4 种澄清类型：
+    - missing_info: 缺少关键参数（实体名、筛选条件、目标值）
+    - ambiguous_requirement: 用户表述有歧义，可能指向多种操作
+    - approach_choice: 多个匹配结果或多种可行方案需用户选择
+    - risk_confirmation: 操作涉及删除、批量修改等不可逆影响
+    """
+
+    @property
+    def name(self): return "ask_clarification"
+
+    def input_schema(self):
+        return {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "要问用户的具体问题",
+                },
+                "clarification_type": {
+                    "type": "string",
+                    "enum": ["missing_info", "ambiguous_requirement", "approach_choice", "risk_confirmation"],
+                    "description": "澄清类型",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "当前已知的上下文信息，帮助用户理解追问背景",
+                },
+                "options": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "可选项列表（approach_choice 时必填）",
+                },
+            },
+            "required": ["question", "clarification_type"],
+        }
+
+    async def call(self, input_data, context, on_progress=None):
+        # 实际执行由 ClarificationMiddleware 拦截，不会走到这里
+        # 此处作为 fallback，返回格式化的追问内容
+        question = input_data.get("question", "")
+        ctype = input_data.get("clarification_type", "missing_info")
+        ctx = input_data.get("context", "")
+        options = input_data.get("options", [])
+
+        icons = {"missing_info": "❓", "ambiguous_requirement": "🤔",
+                 "approach_choice": "🔀", "risk_confirmation": "⚠️"}
+        icon = icons.get(ctype, "❓")
+        parts = [f"{icon} {ctx}\n{question}" if ctx else f"{icon} {question}"]
+        if options:
+            parts += [""] + [f"  {i}. {o}" for i, o in enumerate(options, 1)]
+        return ToolResult(content="\n".join(parts))
+
+    def prompt(self):
+        return (
+            "向用户澄清追问。当信息不足、需求模糊、存在多种方案或操作有风险时使用。"
+            "clarification_type: missing_info/ambiguous_requirement/approach_choice/risk_confirmation"
+        )
+
+
 def register_crm_tools(registry: ToolRegistry, backend) -> None:
     """注册全部 CRM 业务工具"""
     registry.register(QuerySchemaTool(backend))
@@ -223,3 +285,4 @@ def register_crm_tools(registry: ToolRegistry, backend) -> None:
     registry.register(ModifyDataTool(backend))
     registry.register(AnalyzeDataTool(backend))
     registry.register(AskUserTool())
+    registry.register(AskClarificationTool())

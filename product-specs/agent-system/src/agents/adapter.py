@@ -85,8 +85,6 @@ class NeoAgentV2Adapter:
         # 动态组装中间件
         middlewares = build_middleware(
             system_prompt=system_prompt,
-            skill_names=[s.name for s in skill_reg.list_all()],
-            tool_names=[t.name for t in reg.all_tools],
             agent_name="CRM-Agent",
             memory_engine=memory_engine,
         )

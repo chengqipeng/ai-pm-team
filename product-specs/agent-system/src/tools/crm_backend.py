@@ -266,8 +266,8 @@ class CrmSimulatedBackend:
             records = sorted(records, key=lambda r: r.get(field_name, ""), reverse=desc)
 
         # 分页
-        page = kw.get("page", 1)
-        page_size = kw.get("page_size", 20)
+        page = kw.get("page") or 1
+        page_size = kw.get("page_size") or 20
         start = (page - 1) * page_size
         records = records[start:start + page_size]
 

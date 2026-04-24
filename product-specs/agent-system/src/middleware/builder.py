@@ -1,7 +1,4 @@
-"""中间件动态组装 — 根据 Features 开关构建中间件管道
-
-对齐 v2 的 _build_middleware(features, system_prompt, skill_names, tool_names)
-"""
+"""中间件动态组装 — 根据 Features 开关构建中间件管道"""
 from __future__ import annotations
 
 import logging
@@ -15,8 +12,6 @@ logger = logging.getLogger(__name__)
 def build_middleware(
     features: Any = None,
     system_prompt: str = "",
-    skill_names: list[str] | None = None,
-    tool_names: list[str] | None = None,
     agent_name: str = "DeepAgent",
     memory_engine: Any = None,
     file_upload_enabled: bool = False,
@@ -26,10 +21,9 @@ def build_middleware(
     Args:
         features: Features 实例（有 memory_enabled/guardrail_enabled/subagent_enabled 属性）
         system_prompt: 系统提示词（传给 AgentLoggingMiddleware）
-        skill_names: 技能名称列表
-        tool_names: 工具名称列表
         agent_name: Agent 名称
         memory_engine: MemoryEngine 实例（传给 MemoryMiddleware）
+        file_upload_enabled: 是否启用文件上传处理链路
     """
     from src.middleware import (
         AgentLoggingMiddleware,
@@ -50,6 +44,9 @@ def build_middleware(
         TodoMiddleware,
         ToolErrorHandlingMiddleware,
     )
+    from src.middleware.input_transform import PIIRedactTransformer, ContentReviewTransformer
+    from src.middleware.content_review import ContentReviewService
+    from src.middleware.tracing import TracingMiddleware, tracing_middleware
 
     # 检查 features 中的 file_upload_enabled
     _file_upload = file_upload_enabled or (
@@ -57,10 +54,9 @@ def build_middleware(
     )
 
     middleware: list[AgentMiddleware] = [
+        tracing_middleware,  # 全局单例，放最前面，记录完整链路
         AgentLoggingMiddleware(
             system_prompt=system_prompt,
-            skill_names=skill_names or [],
-            tool_names=tool_names or [],
             agent_name=agent_name,
         ),
         DanglingToolCallMiddleware(),
@@ -70,8 +66,13 @@ def build_middleware(
     if _file_upload:
         middleware.append(FileProcessMiddleware())
 
-    # 输入转换（文件上传时注册 MultimodalTransformer）
+    # 内容审查服务（输入+输出共用同一实例）
+    review_service = ContentReviewService()
+
+    # 输入转换：内容审查 → PII 脱敏 → 多模态转换
     input_transform = InputTransformMiddleware()
+    input_transform.register(ContentReviewTransformer(review_service=review_service))
+    input_transform.register(PIIRedactTransformer())
     if _file_upload:
         input_transform.register(MultimodalTransformer())
     middleware.append(input_transform)
@@ -106,7 +107,7 @@ def build_middleware(
         LoopDetectionMiddleware(),
         ToolErrorHandlingMiddleware(),
         ClarificationMiddleware(),
-        OutputValidationMiddleware(),
+        OutputValidationMiddleware(review_service=review_service),
         OutputRenderMiddleware(),
         TitleMiddleware(),
     ]

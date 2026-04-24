@@ -3,6 +3,13 @@
 > 日期：2026-04-23
 > 目标：梳理从数据库到 UI 组件的完整数据流，定位当前断点
 
+> ⚠️ **重要纠正（2026-04-24）**：本文档原始分析以"省→市→区级联需要 parentMetadataApiKey"为出发点，
+> 但这个前提是错误的。省市区之间的关联**不是**通过 `parentMetadataApiKey` 直接关联，
+> 而是通过 `globalPickDependency` + `globalPickDependencyDetail` 依赖体系 + `chainQuery` 链式查询实现。
+> 
+> 本文档中关于 `parentMetadataApiKey` 断点的技术分析仍然有效（该字段确实被 SKIP_FIELDS 跳过、API 不返回），
+> 但它不是省市区级联的阻塞项。省市区级联的正确实现路径见 [通用元数据链式查询引擎设计方案](通用元数据链式查询引擎设计方案.md)。
+
 ---
 
 ## 一、完整数据流
@@ -166,20 +173,27 @@ public class GlobalPickOption extends BaseMetaTenantEntity {
 
 ---
 
-## 四、推荐方案 A
+## 四、推荐方案 A（仅针对通用层级能力）
+
+> ⚠️ 注意：以下方案是为了打通 `parentMetadataApiKey` 固定列的通用层级能力，
+> **不是**省→市→区级联的修复方案。省市区级联应通过 chainQuery 链式查询实现。
+> 
+> 当前已知依赖 parentMetadataApiKey 的场景：暂无（部门树用 deptParentApiKey，角色树用 roleParentApiKey）。
+> 是否打通取决于未来是否有场景需要通用的同模型层级关系能力。
 
 `parentMetadataApiKey` 是 `p_common_metadata` 的固定列，和 `apiKey`/`label`/`entityApiKey` 一样是通用字段。放在基类中最合理：
 
-1. 省市区层级关系需要它
-2. 角色/部门树形结构需要它（role.parentMetadataApiKey 指向上级角色）
-3. 任何有层级关系的元数据都需要它
-4. 不影响现有功能（新增字段，MyBatis-Plus 自动映射）
+1. 任何有层级关系的元数据都可能需要它
+2. 不影响现有功能（新增字段，MyBatis-Plus 自动映射）
 
 同时建议把 `entityApiKey` 也上提到基类（当前在 GenericMetadata 和 GlobalPickOption 中重复声明）。
 
 ---
 
-## 五、修复后的数据流
+## 五、修复后的数据流（parentMetadataApiKey 打通后）
+
+> 注意：以下数据流展示的是 parentMetadataApiKey 打通后的效果，适用于通用层级场景。
+> 省→市→区级联不走此路径，而是走 chainQuery 链式查询。
 
 ```
 数据库: parent_metadata_api_key = 'guangdong' ✅
@@ -193,4 +207,38 @@ Axios 转换: { "parentMetadataApiKey": "guangdong", ... } ✅
 CascadePanelAtom: item.parentMetadataApiKey === 'guangdong' ✅
     ↓
 过滤: 广东下的城市 21 条 ✅
+```
+
+## 六、省→市→区级联的正确数据流
+
+省市区之间的关联通过 `globalPickDependency` + `globalPickDependencyDetail` 依赖体系实现：
+
+```
+用户选中省份 guangdong
+    ↓
+前端 useDataSource 检测到 chainQueryRef = 'provinceToCity'
+    ↓
+POST /meta/chain-query {
+  input: "guangdong",
+  steps: [{
+    metamodelApiKey: "globalPickDependencyDetail",
+    matchField: "controlOptionApiKey",
+    extraFilters: { dependencyApiKey: "provinceToCity" },
+    outputField: "dependentOptionApiKeys",
+    outputFormat: "collect"
+  }],
+  target: {
+    metamodelApiKey: "globalPickOption",
+    matchField: "apiKey",
+    matchMode: "IN",
+    extraFilters: { entityApiKey: "city" }
+  }
+}
+    ↓
+后端执行:
+  Step 1: 查 globalPickDependencyDetail WHERE controlOptionApiKey='guangdong' AND dependencyApiKey='provinceToCity'
+  Step 2: 取 dependentOptionApiKeys (TEXT[]) → flatMap 展开 → ["guangZhou","shenZhen",...]
+  Step 3: 查 globalPickOption WHERE entityApiKey='city' AND apiKey IN (...)
+    ↓
+返回 21 个城市 ✅
 ```

@@ -185,6 +185,31 @@ class MemoryStorage:
             return conn.execute("SELECT COUNT(*) FROM memories WHERE user_id = ?", (user_id,)).fetchone()[0]
         return conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
 
+    def delete_by_ids(self, ids: list[int]) -> int:
+        """按 ID 批量删除记忆（memories 表 + memory_fts 表同步）"""
+        if not ids:
+            return 0
+        conn = self._ensure_db()
+        # 先查出要删除的内容，用于同步删除 FTS5 表
+        placeholders = ",".join("?" for _ in ids)
+        rows = conn.execute(
+            f"SELECT user_id, dimension, content, created_at FROM memories WHERE id IN ({placeholders})",
+            ids,
+        ).fetchall()
+        # 删除普通表
+        conn.execute(f"DELETE FROM memories WHERE id IN ({placeholders})", ids)
+        # 同步删除 FTS5 表（FTS5 没有 rowid 关联，用内容匹配删除）
+        for r in rows:
+            try:
+                conn.execute(
+                    "DELETE FROM memory_fts WHERE user_id = ? AND dimension = ? AND content = ? AND created_at = ?",
+                    (r[0], r[1], r[2], str(r[3])),
+                )
+            except sqlite3.OperationalError:
+                pass
+        conn.commit()
+        return len(rows)
+
     def delete_by_user(self, user_id: str) -> int:
         """删除用户所有记忆"""
         conn = self._ensure_db()
@@ -192,6 +217,35 @@ class MemoryStorage:
         conn.execute("DELETE FROM memory_fts WHERE user_id = ?", (user_id,))
         conn.commit()
         return conn.total_changes
+
+    def cleanup_expired(self, cutoff_time: float, dimension: str | None = None) -> int:
+        """删除指定时间之前的过期记忆"""
+        conn = self._ensure_db()
+        if dimension:
+            rows = conn.execute(
+                "SELECT id FROM memories WHERE created_at < ? AND dimension = ?",
+                (cutoff_time, dimension),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id FROM memories WHERE created_at < ?",
+                (cutoff_time,),
+            ).fetchall()
+        ids = [r[0] for r in rows]
+        return self.delete_by_ids(ids)
+
+    def cleanup_overflow(self, user_id: str, dimension: str, max_count: int) -> int:
+        """按容量上限淘汰最旧的记忆，保留最新的 max_count 条"""
+        conn = self._ensure_db()
+        # 查出超出上限的旧记录 ID
+        rows = conn.execute(
+            "SELECT id FROM memories WHERE user_id = ? AND dimension = ? ORDER BY created_at DESC",
+            (user_id, dimension),
+        ).fetchall()
+        if len(rows) <= max_count:
+            return 0
+        overflow_ids = [r[0] for r in rows[max_count:]]
+        return self.delete_by_ids(overflow_ids)
 
     # ── 文件模式（短期记忆/用户画像） ──
 

@@ -85,7 +85,26 @@ class FTSMemoryEngine(MemoryEngine):
         storage_dir: 存储目录（storage 为 None 时使用）
         llm: LLM 实例（需实现 ainvoke），用于智能记忆提取
         debounce_seconds: 防抖队列窗口（秒）
+        cleanup_every_n: 每 N 次写入触发一次清理检查
+        retention_days: 各维度记忆保留天数
+        max_per_dimension: 各维度每用户最大记忆条数
     """
+
+    # 默认各维度保留天数
+    _DEFAULT_RETENTION_DAYS: dict[str, int] = {
+        "task_history": 30,
+        "customer_context": 90,
+        "user_profile": 180,
+        "domain_knowledge": 365,
+    }
+
+    # 默认各维度每用户最大条数
+    _DEFAULT_MAX_PER_DIMENSION: dict[str, int] = {
+        "task_history": 100,
+        "customer_context": 200,
+        "user_profile": 50,
+        "domain_knowledge": 50,
+    }
 
     def __init__(
         self,
@@ -93,6 +112,9 @@ class FTSMemoryEngine(MemoryEngine):
         storage_dir: str = "./data/memory",
         llm: Any = None,
         debounce_seconds: float = 5.0,
+        cleanup_every_n: int = 20,
+        retention_days: dict[str, int] | None = None,
+        max_per_dimension: dict[str, int] | None = None,
     ) -> None:
         self._storage = storage or MemoryStorage(storage_dir)
         self._llm = llm
@@ -100,6 +122,10 @@ class FTSMemoryEngine(MemoryEngine):
             debounce_seconds=debounce_seconds,
             handler=self._handle_queued_update,
         )
+        self._write_count: int = 0
+        self._cleanup_every_n = cleanup_every_n
+        self._retention_days = {**self._DEFAULT_RETENTION_DAYS, **(retention_days or {})}
+        self._max_per_dimension = {**self._DEFAULT_MAX_PER_DIMENSION, **(max_per_dimension or {})}
 
     @property
     def storage(self) -> MemoryStorage:
@@ -182,7 +208,7 @@ class FTSMemoryEngine(MemoryEngine):
         user_id: str | None = None,
         top_k: int = 5,
     ) -> MemoryRetrievalResult:
-        """FTS5 检索 + 时间衰减加权"""
+        """FTS5 检索 + 时间衰减加权 — 同时向 TracingMiddleware 记录 hierarchical_search spans"""
         items: list[MemoryItem] = []
         now = time.time()
 
@@ -199,41 +225,106 @@ class FTSMemoryEngine(MemoryEngine):
         dims = dimensions or list(MemoryDimension)
         seen_contents: set[str] = set()  # 去重
 
-        for search_q in search_queries:
-            for dim in dims:
-                results = self._storage.search(
-                    search_q, user_id=user_id, dimension=dim.value, top_k=top_k,
+        # 按 index.html 的 hierarchical_search 格式，分 skill / resource / memory 三路检索
+        # 映射: skill → task_history + domain_knowledge, resource → customer_context, memory → user_profile
+        _dim_to_search_type = {
+            MemoryDimension.TASK_HISTORY: "skill",
+            MemoryDimension.DOMAIN_KNOWLEDGE: "skill",
+            MemoryDimension.CUSTOMER_CONTEXT: "resource",
+            MemoryDimension.USER_PROFILE: "memory",
+        }
+
+        # 按 search_type 分组执行，记录 hierarchical_search spans
+        search_type_dims: dict[str, list[MemoryDimension]] = {}
+        for dim in dims:
+            st = _dim_to_search_type.get(dim, "memory")
+            search_type_dims.setdefault(st, []).append(dim)
+
+        for search_type, type_dims in search_type_dims.items():
+            hs_start = time.monotonic()
+            type_items: list[MemoryItem] = []
+            children_spans: list[dict] = []
+
+            for search_q in search_queries:
+                for dim in type_dims:
+                    # vector_search 子步骤
+                    vs_start = time.monotonic()
+                    results = self._storage.search(
+                        search_q, user_id=user_id, dimension=dim.value, top_k=top_k,
+                    )
+                    vs_dur = (time.monotonic() - vs_start) * 1000
+                    children_spans.append({
+                        "type": "vector_search",
+                        "name": "vector_search",
+                        "duration_ms": vs_dur,
+                        "metadata": {
+                            "dimension": dim.value,
+                            "query": search_q[:50],
+                            "result_count": len(results),
+                            "results": [
+                                {"content": r["content"][:200], "dimension": r.get("dimension", ""),
+                                 "rank": r.get("rank", 0)}
+                                for r in results[:10]
+                            ],
+                        },
+                    })
+
+                    # rerank 子步骤
+                    rr_start = time.monotonic()
+                    for r in results:
+                        content = r["content"]
+                        content_key = content[:100]
+                        if content_key in seen_contents:
+                            continue
+                        seen_contents.add(content_key)
+
+                        created_at = r.get("created_at", now)
+                        if isinstance(created_at, str):
+                            try:
+                                created_at = float(created_at)
+                            except ValueError:
+                                created_at = now
+                        days_ago = (now - created_at) / 86400
+                        time_decay = max(0.1, 1.0 - days_ago * 0.1 / 7)
+                        bm25_score = 1.0 / (1.0 + abs(r.get("rank", 0)))
+                        confidence = bm25_score * time_decay
+
+                        type_items.append(MemoryItem(
+                            dimension=dim,
+                            content=content,
+                            confidence=confidence,
+                            metadata=json.loads(r.get("metadata", "{}")) if isinstance(r.get("metadata"), str) else {},
+                        ))
+                    rr_dur = (time.monotonic() - rr_start) * 1000
+                    children_spans.append({
+                        "type": "rerank",
+                        "name": "rerank",
+                        "duration_ms": rr_dur,
+                        "metadata": {
+                            "dimension": dim.value,
+                            "scored_count": len(type_items),
+                            "scored_items": [
+                                {"content": it.content[:200], "confidence": round(it.confidence, 3),
+                                 "dimension": it.dimension.value}
+                                for it in type_items[-len(results):]  # 本轮新增的
+                            ][:10],
+                        },
+                    })
+
+            hs_dur = (time.monotonic() - hs_start) * 1000
+            items.extend(type_items)
+
+            # 向 TracingMiddleware 记录 hierarchical_search span
+            try:
+                from src.middleware.tracing import tracing_middleware
+                tracing_middleware.record_hierarchical_search(
+                    search_type=search_type,
+                    duration_ms=hs_dur,
+                    hit_count=len(type_items),
+                    children=children_spans,
                 )
-                for r in results:
-                    content = r["content"]
-                    # 内容去重（前 100 字符相同视为重复）
-                    content_key = content[:100]
-                    if content_key in seen_contents:
-                        continue
-                    seen_contents.add(content_key)
-
-                    # 时间衰减：每过 7 天权重衰减 10%
-                    created_at = r.get("created_at", now)
-                    if isinstance(created_at, str):
-                        try:
-                            created_at = float(created_at)
-                        except ValueError:
-                            created_at = now
-                    days_ago = (now - created_at) / 86400
-                    time_decay = max(0.1, 1.0 - days_ago * 0.1 / 7)
-
-                    # BM25 相关性
-                    bm25_score = 1.0 / (1.0 + abs(r.get("rank", 0)))
-
-                    # 综合分数
-                    confidence = bm25_score * time_decay
-
-                    items.append(MemoryItem(
-                        dimension=dim,
-                        content=content,
-                        confidence=confidence,
-                        metadata=json.loads(r.get("metadata", "{}")) if isinstance(r.get("metadata"), str) else {},
-                    ))
+            except Exception as e:
+                logger.debug("Failed to record hierarchical_search span: %s", e)
 
         # 按 confidence 排序，取 top_k
         items.sort(key=lambda x: x.confidence, reverse=True)
@@ -345,11 +436,83 @@ class FTSMemoryEngine(MemoryEngine):
 
         logger.info("Extracted %d memory items (%s) from thread %s",
                      len(extracted), [i.dimension.value for i in extracted], thread_id)
+
+        # 写入计数器 — 每 N 次触发清理
+        self._write_count += 1
+        if self._write_count >= self._cleanup_every_n:
+            self._write_count = 0
+            try:
+                deleted = self.cleanup(user_id=uid)
+                if deleted > 0:
+                    logger.info("Auto cleanup: removed %d expired/overflow memories for user %s", deleted, uid)
+            except Exception as e:
+                logger.warning("Auto cleanup failed: %s", e)
+
         return MemoryExtractionResult(items=extracted, source_thread_id=thread_id)
 
     async def _handle_queued_update(self, thread_id: str, messages: list) -> None:
         """DebounceQueue 回调 — 合并后的记忆更新"""
         await self.extract_and_update(messages, thread_id)
+
+    def cleanup(self, user_id: str | None = None) -> int:
+        """清理过期和超量记忆
+
+        两阶段清理：
+        1. TTL 过期：按维度删除超过保留天数的记忆
+        2. 容量淘汰：按维度删除超过上限的最旧记忆
+
+        Args:
+            user_id: 指定用户清理；None 则只做全局 TTL 过期清理
+
+        Returns:
+            删除的记忆条数
+        """
+        total_deleted = 0
+        now = time.time()
+
+        # 阶段 1: TTL 过期清理（按维度不同保留天数）
+        for dimension, days in self._retention_days.items():
+            cutoff = now - days * 86400
+            deleted = self._storage.cleanup_expired(cutoff, dimension=dimension)
+            if deleted > 0:
+                logger.info("TTL cleanup: removed %d expired '%s' memories (older than %d days)",
+                            deleted, dimension, days)
+            total_deleted += deleted
+
+        # 阶段 2: 容量淘汰（需要指定用户）
+        if user_id:
+            for dimension, max_count in self._max_per_dimension.items():
+                deleted = self._storage.cleanup_overflow(user_id, dimension, max_count)
+                if deleted > 0:
+                    logger.info("Overflow cleanup: removed %d '%s' memories for user %s (max %d)",
+                                deleted, dimension, user_id, max_count)
+                total_deleted += deleted
+
+        return total_deleted
+
+    def cleanup_all_users(self) -> int:
+        """清理所有用户的过期和超量记忆（适合定时任务调用）"""
+        total_deleted = 0
+        now = time.time()
+
+        # TTL 过期清理
+        for dimension, days in self._retention_days.items():
+            cutoff = now - days * 86400
+            deleted = self._storage.cleanup_expired(cutoff, dimension=dimension)
+            total_deleted += deleted
+
+        # 容量淘汰 — 遍历所有用户
+        conn = self._storage._ensure_db()
+        users = conn.execute("SELECT DISTINCT user_id FROM memories").fetchall()
+        for (uid,) in users:
+            for dimension, max_count in self._max_per_dimension.items():
+                deleted = self._storage.cleanup_overflow(uid, dimension, max_count)
+                total_deleted += deleted
+
+        if total_deleted > 0:
+            logger.info("Full cleanup completed: removed %d memories across %d users",
+                        total_deleted, len(users))
+        return total_deleted
 
     def submit_for_extraction(self, thread_id: str, messages: list) -> None:
         """提交到防抖队列（供 MemoryMiddleware.aafter_agent 调用）"""
