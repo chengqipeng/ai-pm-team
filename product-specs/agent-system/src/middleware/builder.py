@@ -15,6 +15,7 @@ def build_middleware(
     agent_name: str = "DeepAgent",
     memory_engine: Any = None,
     file_upload_enabled: bool = False,
+    llm: Any = None,
 ) -> list[AgentMiddleware]:
     """根据 Features 开关动态组装中间件列表
 
@@ -24,6 +25,7 @@ def build_middleware(
         agent_name: Agent 名称
         memory_engine: MemoryEngine 实例（传给 MemoryMiddleware）
         file_upload_enabled: 是否启用文件上传处理链路
+        llm: LLM 实例（传给 TitleMiddleware 用于生成标题）
     """
     from src.middleware import (
         AgentLoggingMiddleware,
@@ -109,7 +111,7 @@ def build_middleware(
         ClarificationMiddleware(),
         OutputValidationMiddleware(review_service=review_service),
         OutputRenderMiddleware(),
-        TitleMiddleware(),
+        TitleMiddleware(llm=llm),
     ]
 
     logger.info("已组装 %d 个中间件 (memory=%s, guardrail=%s, subagent=%s)",

@@ -40,7 +40,21 @@ class QuerySchemaTool(Tool):
         return ToolResult(content=json.dumps(result["data"], ensure_ascii=False, indent=2))
 
     def prompt(self):
-        return "查询业务对象的元数据定义。query_type: list_entities=列出所有实体, entity=实体详情, entity_items=字段列表, entity_links=关联关系"
+        return (
+            "查询 CRM 系统中业务对象的元数据定义（字段结构、关联关系等）。\n"
+            "何时使用：当你不确定某个业务对象有哪些字段、字段类型是什么、或者对象之间的关联关系时，先调用此工具查 schema，再用 query_data 查数据。\n"
+            "参数说明：\n"
+            "  - query_type（必填）：\n"
+            "    · list_entities — 列出系统中所有业务对象（如 account、opportunity、contact 等）\n"
+            "    · entity — 查看某个业务对象的详细定义（需传 entity_api_key）\n"
+            "    · entity_items — 查看某个业务对象的所有字段列表（需传 entity_api_key）\n"
+            "    · entity_links — 查看某个业务对象与其他对象的关联关系（需传 entity_api_key）\n"
+            "  - entity_api_key（entity/entity_items/entity_links 时必填）：业务对象标识，如 account、opportunity、contact、activity、lead\n"
+            "典型用法：\n"
+            "  · 用户问'商机有哪些字段' → query_schema(query_type='entity_items', entity_api_key='opportunity')\n"
+            "  · 用户问'系统有哪些业务对象' → query_schema(query_type='list_entities')\n"
+            "  · 不确定字段名时先查 schema 再查数据，避免字段名写错"
+        )
 
     @property
     def code_extractable(self): return True
@@ -104,10 +118,27 @@ class QueryDataTool(Tool):
 
     def prompt(self):
         return (
-            "查询业务数据。action: query=列表查询, get=按ID查单条, count=统计数量。"
-            "entity_api_key: account/contact/opportunity/activity/lead。"
-            "支持 filters（过滤条件，如 {owner_name:'张三', stage:'谈判'}）、"
-            "fields（返回字段列表）、order_by（排序，前缀-表示降序）、page/page_size（分页）。"
+            "查询 CRM 系统中的业务数据记录（客户、商机、联系人、活动、线索）。\n"
+            "何时使用：用户要求查看、搜索、统计业务数据时使用。这是最常用的数据查询工具。\n"
+            "参数说明：\n"
+            "  - action（必填）：\n"
+            "    · query — 按条件查询记录列表（支持分页、排序、字段筛选）\n"
+            "    · get — 按 record_id 查询单条记录的完整详情\n"
+            "    · count — 统计符合条件的记录总数\n"
+            "  - entity_api_key（必填）：业务对象标识\n"
+            "    · account=客户  opportunity=商机  contact=联系人  activity=活动  lead=线索\n"
+            "  - filters（可选）：过滤条件，JSON 对象格式\n"
+            "    · 精确匹配：{\"owner_name\": \"张三\"}\n"
+            "    · 多条件：{\"owner_name\": \"张三\", \"stage\": \"谈判\"}\n"
+            "  - fields（可选）：指定返回哪些字段，如 [\"name\", \"amount\", \"stage\"]\n"
+            "  - order_by（可选）：排序字段，前缀 - 表示降序，如 \"-amount\" 按金额降序\n"
+            "  - page / page_size（可选）：分页参数，默认 page=1, page_size=20\n"
+            "  - record_id（get 时必填）：要查询的记录 ID\n"
+            "典型用法：\n"
+            "  · '查张三的商机' → query_data(action='query', entity_api_key='opportunity', filters={\"owner_name\":\"张三\"})\n"
+            "  · '有多少个客户' → query_data(action='count', entity_api_key='account')\n"
+            "  · '金额最高的5个商机' → query_data(action='query', entity_api_key='opportunity', order_by='-amount', page_size=5)\n"
+            "注意：不确定字段名时，先用 query_schema 查字段定义"
         )
 
     def is_read_only(self, input_data): return True
@@ -156,10 +187,23 @@ class ModifyDataTool(Tool):
 
     def prompt(self):
         return (
-            "修改业务数据。action: create=创建新记录, update=更新已有记录, delete=删除记录。"
-            "entity_api_key: account/contact/opportunity/activity/lead。"
-            "update/delete 时必须传 record_id。data 为要写入的字段键值对，如 {name:'新名称', amount:500000}。"
-            "删除操作需先向用户确认。"
+            "修改 CRM 系统中的业务数据（创建、更新、删除记录）。\n"
+            "何时使用：用户要求新建记录、修改字段值、或删除记录时使用。\n"
+            "⚠️ 重要：执行前必须先用 ask_user 向用户确认操作内容和影响范围。\n"
+            "参数说明：\n"
+            "  - action（必填）：\n"
+            "    · create — 创建新记录（需传 data）\n"
+            "    · update — 更新已有记录（需传 record_id + data）\n"
+            "    · delete — 删除记录（需传 record_id，执行前必须确认）\n"
+            "  - entity_api_key（必填）：account/opportunity/contact/activity/lead\n"
+            "  - record_id（update/delete 时必填）：要操作的记录 ID\n"
+            "  - data（create/update 时必填）：要写入的字段键值对\n"
+            "    · 如 {\"name\": \"华为云项目\", \"amount\": 500000, \"stage\": \"谈判\"}\n"
+            "典型用法：\n"
+            "  · '创建一个商机' → 先用 ask_clarification 确认商机名称和金额，再 modify_data(action='create', ...)\n"
+            "  · '把这个商机金额改成100万' → modify_data(action='update', record_id='xxx', data={\"amount\":1000000})\n"
+            "  · '删除这个客户' → 先 ask_user 确认，再 modify_data(action='delete', record_id='xxx')\n"
+            "注意：不知道 record_id 时，先用 query_data 查询获取"
         )
 
 
@@ -196,7 +240,21 @@ class AnalyzeDataTool(Tool):
         return ToolResult(content=json.dumps(result["data"], ensure_ascii=False, indent=2))
 
     def prompt(self):
-        return "数据聚合分析。支持 count/sum/avg/min/max + 分组。entity_api_key: account/opportunity/lead 等"
+        return (
+            "对 CRM 业务数据进行聚合统计分析（求和、计数、平均值、最大最小值 + 分组）。\n"
+            "何时使用：用户要求统计、分析、汇总数据时使用。如果只是查看数据列表，用 query_data。\n"
+            "参数说明：\n"
+            "  - entity_api_key（必填）：account/opportunity/contact/activity/lead\n"
+            "  - metrics（必填）：聚合指标数组，每项包含 field（字段名）和 function（聚合函数）\n"
+            "    · function 可选：count / sum / avg / min / max\n"
+            "    · 如 [{\"field\": \"amount\", \"function\": \"sum\"}, {\"field\": \"id\", \"function\": \"count\"}]\n"
+            "  - group_by（可选）：分组字段，如 \"stage\"（按阶段分组）、\"owner_name\"（按负责人分组）\n"
+            "  - filters（可选）：过滤条件，格式同 query_data\n"
+            "典型用法：\n"
+            "  · '商机总金额是多少' → analyze_data(entity='opportunity', metrics=[{field:'amount', function:'sum'}])\n"
+            "  · '按阶段统计商机数量和金额' → analyze_data(entity='opportunity', metrics=[{field:'id',function:'count'},{field:'amount',function:'sum'}], group_by='stage')\n"
+            "  · '张三的客户数' → analyze_data(entity='account', metrics=[{field:'id',function:'count'}], filters={\"owner_name\":\"张三\"})"
+        )
 
     def is_read_only(self, input_data): return True
     @property
@@ -225,8 +283,12 @@ class AskUserTool(Tool):
 
     def prompt(self):
         return (
-            "向用户简单确认。仅用于数据修改/删除前的二次确认（如'确认删除该客户？'）。"
-            "信息不足或需求模糊时应使用 ask_clarification 而非本工具。"
+            "向用户发起简单的是/否确认。\n"
+            "何时使用：仅在执行数据修改（create/update/delete）前，向用户确认操作内容。\n"
+            "⚠️ 边界：如果是信息不足、需求模糊、需要用户选择方案，应使用 ask_clarification 而非本工具。\n"
+            "典型用法：\n"
+            "  · '确认要删除客户「华为科技」吗？该客户下有 3 个商机会受影响。'\n"
+            "  · '确认要将商机金额从 50万 修改为 100万 吗？'"
         )
 
 
@@ -287,8 +349,21 @@ class AskClarificationTool(Tool):
 
     def prompt(self):
         return (
-            "向用户澄清追问。当信息不足、需求模糊、存在多种方案或操作有风险时使用。"
-            "clarification_type: missing_info/ambiguous_requirement/approach_choice/risk_confirmation"
+            "向用户澄清追问，获取缺失的关键信息后再继续执行。\n"
+            "何时使用：用户输入信息不足、表述有歧义、存在多种可行方案、或操作有风险需确认时使用。\n"
+            "⚠️ 边界：如果只是简单的是/否确认（如删除前确认），用 ask_user。本工具用于需要用户补充具体信息的场景。\n"
+            "参数说明：\n"
+            "  - question（必填）：要问用户的具体问题\n"
+            "  - clarification_type（必填）：\n"
+            "    · missing_info — 缺少关键参数（如'查客户'但没说哪个客户）\n"
+            "    · ambiguous_requirement — 表述有歧义（如'处理线索'可能是转化/分配/关闭）\n"
+            "    · approach_choice — 多种方案需选择（如查到 3 个同名客户）\n"
+            "    · risk_confirmation — 高风险操作确认（如批量删除、权限变更）\n"
+            "  - context（可选）：当前已知的上下文，帮助用户理解追问背景\n"
+            "  - options（approach_choice 时必填）：可选项列表\n"
+            "典型用法：\n"
+            "  · 用户说'查客户' → ask_clarification(question='你要查哪个客户？可以提供客户名称或负责人', clarification_type='missing_info')\n"
+            "  · 查到 3 个张三 → ask_clarification(question='找到3个张三，你要查哪个？', clarification_type='approach_choice', options=['张三-华为','张三-腾讯','张三-阿里'])"
         )
 
 
@@ -375,11 +450,24 @@ class ManageMemoryTool(Tool):
 
     def prompt(self):
         return (
-            "管理 Agent 的对话记忆。当用户要求查看、删除、清理、忘记记忆时必须调用此工具。"
-            "action: list=查看/列出记忆, delete=按关键词删除记忆, delete_by_ids=按ID删除, clear=清空全部记忆。"
-            "示例：用户说'删除商机查询的记忆' → action=delete, keyword='商机'；"
-            "用户说'看看我的记忆' → action=list；"
-            "用户说'清空所有记忆' → action=clear。"
+            "管理 Agent 的对话记忆（查看、搜索、删除、清空）。\n"
+            "何时使用：用户明确要求查看记忆、删除某些记忆、清理记忆、忘记某些内容时使用。\n"
+            "⚠️ 注意：只有用户主动要求管理记忆时才调用，正常对话中不要主动调用。\n"
+            "参数说明：\n"
+            "  - action（必填）：\n"
+            "    · list — 查看/搜索记忆（可选 keyword 和 dimension 筛选）\n"
+            "    · delete — 按关键词删除匹配的记忆（需传 keyword）\n"
+            "    · delete_by_ids — 按 ID 精确删除（需传 ids 数组，通常先 list 再删除）\n"
+            "    · clear — 清空当前用户的所有记忆（⚠️ 不可恢复，需先确认）\n"
+            "  - keyword（list/delete 时使用）：搜索或删除的关键词\n"
+            "  - dimension（可选）：按维度筛选 task_history/customer_context/user_profile/domain_knowledge\n"
+            "  - ids（delete_by_ids 时必填）：要删除的记忆 ID 列表\n"
+            "典型用法：\n"
+            "  · '看看我的记忆' → manage_memory(action='list')\n"
+            "  · '删除关于商机的记忆' → manage_memory(action='delete', keyword='商机')\n"
+            "  · '删除商机查询的记忆' → manage_memory(action='delete', keyword='商机')\n"
+            "  · '清理所有记忆' → 先 ask_user 确认，再 manage_memory(action='clear')\n"
+            "  · '忘记张三的信息' → manage_memory(action='delete', keyword='张三')"
         )
 
 

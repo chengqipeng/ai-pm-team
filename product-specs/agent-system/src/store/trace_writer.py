@@ -119,8 +119,81 @@ class TraceWriter:
             )
 
             logger.info("TraceWriter: trace finished %s (%d spans)", trace.trace_id, len(span_models))
+
+            # 3. Upsert conversation（创建或更新会话记录 + 标题）
+            self._upsert_conversation(trace, now)
+
         except Exception as e:
             logger.error("TraceWriter.on_trace_finish failed: %s", e)
+
+    def _upsert_conversation(self, trace: Any, now: int) -> None:
+        """创建或更新 ai_conversation 记录，持久化会话标题"""
+        try:
+            from .pg_pool import get_conn
+            thread_id = trace.thread_id or ''
+            if not thread_id:
+                return
+
+            with get_conn() as conn:
+                cur = conn.cursor()
+                # 检查是否已存在
+                cur.execute(
+                    "SELECT id, title FROM ai_conversation WHERE tenant_id=%s AND thread_id=%s AND delete_flg=0",
+                    (self._tenant_id, thread_id))
+                row = cur.fetchone()
+
+                total_tokens = trace.total_tokens or 0
+                user_input = (trace.user_input or '')[:500]
+
+                if row:
+                    # 已存在 → 更新统计 + 标题（如果当前标题为空或为默认值）
+                    conv_id, existing_title = row
+                    cur.execute("""
+                        UPDATE ai_conversation
+                        SET message_count = message_count + 1,
+                            total_tokens = total_tokens + %s,
+                            last_message_at = %s,
+                            updated_at = %s
+                        WHERE id = %s
+                    """, (total_tokens, now, now, conv_id))
+
+                    # 如果标题为空/默认，用用户输入生成
+                    if not existing_title or existing_title in ('', '新对话', '对话'):
+                        title = self._generate_title(user_input)
+                        cur.execute(
+                            "UPDATE ai_conversation SET title=%s WHERE id=%s",
+                            (title, conv_id))
+                else:
+                    # 不存在 → 创建新会话
+                    from .snowflake import next_id
+                    conv_id = next_id()
+                    title = self._generate_title(user_input)
+                    cur.execute("""
+                        INSERT INTO ai_conversation
+                        (id, tenant_id, user_id, thread_id, agent_name, title, model,
+                         status, message_count, total_tokens, last_message_at,
+                         delete_flg, created_at, created_by, updated_at, updated_by)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """, (conv_id, self._tenant_id, 0, thread_id,
+                          trace.agent_name or 'CRM-Agent', title, trace.model or '',
+                          'active', 1, total_tokens, now,
+                          0, now, 0, now, 0))
+
+        except Exception as e:
+            logger.warning("_upsert_conversation failed (non-fatal): %s", e)
+
+    @staticmethod
+    def _generate_title(user_input: str) -> str:
+        """从用户输入生成简短标题（规则方式，LLM 标题由 TitleMiddleware 异步更新）"""
+        text = (user_input or '').strip()
+        for prefix in ("帮我", "请帮我", "请", "帮忙", "麻烦"):
+            if text.startswith(prefix):
+                text = text[len(prefix):]
+                break
+        text = text.strip()
+        if len(text) > 25:
+            return text[:25] + "..."
+        return text or "新对话"
 
     def read_traces(self, limit: int = 50) -> list[dict]:
         """从 PG 读取 trace 列表"""

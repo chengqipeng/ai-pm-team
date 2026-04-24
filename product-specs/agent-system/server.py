@@ -84,7 +84,7 @@ async def _get_agent(multimodal: bool = False):
         middlewares = build_middleware(
             system_prompt=system_prompt,
             agent_name="CRM-Agent", memory_engine=memory_engine,
-            file_upload_enabled=True,
+            file_upload_enabled=True, llm=aux_llm,
         )
 
         model_name = MULTIMODAL_MODEL if multimodal else TEXT_MODEL
@@ -506,6 +506,39 @@ async def chat_sync(req: ChatRequest):
         trace_writer.on_trace_finish(trace_final)
 
     return {"content": content, "thread_id": req.thread_id, "trace_id": trace.trace_id}
+
+
+@app.get("/api/conversations")
+async def list_conversations(limit: int = 50):
+    """会话列表 — 从 ai_conversation 表读取"""
+    try:
+        from src.store.pg_pool import get_conn
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT thread_id, title, status, message_count, total_tokens,
+                       last_message_at, agent_name, model
+                FROM ai_conversation
+                WHERE tenant_id=1 AND delete_flg=0
+                ORDER BY last_message_at DESC LIMIT %s
+            """, (limit,))
+            rows = cur.fetchall()
+            cols = [d[0] for d in cur.description]
+        result = []
+        for r in rows:
+            d = dict(zip(cols, r))
+            result.append({
+                "thread_id": d["thread_id"],
+                "title": d["title"] or "对话",
+                "last_time": (d["last_message_at"] or 0) / 1000,
+                "message_count": d["message_count"] or 0,
+                "total_tokens": d["total_tokens"] or 0,
+                "agent_name": d.get("agent_name", ""),
+            })
+        return {"conversations": result}
+    except Exception as e:
+        logger.error("list_conversations failed: %s", e)
+        return {"conversations": []}
 
 
 @app.get("/api/traces")
