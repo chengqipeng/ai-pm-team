@@ -1,6 +1,6 @@
 # entity 元模型迁移方案
 
-> 数据量：873 条 | Tenant 表：p_tenant_entity
+> 数据量：26 个干净 entity（已清理老系统遗留） | Tenant 表：p_tenant_entity
 
 ## 迁移内容
 

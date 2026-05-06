@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trace 链路 - DeepAgent AI</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; }
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 10px; }
+@keyframes fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.animate-fade-in { animation: fade-in 0.3s ease-out; }
+.span-detail { display: none; }
+.span-card.expanded .span-detail { display: block; }
+.span-card.expanded .arrow-icon { transform: rotate(90deg); }
+</style>
+</head>
+<body>
+<div class="flex h-screen w-full bg-[#f4f7fb] font-sans text-slate-800 overflow-hidden relative">
+  <div class="absolute top-[-10%] left-[-5%] w-[40%] h-[40%] bg-blue-400/10 rounded-full blur-[100px] pointer-events-none"></div>
+  <div class="absolute bottom-[-10%] right-[-5%] w-[30%] h-[30%] bg-indigo-400/10 rounded-full blur-[100px] pointer-events-none"></div>
+
+  <!-- 左侧边栏 -->
+  <aside class="w-72 flex flex-col z-20 shrink-0 bg-white/40 backdrop-blur-xl border-r border-gray-200/50">
+    <div class="p-6">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-9 h-9 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-600/20">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+        </div>
+        <span class="font-bold text-lg tracking-tight text-gray-900">Trace 链路</span>
+      </div>
+      <div class="space-y-1 mb-6">
+        <a href="/" class="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-gray-500 hover:bg-white/60 hover:text-blue-600 transition-all no-underline">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          返回对话
+        </a>
+        <a href="/memory" class="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-gray-500 hover:bg-white/60 hover:text-blue-600 transition-all no-underline">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          长期记忆
+        </a>
+      </div>
+      <!-- 筛选 -->
+      <div class="space-y-3">
+        <div>
+          <label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">状态筛选</label>
+          <select id="filter-status" onchange="renderList()" class="w-full bg-gray-100/50 border-none rounded-xl py-2 px-3 text-xs focus:ring-2 focus:ring-blue-500/20">
+            <option value="">全部</option>
+            <option value="success">成功</option>
+            <option value="error">失败</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Thread ID</label>
+          <input id="filter-thread" type="text" placeholder="输入 Thread ID..." oninput="renderList()" class="w-full bg-gray-100/50 border-none rounded-xl py-2 px-3 text-xs focus:ring-2 focus:ring-blue-500/20 placeholder:text-gray-400"/>
+        </div>
+        <button onclick="loadTraces()" class="w-full py-2 px-3 bg-blue-600 rounded-xl text-xs font-bold text-white hover:bg-blue-700 transition-all shadow-sm">刷新数据</button>
+      </div>
+    </div>
+    <!-- Trace 列表 -->
+    <div id="trace-sidebar-list" class="flex-1 overflow-y-auto custom-scrollbar px-4 pb-4 space-y-1">
+      <div class="text-center text-gray-400 text-xs py-10">加载中...</div>
+    </div>
+  </aside>
+
+  <!-- 主区域 -->
+  <main class="flex-1 flex flex-col min-w-0 relative z-10 overflow-hidden">
+    <div id="main-content" class="flex-1 overflow-y-auto custom-scrollbar px-8 py-6">
+      <div class="text-center text-gray-400 text-sm py-20">
+        <div class="text-4xl mb-3">🔍</div>
+        <p>从左侧选择一条 Trace 查看详情</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const API='';
+let curTraces=[],selectedTraceId=null;
+
+function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=String(s);return d.innerHTML}
+function trunc(s,n){if(!s)return'';s=String(s);return s.length>n?s.slice(0,n)+'...':s}
+function fT(ts){if(!ts)return'—';const d=new Date(typeof ts==='number'&&ts>1e12?ts:ts*1000);return d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
+function fD(ms){if(!ms||ms<=0)return'0ms';return ms>=1000?(ms/1000).toFixed(1)+'s':Math.round(ms)+'ms'}
+function fK(n){if(!n)return'0';return n>=1000?(n/1000).toFixed(1)+'K':String(n)}
+
+const SC={context_build:{icon:'📋',cls:'bg-indigo-50 text-indigo-600'},memory_retrieval:{icon:'🔍',cls:'bg-blue-50 text-blue-600'},intent_analysis:{icon:'🧠',cls:'bg-purple-50 text-purple-600'},llm_call:{icon:'⚡',cls:'bg-blue-50 text-blue-600'},tool_call:{icon:'🔧',cls:'bg-amber-50 text-amber-600'},memory_extract:{icon:'💾',cls:'bg-indigo-50 text-indigo-600'},hierarchical_search:{icon:'🌲',cls:'bg-green-50 text-green-600'},error:{icon:'❌',cls:'bg-red-50 text-red-600'},done:{icon:'🏁',cls:'bg-green-50 text-green-600'}};
+function gc(type){return SC[type]||{icon:'📋',cls:'bg-gray-50 text-gray-600'}}
+
+// ═══ 加载 Trace 列表 ═══
+async function loadTraces(){
+  const el=document.getElementById('trace-sidebar-list');
+  el.innerHTML='<div class="text-center text-gray-400 text-xs py-10">加载中...</div>';
+  try{
+    const r=await(await fetch(API+'/api/traces?limit=50')).json();
+    curTraces=r.traces||[];
+    renderList();
+  }catch(e){el.innerHTML='<div class="text-center text-red-400 text-xs py-10">加载失败</div>'}
+}
+
+function renderList(){
+  const st=document.getElementById('filter-status').value;
+  const th=document.getElementById('filter-thread').value.trim().toLowerCase();
+  let filtered=curTraces;
+  if(st)filtered=filtered.filter(t=>t.status===st);
+  if(th)filtered=filtered.filter(t=>(t.thread_id||'').toLowerCase().includes(th));
+
+  const el=document.getElementById('trace-sidebar-list');
+  if(!filtered.length){el.innerHTML='<div class="text-center text-gray-400 text-xs py-10">暂无数据</div>';return}
+
+  el.innerHTML=filtered.map(t=>`
+    <div onclick="loadDetail('${t.trace_id}')" class="group flex flex-col gap-1 px-4 py-3 rounded-xl cursor-pointer transition-all ${selectedTraceId===t.trace_id?'bg-white shadow-sm ring-1 ring-black/5':'hover:bg-white/60'}">
+      <p class="text-xs font-medium text-gray-800 truncate">${esc(trunc(t.user_input||'无输入',35))}</p>
+      <div class="flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full ${t.status==='success'?'bg-green-500':'bg-red-500'}"></span>
+        <span class="text-[10px] text-gray-400">${fT(t.start_time)}</span>
+        <span class="text-[10px] text-gray-400">${fD(t.total_duration_ms)}</span>
+        <span class="text-[10px] text-gray-400">${t.iteration_count}轮</span>
+      </div>
+    </div>`).join('');
+}
+
+// ═══ 加载 Trace 详情 ═══
+async function loadDetail(traceId){
+  selectedTraceId=traceId;
+  renderList();
+  const el=document.getElementById('main-content');
+  el.innerHTML='<div class="text-center text-gray-400 text-xs py-20">加载中...</div>';
+  try{
+    const r=await(await fetch(API+'/api/traces/'+traceId)).json();
+    if(r.error){el.innerHTML='<div class="text-center text-red-400 py-20">'+r.error+'</div>';return}
+    renderDetail(r.trace);
+  }catch(e){el.innerHTML='<div class="text-center text-red-400 py-20">加载失败</div>'}
+}
+
+function renderDetail(trace){
+  const el=document.getElementById('main-content');
+  const spans=trace.spans||[];
+  const maxD=trace.total_duration_ms||1;
+  let totalTok=trace.total_tokens||0;
+
+  // 统计头部
+  let html=`
+    <div class="mb-6 p-5 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/40 shadow-sm">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-base font-bold text-gray-900">${esc(trunc(trace.user_input||'Trace 详情',50))}</h2>
+          <p class="text-[11px] text-gray-400 mt-1">ID: ${trace.trace_id} · ${trace.agent_name||''} · ${trace.model||''}</p>
+        </div>
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${trace.status==='success'?'bg-green-50 text-green-600':'bg-red-50 text-red-600'}">${trace.status}</span>
+      </div>
+      <div class="flex gap-4 flex-wrap">
+        <div class="text-center bg-white/60 rounded-xl px-4 py-2 border border-white/60"><div class="text-base font-bold text-blue-600">${fD(trace.total_duration_ms)}</div><div class="text-[10px] text-gray-400">耗时</div></div>
+        <div class="text-center bg-white/60 rounded-xl px-4 py-2 border border-white/60"><div class="text-base font-bold text-blue-600">${fK(totalTok)}</div><div class="text-[10px] text-gray-400">Token</div></div>
+        <div class="text-center bg-white/60 rounded-xl px-4 py-2 border border-white/60"><div class="text-base font-bold text-blue-600">${trace.iteration_count||0}</div><div class="text-[10px] text-gray-400">迭代</div></div>
+        <div class="text-center bg-white/60 rounded-xl px-4 py-2 border border-white/60"><div class="text-base font-bold text-blue-600">${trace.tool_count||0}</div><div class="text-[10px] text-gray-400">工具</div></div>
+        <div class="text-center bg-white/60 rounded-xl px-4 py-2 border border-white/60"><div class="text-base font-bold text-blue-600">${spans.length}</div><div class="text-[10px] text-gray-400">Span</div></div>
+      </div>
+    </div>`;
+
+  // Span 列表
+  html+='<div class="space-y-2">';
+  spans.forEach((s,i)=>{
+    const cfg=gc(s.type);
+    const m=s.metadata||{};
+    const barPct=Math.max(2,Math.round((s.duration_ms||0)/maxD*100));
+
+    // 构建 badges
+    let badges='';
+    if(s.type==='llm_call'){
+      if(m.iteration)badges+=`<span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-[9px] font-bold">第${m.iteration}轮</span>`;
+      if(m.output_tokens)badges+=`<span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-[9px] font-bold">${fK(m.output_tokens)} tok</span>`;
+      if(m.tool_calls&&m.tool_calls.length)badges+=m.tool_calls.map(t=>`<span class="px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 text-[9px] font-bold">→${esc(t)}</span>`).join('');
+      if(m.is_final)badges+=`<span class="px-1.5 py-0.5 rounded bg-green-50 text-green-600 text-[9px] font-bold">✓ 最终</span>`;
+    }else if(s.type==='memory_retrieval'){
+      if(m.query_used)badges+=`<span class="px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 text-[9px] font-bold">"${trunc(m.query_used,20)}"</span>`;
+      if(m.hit_count!=null)badges+=`<span class="px-1.5 py-0.5 rounded bg-green-50 text-green-600 text-[9px] font-bold">${m.hit_count}条</span>`;
+    }else if(s.type==='tool_call'){
+      if(m.status)badges+=`<span class="px-1.5 py-0.5 rounded ${m.status==='error'?'bg-red-50 text-red-600':'bg-green-50 text-green-600'} text-[9px] font-bold">${m.status}</span>`;
+    }else if(s.type==='intent_analysis'){
+      if(m.task_type)badges+=`<span class="px-1.5 py-0.5 rounded bg-pink-50 text-pink-600 text-[9px] font-bold">${m.task_type}</span>`;
+    }
+
+    // 详情内容
+    let detailHtml='';
+    if(s.type==='tool_call'){
+      const inp=m.input||(s.input_data||{}).input||'';
+      const out=m.output||'';
+      if(inp)detailHtml+=`<div class="mb-2"><div class="text-[10px] font-bold text-gray-400 uppercase mb-1">输入</div><pre class="bg-white rounded-xl p-3 border border-gray-100 text-[11px] text-gray-600 whitespace-pre-wrap overflow-x-auto max-h-[200px]">${esc(inp)}</pre></div>`;
+      if(out)detailHtml+=`<div><div class="text-[10px] font-bold text-gray-400 uppercase mb-1">输出</div><pre class="bg-white rounded-xl p-3 border border-gray-100 text-[11px] text-gray-600 whitespace-pre-wrap overflow-x-auto max-h-[200px]">${esc(out)}</pre></div>`;
+    }else if(s.type==='llm_call'&&m.output_preview){
+      detailHtml+=`<div><div class="text-[10px] font-bold text-gray-400 uppercase mb-1">LLM 输出</div><pre class="bg-white rounded-xl p-3 border border-gray-100 text-[11px] text-gray-600 whitespace-pre-wrap overflow-x-auto max-h-[200px]">${esc(m.output_preview)}</pre></div>`;
+    }else if(s.type==='memory_retrieval'&&m.items_preview&&m.items_preview.length){
+      detailHtml+=`<div><div class="text-[10px] font-bold text-gray-400 uppercase mb-1">检索结果</div><div class="space-y-1">${m.items_preview.map(it=>`<div class="bg-white rounded-lg p-2 border border-gray-100 text-[11px]"><span class="text-purple-500 font-bold">[${esc(it.dimension)}]</span> ${esc(it.content)}</div>`).join('')}</div></div>`;
+    }
+    if(!detailHtml&&Object.keys(m).length>0){
+      detailHtml=`<div><div class="text-[10px] font-bold text-gray-400 uppercase mb-1">Metadata</div><pre class="bg-white rounded-xl p-3 border border-gray-100 text-[11px] text-gray-600 whitespace-pre-wrap overflow-x-auto max-h-[200px]">${esc(JSON.stringify(m,null,2))}</pre></div>`;
+    }
+
+    html+=`
+      <div id="span-${i}" class="span-card rounded-2xl bg-white/70 backdrop-blur-sm border border-white/40 shadow-sm hover:shadow-md transition-all overflow-hidden animate-fade-in">
+        <div onclick="document.getElementById('span-${i}').classList.toggle('expanded')" class="flex items-center gap-3 p-4 cursor-pointer">
+          <div class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${cfg.cls} text-sm">${cfg.icon}</div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-xs font-bold text-gray-800">${esc(s.name||s.type)}</span>
+              ${badges}
+            </div>
+          </div>
+          <span class="text-xs font-bold text-blue-600 shrink-0">${fD(s.duration_ms)}</span>
+          <svg class="arrow-icon w-4 h-4 text-gray-300 shrink-0 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+        <!-- 进度条 -->
+        <div class="h-0.5 mx-4 mb-1 bg-gray-100 rounded-full"><div class="h-full rounded-full bg-blue-400/60" style="width:${barPct}%"></div></div>
+        <!-- 详情 -->
+        <div class="span-detail p-4 pt-2 border-t border-gray-100/50 bg-gray-50/30 space-y-2">
+          ${detailHtml||'<p class="text-[11px] text-gray-400">无详细数据</p>'}
+        </div>
+      </div>`;
+  });
+  html+='</div>';
+
+  // 用户输入 & Agent 输出
+  if(trace.user_input||trace.agent_output){
+    html+=`<div class="mt-6 p-5 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/40 shadow-sm space-y-4">
+      ${trace.user_input?`<div><div class="text-[10px] font-bold text-gray-400 uppercase mb-2">👤 用户输入</div><p class="text-sm text-gray-700 leading-relaxed">${esc(trace.user_input)}</p></div>`:''}
+      ${trace.agent_output?`<div><div class="text-[10px] font-bold text-gray-400 uppercase mb-2">⚡ Agent 输出</div><p class="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">${esc(trunc(trace.agent_output,2000))}</p></div>`:''}
+    </div>`;
+  }
+
+  el.innerHTML=html;
+}
+
+loadTraces();
+</script>
+</body>
+</html>

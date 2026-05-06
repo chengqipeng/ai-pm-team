@@ -24,8 +24,8 @@
 | objectId | Long | 所属对象 ID | entityApiKey |
 | busiTypeId | Long | 所属业务类型 ID | busiTypeApiKey |
 | itemId | Long | 关联字段 ID | itemApiKey |
-| optionCodes | String | 可选选项编码列表（逗号分隔） | optionCodes |
-| defaultOptionCodes | String | 默认选项编码列表（逗号分隔） | defaultOptionCodes |
+| optionCodes | String | 可选选项编码列表（逗号分隔） | optionApiKeys |
+| defaultOptionCodes | String | 默认选项编码列表（逗号分隔） | defaultOptionApiKeys |
 | namespace | String | 命名空间 | namespace |
 | deleteFlg | Integer | 软删除 | deleteFlg |
 
@@ -43,8 +43,8 @@
 | deleteFlg | delete_flg | 删除标记 | Integer(0/1) | 固定列（基类） |
 | busiTypeApiKey | dbc_varchar1 | 业务类型apiKey | String | 关联 busiType |
 | itemApiKey | dbc_varchar2 | 字段apiKey | String | 关联 item |
-| optionCodes | dbc_varchar3 | 可选选项编码 | String | 逗号分隔 |
-| defaultOptionCodes | dbc_varchar4 | 默认选项编码 | String | 逗号分隔 |
+| optionApiKeys | dbc_array1 | 可选选项apiKey列表 | List\<String\> | TEXT[] 数组类型，如 `["opt_it","opt_finance"]`。详见 [多选字段数组类型设计方案](../多选字段数组类型设计方案.md) |
+| defaultOptionApiKeys | dbc_array2 | 默认选项apiKey列表 | List\<String\> | TEXT[] 数组类型，必须是 optionApiKeys 的子集。详见 [多选字段数组类型设计方案](../多选字段数组类型设计方案.md) |
 | createdBy | created_by | 创建人 | Long | 固定列 |
 | createdAt | created_at | 创建时间 | Long | 固定列 |
 | updatedBy | updated_by | 修改人 | Long | 固定列 |
@@ -65,7 +65,7 @@
 ## 业务规则
 
 - 同一 busiType + item 组合唯一（一个业务类型下一个字段只有一条配置）
-- optionCodes 是该业务类型下该字段可选的 pickOption 编码子集
-- defaultOptionCodes 必须是 optionCodes 的子集
+- optionApiKeys 是该业务类型下该字段可选的 pickOption apiKey 子集
+- defaultOptionApiKeys 必须是 optionApiKeys 的子集
 - 仅 SELECT(4) 和 MULTI_SELECT(16) 类型的字段可配置
 - 删除 busiType 时级联删除其下所有 busiTypePickOption

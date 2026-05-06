@@ -1,0 +1,9 @@
+enabled: true
+rules:
+  - keywords:
+      - "示例敏感词"
+    input_message: "您的输入包含不当内容，请修改后重试。"
+    output_message: "回复内容包含不当信息，已被系统拦截。"
+    is_input: true
+    is_output: true
+    case_sensitive: false

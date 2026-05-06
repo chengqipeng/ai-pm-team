@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_d18f9ad18a41",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 2,
+  "total_llm_calls": 7,
+  "total_tool_calls": 0,
+  "pause_reason": null,
+  "checkpoint_version": 4,
+  "final_answer": "{\"goal\":\"内部\",\"steps\":[{\"description\":\"直接分析\"}]}"
+}

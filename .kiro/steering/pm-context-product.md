@@ -18,10 +18,10 @@ aPaaS 元数据驱动平台，以元模型为核心，构建"元模型定义→�
 
 ```
 第一层：元模型注册（p_meta_model）
-  定义"有哪些类型的元数据"，当前 7 种元模型
+  定义"有哪些类型的元数据"，当前 30+ 种元模型（含 entity 相关 + role/department/operateLog 等独立元模型）
   db_table 指向各元模型的 Tenant 级存储表
 第二层：元模型字段定义（p_meta_item）
-  定义每种元模型有哪些属性字段，当前 176 个字段定义
+  定义每种元模型有哪些属性字段，当前 500+ 个字段定义
   db_column 映射到大宽表的 dbc_xxxN 列
 第三层：元数据实例
   Common 级：统一存储在 p_common_metadata 大宽表
@@ -41,7 +41,7 @@ aPaaS 元数据驱动平台，以元模型为核心，构建"元模型定义→�
 | 服务 | 职责 | 代码路径 |
 |:---|:---|:---|
 | paas-metarepo-service | 元数据仓库核心：元模型管理 + 元数据 CRUD + Common/Tenant 合并读取 | repos/apass_new_projects/paas-metarepo-service/ |
-| paas-metarepo-web | 元数据可视化管理前端（React 19 + Antd 6 + Vite 8） | repos/apass_new_projects/paas-metarepo-web/ |
+| paas-front-platform | 新一代前端框架（React 19 + Antd 6 + Vite 8），含元数据管理后台（front-admin） | repos/apass_new_projects/paas-front-platform/ |
 | paas-metadata-service | 元数据对外服务层，适配新元数据读取接口 | repos/apass_new_projects/paas-metadata-service/ |
 | paas-entity-service | 实体数据 CRUD，基于元数据驱动 | repos/apass_new_projects/paas-entity-service/ |
 | paas-layout-service | 布局渲染，依赖元数据字段定义 | repos/apass_new_projects/paas-layout-service/ |
@@ -63,10 +63,12 @@ aPaaS 元数据驱动平台，以元模型为核心，构建"元模型定义→�
 | platform-sns-dal | 数据访问层 | 老 DAO 层、SQL 参考 |
 
 ## 数据架构
-| 数据库 | 用途 | 表前缀 |
+| 数据库（schema） | 用途 | 表前缀/关键表 |
 |:---|:---|:---|
 | paas_metarepo_common | 元模型定义（p_meta_*）+ Common 级元数据（p_common_metadata） | p_meta_*、p_common_* |
-| paas_metarepo | Tenant 级元数据（p_tenant_*）+ 运行时数据 | p_tenant_*、p_meta_log |
+| paas_metarepo | Tenant 级元数据（p_tenant_*）+ 运行时数据 | p_tenant_*、p_tenant_meta_log |
+| paas_auth | 用户认证（p_user、p_passport）+ 用户角色关联（p_user_role） | p_user、p_passport、p_user_role |
+| paas_entity_data | 业务数据分片表（p_tenant_data_0~1999）+ 权限 share 表（p_data_share_0~999） | p_tenant_data_*、p_data_share_* |
 
 ## 核心数据模型
 | 实体 | 说明 | 主键/唯一标识 |
@@ -91,6 +93,11 @@ aPaaS 元数据驱动平台，以元模型为核心，构建"元模型定义→�
 | AggregationComputeDetail（汇总条件） | 业务视图 | (entity_api_key, aggregate_api_key, api_key) |
 | ComputeFactor（计算因子） | 业务视图 | (entity_api_key, compute_api_key, api_key) |
 | PickOption（选项值） | 业务视图 | (entity_api_key, item_api_key, api_key) |
+| Role（角色） | 独立元模型，存储在 p_tenant_role | api_key |
+| Department（部门） | 独立元模型，存储在 p_tenant_department | api_key |
+| SharingRule（共享规则） | 独立元模型，存储在 p_tenant_sharing_rule | (entity_api_key, api_key) |
+| SharingRuleCondition（共享规则条件） | 独立元模型 | (entity_api_key, rule_api_key, api_key) |
+| DataPermission（数据权限配置） | 独立元模型，存储在 p_tenant_data_permission | (entity_api_key, api_key) |
 
 ## 技术栈
 | 层级 | 技术 | 版本 |
@@ -121,18 +128,26 @@ aPaaS 元数据驱动平台，以元模型为核心，构建"元模型定义→�
 10. 接口响应时间：元数据列表查询 P95 < 200ms，合并读取 P95 < 500ms，写入 P95 < 1s
 11. 前端请求体 camelCase → snake_case 转换，响应体 snake_case → camelCase 转换
 12. 敏感数据需脱敏处理，严格遵循 RBAC 权限体系
+13. **BaseEntity 基础字段规范**：所有业务表（尤其 paas_auth schema 下的表）必须包含框架 BaseEntity 定义的 6 个基础字段：`id`(BIGINT 主键)、`delete_flg`(SMALLINT 软删除)、`created_at`(BIGINT 创建时间戳)、`created_by`(BIGINT 创建人)、`updated_at`(BIGINT 更新时间戳)、`updated_by`(BIGINT 更新人)。新建表时必须包含全部 6 列，缺少任何一列会导致 MyBatis-Plus 查询报错。
+14. **BFF 层禁止直连数据库**：所有数据读写操作必须通过 Java 后端服务接口完成。BFF（Node.js）层仅负责接口代理、请求聚合、前置参数校验等业务编排，严禁直接连接 PostgreSQL/MySQL 执行 SQL。数据校验（必填、格式、唯一性）和业务规则必须在 Java 服务层实现，BFF 层的校验仅作为前置快速拦截，不可替代后端校验。
+15. **前端/BFF 禁止存储数据和业务计算**：所有数据存储、业务逻辑计算、规则判断必须在 Java 后端完成并返回结果。前端仅负责页面展示和用户交互，BFF 仅负责接口代理和组合以支撑前端页面展示。禁止在前端或 BFF 层使用本地文件、localStorage、内存缓存等方式存储业务数据，禁止在前端或 BFF 层实现业务规则计算。
+16. **线程池必须使用 TTL 包装**：所有 Java 线程池（`ThreadPoolTaskExecutor`、`ExecutorService` 等）必须使用 `com.alibaba.ttl.threadpool.TtlExecutors` 包装，确保 `TransmittableThreadLocal`（租户上下文、权限条件、分表路由等）在异步任务中正确传递。禁止使用 Java 内置的 `Executors.newFixedThreadPool()` 等未包装的线程池。Spring `@Async` 方法对应的 Executor Bean 必须返回 TTL 包装后的实例。
 
 ## 进行中 & 规划中
 | 方向 | 状态 | 说明 |
 |:---|:---:|:---|
 | 数据迁移（item_type + db_column） | 🔄进行中 | 剩余 3,333 条 item_type 编码转换 + db_column 重分配 |
 | 元模型字段命名规范统一 | 🔄进行中 | p_meta_item api_key + Java 字段名统一 camelCase，消除缩写/前缀不一致 |
-| 元数据管理前端 | 🔄进行中 | metarepo-web：元模型浏览、元数据列表、字段映射可视化 |
+| 元数据管理前端 | 🔄进行中 | paas-front-platform（front-admin）：元模型浏览、元数据列表、字段映射可视化 |
+| 画布数据源体系 | ✅已完成 | 三级数据源（元模型/元数据/数据）+ 通用联动机制 + p_meta_model 字段驱动（enable_ui_config/metamodel_layer/enable_data_source） |
+| tenantId 统一从 GlobalContext 获取 | ✅已完成 | paas-platform-service 全量改造，TransmittableThreadLocal 支持异步/MQ 传播 |
+| role/department 元模型迁移 | ✅已完成 | 从 entity 注册改为独立元模型，数据迁移到 p_tenant_role/p_tenant_department |
+| BFF 直连数据库清理 | ✅已完成 | 删除 server/ 目录（permission-routes.cjs、entity-routes.cjs、index.cjs），移除 mysql2/express/cors 依赖 |
 | 计算字段子元模型恢复 | 📋规划中 | formulaCompute/aggregationCompute 等 5 个子元模型 |
 | Delta 增量覆盖 | 📋规划中 | enable_delta + delta_scope + delta_mode |
 | Module 打包分发 | 📋规划中 | enable_package 元数据模块化 |
-| 元数据变更日志完善 | �规划中 | p_tenant_meta_log 全量写操作日志 |
-| 元数据写入 Schema 校验 | �规划中 | p_meta_option 取值范围 + p_meta_item 必填/唯一约束 |
+| 元数据变更日志完善 | 📋规划中 | p_tenant_meta_log 全量写操作日志 |
+| 元数据写入 Schema 校验 | 📋规划中 | p_meta_option 取值范围 + p_meta_item 必填/唯一约束 |
 
 ## 设计参考
 | 文档 | 路径 | 内容 |

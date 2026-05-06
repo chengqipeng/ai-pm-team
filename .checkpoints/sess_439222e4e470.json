@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_439222e4e470",
+  "tenant_id": "t1",
+  "user_id": "u1",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 1,
+  "total_tool_calls": 0,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "华为技术有限公司，成立于1987年，注册资本4104113万元。"
+}

@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_0bdac82b3204",
+  "tenant_id": "demo_tenant",
+  "user_id": "demo_user",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 1,
+  "total_tool_calls": 0,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "华为技术有限公司，成立于1987年，是全球领先的ICT基础设施和智能终端提供商。"
+}

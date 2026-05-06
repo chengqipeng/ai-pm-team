@@ -1,0 +1,12 @@
+{
+  "session_id": "sess_390e38c0e68e",
+  "tenant_id": "",
+  "user_id": "",
+  "status": "completed",
+  "current_step_index": 1,
+  "total_llm_calls": 8,
+  "total_tool_calls": 0,
+  "pause_reason": null,
+  "checkpoint_version": 3,
+  "final_answer": "终于完成了"
+}

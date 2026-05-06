@@ -45,8 +45,8 @@
 | customFlg | custom_flg | 自定义标记 | Integer(0/1) | 固定列 |
 | deleteFlg | delete_flg | 删除标记 | Integer(0/1) | 固定列 |
 | dependencyApiKey | dbc_varchar1 | 所属依赖apiKey | String | 关联 globalPickDependency |
-| controlOptionCode | dbc_int1 | 控制选项编码 | Integer | — |
-| dependentOptionCodes | dbc_varchar2 | 依赖选项编码列表 | String | 逗号分隔 |
+| controlOptionApiKey | dbc_varchar2 | 控制选项apiKey | String | 关联 globalPickOption 的 apiKey |
+| dependentOptionApiKeys | dbc_array1 | 依赖选项apiKey列表 | List\<String\> | TEXT[] 数组类型，如 `["opt_a","opt_b"]`。详见 [多选字段数组类型设计方案](../多选字段数组类型设计方案.md) |
 | createdBy | created_by | 创建人 | Long | 固定列 |
 | createdAt | created_at | 创建时间 | Long | 固定列 |
 | updatedBy | updated_by | 修改人 | Long | 固定列 |

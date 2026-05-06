@@ -1,0 +1,17 @@
+{
+  "name": "@front-platform/data-display",
+  "version": "1.0.0",
+  "description": "CRM 数据展示组件库 — 模块化设计",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "mobx": "^6.0.0",
+    "mobx-react-lite": "^4.0.0",
+    "lucide-react": "^0.400.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}
