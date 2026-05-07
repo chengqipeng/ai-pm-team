@@ -479,7 +479,7 @@ keep_recent_tools = 2  # 保留最近 2 个 ToolMessage 完整
 
 ```python
 SummarizationMiddleware(
-    max_tokens=30_000,          # 对齐 doubao-1-5-pro-32k 的实际窗口
+    max_tokens=30_000,          # 对齐 doubao-seed-2-0-lite 的实际窗口
     micro_threshold=0.30,       # 9K tokens 开始裁剪 ToolMessage
     auto_threshold=0.60,        # 18K tokens 开始生成摘要
     full_threshold=0.85,        # 25.5K tokens 全量压缩

@@ -74,7 +74,7 @@ async def _get_agent(multimodal: bool = False):
         skill_reg = SkillRegistry()
         register_crm_skills(skill_reg)
 
-        aux_llm = ChatOpenAI(model="doubao-1-5-pro-32k-250115", api_key=os.environ["DOUBAO_API_KEY"],
+        aux_llm = ChatOpenAI(model="doubao-seed-2-0-lite-260215", api_key=os.environ["DOUBAO_API_KEY"],
                              base_url="https://ark.cn-beijing.volces.com/api/v3/", max_tokens=2048)
         memory_engine = VikingMemoryEngine(
             vdb_url="http://10.60.2.17",
@@ -239,7 +239,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # 多模态模型配置
 MULTIMODAL_MODEL = "doubao-seed-2-0-lite-260215"
-TEXT_MODEL = "doubao-1-5-pro-32k-250115"
+TEXT_MODEL = "doubao-seed-2-0-lite-260215"
 
 
 # ── API 路由 ──
@@ -602,7 +602,7 @@ async def chat_sync(req: ChatRequest):
             messages.append(AIMessage(content=msg["content"]))
     messages.append(HumanMessage(content=req.message))
 
-    trace = tracer.start_trace(req.thread_id, req.message, model="doubao-1-5-pro-32k-250115", agent_name="CRM-Agent")
+    trace = tracer.start_trace(req.thread_id, req.message, model="doubao-seed-2-0-lite-260215", agent_name="CRM-Agent")
     trace_writer.on_trace_start(trace)
 
     result = await agent.ainvoke({"messages": messages},

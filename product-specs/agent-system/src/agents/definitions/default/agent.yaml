@@ -1,6 +1,6 @@
 name: default
 description: CRM 智能业务助手（默认入口 Agent）
-model: doubao-1-5-pro-32k-250115
+model: doubao-seed-2-0-lite-260215
 system_prompt: ""
 
 tools: []

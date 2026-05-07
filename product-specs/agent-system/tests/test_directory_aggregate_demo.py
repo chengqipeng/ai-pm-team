@@ -21,7 +21,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 def _llm():
     from langchain_openai import ChatOpenAI
     return ChatOpenAI(
-        model="doubao-1-5-pro-32k-250115",
+        model="doubao-seed-2-0-lite-260215",
         api_key=os.environ["DOUBAO_API_KEY"],
         base_url="https://ark.cn-beijing.volces.com/api/v3/",
         max_tokens=2048,

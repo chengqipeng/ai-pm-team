@@ -10,12 +10,49 @@ from .dao import (
     TraceDAO, TraceSpanDAO, ContentReviewLogDAO, TokenUsageDAO,
 )
 from .memory_dao import MemoryDAO, MemoryRow
+from .knowledge_models import (
+    KnowledgeBaseRow,
+    KnowledgeBaseBindingRow,
+    KnowledgeDatasetRow,
+    KnowledgeSchemaRow,
+    KnowledgeDocumentRow,
+    KnowledgeSegmentRow,
+    KnowledgeChunkRow,
+    KnowledgeIngestQueueRow,
+    KnowledgeIngestLogRow,
+    KnowledgeSearchLogRow,
+)
+from .knowledge_dao import (
+    KnowledgeBaseDAO,
+    KnowledgeBaseBindingDAO,
+    KnowledgeDatasetDAO,
+    KnowledgeSchemaDAO,
+    KnowledgeDocumentDAO,
+    KnowledgeSegmentDAO,
+    KnowledgeChunkDAO,
+    KnowledgeIngestQueueDAO,
+    KnowledgeIngestLogDAO,
+    KnowledgeSearchLogDAO,
+)
 
 __all__ = [
+    # pool
     "get_pool", "close_pool",
+    # dialog models + DAOs
     "Conversation", "Message", "MessageExt", "Trace", "TraceSpan",
     "ContentReviewLog", "TokenUsage",
     "ConversationDAO", "MessageDAO", "MessageExtDAO",
     "TraceDAO", "TraceSpanDAO", "ContentReviewLogDAO", "TokenUsageDAO",
+    # memory
     "MemoryDAO", "MemoryRow",
+    # knowledge models
+    "KnowledgeBaseRow", "KnowledgeBaseBindingRow", "KnowledgeDatasetRow",
+    "KnowledgeSchemaRow", "KnowledgeDocumentRow", "KnowledgeSegmentRow",
+    "KnowledgeChunkRow", "KnowledgeIngestQueueRow",
+    "KnowledgeIngestLogRow", "KnowledgeSearchLogRow",
+    # knowledge DAOs
+    "KnowledgeBaseDAO", "KnowledgeBaseBindingDAO", "KnowledgeDatasetDAO",
+    "KnowledgeSchemaDAO", "KnowledgeDocumentDAO", "KnowledgeSegmentDAO",
+    "KnowledgeChunkDAO", "KnowledgeIngestQueueDAO",
+    "KnowledgeIngestLogDAO", "KnowledgeSearchLogDAO",
 ]

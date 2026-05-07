@@ -94,7 +94,7 @@ class DeepSeekClient(LLMClient):
         self,
         api_key: str | None = None,
         base_url: str | None = None,
-        default_model: str = "doubao-1-5-pro-32k-250115",
+        default_model: str = "doubao-seed-2-0-lite-260215",
         default_max_tokens: int = 8192,
     ):
         import openai

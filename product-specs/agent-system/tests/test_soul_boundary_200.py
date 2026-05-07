@@ -223,7 +223,7 @@ async def run_batch(batch_num, batch_size=50):
     from langchain_openai import ChatOpenAI
     from src.memory.viking_engine import VikingMemoryEngine
     
-    llm = ChatOpenAI(model="doubao-1-5-pro-32k-250115", api_key=os.environ["DOUBAO_API_KEY"],
+    llm = ChatOpenAI(model="doubao-seed-2-0-lite-260215", api_key=os.environ["DOUBAO_API_KEY"],
                      base_url="https://ark.cn-beijing.volces.com/api/v3/", max_tokens=2048)
     e = VikingMemoryEngine(vdb_url="http://10.60.2.17", vdb_key="bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck",
                            database_name="viking_boundary_200", collection_name=f"boundary_b{batch_num}",

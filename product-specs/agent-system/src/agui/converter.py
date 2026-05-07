@@ -66,6 +66,17 @@ class AGUIConverter:
         data = event.get("data", {})
         name = event.get("name", "")
 
+        # on_custom_event 不走子 Agent 过滤（允许 agent_text / agent_data 穿透）
+        if kind == "on_custom_event":
+            async for e in self._handle_custom_event(name, data):
+                yield e
+            return
+
+        # 过滤子 Agent 的事件（保持主 Agent 事件为主流）
+        parent_ids = event.get("parent_ids", [])
+        if self._root_run_id and parent_ids and parent_ids[0] != self._root_run_id:
+            return
+
         if kind == "on_chat_model_stream":
             async for e in self._handle_chat_stream(event, data):
                 yield e
@@ -82,6 +93,52 @@ class AGUIConverter:
             output = data.get("output", "")
             yield m.tool_call_result(run_id, output)
             yield m.tool_call_end(run_id)
+
+    async def _handle_custom_event(self, name: str, data: dict) -> AsyncGenerator[m.AGUIEvent, None]:
+        """处理 Skill / Tool 发射的 on_custom_event。
+
+        约定事件名（向 apps-agent 对齐）：
+        - agent_text       — 文本增量 → 走 TEXT_MESSAGE 三段式
+        - agent_data       — 结构化数据 → 先关闭文本流，再发 CUSTOM(component_data)
+        - a2ui.surface     — A2UI 组件消息 → 直接透传 CUSTOM(a2ui.surfaceUpdate/...)
+        - state.patch      — 业务状态 JSON Patch → 直接透传 STATE_DELTA
+        - 其他             — 原样 CUSTOM 透传
+        """
+        if name == "agent_text":
+            content = data.get("content", "") if isinstance(data, dict) else ""
+            if content:
+                async for e in self._emit_text(content):
+                    yield e
+            return
+
+        if name == "agent_data":
+            # 先关闭文本流，避免 CUSTOM 插在 TEXT_MESSAGE 中间
+            async for e in self._close_text_stream():
+                yield e
+            data_key = data.get("data_key", "") if isinstance(data, dict) else ""
+            payload = data.get("payload", {}) if isinstance(data, dict) else {}
+            if data_key:
+                yield m.custom_event(
+                    name="component_data",
+                    value={"data_key": data_key, "data": payload.get("data"), "schema": payload.get("schema")},
+                )
+            return
+
+        # A2UI 消息直通：保留原 name
+        if name.startswith("a2ui."):
+            async for e in self._close_text_stream():
+                yield e
+            yield m.custom_event(name=name, value=data if isinstance(data, dict) else {"value": data})
+            return
+
+        if name == "state.patch":
+            patch = data.get("patch", []) if isinstance(data, dict) else []
+            if patch:
+                yield m.state_delta(patch)
+            return
+
+        # Fallback：通用 CUSTOM 透传
+        yield m.custom_event(name=name, value=data if isinstance(data, dict) else {"value": data})
 
     async def _handle_chat_stream(self, event: dict, data: dict) -> AsyncGenerator[m.AGUIEvent, None]:
         # 过滤子 Agent 的 LLM 事件
@@ -156,3 +213,23 @@ class AGUIConverter:
             yield m.reasoning_finished()
         async for e in self._close_text_stream():
             yield e
+
+
+    # ═══════════════════════════════════════════════════════════
+    # 断线重连 / 初始化快照
+    # ═══════════════════════════════════════════════════════════
+
+    async def emit_reconnect_snapshot(
+        self,
+        messages: list[dict],
+        state_snapshot: dict | None = None,
+    ) -> AsyncGenerator[m.AGUIEvent, None]:
+        """断线重连时发射完整消息 + 业务状态快照（对齐 apps-agent D10）"""
+        if messages:
+            yield m.messages_snapshot(messages)
+        if state_snapshot:
+            yield m.state_snapshot(state_snapshot)
+
+    def append_message(self, message: dict) -> None:
+        """外部调用：向 converter 的消息缓冲区追加一条（供后续 MESSAGES_SNAPSHOT 使用）"""
+        self._messages.append(message)

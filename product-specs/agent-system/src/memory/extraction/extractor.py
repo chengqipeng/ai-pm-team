@@ -390,50 +390,11 @@ class MemoryExtractor:
         return "\n".join(lines)
 
     def _post_filter(self, items: list[ExtractionItem]) -> list[ExtractionItem]:
-        """后处理过滤：
-        1. 移除仅含精确数值的记忆
-        2. 跨维度去重：preferences 和 agent_rules 内容语义重复时，丢弃 preferences
-        """
+        """后处理过滤：移除仅含精确数值的 entities 记忆"""
         filtered = []
-
-        # 收集 agent_rules 的 n-gram 集合（用于跨维度去重）
-        rules_ngrams = set()
         for item in items:
-            if item.dimension == "agent_rules" and item.content:
-                rules_ngrams = self._extract_ngrams(item.content)
-                logger.info("Post-filter: agent_rules ngrams count=%d, content='%s'",
-                            len(rules_ngrams), item.content[:80])
-
-        for item in items:
-            # 过滤纯数值记忆
             if item.dimension == "entities" and _contains_only_precise_values(item.content):
                 logger.debug("Filtered out precise-value-only item: %s", item.abstract[:50])
                 continue
-
-            # 跨维度去重：preferences 和 agent_rules n-gram 重叠 >= 40% 则丢弃
-            if item.dimension == "preferences" and rules_ngrams:
-                pref_ngrams = self._extract_ngrams(item.content)
-                if pref_ngrams:
-                    overlap = pref_ngrams & rules_ngrams
-                    overlap_ratio = len(overlap) / len(pref_ngrams)
-                    logger.info("Post-filter: pref content='%s', overlap_ratio=%.0f%%, ngrams=%d",
-                                item.content[:80], overlap_ratio * 100, len(pref_ngrams))
-                    if overlap_ratio >= 0.4:
-                        logger.info("Filtered duplicate preference (%.0f%% overlap): %s",
-                                    overlap_ratio * 100, item.abstract[:50])
-                        continue
-
             filtered.append(item)
-
-        logger.info("Post-filter: %d items in, %d items out", len(items), len(filtered))
         return filtered
-
-    @staticmethod
-    def _extract_ngrams(text: str, n_min: int = 2, n_max: int = 4) -> set:
-        """提取文本的 n-gram 集合（去标点空格后）"""
-        cleaned = re.sub(r'[^\u4e00-\u9fffA-Za-z0-9]', '', text)
-        grams = set()
-        for n in range(n_min, n_max + 1):
-            for i in range(len(cleaned) - n + 1):
-                grams.add(cleaned[i:i + n])
-        return grams

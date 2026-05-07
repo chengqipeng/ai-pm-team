@@ -20,7 +20,7 @@ class ProviderConfig(BaseModel):
 
 
 class ModelSettings(BaseModel):
-    default_model: str = "doubao-1-5-pro-32k-250115"
+    default_model: str = "doubao-seed-2-0-lite-260215"
     default_api_key: str = "651621e7-e495-4728-93ef-ed380e9ddcd1"
     default_api_base: str = "https://ark.cn-beijing.volces.com/api/v3/"
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
@@ -48,16 +48,49 @@ class MemorySettings(BaseModel):
 
 
 class KnowledgeSettings(BaseModel):
-    """知识库配置 — 腾讯云 LKEAP 文档解析 + 知识检索"""
+    """知识库配置 — 腾讯云 LKEAP 文档解析 + 知识检索 + PG 任务队列"""
     enabled: bool = False
-    # 腾讯云 LKEAP 配置
+
+    # ── 腾讯云 LKEAP 配置 ──
     lkeap_secret_id: str = ""
     lkeap_secret_key: str = ""
     lkeap_region: str = "ap-guangzhou"
-    # Embedding 模型
+
+    # ── Embedding 模型 ──
     embedding_model: str = "lke-text-embedding-v1"
-    # 知识库向量数据库（独立于记忆的向量库）
-    vdb_collection: str = "knowledge_chunks"
+    embedding_dim: int = 1024
+
+    # ── 腾讯云向量数据库（单库多租户，tenant_id 字段隔离） ──
+    vdb_url: str = ""
+    vdb_key: str = ""
+    vdb_username: str = "root"
+    vdb_database: str = "knowledge"
+    vdb_chunk_collection: str = "kb_chunks"
+    vdb_summary_collection: str = "kb_doc_summary"
+
+    # ── 本地文件存储 ──
+    upload_dir: str = "./data/knowledge/uploads"      # 原始上传文件
+    parsed_dir: str = "./data/knowledge/parsed"       # LKEAP 解析产物
+
+    # ── BM25 倒排（复用 MemoryStorage 的 SQLite FTS5） ──
+    bm25_dimension_prefix: str = "kb_"                # 最终为 kb_{knowledge_base_id}
+
+    # ── 检索参数默认值 ──
+    default_top_k: int = 5
+    rerank_top_k: int = 10
+    rrf_k: int = 60
+    expand_context_n: int = 1
+    enable_self_query: bool = True
+    enable_rerank: bool = True
+    enable_query_rewrite: bool = False
+
+    # ── 入库 Worker ──
+    ingest_worker_count: int = 4
+    ingest_batch_size: int = 4
+    ingest_poll_interval_ms: int = 500
+    lkeap_concurrency: int = 3
+    reclaim_interval_ms: int = 30000
+    vector_max_retry: int = 5
 
 
 class ToolSettings(BaseModel):

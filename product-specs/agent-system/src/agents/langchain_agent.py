@@ -114,7 +114,7 @@ def adapt_tools(registry: ToolRegistry) -> list[BaseTool]:
 
 @dataclass
 class LangChainAgentConfig:
-    model: str = "doubao-1-5-pro-32k-250115"
+    model: str = "doubao-seed-2-0-lite-260215"
     api_key: str = ""
     api_base: str = "https://ark.cn-beijing.volces.com/api/v3/"
     tool_registry: ToolRegistry | None = None

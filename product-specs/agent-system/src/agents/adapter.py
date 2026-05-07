@@ -56,7 +56,7 @@ class NeoAgentV2Adapter:
         # 初始化 LLM（记忆提取 + 技能优化共用）
         from langchain_openai import ChatOpenAI
         aux_llm = ChatOpenAI(
-            model="doubao-1-5-pro-32k-250115",
+            model="doubao-seed-2-0-lite-260215",
             api_key=os.environ.get("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"),
             base_url="https://ark.cn-beijing.volces.com/api/v3/",
             max_tokens=2048,
@@ -91,7 +91,7 @@ class NeoAgentV2Adapter:
         )
 
         config = LangChainAgentConfig(
-            model="doubao-1-5-pro-32k-250115",
+            model="doubao-seed-2-0-lite-260215",
             api_key=os.environ.get("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"),
             api_base="https://ark.cn-beijing.volces.com/api/v3/",
             tool_registry=reg,

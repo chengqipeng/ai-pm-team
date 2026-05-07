@@ -631,7 +631,7 @@ async def demo_8_production_flow(engine):
 
     fs = VikingFS(pg_dao=None, vdb=engine._vdb, user_id="demo_user")
     llm = ChatOpenAI(
-        model="doubao-1-5-pro-32k-250115",
+        model="doubao-seed-2-0-lite-260215",
         api_key=os.environ["DOUBAO_API_KEY"],
         base_url="https://ark.cn-beijing.volces.com/api/v3/",
         max_tokens=512,
