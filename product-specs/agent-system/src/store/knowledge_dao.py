@@ -15,7 +15,6 @@ from typing import Any
 from .pg_pool import get_conn
 from .knowledge_models import (
     KnowledgeBaseRow,
-    KnowledgeBaseBindingRow,
     KnowledgeDatasetRow,
     KnowledgeSchemaRow,
     KnowledgeDocumentRow,
@@ -109,53 +108,6 @@ class KnowledgeBaseDAO:
                 WHERE id=%s AND delete_flg=0
             """, (now, kb_id))
             return cur.rowcount > 0
-
-
-# ═══════════════════════════════════════════════════════════
-# KnowledgeBaseBindingDAO — Agent 授权
-# ═══════════════════════════════════════════════════════════
-
-class KnowledgeBaseBindingDAO:
-
-    @staticmethod
-    def insert(b: KnowledgeBaseBindingRow) -> None:
-        with get_conn() as conn:
-            conn.cursor().execute("""
-                INSERT INTO ai_knowledge_base_binding
-                (id, tenant_id, knowledge_base_id, agent_name, scope,
-                 override_top_k, override_filters,
-                 status, delete_flg, created_at, created_by, updated_at, updated_by)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """, (b.id, b.tenant_id, b.knowledge_base_id, b.agent_name, b.scope,
-                  b.override_top_k, b.override_filters,
-                  b.status, b.delete_flg,
-                  b.created_at, b.created_by, b.updated_at, b.updated_by))
-
-    @staticmethod
-    def list_kb_ids_for_agent(tenant_id: int, agent_name: str) -> list[int]:
-        """查询某 Agent 可访问的所有 KB ID（agent_name='*' 表示全局可见）"""
-        with get_conn() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT DISTINCT knowledge_base_id FROM ai_knowledge_base_binding
-                WHERE tenant_id=%s AND (agent_name=%s OR agent_name='*')
-                  AND status='active' AND delete_flg=0
-            """, (tenant_id, agent_name))
-            return [r[0] for r in cur.fetchall()]
-
-    @staticmethod
-    def check_access(tenant_id: int, agent_name: str,
-                     knowledge_base_id: int) -> bool:
-        with get_conn() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT 1 FROM ai_knowledge_base_binding
-                WHERE tenant_id=%s AND knowledge_base_id=%s
-                  AND (agent_name=%s OR agent_name='*')
-                  AND status='active' AND delete_flg=0
-                LIMIT 1
-            """, (tenant_id, knowledge_base_id, agent_name))
-            return cur.fetchone() is not None
 
 
 # ═══════════════════════════════════════════════════════════

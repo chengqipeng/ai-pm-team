@@ -12,7 +12,6 @@ from .dao import (
 from .memory_dao import MemoryDAO, MemoryRow
 from .knowledge_models import (
     KnowledgeBaseRow,
-    KnowledgeBaseBindingRow,
     KnowledgeDatasetRow,
     KnowledgeSchemaRow,
     KnowledgeDocumentRow,
@@ -24,7 +23,6 @@ from .knowledge_models import (
 )
 from .knowledge_dao import (
     KnowledgeBaseDAO,
-    KnowledgeBaseBindingDAO,
     KnowledgeDatasetDAO,
     KnowledgeSchemaDAO,
     KnowledgeDocumentDAO,
@@ -46,12 +44,12 @@ __all__ = [
     # memory
     "MemoryDAO", "MemoryRow",
     # knowledge models
-    "KnowledgeBaseRow", "KnowledgeBaseBindingRow", "KnowledgeDatasetRow",
+    "KnowledgeBaseRow", "KnowledgeDatasetRow",
     "KnowledgeSchemaRow", "KnowledgeDocumentRow", "KnowledgeSegmentRow",
     "KnowledgeChunkRow", "KnowledgeIngestQueueRow",
     "KnowledgeIngestLogRow", "KnowledgeSearchLogRow",
     # knowledge DAOs
-    "KnowledgeBaseDAO", "KnowledgeBaseBindingDAO", "KnowledgeDatasetDAO",
+    "KnowledgeBaseDAO", "KnowledgeDatasetDAO",
     "KnowledgeSchemaDAO", "KnowledgeDocumentDAO", "KnowledgeSegmentDAO",
     "KnowledgeChunkDAO", "KnowledgeIngestQueueDAO",
     "KnowledgeIngestLogDAO", "KnowledgeSearchLogDAO",

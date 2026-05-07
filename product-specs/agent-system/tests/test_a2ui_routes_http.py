@@ -223,3 +223,55 @@ def test_chat_reconnect_emits_run_started(client: TestClient):
     assert "\"parent_run_id\": \"r-old\"" in body
     # 当前首包不含 MESSAGES_SNAPSHOT / STATE_SNAPSHOT（因为 checkpointer 未接入，
     # 只会 yield RUN_STARTED）。生产接入后 extend 该断言。
+
+
+# ═══════════════════════════════════════════════════════════
+# Trace 埋点（src.core.tracer）
+# ═══════════════════════════════════════════════════════════
+
+def test_a2ui_event_attaches_to_active_trace(client: TestClient, monkeypatch):
+    from src.core.tracer import tracer
+    # 先启动一个 trace
+    trace = tracer.start_trace(thread_id="t-trace-1", user_input="test")
+
+    # 替换 _deliver_user_action 为 no-op，避免触真 Adapter
+    import src.api.a2ui_routes as mod
+    monkeypatch.setattr(mod, "_deliver_user_action", lambda tid, ua: None)
+
+    resp = client.post("/agent/a2ui/event", json={
+        "threadId": "t-trace-1",
+        "userAction": {
+            "name": "click",
+            "surfaceId": "s1",
+            "sourceComponentId": "b1",
+            "timestamp": "2026-05-07T11:00:00Z",
+            "context": {},
+        },
+    })
+    assert resp.status_code == 202
+
+    # trace 里应出现一个 a2ui_inbound_event span
+    t = tracer.get_trace(trace.trace_id)
+    assert t is not None
+    spans = [s for s in t.spans if s.name == "a2ui_inbound_event"]
+    assert len(spans) == 1
+    assert spans[0].metadata.get("outcome") == "accepted"
+    assert spans[0].metadata.get("action") == "click"
+    assert spans[0].status == "success"
+
+
+def test_a2ui_event_invalid_records_error_span(client: TestClient):
+    from src.core.tracer import tracer
+    trace = tracer.start_trace(thread_id="t-trace-err", user_input="test")
+
+    resp = client.post(
+        "/agent/a2ui/event",
+        json={"threadId": "t-trace-err", "whatever": 1},
+    )
+    assert resp.status_code == 400
+
+    t = tracer.get_trace(trace.trace_id)
+    spans = [s for s in t.spans if s.name == "a2ui_inbound_event"]
+    assert len(spans) == 1
+    assert spans[0].status == "error"
+    assert spans[0].metadata.get("error")

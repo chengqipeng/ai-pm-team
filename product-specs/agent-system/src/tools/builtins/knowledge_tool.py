@@ -119,7 +119,6 @@ class KnowledgeSearchTool(BaseTool):
         ctx = self._runtime_config()
         provider = ctx.get("knowledge_provider")
         tenant_id = int(ctx.get("tenant_id", 0) or 0)
-        agent_name = ctx.get("agent_name", "") or ""
         user_id = ctx.get("user_id", "") or ""
         thread_id = ctx.get("thread_id", "") or ""
         trace_id = ctx.get("trace_id", "") or ""
@@ -149,7 +148,6 @@ class KnowledgeSearchTool(BaseTool):
                 top_k=top_k,
                 enable_rerank=True,
                 enable_self_query=True,
-                agent_name=agent_name,
                 user_id=user_id,
                 thread_id=thread_id,
                 trace_id=trace_id,

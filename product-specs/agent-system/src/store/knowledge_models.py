@@ -65,38 +65,7 @@ class KnowledgeBaseRow:
 
 
 # ═══════════════════════════════════════════════════════════
-# 2. KnowledgeBaseBindingRow — ai_knowledge_base_binding
-# ═══════════════════════════════════════════════════════════
-
-@dataclass
-class KnowledgeBaseBindingRow:
-    """知识库与 Agent 的授权绑定"""
-    id: int = 0
-    tenant_id: int = 0
-    knowledge_base_id: int = 0
-    agent_name: str = ""
-    scope: str = "read"                 # read / write
-    override_top_k: int = 0
-    override_filters: str = "{}"
-    status: str = "active"
-    delete_flg: int = 0
-    created_at: int = 0
-    created_by: int = 0
-    updated_at: int = 0
-    updated_by: int = 0
-
-    def __post_init__(self):
-        if not self.id:
-            self.id = next_id()
-        now = int(time.time() * 1000)
-        if not self.created_at:
-            self.created_at = now
-        if not self.updated_at:
-            self.updated_at = now
-
-
-# ═══════════════════════════════════════════════════════════
-# 3. KnowledgeDatasetRow — ai_knowledge_dataset
+# 2. KnowledgeDatasetRow — ai_knowledge_dataset
 # ═══════════════════════════════════════════════════════════
 
 @dataclass

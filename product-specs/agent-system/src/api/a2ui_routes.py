@@ -38,6 +38,15 @@ from src.a2ui import (
 )
 from src.a2ui.models import A2UIMessage
 
+# Trace 埋点（可选：若 tracer 不可用则降级为 no-op）
+try:
+    from src.core.tracer import tracer, SpanType
+    _TRACE_ENABLED = True
+except Exception:  # pragma: no cover
+    tracer = None  # type: ignore
+    SpanType = None  # type: ignore
+    _TRACE_ENABLED = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -143,18 +152,41 @@ async def a2ui_event(req: Request) -> JSONResponse:
 
     thread_id = payload.pop("threadId", None) if isinstance(payload, dict) else None
 
+    # Trace：把入站事件挂到该 thread 的活跃 trace 上
+    trace = None
+    span = None
+    if _TRACE_ENABLED and thread_id:
+        trace = tracer.get_active_trace(thread_id)
+        if trace is not None:
+            span = tracer.start_span(
+                trace.trace_id, SpanType.REQUEST, "a2ui_inbound_event",
+                input_data={"payload_keys": list(payload.keys())[:5]},
+            )
+
     handler = get_inbound_handler()
     try:
         event = handler.handle(payload)
     except ValueError as exc:
+        if span is not None:
+            span.metadata["error"] = str(exc)
+            span.finish("error")
         raise HTTPException(status_code=400, detail=str(exc))
 
     if event is None:
+        if span is not None:
+            span.metadata["outcome"] = "duplicate"
+            span.finish("success")
         return JSONResponse({"status": "duplicate"}, status_code=202)
 
     if isinstance(event, UserAction):
-        # 注入 Agent（实际调度由 adapter 侧完成；这里只做编排签约）
         _deliver_user_action(thread_id, event)
+        if span is not None:
+            span.metadata.update({
+                "outcome": "accepted",
+                "action": event.name,
+                "surface_id": event.surface_id,
+            })
+            span.finish("success")
         return JSONResponse({
             "status": "accepted",
             "surfaceId": event.surface_id,
@@ -164,8 +196,19 @@ async def a2ui_event(req: Request) -> JSONResponse:
     if isinstance(event, ClientError):
         logger.warning("[a2ui.error] surface=%s component=%s message=%s",
                        event.surface_id, event.component_id, event.message)
+        if span is not None:
+            span.metadata.update({
+                "outcome": "client_error",
+                "component_id": event.component_id,
+                "surface_id": event.surface_id,
+                "error": event.message,
+            })
+            span.finish("error")
         return JSONResponse({"status": "logged"}, status_code=202)
 
+    if span is not None:
+        span.metadata["error"] = "unknown outcome"
+        span.finish("error")
     raise HTTPException(status_code=500, detail="Unknown handler outcome")
 
 

@@ -2,17 +2,16 @@
 -- 知识库存储表 — paas_ai schema
 -- 对应 doc/知识库体系设计方案.md §四·补
 --
--- 10 张表:
+-- 9 张表:
 --   1. ai_knowledge_base          ── 知识库定义
---   2. ai_knowledge_base_binding  ── 知识库与 Agent 绑定
---   3. ai_knowledge_dataset       ── 数据集（文档分组）
---   4. ai_knowledge_schema        ── 元数据 Schema
---   5. ai_knowledge_document      ── 文档主表
---   6. ai_knowledge_segment       ── 章节级聚合
---   7. ai_knowledge_chunk         ── 切片主表
---   8. ai_knowledge_ingest_queue  ── 入库任务队列（SKIP LOCKED）
---   9. ai_knowledge_ingest_log    ── 入库任务日志
---  10. ai_knowledge_search_log    ── 检索审计日志
+--   2. ai_knowledge_dataset       ── 数据集（文档分组）
+--   3. ai_knowledge_schema        ── 元数据 Schema
+--   4. ai_knowledge_document      ── 文档主表
+--   5. ai_knowledge_segment       ── 章节级聚合
+--   6. ai_knowledge_chunk         ── 切片主表
+--   7. ai_knowledge_ingest_queue  ── 入库任务队列（SKIP LOCKED）
+--   8. ai_knowledge_ingest_log    ── 入库任务日志
+--   9. ai_knowledge_search_log    ── 检索审计日志
 -- ═══════════════════════════════════════════════════════════
 
 SET search_path TO paas_ai;
@@ -66,39 +65,7 @@ COMMENT ON TABLE ai_knowledge_base IS '知识库定义 — 租户维度';
 
 
 -- ═══════════════════════════════════════════════════════════
--- 2. ai_knowledge_base_binding — 知识库与 Agent 绑定（授权）
--- ═══════════════════════════════════════════════════════════
-
-CREATE TABLE IF NOT EXISTS ai_knowledge_base_binding (
-    id                BIGINT        PRIMARY KEY,
-    tenant_id         BIGINT        NOT NULL,
-    knowledge_base_id BIGINT        NOT NULL,
-    agent_name        VARCHAR(100)  NOT NULL,
-    scope             VARCHAR(20)   NOT NULL DEFAULT 'read',
-
-    -- 绑定级别的覆盖配置
-    override_top_k    INT           NOT NULL DEFAULT 0,
-    override_filters  TEXT          NOT NULL DEFAULT '{}',
-
-    status            VARCHAR(20)   NOT NULL DEFAULT 'active',
-    delete_flg        SMALLINT      NOT NULL DEFAULT 0,
-    created_at        BIGINT        NOT NULL,
-    created_by        BIGINT        NOT NULL DEFAULT 0,
-    updated_at        BIGINT        NOT NULL,
-    updated_by        BIGINT        NOT NULL DEFAULT 0
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS uk_kb_binding
-    ON ai_knowledge_base_binding(tenant_id, agent_name, knowledge_base_id)
-    WHERE delete_flg = 0;
-CREATE INDEX IF NOT EXISTS idx_kb_binding_agent
-    ON ai_knowledge_base_binding(tenant_id, agent_name) WHERE delete_flg = 0;
-
-COMMENT ON TABLE ai_knowledge_base_binding IS '知识库与 Agent 绑定 — 控制 Agent 可访问哪些 KB';
-
-
--- ═══════════════════════════════════════════════════════════
--- 3. ai_knowledge_dataset — 数据集（文档分组）
+-- 2. ai_knowledge_dataset — 数据集（文档分组）
 -- ═══════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS ai_knowledge_dataset (
@@ -134,7 +101,7 @@ COMMENT ON TABLE ai_knowledge_dataset IS '知识库数据集 — 文档分组';
 
 
 -- ═══════════════════════════════════════════════════════════
--- 4. ai_knowledge_schema — 元数据 Schema
+-- 3. ai_knowledge_schema — 元数据 Schema
 -- ═══════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS ai_knowledge_schema (
@@ -162,7 +129,7 @@ COMMENT ON TABLE ai_knowledge_schema IS '元数据 Schema — 驱动 LLM 打标 
 
 
 -- ═══════════════════════════════════════════════════════════
--- 5. ai_knowledge_document — 文档主表
+-- 4. ai_knowledge_document — 文档主表
 -- ═══════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS ai_knowledge_document (
@@ -247,7 +214,7 @@ COMMENT ON TABLE ai_knowledge_document IS '文档主表 — 存元数据/解析�
 
 
 -- ═══════════════════════════════════════════════════════════
--- 6. ai_knowledge_segment — 章节级聚合
+-- 5. ai_knowledge_segment — 章节级聚合
 -- ═══════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS ai_knowledge_segment (
@@ -286,7 +253,7 @@ COMMENT ON TABLE ai_knowledge_segment IS '章节级聚合 — Parent-Child 扩�
 
 
 -- ═══════════════════════════════════════════════════════════
--- 7. ai_knowledge_chunk — 切片主表
+-- 6. ai_knowledge_chunk — 切片主表
 -- ═══════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS ai_knowledge_chunk (
@@ -368,7 +335,7 @@ COMMENT ON TABLE ai_knowledge_chunk IS '切片主表 — 权威数据源；向�
 
 
 -- ═══════════════════════════════════════════════════════════
--- 8. ai_knowledge_ingest_queue — 入库任务队列
+-- 7. ai_knowledge_ingest_queue — 入库任务队列
 -- 基于 FOR UPDATE SKIP LOCKED 实现，无 MQ/Redis 依赖
 -- ═══════════════════════════════════════════════════════════
 
@@ -414,7 +381,7 @@ COMMENT ON TABLE ai_knowledge_ingest_queue IS '入库任务队列 — FOR UPDATE
 
 
 -- ═══════════════════════════════════════════════════════════
--- 9. ai_knowledge_ingest_log — 入库任务日志
+-- 8. ai_knowledge_ingest_log — 入库任务日志
 -- ═══════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS ai_knowledge_ingest_log (
@@ -470,7 +437,7 @@ COMMENT ON TABLE ai_knowledge_ingest_log IS '入库任务日志 — 审计 + 进
 
 
 -- ═══════════════════════════════════════════════════════════
--- 10. ai_knowledge_search_log — 检索审计日志
+-- 9. ai_knowledge_search_log — 检索审计日志
 -- ═══════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS ai_knowledge_search_log (
