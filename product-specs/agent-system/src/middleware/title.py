@@ -33,7 +33,8 @@ class TitleMiddleware(AgentMiddleware):
         try:
             configurable = get_config().get("configurable", {})
             thread_id = configurable.get("thread_id", "")
-        except Exception:
+        except Exception as e:
+            logger.error("TitleMiddleware get_config failed: %s", e, exc_info=True)
             thread_id = ""
 
         # 每个 thread 只生成一次标题

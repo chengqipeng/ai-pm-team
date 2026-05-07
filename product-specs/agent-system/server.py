@@ -226,6 +226,7 @@ def _is_document_skill(tool_name: str, tool_input) -> dict | None:
 class ChatRequest(BaseModel):
     message: str
     thread_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
+    user_id: str = Field(default="default_user")
     history: list[dict[str, str]] = Field(default_factory=list)
 
 
@@ -341,7 +342,7 @@ async def chat_stream(req: ChatRequest):
     from src.core.context import set_context, RequestContext
     set_context(RequestContext(
         tenant_id=1,
-        user_id=req.thread_id,  # 当前用 thread_id 作为 user_id（后续接入真实用户体系）
+        user_id=req.user_id,
         thread_id=req.thread_id,
         agent_name="CRM-Agent",
     ))
@@ -376,7 +377,7 @@ async def chat_stream(req: ChatRequest):
             "configurable": {
                 "thread_id": thread_id,
                 "tenant_id": "1",
-                "user_id": thread_id,
+                "user_id": req.user_id,
                 "files": files,
                 "parsed_files": files,  # FileProcessMiddleware 也从这里读
                 "extend_params": {},
@@ -583,7 +584,7 @@ async def chat_sync(req: ChatRequest):
     from src.core.context import set_context, RequestContext
     set_context(RequestContext(
         tenant_id=1,
-        user_id=req.thread_id,
+        user_id=req.user_id,
         thread_id=req.thread_id,
         agent_name="CRM-Agent",
     ))

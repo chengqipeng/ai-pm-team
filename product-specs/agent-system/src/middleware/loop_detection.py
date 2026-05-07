@@ -149,7 +149,8 @@ class LoopDetectionMiddleware(AgentMiddleware):
         try:
             configurable = get_config().get("configurable", {})
             thread_id = configurable.get("thread_id", "default")
-        except Exception:
+        except Exception as e:
+            logger.error("LoopDetection get_config failed: %s", e, exc_info=True)
             thread_id = "default"
 
         # 计算 tool_calls 的指纹哈希

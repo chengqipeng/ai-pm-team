@@ -208,8 +208,8 @@ class MemoryMiddleware(AgentMiddleware):
             if hasattr(self._engine, "get_agent_rules_text") and user_id:
                 try:
                     rules_text = self._engine.get_agent_rules_text(user_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error("get_agent_rules_text failed: %s", e, exc_info=True)
 
             inject_messages = []
             if rules_text:
@@ -385,13 +385,13 @@ class MemoryMiddleware(AgentMiddleware):
                     extracted_count=len(result.items) if result else 0,
                     dimensions=[it.dimension.value for it in result.items] if result else [],
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to record memory_extract span: %s", e)
         except Exception as e:
             dur = (_time.monotonic() - start) * 1000
-            logger.error("Memory extraction failed: %s", e)
+            logger.error("Memory extraction failed: %s", e, exc_info=True)
             try:
                 from src.middleware.tracing import tracing_middleware
                 tracing_middleware.record_memory_extract(duration_ms=dur)
-            except Exception:
-                pass
+            except Exception as e2:
+                logger.debug("Failed to record memory_extract error span: %s", e2)

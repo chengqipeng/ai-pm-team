@@ -174,7 +174,7 @@ class MemoryExtractor:
             elif res:
                 result.items.extend(res)
 
-        # 后处理：数值过滤
+        # 跨维度去重：如果 agent_rules 有提取结果，过滤掉与其重叠的 preferences
         result.items = self._post_filter(result.items)
 
         result.duration_ms = (time.monotonic() - start) * 1000
@@ -392,18 +392,17 @@ class MemoryExtractor:
     def _post_filter(self, items: list[ExtractionItem]) -> list[ExtractionItem]:
         """后处理过滤：
         1. 移除仅含精确数值的记忆
-        2. 跨维度去重：preferences 和 agent_rules 内容重复时，丢弃 preferences
+        2. 跨维度去重：preferences 和 agent_rules 内容语义重复时，丢弃 preferences
         """
         filtered = []
 
-        # 收集 agent_rules 的内容关键词（用于跨维度去重）
-        rules_keywords = set()
+        # 收集 agent_rules 的 n-gram 集合（用于跨维度去重）
+        rules_ngrams = set()
         for item in items:
             if item.dimension == "agent_rules" and item.content:
-                # 提取关键词片段（每 10 字一段）
-                content = item.content.replace(" ", "")
-                for i in range(0, len(content) - 5, 5):
-                    rules_keywords.add(content[i:i+10])
+                rules_ngrams = self._extract_ngrams(item.content)
+                logger.info("Post-filter: agent_rules ngrams count=%d, content='%s'",
+                            len(rules_ngrams), item.content[:80])
 
         for item in items:
             # 过滤纯数值记忆
@@ -411,13 +410,30 @@ class MemoryExtractor:
                 logger.debug("Filtered out precise-value-only item: %s", item.abstract[:50])
                 continue
 
-            # 跨维度去重：preferences 内容如果和 agent_rules 高度重叠则丢弃
-            if item.dimension == "preferences" and rules_keywords:
-                content = item.content.replace(" ", "")
-                overlap = sum(1 for kw in rules_keywords if kw in content)
-                if overlap >= 2:  # 有 2 个以上 10 字片段重叠，认为重复
-                    logger.debug("Filtered duplicate preference (overlaps with agent_rules): %s", item.abstract[:50])
-                    continue
+            # 跨维度去重：preferences 和 agent_rules n-gram 重叠 >= 40% 则丢弃
+            if item.dimension == "preferences" and rules_ngrams:
+                pref_ngrams = self._extract_ngrams(item.content)
+                if pref_ngrams:
+                    overlap = pref_ngrams & rules_ngrams
+                    overlap_ratio = len(overlap) / len(pref_ngrams)
+                    logger.info("Post-filter: pref content='%s', overlap_ratio=%.0f%%, ngrams=%d",
+                                item.content[:80], overlap_ratio * 100, len(pref_ngrams))
+                    if overlap_ratio >= 0.4:
+                        logger.info("Filtered duplicate preference (%.0f%% overlap): %s",
+                                    overlap_ratio * 100, item.abstract[:50])
+                        continue
 
             filtered.append(item)
+
+        logger.info("Post-filter: %d items in, %d items out", len(items), len(filtered))
         return filtered
+
+    @staticmethod
+    def _extract_ngrams(text: str, n_min: int = 2, n_max: int = 4) -> set:
+        """提取文本的 n-gram 集合（去标点空格后）"""
+        cleaned = re.sub(r'[^\u4e00-\u9fffA-Za-z0-9]', '', text)
+        grams = set()
+        for n in range(n_min, n_max + 1):
+            for i in range(len(cleaned) - n + 1):
+                grams.add(cleaned[i:i + n])
+        return grams

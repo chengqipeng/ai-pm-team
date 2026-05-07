@@ -74,7 +74,7 @@ textarea:focus { outline: none; }
         <div id="chatListTodayItems" class="space-y-1"></div>
       </div>
       <div id="chatListYesterday">
-        <h3 class="px-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">昨日</h3>
+        <h3 class="px-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">更早</h3>
         <div id="chatListYesterdayItems" class="space-y-1"></div>
       </div>
     </div>
@@ -270,6 +270,17 @@ let liveSpans = [];
 let generatedDocs = []; // 生成的文档列表
 let currentPreviewDoc = null; // 当前预览的文档
 
+// 持久化用户 ID（同一浏览器始终是同一个用户）
+const userId = (function() {
+  let id = localStorage.getItem('deepagent_user_id');
+  if (!id) {
+    id = 'user_' + genId();
+    localStorage.setItem('deepagent_user_id', id);
+  }
+  return id;
+})();
+console.log('[DeepAgent] user_id:', userId);
+
 function genId() {
   try { if (crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID().replace(/-/g, '').slice(0, 12); } catch(e) {}
   return 'xxxxxxxxxxxx'.replace(/x/g, () => (Math.random() * 16 | 0).toString(16));
@@ -315,10 +326,13 @@ function switchTab(tab) {
 }
 
 // ═══ 对话历史 ═══
-function renderHistoryItem(title, active) {
+function renderHistoryItem(title, active, chatId) {
   return `<div class="group flex items-center gap-3 px-4 py-2.5 rounded-xl cursor-pointer transition-all ${active ? 'bg-white shadow-sm ring-1 ring-black/5 text-blue-600' : 'text-gray-600 hover:bg-white/60 hover:text-gray-900'}">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="${active ? 'text-blue-500' : 'text-gray-400 group-hover:text-gray-600'}"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
     <span class="text-xs font-medium truncate flex-1">${esc(title)}</span>
+    <button onclick="event.stopPropagation();deleteChat('${esc(chatId)}')" class="hidden group-hover:flex w-5 h-5 items-center justify-center rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all shrink-0" title="删除会话">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
     ${active ? '<div class="w-1 h-3 bg-blue-500 rounded-full"></div>' : ''}
   </div>`;
 }
@@ -326,21 +340,40 @@ function renderHistoryItem(title, active) {
 function renderChatList() {
   const todayItems = document.getElementById('chatListTodayItems');
   const yesterdayItems = document.getElementById('chatListYesterdayItems');
-  const now = Date.now() / 1000;
-  const dayAgo = now - 86400;
+
+  // 按自然日零点划分（而不是 24 小时）
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
+  const yesterdayStart = todayStart - 86400;
 
   let todayHtml = '';
   let yesterdayHtml = '';
+  let olderHtml = '';
 
   chatHistory.forEach(c => {
     const isActive = c.id === tid;
-    const html = `<div onclick="loadChat('${esc(c.id)}')">${renderHistoryItem(c.title || '新对话', isActive)}</div>`;
-    if (c.time > dayAgo) todayHtml += html;
-    else yesterdayHtml += html;
+    const html = `<div onclick="loadChat('${esc(c.id)}')">${renderHistoryItem(c.title || '新对话', isActive, c.id)}</div>`;
+    if (c.time >= todayStart) todayHtml += html;
+    else if (c.time >= yesterdayStart) yesterdayHtml += html;
+    else yesterdayHtml += html; // 更早的也放到"更早"分组
   });
 
   todayItems.innerHTML = todayHtml || '<div class="px-4 text-[10px] text-gray-400">暂无</div>';
   yesterdayItems.innerHTML = yesterdayHtml || '<div class="px-4 text-[10px] text-gray-400">暂无</div>';
+}
+
+// ═══ 删除会话 ═══
+async function deleteChat(chatId) {
+  if (!confirm('确认删除该会话？')) return;
+  try {
+    await fetch(API + '/api/conversations/' + chatId, { method: 'DELETE' });
+  } catch(e) {}
+  chatHistory = chatHistory.filter(c => c.id !== chatId);
+  if (chatId === tid) {
+    newChat();
+  } else {
+    renderChatList();
+  }
 }
 
 // ═══ 搜索功能 ═══
@@ -366,8 +399,8 @@ function filterChatList(query) {
   }
 
   // 过滤匹配的对话
-  const now = Date.now() / 1000;
-  const dayAgo = now - 86400;
+  const now2 = new Date();
+  const todayStart2 = new Date(now2.getFullYear(), now2.getMonth(), now2.getDate()).getTime() / 1000;
   let todayHtml = '';
   let yesterdayHtml = '';
 
@@ -375,8 +408,8 @@ function filterChatList(query) {
     const title = c.title || '新对话';
     if (!title.toLowerCase().includes(q)) return;
     const isActive = c.id === tid;
-    const html = `<div onclick="loadChat('${esc(c.id)}')">${renderHistoryItem(title, isActive)}</div>`;
-    if (c.time > dayAgo) todayHtml += html;
+    const html = `<div onclick="loadChat('${esc(c.id)}')">${renderHistoryItem(title, isActive, c.id)}</div>`;
+    if (c.time >= todayStart2) todayHtml += html;
     else yesterdayHtml += html;
   });
 
@@ -867,7 +900,7 @@ async function send() {
     const r = await fetch(API + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, thread_id: tid, history: hist.slice(-10) })
+      body: JSON.stringify({ message: text, thread_id: tid, user_id: userId, history: hist.slice(-10) })
     });
 
     if (!r.ok) throw new Error('API error: ' + r.status);

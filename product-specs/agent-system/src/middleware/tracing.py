@@ -50,7 +50,8 @@ class TracingMiddleware(AgentMiddleware):
     def _tid(self) -> str:
         try:
             return get_config().get("configurable", {}).get("thread_id", "default")
-        except Exception:
+        except Exception as e:
+            logger.debug("TracingMiddleware get_config failed: %s", e)
             return "default"
 
     def _add(self, span_type: str, name: str, duration_ms: float = 0,

@@ -278,45 +278,32 @@ _SKIP_PATTERNS = frozenset(
 
 
 def _should_extract(messages: list, min_turns: int = 1, min_tokens: int = 50) -> bool:
-    """预过滤 + P2 会话压缩触发阈值"""
-    last_human = ""
-    last_ai = ""
-    has_tool_error = False
-    has_tool_success = False
-    turn_count = 0
-    total_chars = 0
+    """预过滤：判断消息是否值得提取记忆"""
+    if not messages:
+        return False
 
+    # 提取最后一条 user 消息
+    last_human = ""
     for msg in reversed(messages):
         msg_type = getattr(msg, "type", "")
         content = getattr(msg, "content", "")
         if not isinstance(content, str):
             content = str(content) if content else ""
-        total_chars += len(content)
-        if msg_type == "human":
-            if not last_human:
-                last_human = content.strip()
-            turn_count += 1
-        elif msg_type == "ai" and not last_ai and content.strip():
-            last_ai = content.strip()
-        elif msg_type == "tool":
-            status = getattr(msg, "status", "success")
-            if status == "error":
-                has_tool_error = True
-            else:
-                has_tool_success = True
-        if last_human and last_ai:
+        if msg_type == "human" and content.strip():
+            last_human = content.strip()
             break
 
-    if last_human and last_human.lower() in _SKIP_PATTERNS:
+    if not last_human:
         return False
 
-    # AI 回复太短时的处理：
-    # 放宽到 2 个字符（只过滤完全空回复和单字回复如"嗯"）
-    # 让提示词来决定是否值得提取，而不是在预过滤阶段硬判断
-    if not last_ai or len(last_ai) < 2:
+    # 跳过无意义的短消息
+    if last_human.lower() in _SKIP_PATTERNS:
         return False
-    if has_tool_error and not has_tool_success:
+
+    # 消息太短（< 5 字）不提取
+    if len(last_human) < 5:
         return False
+
     return True
 
 

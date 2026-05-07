@@ -74,5 +74,5 @@ class ClarificationMiddleware(AgentMiddleware):
                     "options": options[:10] if options else [],
                 },
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Clarification middleware failed: %s", e, exc_info=True)
