@@ -1,0 +1,26 @@
+{
+  "type": "OpportunityTimeline",
+  "description": "商机推进时间轴，按时间倒序展示关键阶段变更、联系人互动、合同节点。",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "opportunityId": {"type": "string"},
+      "events": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "at": {"type": "string"},
+            "type": {"type": "string"},
+            "summary": {"type": "string"}
+          }
+        }
+      }
+    }
+  },
+  "skill_bindings": {
+    "bind": ["opportunity_timeline"],
+    "prefer": ["opportunity_detail"]
+  },
+  "supported_model_names": ["component", "relevantData"]
+}

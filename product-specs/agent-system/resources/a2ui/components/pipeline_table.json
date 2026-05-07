@@ -1,0 +1,29 @@
+{
+  "type": "PipelineTable",
+  "description": "销售漏斗可视化表格，展示各阶段商机数量、金额、加权金额。支持点击阶段下钻查看详情。",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "stages": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {"type": "string"},
+            "count": {"type": "integer"},
+            "amount": {"type": "number"},
+            "weighted": {"type": "number"},
+            "probability": {"type": "number"}
+          }
+        }
+      }
+    }
+  },
+  "skill_bindings": {
+    "bind": [
+      "pipeline_analysis",
+      "pipeline_health_check"
+    ]
+  },
+  "supported_model_names": ["component"]
+}

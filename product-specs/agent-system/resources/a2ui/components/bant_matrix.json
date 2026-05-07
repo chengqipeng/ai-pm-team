@@ -1,0 +1,18 @@
+{
+  "type": "BantMatrix",
+  "description": "BANT 四象限矩阵（Budget / Authority / Need / Timeline），评估商机成熟度。",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "budget": {"type": "object"},
+      "authority": {"type": "object"},
+      "need": {"type": "object"},
+      "timeline": {"type": "object"}
+    },
+    "required": ["budget", "authority", "need", "timeline"]
+  },
+  "skill_bindings": {
+    "bind": ["bant_analysis"]
+  },
+  "supported_model_names": ["component"]
+}

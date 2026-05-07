@@ -79,11 +79,21 @@ class AGUIEvent:
     timestamp: int | None = None
     raw_event: Any | None = None
 
+    def _type_str(self) -> str:
+        """规范化 type 为字符串（兼容 Enum 输入）。
+
+        Python 3.11 下 `AGUIEventType.RUN_STARTED` 的 `__str__` 返回
+        "AGUIEventType.RUN_STARTED"，不是值本身；必须显式取 value。
+        """
+        t = self.type
+        val = getattr(t, "value", None)
+        return val if isinstance(val, str) else str(t)
+
     def to_sse(self) -> str:
-        return f"event: {self.type}\ndata: {json.dumps(self.data, ensure_ascii=False)}\n\n"
+        return f"event: {self._type_str()}\ndata: {json.dumps(self.data, ensure_ascii=False)}\n\n"
 
     def to_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"type": self.type, **self.data}
+        out: dict[str, Any] = {"type": self._type_str(), **self.data}
         if self.timestamp is not None:
             out["timestamp"] = self.timestamp
         if self.raw_event is not None:

@@ -1,0 +1,23 @@
+{
+  "type": "SearchResultsList",
+  "description": "搜索结果列表（知识库 / 产品库 / FAQ），每条含标题、摘要、命中片段。",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "query": {"type": "string"},
+      "results": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "title": {"type": "string"},
+            "summary": {"type": "string"},
+            "highlight": {"type": "string"},
+            "source": {"type": "string"}
+          }
+        }
+      }
+    }
+  },
+  "supported_model_names": ["searchResults", "relevantData"]
+}

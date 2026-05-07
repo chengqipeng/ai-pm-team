@@ -1,0 +1,29 @@
+{
+  "type": "CrmRecordCard",
+  "description": "CRM 实体卡片（客户 / 联系人 / 商机 / 合同 / 订单）。接收 recordType + recordId，内部通过 CRM Tool 获取详情并渲染标准字段。",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "recordType": {
+        "type": "string",
+        "enum": ["customer", "contact", "opportunity", "contract", "order"]
+      },
+      "recordId": {"type": "string"}
+    },
+    "required": ["recordType", "recordId"]
+  },
+  "skill_bindings": {
+    "bind": [
+      "customer_360_analysis",
+      "contact_detail",
+      "opportunity_detail",
+      "contract_detail",
+      "order_detail"
+    ],
+    "prefer": [
+      "customer_list",
+      "contact_list"
+    ]
+  },
+  "supported_model_names": ["component", "relevantData"]
+}

@@ -18,6 +18,8 @@ class NeoAgentV2Adapter:
     def __init__(self):
         self._agent: CompiledStateGraph | None = None
         self._init_lock = asyncio.Lock()
+        # A2UI userAction / 外部消息注入队列：thread_id → [message, ...]
+        self._pending_messages: dict[str, list[Any]] = {}
 
     async def _ensure_agent(self) -> CompiledStateGraph:
         if self._agent is not None:
@@ -151,13 +153,46 @@ class NeoAgentV2Adapter:
             history_messages=history,
         )
 
+        # 将 pending A2UI userAction 注入本次对话
         messages = _build_messages(user_input, history)
+        pending = self._pending_messages.pop(thread_id, None)
+        if pending:
+            # 按注入顺序追加（用户原始输入仍在末尾，保证 Agent 先看到 UI action 再看到自由文本）
+            messages = messages[:-1] + pending + messages[-1:]
+
         input_data = {"messages": messages}
         config = {"configurable": {"thread_id": thread_id}}
 
         astream = agent.astream_events(input_data, config=config, version="v2")
         async for event in renderer.process(converter.convert(astream)):
             yield event
+
+    # ═══════════════════════════════════════════════════════════
+    # 外部消息注入（A2UI userAction / 其他系统触发）
+    # ═══════════════════════════════════════════════════════════
+
+    def inject_message(
+        self,
+        thread_id: str | None,
+        message: Any,
+        *,
+        source: str = "external",
+    ) -> None:
+        """注入一条消息到指定 thread 的 pending 队列。
+
+        在下一次 `execute` / `execute_agui` 被调用时，pending 消息会被追加到
+        `input_data.messages`（位于 user_input 之前）。
+
+        Args:
+            thread_id: 目标会话 ID；None 视为默认 thread（不推荐）。
+            message:   LangChain `BaseMessage` 或 dict（`{"role", "content"}`）。
+            source:    日志标记（"a2ui" / "hook" / "webhook" ...）
+        """
+        key = thread_id or "__default__"
+        bucket = self._pending_messages.setdefault(key, [])
+        bucket.append(message)
+        logger.info("[inject_message] thread=%s source=%s queue_size=%d",
+                    key, source, len(bucket))
 
 
 def _build_messages(user_input: str, history: list[dict] | None = None) -> list:

@@ -1,0 +1,15 @@
+{
+  "type": "LinkCard",
+  "description": "链接卡片，展示外链标题、摘要、预览图、来源。",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "url": {"type": "string"},
+      "title": {"type": "string"},
+      "summary": {"type": "string"},
+      "image": {"type": "string"}
+    },
+    "required": ["url", "title"]
+  },
+  "supported_model_names": ["link"]
+}

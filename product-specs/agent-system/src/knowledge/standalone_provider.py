@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from src.store.knowledge_dao import (
-    KnowledgeBaseBindingDAO, KnowledgeBaseDAO, KnowledgeChunkDAO,
+    KnowledgeBaseDAO, KnowledgeChunkDAO,
     KnowledgeDocumentDAO, KnowledgeIngestLogDAO,
 )
 from src.store.knowledge_models import (

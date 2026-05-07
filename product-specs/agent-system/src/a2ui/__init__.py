@@ -67,6 +67,7 @@ from .inbound import (
     parse_client_event,
 )
 from .stream import a2ui_jsonl_stream, a2ui_sse_stream
+from .render_helper import A2UIRenderHelper, SurfaceBuilder
 
 
 __all__ = [
@@ -89,4 +90,6 @@ __all__ = [
     "A2UIInboundHandler", "InboundDedupe", "parse_client_event",
     # Stream (Mode A)
     "a2ui_jsonl_stream", "a2ui_sse_stream",
+    # Helper
+    "A2UIRenderHelper", "SurfaceBuilder",
 ]

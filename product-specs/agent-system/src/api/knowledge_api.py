@@ -4,14 +4,16 @@
 
 路由前缀：/api/knowledge
 
-提供能力：
-    - 知识库 CRUD
-    - 数据集 CRUD
-    - Schema CRUD
-    - Agent 授权绑定
-    - 文档上传 / 列表 / 删除 / 详情
-    - 入库任务进度查询
-    - 检索审计日志查询
+⚠️ 路由声明顺序很重要：所有具体路径（/documents、/datasets 等）必须在
+参数化 /{kb_id} 之前声明，否则 FastAPI 会把 "documents" 当成 kb_id 解析。
+
+路由分组：
+    - 文档相关：/documents/*
+    - 数据集:   /datasets/*
+    - Schema:   /schemas/*
+    - 任务:     /tasks/*
+    - 审计:     /search-logs/*
+    - 知识库:   / 和 /{kb_id}（必须放最后）
 """
 from __future__ import annotations
 
@@ -19,14 +21,12 @@ import json
 import logging
 import os
 import tempfile
-import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from src.store.knowledge_dao import (
-    KnowledgeBaseBindingDAO,
     KnowledgeBaseDAO,
     KnowledgeChunkDAO,
     KnowledgeDatasetDAO,
@@ -36,7 +36,6 @@ from src.store.knowledge_dao import (
     KnowledgeSearchLogDAO,
 )
 from src.store.knowledge_models import (
-    KnowledgeBaseBindingRow,
     KnowledgeBaseRow,
     KnowledgeDatasetRow,
     KnowledgeSchemaRow,
@@ -48,7 +47,7 @@ router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 
 # ═══════════════════════════════════════════════════════════
-# Provider 获取（从 app.state 注入）
+# 工具函数
 # ═══════════════════════════════════════════════════════════
 
 def _get_provider(request: Request):
@@ -59,7 +58,7 @@ def _get_provider(request: Request):
     """
     provider = getattr(request.app.state, "knowledge_provider", None)
     if provider is None:
-        raise HTTPException(503, "知识库未启用，请在应用配置中开启 knowledge.enabled")
+        raise HTTPException(503, "知识库 Provider 未启用，上传/检索等功能不可用")
     return provider
 
 
@@ -68,128 +67,182 @@ def _require_tenant(tenant_id: int) -> None:
         raise HTTPException(400, "tenant_id 必填且必须为正整数")
 
 
-# ═══════════════════════════════════════════════════════════
-# 1. 知识库 CRUD
-# ═══════════════════════════════════════════════════════════
-
-class CreateKnowledgeBaseReq(BaseModel):
-    tenant_id: int
-    api_key: str = Field(min_length=2, max_length=100)
-    name: str = Field(min_length=1, max_length=200)
-    description: str = ""
-    owner: str = ""
-    default_top_k: int = Field(default=5, ge=1, le=50)
-    enable_rerank: bool = True
-    enable_self_query: bool = True
-    schema_id: int = 0
-
-
-@router.post("")
-async def create_knowledge_base(req: CreateKnowledgeBaseReq, request: Request):
-    _require_tenant(req.tenant_id)
-    # 查重
-    exists = KnowledgeBaseDAO.get_by_api_key(req.tenant_id, req.api_key)
-    if exists:
-        raise HTTPException(409, f"知识库 api_key={req.api_key} 已存在")
-
-    kb = KnowledgeBaseRow(
-        tenant_id=req.tenant_id,
-        api_key=req.api_key,
-        name=req.name,
-        description=req.description,
-        owner=req.owner,
-        default_top_k=req.default_top_k,
-        enable_rerank=1 if req.enable_rerank else 0,
-        enable_self_query=1 if req.enable_self_query else 0,
-        schema_id=req.schema_id,
-    )
-    KnowledgeBaseDAO.insert(kb)
-    logger.info("KB created: id=%s tenant=%s api_key=%s", kb.id, kb.tenant_id, kb.api_key)
-    return {"id": kb.id, "api_key": kb.api_key, "name": kb.name}
-
-
-@router.get("")
-async def list_knowledge_bases(
-    tenant_id: int = Query(..., gt=0),
-    agent_name: str = Query(""),
-    request: Request = None,
-):
-    provider = _get_provider(request)
-    kbs = await provider.list_knowledge_bases(tenant_id, agent_name=agent_name)
+def _kb_to_dict(kb: KnowledgeBaseRow) -> dict:
     return {
-        "items": [
-            {
-                "id": kb.id,
-                "api_key": kb.api_key,
-                "name": kb.name,
-                "description": kb.description,
-                "default_top_k": kb.default_top_k,
-                "document_count": kb.document_count,
-                "chunk_count": kb.chunk_count,
-            }
-            for kb in kbs
-        ],
+        "id": kb.id,
+        "tenant_id": kb.tenant_id,
+        "api_key": kb.api_key,
+        "name": kb.name,
+        "description": kb.description,
+        "owner": kb.owner,
+        "default_top_k": kb.default_top_k,
+        "min_score": kb.min_score,
+        "enable_rerank": bool(kb.enable_rerank),
+        "enable_self_query": bool(kb.enable_self_query),
+        "schema_id": kb.schema_id,
+        "document_count": kb.document_count,
+        "chunk_count": kb.chunk_count,
+        "status": kb.status,
+        "created_at": kb.created_at,
+        "updated_at": kb.updated_at,
     }
 
 
-@router.get("/{kb_id}")
-async def get_knowledge_base(kb_id: int):
-    kb = KnowledgeBaseDAO.get_by_id(kb_id)
-    if kb is None:
-        raise HTTPException(404, "知识库不存在")
-    return _kb_to_dict(kb)
-
-
-@router.delete("/{kb_id}")
-async def delete_knowledge_base(kb_id: int):
-    ok = KnowledgeBaseDAO.soft_delete(kb_id)
-    if not ok:
-        raise HTTPException(404, "知识库不存在")
-    return {"deleted": True, "id": kb_id}
+def _doc_row_to_dict(r) -> dict:
+    try:
+        md = json.loads(r.metadata) if r.metadata else {}
+    except json.JSONDecodeError:
+        md = {}
+    return {
+        "doc_id": r.doc_id,
+        "title": r.title,
+        "file_name": r.file_name,
+        "file_type": r.file_type,
+        "file_size": r.file_size,
+        "parse_status": r.parse_status,
+        "clean_status": r.clean_status,
+        "chunk_status": r.chunk_status,
+        "chunk_count": r.chunk_count,
+        "segment_count": r.segment_count,
+        "quality_score": r.quality_score,
+        "summary": r.summary,
+        "metadata": md,
+        "created_at": r.created_at,
+        "updated_at": r.updated_at,
+    }
 
 
 # ═══════════════════════════════════════════════════════════
-# 2. Agent 授权绑定
+# 1. 文档（/documents/*）— 必须在 /{kb_id} 之前声明
 # ═══════════════════════════════════════════════════════════
 
-class BindAgentReq(BaseModel):
-    tenant_id: int
-    knowledge_base_id: int
-    agent_name: str = Field(description="Agent 名称，传 * 表示全局可见")
-    scope: str = Field(default="read", pattern="^(read|write)$")
-    override_top_k: int = 0
+@router.post("/documents/upload")
+async def upload_document(
+    request: Request,
+    tenant_id: int = Query(..., gt=0),
+    knowledge_base_id: int = Query(..., gt=0),
+    dataset_id: int = Query(0, ge=0),
+    title: str = Query(""),
+    file: UploadFile = File(...),
+):
+    """上传文档 → 存本地 → 入队 → 立即返回 task_id"""
+    provider = _get_provider(request)
+
+    suffix = os.path.splitext(file.filename or "")[1] or ""
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        result = await provider.ingest_document(
+            tenant_id=tenant_id,
+            knowledge_base_id=knowledge_base_id,
+            file_path=tmp_path,
+            file_name=file.filename or os.path.basename(tmp_path),
+            user_metadata={"title": title} if title else None,
+            dataset_id=dataset_id,
+        )
+        return {
+            "task_id": result.task_id,
+            "doc_id": result.doc_id,
+            "status": result.status,
+            "reused": result.reused,
+            "message": result.message,
+        }
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
-@router.post("/bindings")
-async def bind_agent(req: BindAgentReq):
-    _require_tenant(req.tenant_id)
-    # 检查 KB 是否存在
-    kb = KnowledgeBaseDAO.get_by_id(req.knowledge_base_id)
-    if kb is None or kb.tenant_id != req.tenant_id:
-        raise HTTPException(404, "知识库不存在")
-
-    binding = KnowledgeBaseBindingRow(
-        tenant_id=req.tenant_id,
-        knowledge_base_id=req.knowledge_base_id,
-        agent_name=req.agent_name,
-        scope=req.scope,
-        override_top_k=req.override_top_k,
-    )
-    KnowledgeBaseBindingDAO.insert(binding)
-    return {"id": binding.id, "agent_name": binding.agent_name}
+@router.get("/documents")
+async def list_documents(
+    tenant_id: int = Query(..., gt=0),
+    knowledge_base_id: int = Query(..., gt=0),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """文档列表（直接走 DAO，不依赖 provider）"""
+    rows = KnowledgeDocumentDAO.list_by_kb(tenant_id, knowledge_base_id, limit, offset)
+    return {
+        "items": [_doc_row_to_dict(r) for r in rows],
+        "total": len(rows),
+    }
 
 
-@router.get("/bindings/{agent_name}")
-async def list_bindings_for_agent(
-    agent_name: str,
+@router.get("/documents/{doc_id}/chunks")
+async def list_document_chunks(
+    doc_id: str,
+    limit: int = Query(200, ge=1, le=1000),
+):
+    """查看文档的切片（调试/审计用）"""
+    rows = KnowledgeChunkDAO.list_by_doc(doc_id)
+    return {
+        "items": [
+            {
+                "chunk_id": r.chunk_id,
+                "chunk_index": r.chunk_index,
+                "chunk_type": r.chunk_type,
+                "section_title": r.section_title,
+                "section_path": r.section_path,
+                "content_tokens": r.content_tokens,
+                "vector_synced": r.vector_synced,
+                "hit_count": r.hit_count,
+                "content_preview": r.content[:200] + ("…" if len(r.content) > 200 else ""),
+            }
+            for r in rows[:limit]
+        ],
+        "total": len(rows),
+    }
+
+
+@router.get("/documents/{doc_id}")
+async def get_document(doc_id: str):
+    """文档详情（直接走 DAO，不依赖 provider）"""
+    row = KnowledgeDocumentDAO.get_by_doc_id(doc_id)
+    if row is None:
+        raise HTTPException(404, "文档不存在")
+    try:
+        md = json.loads(row.metadata) if row.metadata else {}
+    except json.JSONDecodeError:
+        md = {}
+    return {
+        "doc_id": row.doc_id,
+        "title": row.title,
+        "file_name": row.file_name,
+        "file_type": row.file_type,
+        "file_size": row.file_size,
+        "knowledge_base_id": row.knowledge_base_id,
+        "summary": row.summary,
+        "chunk_count": row.chunk_count,
+        "segment_count": row.segment_count,
+        "quality_score": row.quality_score,
+        "metadata": md,
+        "parse_status": row.parse_status,
+        "clean_status": row.clean_status,
+        "chunk_status": row.chunk_status,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+@router.delete("/documents/{doc_id}")
+async def delete_document(
+    doc_id: str,
+    request: Request,
     tenant_id: int = Query(..., gt=0),
 ):
-    kb_ids = KnowledgeBaseBindingDAO.list_kb_ids_for_agent(tenant_id, agent_name)
-    return {"agent_name": agent_name, "knowledge_base_ids": kb_ids}
+    provider = _get_provider(request)
+    ok = await provider.delete_document(tenant_id, doc_id)
+    if not ok:
+        raise HTTPException(404, "文档不存在或不属于该租户")
+    return {"deleted": True, "doc_id": doc_id}
 
 
 # ═══════════════════════════════════════════════════════════
-# 3. 数据集 CRUD
+# 2. 数据集（/datasets/*）
 # ═══════════════════════════════════════════════════════════
 
 class CreateDatasetReq(BaseModel):
@@ -197,7 +250,10 @@ class CreateDatasetReq(BaseModel):
     knowledge_base_id: int
     name: str = Field(min_length=1, max_length=200)
     description: str = ""
-    chunk_strategy: str = Field(default="lkeap", pattern="^(lkeap|local_header|sliding_window)$")
+    chunk_strategy: str = Field(
+        default="lkeap",
+        pattern="^(lkeap|local_header|sliding_window)$",
+    )
     chunk_size: int = Field(default=800, ge=100, le=4000)
     chunk_overlap: int = Field(default=200, ge=0, le=1000)
 
@@ -242,7 +298,7 @@ async def list_datasets(
 
 
 # ═══════════════════════════════════════════════════════════
-# 4. Schema CRUD（用于 Self-Querying + 自动打标）
+# 3. Schema（/schemas/*）
 # ═══════════════════════════════════════════════════════════
 
 class CreateSchemaReq(BaseModel):
@@ -290,122 +346,7 @@ async def get_schema_for_kb(kb_id: int, tenant_id: int = Query(..., gt=0)):
 
 
 # ═══════════════════════════════════════════════════════════
-# 5. 文档上传 / 列表 / 详情 / 删除
-# ═══════════════════════════════════════════════════════════
-
-@router.post("/documents/upload")
-async def upload_document(
-    request: Request,
-    tenant_id: int = Query(..., gt=0),
-    knowledge_base_id: int = Query(..., gt=0),
-    dataset_id: int = Query(0, ge=0),
-    title: str = Query(""),
-    file: UploadFile = File(...),
-):
-    """上传文档 → 存本地 → 入队 → 立即返回 task_id"""
-    provider = _get_provider(request)
-
-    # 保存到临时文件（provider 内部会拷贝到 upload_dir）
-    suffix = os.path.splitext(file.filename or "")[1] or ""
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        content = await file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
-
-    try:
-        result = await provider.ingest_document(
-            tenant_id=tenant_id,
-            knowledge_base_id=knowledge_base_id,
-            file_path=tmp_path,
-            file_name=file.filename or os.path.basename(tmp_path),
-            user_metadata={"title": title} if title else None,
-            dataset_id=dataset_id,
-        )
-        return {
-            "task_id": result.task_id,
-            "doc_id": result.doc_id,
-            "status": result.status,
-            "reused": result.reused,
-            "message": result.message,
-        }
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-
-
-@router.get("/documents")
-async def list_documents(
-    tenant_id: int = Query(..., gt=0),
-    knowledge_base_id: int = Query(..., gt=0),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-):
-    rows = KnowledgeDocumentDAO.list_by_kb(tenant_id, knowledge_base_id, limit, offset)
-    return {
-        "items": [_doc_row_to_dict(r) for r in rows],
-        "total": len(rows),
-    }
-
-
-@router.get("/documents/{doc_id}")
-async def get_document(doc_id: str, request: Request):
-    provider = _get_provider(request)
-    info = await provider.get_document_info(doc_id)
-    if info is None:
-        raise HTTPException(404, "文档不存在")
-    return {
-        "doc_id": info.doc_id,
-        "title": info.title,
-        "file_name": info.file_name,
-        "file_type": info.file_type,
-        "knowledge_base_id": info.knowledge_base_id,
-        "summary": info.summary,
-        "chunk_count": info.chunk_count,
-        "quality_score": info.quality_score,
-        "metadata": info.metadata,
-        "created_at": info.created_at,
-    }
-
-
-@router.delete("/documents/{doc_id}")
-async def delete_document(
-    doc_id: str, request: Request,
-    tenant_id: int = Query(..., gt=0),
-):
-    provider = _get_provider(request)
-    ok = await provider.delete_document(tenant_id, doc_id)
-    if not ok:
-        raise HTTPException(404, "文档不存在或不属于该租户")
-    return {"deleted": True, "doc_id": doc_id}
-
-
-@router.get("/documents/{doc_id}/chunks")
-async def list_chunks(doc_id: str, limit: int = Query(200, ge=1, le=1000)):
-    """查看文档的切片（调试/审计用）"""
-    rows = KnowledgeChunkDAO.list_by_doc(doc_id)
-    return {
-        "items": [
-            {
-                "chunk_id": r.chunk_id,
-                "chunk_index": r.chunk_index,
-                "chunk_type": r.chunk_type,
-                "section_title": r.section_title,
-                "section_path": r.section_path,
-                "content_tokens": r.content_tokens,
-                "vector_synced": r.vector_synced,
-                "hit_count": r.hit_count,
-                "content_preview": r.content[:200] + ("…" if len(r.content) > 200 else ""),
-            }
-            for r in rows[:limit]
-        ],
-        "total": len(rows),
-    }
-
-
-# ═══════════════════════════════════════════════════════════
-# 6. 入库任务进度
+# 4. 任务（/tasks/*）
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/tasks/{task_id}")
@@ -418,7 +359,7 @@ async def get_task_status(task_id: str, request: Request):
 
 
 # ═══════════════════════════════════════════════════════════
-# 7. 检索审计反馈
+# 5. 检索审计反馈（/search-logs/*）
 # ═══════════════════════════════════════════════════════════
 
 class FeedbackReq(BaseModel):
@@ -438,49 +379,81 @@ async def submit_feedback(req: FeedbackReq):
 
 
 # ═══════════════════════════════════════════════════════════
-# 辅助函数
+# 6. 知识库 CRUD（/ 和 /{kb_id}）— 必须放最后
 # ═══════════════════════════════════════════════════════════
 
-def _kb_to_dict(kb: KnowledgeBaseRow) -> dict:
+class CreateKnowledgeBaseReq(BaseModel):
+    tenant_id: int
+    api_key: str = Field(min_length=2, max_length=100)
+    name: str = Field(min_length=1, max_length=200)
+    description: str = ""
+    owner: str = ""
+    default_top_k: int = Field(default=5, ge=1, le=50)
+    enable_rerank: bool = True
+    enable_self_query: bool = True
+    schema_id: int = 0
+
+
+@router.post("")
+async def create_knowledge_base(req: CreateKnowledgeBaseReq):
+    _require_tenant(req.tenant_id)
+    exists = KnowledgeBaseDAO.get_by_api_key(req.tenant_id, req.api_key)
+    if exists:
+        raise HTTPException(409, f"知识库 api_key={req.api_key} 已存在")
+
+    kb = KnowledgeBaseRow(
+        tenant_id=req.tenant_id,
+        api_key=req.api_key,
+        name=req.name,
+        description=req.description,
+        owner=req.owner,
+        default_top_k=req.default_top_k,
+        enable_rerank=1 if req.enable_rerank else 0,
+        enable_self_query=1 if req.enable_self_query else 0,
+        schema_id=req.schema_id,
+    )
+    KnowledgeBaseDAO.insert(kb)
+    logger.info("KB created: id=%s tenant=%s api_key=%s", kb.id, kb.tenant_id, kb.api_key)
+    return {"id": kb.id, "api_key": kb.api_key, "name": kb.name}
+
+
+@router.get("")
+async def list_knowledge_bases(
+    tenant_id: int = Query(..., gt=0),
+):
+    """列出租户下的所有知识库
+
+    不依赖 provider — 直接走 DAO，便于前端在 provider 未初始化时也可读。
+    """
+    _require_tenant(tenant_id)
+    kbs = KnowledgeBaseDAO.list_by_tenant(tenant_id)
     return {
-        "id": kb.id,
-        "tenant_id": kb.tenant_id,
-        "api_key": kb.api_key,
-        "name": kb.name,
-        "description": kb.description,
-        "owner": kb.owner,
-        "default_top_k": kb.default_top_k,
-        "min_score": kb.min_score,
-        "enable_rerank": bool(kb.enable_rerank),
-        "enable_self_query": bool(kb.enable_self_query),
-        "schema_id": kb.schema_id,
-        "document_count": kb.document_count,
-        "chunk_count": kb.chunk_count,
-        "status": kb.status,
-        "created_at": kb.created_at,
-        "updated_at": kb.updated_at,
+        "items": [
+            {
+                "id": kb.id,
+                "api_key": kb.api_key,
+                "name": kb.name,
+                "description": kb.description,
+                "default_top_k": kb.default_top_k,
+                "document_count": kb.document_count,
+                "chunk_count": kb.chunk_count,
+            }
+            for kb in kbs
+        ],
     }
 
 
-def _doc_row_to_dict(r) -> dict:
-    try:
-        md = json.loads(r.metadata) if r.metadata else {}
-    except json.JSONDecodeError:
-        md = {}
-    return {
-        "doc_id": r.doc_id,
-        "title": r.title,
-        "file_name": r.file_name,
-        "file_type": r.file_type,
-        "file_size": r.file_size,
-        "parse_status": r.parse_status,
-        "clean_status": r.clean_status,
-        "chunk_status": r.chunk_status,
-        "chunk_count": r.chunk_count,
-        "segment_count": r.segment_count,
-        "quality_score": r.quality_score,
-        "summary": r.summary,
-        "metadata": md,
-        "created_at": r.created_at,
-        "updated_at": r.updated_at,
-    }
+@router.get("/{kb_id}")
+async def get_knowledge_base(kb_id: int):
+    kb = KnowledgeBaseDAO.get_by_id(kb_id)
+    if kb is None:
+        raise HTTPException(404, "知识库不存在")
+    return _kb_to_dict(kb)
+
+
+@router.delete("/{kb_id}")
+async def delete_knowledge_base(kb_id: int):
+    ok = KnowledgeBaseDAO.soft_delete(kb_id)
+    if not ok:
+        raise HTTPException(404, "知识库不存在")
+    return {"deleted": True, "id": kb_id}

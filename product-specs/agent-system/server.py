@@ -242,6 +242,24 @@ MULTIMODAL_MODEL = "doubao-seed-2-0-lite-260215"
 TEXT_MODEL = "doubao-seed-2-0-lite-260215"
 
 
+# ── 挂载知识库 REST 路由 ──
+try:
+    from src.api import knowledge_router
+    app.include_router(knowledge_router)
+    logger.info("已挂载知识库管理 API: /api/knowledge/*")
+except ImportError as exc:
+    logger.warning("知识库 API 未启用: %s", exc)
+
+
+# ── 挂载 AG-UI / A2UI 路由 ──
+try:
+    from src.api import a2ui_router
+    app.include_router(a2ui_router)
+    logger.info("已挂载 A2UI API: /agent/a2ui/*, /.well-known/agent-card")
+except ImportError as exc:
+    logger.warning("A2UI API 未启用: %s", exc)
+
+
 # ── API 路由 ──
 
 @app.get("/api/health")
@@ -834,6 +852,16 @@ async def memory_browser():
         with open(html_path, encoding="utf-8") as f:
             return f.read()
     return "<h1>Memory Browser — 页面未找到</h1>"
+
+
+@app.get("/knowledge", response_class=HTMLResponse)
+async def knowledge_browser():
+    """知识库管理页面"""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "knowledge_browser.html")
+    if os.path.exists(html_path):
+        with open(html_path, encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Knowledge Browser — 页面未找到</h1>"
 
 
 # ── 记忆浏览 API ──
