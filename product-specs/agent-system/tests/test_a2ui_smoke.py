@@ -201,9 +201,11 @@ def test_aggregator_first_add_emits_notification_and_snapshot():
     assert agui.AGUIEventType.STATE_SNAPSHOT in types
 
     snap = [e for e in events if e.type == agui.AGUIEventType.STATE_SNAPSHOT][0].data["snapshot"]
-    assert snap["customers"] == [{"name": "工行"}]
+    # 业务数据分层到 data.<render_type>
+    assert snap["data"]["customers"] == [{"name": "工行"}]
     assert snap["panelSurfaceMap"] == {"customers": "panel-slot-1"}
     assert snap["panelLayoutOrder"] == ["customers"]
+    assert snap["phase"] == "executing"
 
 
 def test_aggregator_subsequent_add_emits_delta_when_small():
@@ -304,3 +306,333 @@ def test_converter_handles_state_patch():
     deltas = [e for e in events if e.type == agui.AGUIEventType.STATE_DELTA]
     assert len(deltas) == 1
     assert deltas[0].data["delta"][0]["path"] == "/customers/0/status"
+
+
+# ═══════════════════════════════════════════════════════════
+# Phase 3: DataEntry.valueList + 客户端入站消息
+# ═══════════════════════════════════════════════════════════
+
+def test_data_entry_value_list_is_canonical_name():
+    from src.a2ui import entry_list
+    e = entry_list("customers", [{"id": 1}, {"id": 2}])
+    d = e.to_dict()
+    # 规范字段名
+    assert d["valueList"] == [{"id": 1}, {"id": 2}]
+    # 同时产出兼容别名
+    assert d["valueArray"] == [{"id": 1}, {"id": 2}]
+
+
+def test_data_entry_accepts_value_array_alias():
+    from src.a2ui import DataEntry
+    e = DataEntry(key="x", value_array=[1, 2, 3])
+    assert e.value_list == [1, 2, 3]
+    d = e.to_dict()
+    assert d["valueList"] == [1, 2, 3]
+
+
+def test_parse_client_event_user_action():
+    from src.a2ui import UserAction, parse_client_event
+    payload = {
+        "userAction": {
+            "name": "open_opportunity",
+            "surfaceId": "panel-slot-1",
+            "sourceComponentId": "detail_btn",
+            "timestamp": "2026-05-07T10:00:00Z",
+            "context": {"recordId": "C1"},
+        }
+    }
+    ev = parse_client_event(payload)
+    assert isinstance(ev, UserAction)
+    assert ev.name == "open_opportunity"
+    assert ev.context == {"recordId": "C1"}
+
+
+def test_parse_client_event_error():
+    from src.a2ui import ClientError, parse_client_event
+    ev = parse_client_event({"error": {"message": "bind not found", "componentId": "title"}})
+    assert isinstance(ev, ClientError)
+    assert ev.message == "bind not found"
+    assert ev.component_id == "title"
+
+
+def test_parse_client_event_unknown_raises():
+    from src.a2ui import parse_client_event
+    with pytest.raises(ValueError):
+        parse_client_event({"whatever": {}})
+
+
+def test_inbound_handler_dedupes():
+    from src.a2ui import A2UIInboundHandler
+    h = A2UIInboundHandler()
+    payload = {"userAction": {
+        "name": "click", "surfaceId": "s1", "sourceComponentId": "b1",
+        "timestamp": "2026-05-07T10:00:00Z", "context": {},
+    }}
+    ev1 = h.handle(payload)
+    ev2 = h.handle(payload)
+    assert ev1 is not None
+    assert ev2 is None  # 幂等命中
+
+
+# ═══════════════════════════════════════════════════════════
+# Phase 3: Catalog 协商 + ComponentMatcherV2
+# ═══════════════════════════════════════════════════════════
+
+def test_catalog_registry_negotiate_standard_default():
+    from src.a2ui import CatalogRegistry, STANDARD_V08
+    reg = CatalogRegistry()
+    reg.register_standard()
+    chosen = reg.negotiate(client_supported=[STANDARD_V08])
+    assert chosen == STANDARD_V08
+
+
+def test_catalog_registry_negotiate_custom_intersection():
+    from src.a2ui import CatalogDefinition, CatalogRegistry, STANDARD_V08, VIKING_CRM_V1
+    reg = CatalogRegistry()
+    reg.register_standard()
+    reg.register(CatalogDefinition(catalog_id=VIKING_CRM_V1))
+    reg.set_default(VIKING_CRM_V1)
+    chosen = reg.negotiate(client_supported=[STANDARD_V08, VIKING_CRM_V1])
+    # default 优先
+    assert chosen == VIKING_CRM_V1
+
+
+def test_catalog_registry_negotiate_fallback_to_standard():
+    from src.a2ui import CatalogRegistry, STANDARD_V08
+    reg = CatalogRegistry()
+    reg.register_standard()
+    chosen = reg.negotiate(client_supported=["urn:unknown"])
+    assert chosen == STANDARD_V08
+
+
+def test_catalog_registry_advertise_shape():
+    from src.a2ui import CatalogRegistry
+    reg = CatalogRegistry()
+    reg.register_standard()
+    ad = reg.advertise()
+    assert ad["uri"].startswith("https://a2ui.org/a2a-extension/a2ui/")
+    assert "supportedCatalogIds" in ad["params"]
+    assert isinstance(ad["params"]["acceptsInlineCatalogs"], bool)
+
+
+def test_component_matcher_v2_bind_and_prefer():
+    from src.a2ui import (
+        CatalogDefinition, CatalogRegistry, ComponentMatcherV2, ComponentMeta,
+        VIKING_CRM_V1,
+    )
+    reg = CatalogRegistry()
+    cat = CatalogDefinition(catalog_id=VIKING_CRM_V1)
+    cat.register(ComponentMeta(
+        type="CrmRecordCard",
+        skill_bindings={"bind": ["customer_detail"], "prefer": ["customer_list"]},
+        supported_model_names=["component", "relevantData"],
+    ))
+    cat.register(ComponentMeta(
+        type="PipelineTable",
+        skill_bindings={"bind": ["pipeline_analysis"]},
+    ))
+    reg.register(cat)
+    reg.set_default(VIKING_CRM_V1)
+
+    matcher = ComponentMatcherV2(reg)
+    matcher.warmup()
+
+    assert matcher.resolve("customer_detail") == "CrmRecordCard"
+    assert matcher.resolve("pipeline_analysis") == "PipelineTable"
+    # prefer（多对一的首选）
+    assert matcher.resolve("customer_list") == "CrmRecordCard"
+    # model_name 匹配（唯一候选）
+    assert matcher.resolve("unknown_skill", output_model_names=["relevantData"]) == "CrmRecordCard"
+
+
+def test_component_matcher_v2_schema_matching():
+    from src.a2ui import (
+        CatalogDefinition, CatalogRegistry, ComponentMatcherV2, ComponentMeta,
+        VIKING_CRM_V1,
+    )
+    # skill.output_schema: {properties: {name, amount, stage, customer}}
+    # comp.input_schema:   {properties: {name, amount, stage}}
+    reg = CatalogRegistry()
+    cat = CatalogDefinition(catalog_id=VIKING_CRM_V1)
+    cat.register(ComponentMeta(
+        type="OpportunityCard",
+        input_schema={"properties": {"name": {}, "amount": {}, "stage": {}}},
+    ))
+    reg.register(cat)
+    reg.set_default(VIKING_CRM_V1)
+
+    class FakeSkill:
+        apikey = "opp_detail"
+        output_schema = {"properties": {"name": {}, "amount": {}, "stage": {}, "customer": {}}}
+
+    matcher = ComponentMatcherV2(reg)
+    matcher.warmup(skills=[FakeSkill()])
+    assert matcher.resolve("opp_detail") == "OpportunityCard"
+
+
+# ═══════════════════════════════════════════════════════════
+# Phase 3: Aggregator bind_a2ui_data + Shared State 分层
+# ═══════════════════════════════════════════════════════════
+
+def test_aggregator_bind_a2ui_data_returns_path():
+    agg = SnapshotAggregator(run_id="run-bind")
+    assert agg.bind_a2ui_data("customers_top") == "/data/customers_top"
+
+
+def test_aggregator_snapshot_has_layered_data():
+    agg = SnapshotAggregator(run_id="run-layer")
+    agg.add("customers", [{"id": "C1"}])
+    agg.add("pipeline", {"stages": []})
+    snap = agg.get_snapshot()
+    # 分层：data.* 下有业务数据；外层只有元数据
+    assert set(snap.keys()) == {
+        "phase", "data", "panelLayoutOrder", "panelAppearanceOrder",
+        "notifications", "panelSurfaceMap",
+    }
+    assert set(snap["data"].keys()) == {"customers", "pipeline"}
+
+
+# ═══════════════════════════════════════════════════════════
+# Phase 3: Converter 推理新分层
+# ═══════════════════════════════════════════════════════════
+
+def test_converter_reasoning_new_layered_events():
+    from dataclasses import dataclass
+
+    @dataclass
+    class Chunk:
+        content: list
+        tool_call_chunks: list = None
+
+        def __post_init__(self):
+            if self.tool_call_chunks is None:
+                self.tool_call_chunks = []
+
+    conv = AGUIConverter(run_id="r-think", thread_id="t-think",
+                         emit_legacy_reasoning=False)  # 仅测试新事件
+
+    async def stream():
+        yield {"event": "on_chat_model_stream", "run_id": "root",
+               "data": {"chunk": Chunk(content=[
+                   {"type": "thinking", "thinking": "先找客户 C1 的合同 ..."},
+               ])}}
+        yield {"event": "on_chat_model_stream", "run_id": "root",
+               "data": {"chunk": Chunk(content=[
+                   {"type": "text", "text": "找到了："},
+               ])}}
+
+    events = asyncio.run(_collect(conv.convert(stream())))
+    types = [e.type for e in events]
+    # 新分层：REASONING_START → REASONING_MESSAGE_START → REASONING_MESSAGE_CONTENT
+    #         → REASONING_MESSAGE_END → REASONING_END
+    assert agui.AGUIEventType.REASONING_START in types
+    assert agui.AGUIEventType.REASONING_MESSAGE_START in types
+    assert agui.AGUIEventType.REASONING_MESSAGE_CONTENT in types
+    assert agui.AGUIEventType.REASONING_MESSAGE_END in types
+    assert agui.AGUIEventType.REASONING_END in types
+
+
+def test_converter_tool_call_chunk_splits_args():
+    from dataclasses import dataclass
+
+    @dataclass
+    class Chunk:
+        content: str = ""
+        tool_call_chunks: list = None
+
+        def __post_init__(self):
+            if self.tool_call_chunks is None:
+                self.tool_call_chunks = []
+
+    conv = AGUIConverter(run_id="r-tc", thread_id="t-tc")
+
+    async def stream():
+        # 首 chunk：带 name + 首段 args
+        yield {"event": "on_chat_model_stream", "run_id": "root",
+               "data": {"chunk": Chunk(tool_call_chunks=[
+                   {"id": "tc1", "name": "list_customers", "args": "{\"quarter\":"},
+               ])}}
+        # 后续 chunk：只有 args delta
+        yield {"event": "on_chat_model_stream", "run_id": "root",
+               "data": {"chunk": Chunk(tool_call_chunks=[
+                   {"id": "tc1", "name": None, "args": "\"Q3\"}"},
+               ])}}
+
+    events = asyncio.run(_collect(conv.convert(stream())))
+    types = [e.type for e in events]
+    assert agui.AGUIEventType.TOOL_CALL_START in types
+    args_events = [e for e in events if e.type == agui.AGUIEventType.TOOL_CALL_ARGS]
+    assert len(args_events) == 2
+
+
+# ═══════════════════════════════════════════════════════════
+# Phase 3: 断线重连首包顺序
+# ═══════════════════════════════════════════════════════════
+
+def test_converter_reconnect_snapshot_sequence():
+    conv = AGUIConverter(run_id="r-new", thread_id="t-new")
+
+    async def run():
+        return [e async for e in conv.emit_reconnect_snapshot(
+            messages=[{"role": "user", "content": "Q3 top10"}],
+            state_snapshot={"phase": "idle", "data": {}},
+            activities=[{
+                "message_id": "a2ui-r-new",
+                "activity_type": "a2ui-surface",
+                "content": {"operations": []},
+                "replace": True,
+            }],
+            parent_run_id="r-old",
+        )]
+
+    events = asyncio.run(run())
+    types = [e.type for e in events]
+    # 固定顺序
+    assert types == [
+        agui.AGUIEventType.RUN_STARTED,
+        agui.AGUIEventType.MESSAGES_SNAPSHOT,
+        agui.AGUIEventType.STATE_SNAPSHOT,
+        agui.AGUIEventType.ACTIVITY_SNAPSHOT,
+    ]
+    assert events[0].data["parent_run_id"] == "r-old"
+
+
+# ═══════════════════════════════════════════════════════════
+# Phase 3: Renderer 吸收 skill_output + STEP_FINISHED 延迟透传
+# ═══════════════════════════════════════════════════════════
+
+def test_renderer_absorbs_skill_output_and_emits_state_delta():
+    from src.agui import ComponentMatcher, ProgressiveRenderer
+
+    matcher = ComponentMatcher({"my_skill": "MyComponent"})
+    renderer = ProgressiveRenderer(matcher=matcher)
+
+    async def upstream():
+        # STEP_STARTED + step_metadata(started)
+        yield agui.step_started("my_skill")
+        yield agui.step_metadata("my_skill", skill_apikey="my_skill",
+                                 step_index=0, phase="started")
+        # skill_output 内部事件（应被 Renderer 吸收）
+        yield agui.custom_event("skill_output",
+                                {"skill_apikey": "my_skill",
+                                 "data": {"result": 42}})
+        # step_metadata(finished) + STEP_FINISHED
+        yield agui.step_metadata("my_skill", skill_apikey="my_skill",
+                                 step_index=0, status="completed",
+                                 phase="finished")
+        yield agui.step_finished("my_skill")
+
+    events = asyncio.run(_collect(renderer.process(upstream())))
+    types = [e.type for e in events]
+    # skill_output 不透传
+    for e in events:
+        if e.type == agui.AGUIEventType.CUSTOM:
+            assert e.data["name"] != "skill_output"
+    # 出现过 component_loading → component_complete → STATE_DELTA → STEP_FINISHED
+    names = [e.data.get("name") for e in events if e.type == agui.AGUIEventType.CUSTOM]
+    assert "component_loading" in names
+    assert "component_complete" in names
+    # STEP_FINISHED 在 STATE_DELTA 之后
+    idx_delta = next(i for i, t in enumerate(types) if t == agui.AGUIEventType.STATE_DELTA)
+    idx_step_end = next(i for i, t in enumerate(types) if t == agui.AGUIEventType.STEP_FINISHED)
+    assert idx_delta < idx_step_end

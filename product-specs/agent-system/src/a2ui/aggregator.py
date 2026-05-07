@@ -8,14 +8,16 @@
 3. 计算两次快照间的 JSON Patch 差分，决定发送 STATE_SNAPSHOT 还是 STATE_DELTA
 4. 首次出现的 render_type 产出 ACTIVITY_SNAPSHOT（进度通知，承载 A2UI 消息）
 
-输出 A2UI v0.8 业务状态快照结构:
+输出 A2UI v0.8 业务状态快照结构（分层）:
     {
       "phase": "executing",
-      "<render_type_1>": <data_1>,
-      "<render_type_2>": <data_2>,
-      "panelLayoutOrder": [...],
+      "data": {                         # ★ 业务数据命名空间（Shared State 实质内容）
+        "<render_type_1>": <data_1>,
+        "<render_type_2>": <data_2>,
+      },
+      "panelLayoutOrder":     [...],
       "panelAppearanceOrder": [...],
-      "notifications": [...],
+      "notifications":        [...],
       "panelSurfaceMap": {"render_type_1": "panel-slot-1", ...}
     }
 
@@ -232,6 +234,33 @@ class SnapshotAggregator:
         self._previous_snapshot = current
         return agui.state_snapshot(current)
 
+    def bind_a2ui_data(self, render_type: str) -> str:
+        """返回该 render_type 对应的数据路径（供 Builder 的 path_bind 使用）。
+
+        例如 `bind_a2ui_data("customers_top")` → `"/data/customers_top"`。
+        组件里用 `path_bind(f"{data_path}/0/name")` 即可绑定到第一个客户的 name。
+        """
+        return f"/data/{render_type}"
+
+    def active_activities(self) -> list[dict]:
+        """返回当前每个活跃 surface 的 ACTIVITY 快照描述，用于断线重连。
+
+        仅做描述返回（不触发事件）；由 Converter.emit_reconnect_snapshot 消费。
+        """
+        out: list[dict] = []
+        for render_type, surface_id in self._panel_surface_map.items():
+            out.append({
+                "message_id": self._message_id,
+                "activity_type": "a2ui-surface",
+                "replace": True,
+                "content": {
+                    "operations": [],  # 真正的 surfaceUpdate 由 Skill 侧在重连时重新 emit_ui
+                    "render_type": render_type,
+                    "surface_id": surface_id,
+                },
+            })
+        return out
+
     def reset(self) -> None:
         """清空所有状态，跨 run 时调用"""
         self._business_state = {}
@@ -244,15 +273,15 @@ class SnapshotAggregator:
     # ── 内部 ──
 
     def _build_snapshot_dict(self) -> dict:
-        """序列化为 A2UI v0.8 业务状态快照"""
-        snapshot: dict[str, Any] = {"phase": "executing"}
-        for rt, data in self._business_state.items():
-            snapshot[rt] = data
-        snapshot["panelLayoutOrder"] = list(self._panel_layout_order)
-        snapshot["panelAppearanceOrder"] = list(self._panel_layout_order)
-        snapshot["notifications"] = list(self._notifications)
-        snapshot["panelSurfaceMap"] = dict(self._panel_surface_map)
-        return snapshot
+        """序列化为 A2UI v0.8 业务状态快照（分层：业务数据放 data.*）"""
+        return {
+            "phase": "executing",
+            "data": dict(self._business_state),
+            "panelLayoutOrder": list(self._panel_layout_order),
+            "panelAppearanceOrder": list(self._panel_layout_order),
+            "notifications": list(self._notifications),
+            "panelSurfaceMap": dict(self._panel_surface_map),
+        }
 
     def _decide_state_event(self, current: dict) -> agui.AGUIEvent:
         """增量 vs 全量决策"""

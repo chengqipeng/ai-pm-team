@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识库 - DeepAgent AI</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; }
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 10px; }
+@keyframes fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.animate-fade-in { animation: fade-in 0.3s ease-out; }
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.animate-pulse-slow { animation: pulse-dot 1.5s infinite; }
+.upload-drop.dragover { border-color: #3b82f6 !important; background: #eff6ff !important; }
+</style>
+</head>
+<body>
+<div class="flex h-screen w-full bg-[#f4f7fb] font-sans text-slate-800 overflow-hidden relative">
+  <!-- 氛围背景 -->
+  <div class="absolute top-[-10%] left-[-5%] w-[40%] h-[40%] bg-indigo-400/10 rounded-full blur-[100px] pointer-events-none"></div>
+  <div class="absolute bottom-[-10%] right-[-5%] w-[30%] h-[30%] bg-blue-400/10 rounded-full blur-[100px] pointer-events-none"></div>
+
+  <!-- 左侧边栏 -->
+  <aside class="w-72 flex flex-col z-20 shrink-0 bg-white/40 backdrop-blur-xl border-r border-gray-200/50">
+    <div class="p-6 shrink-0">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-9 h-9 bg-gradient-to-br from-indigo-600 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/20">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+        </div>
+        <span class="font-bold text-lg tracking-tight text-gray-900">知识库</span>
+      </div>
+
+      <!-- 导航 -->
+      <div class="space-y-1 mb-6">
+        <a href="/" class="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-gray-500 hover:bg-white/60 hover:text-blue-600 transition-all no-underline">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          返回对话
+        </a>
+        <a href="/memory" class="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-gray-500 hover:bg-white/60 hover:text-blue-600 transition-all no-underline">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          长期记忆
+        </a>
+        <a href="/trace" class="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-gray-500 hover:bg-white/60 hover:text-blue-600 transition-all no-underline">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Trace 链路
+        </a>
+      </div>
+
+      <!-- 租户筛选 -->
+      <div class="space-y-3 mb-4">
+        <div>
+          <label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">租户 ID</label>
+          <input id="tenantInput" type="number" value="1" onchange="loadKbs()" class="w-full bg-gray-100/50 border-none rounded-xl py-2 px-3 text-xs focus:ring-2 focus:ring-blue-500/20 placeholder:text-gray-400"/>
+        </div>
+      </div>
+
+      <!-- 新建 KB 按钮 -->
+      <button onclick="openCreateKbModal()" class="w-full py-2.5 px-3 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        新建知识库
+      </button>
+    </div>
+
+    <!-- KB 列表 -->
+    <div class="flex-1 overflow-y-auto custom-scrollbar px-4 pb-4">
+      <h3 class="px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">我的知识库</h3>
+      <div id="kbList" class="space-y-1">
+        <div class="text-center text-gray-400 text-xs py-8">加载中...</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 主区域 -->
+  <main class="flex-1 flex flex-col min-w-0 relative z-10">
+    <!-- 头部 -->
+    <div id="mainHeader" class="px-8 py-5 bg-white/40 backdrop-blur-md border-b border-gray-200/50 shrink-0 flex items-center justify-between">
+      <div>
+        <h1 id="kbTitle" class="text-lg font-bold text-gray-900">选择一个知识库</h1>
+        <p id="kbSubtitle" class="text-xs text-gray-400 mt-1">从左侧选择知识库查看文档</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="manageSchemaBtn" onclick="openSchemaModal()" class="hidden px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-50 transition-all flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          元数据 Schema
+        </button>
+        <button id="manageBindBtn" onclick="openBindingModal()" class="hidden px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-50 transition-all flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+          Agent 授权
+        </button>
+        <button id="uploadBtn" onclick="openUploadModal()" class="hidden px-3 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          上传文档
+        </button>
+      </div>
+    </div>
+
+    <!-- 统计卡片 -->
+    <div id="statsBar" class="hidden px-8 py-4 bg-white/20 border-b border-gray-200/30 flex gap-3"></div>
+
+    <!-- 文档列表 -->
+    <div id="docList" class="flex-1 overflow-y-auto custom-scrollbar px-8 py-6">
+      <div class="text-center text-gray-400 text-sm py-20">
+        <div class="text-4xl mb-3">📚</div>
+        <p>从左侧选择知识库</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- 新建 KB 弹窗 -->
+  <div id="createKbModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl shadow-2xl p-6 w-[480px] max-w-[90vw] animate-fade-in">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold text-gray-900">新建知识库</h2>
+        <button onclick="closeCreateKbModal()" class="text-gray-400 hover:text-gray-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs font-bold text-gray-600 block mb-1">API Key <span class="text-red-500">*</span></label>
+          <input id="newKbApiKey" type="text" placeholder="例如 product-manual" class="w-full bg-gray-50 border border-gray-200 rounded-xl py-2 px-3 text-sm focus:ring-2 focus:ring-blue-500/20"/>
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-600 block mb-1">名称 <span class="text-red-500">*</span></label>
+          <input id="newKbName" type="text" placeholder="例如 产品手册库" class="w-full bg-gray-50 border border-gray-200 rounded-xl py-2 px-3 text-sm focus:ring-2 focus:ring-blue-500/20"/>
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-600 block mb-1">描述</label>
+          <textarea id="newKbDesc" rows="2" placeholder="可选" class="w-full bg-gray-50 border border-gray-200 rounded-xl py-2 px-3 text-sm focus:ring-2 focus:ring-blue-500/20 resize-none"></textarea>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-bold text-gray-600 block mb-1">默认 Top-K</label>
+            <input id="newKbTopK" type="number" value="5" min="1" max="20" class="w-full bg-gray-50 border border-gray-200 rounded-xl py-2 px-3 text-sm focus:ring-2 focus:ring-blue-500/20"/>
+          </div>
+          <div class="flex items-center gap-4 pt-5">
+            <label class="flex items-center gap-2 text-xs"><input id="newKbRerank" type="checkbox" checked> 启用 Rerank</label>
+            <label class="flex items-center gap-2 text-xs"><input id="newKbSelfQuery" type="checkbox" checked> Self-Query</label>
+          </div>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 mt-5">
+        <button onclick="closeCreateKbModal()" class="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-all">取消</button>
+        <button onclick="submitCreateKb()" class="px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 rounded-xl shadow-md hover:shadow-lg transition-all">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 上传文档弹窗 -->
+  <div id="uploadModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl shadow-2xl p-6 w-[520px] max-w-[90vw] animate-fade-in">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold text-gray-900">上传文档</h2>
+        <button onclick="closeUploadModal()" class="text-gray-400 hover:text-gray-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <!-- 拖拽区 -->
+      <div id="uploadDrop" class="upload-drop border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-blue-400 transition-all cursor-pointer mb-4" onclick="document.getElementById('uploadInput').click()">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="mx-auto text-gray-400 mb-3"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <p id="uploadHint" class="text-sm text-gray-600 font-medium">点击或拖拽文件到这里</p>
+        <p class="text-xs text-gray-400 mt-1">支持 PDF / DOCX / PPTX / XLSX / MD / TXT，单次可选多个</p>
+        <input id="uploadInput" type="file" class="hidden" multiple accept=".pdf,.docx,.pptx,.xlsx,.md,.txt,.html,.csv"/>
+      </div>
+      <!-- 文件列表 -->
+      <div id="uploadFileList" class="space-y-1 max-h-48 overflow-y-auto custom-scrollbar mb-4"></div>
+      <div>
+        <label class="text-xs font-bold text-gray-600 block mb-1">自定义标题（可选）</label>
+        <input id="uploadTitle" type="text" placeholder="为所有上传文件设置统一标题（留空则使用原文件名）" class="w-full bg-gray-50 border border-gray-200 rounded-xl py-2 px-3 text-sm focus:ring-2 focus:ring-blue-500/20"/>
+      </div>
+      <div class="flex justify-end gap-2 mt-5">
+        <button onclick="closeUploadModal()" class="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-all">取消</button>
+        <button id="uploadSubmitBtn" onclick="submitUpload()" class="px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 rounded-xl shadow-md hover:shadow-lg transition-all disabled:opacity-50" disabled>上传</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 文档详情弹窗 -->
+  <div id="docModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl shadow-2xl w-[720px] max-w-[90vw] max-h-[85vh] flex flex-col animate-fade-in">
+      <div class="flex items-center justify-between p-6 border-b border-gray-100">
+        <h2 id="docModalTitle" class="text-lg font-bold text-gray-900">文档详情</h2>
+        <button onclick="closeDocModal()" class="text-gray-400 hover:text-gray-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div id="docModalBody" class="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-4">
+        <div class="text-center text-gray-400 py-10">加载中...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Schema 管理弹窗 -->
+  <div id="schemaModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl shadow-2xl w-[620px] max-w-[90vw] max-h-[80vh] flex flex-col animate-fade-in">
+      <div class="flex items-center justify-between p-6 border-b border-gray-100">
+        <div>
+          <h2 class="text-lg font-bold text-gray-900">元数据 Schema</h2>
+          <p class="text-xs text-gray-500 mt-0.5">驱动自动打标 + Self-Querying；枚举值会建议给 LLM</p>
+        </div>
+        <button onclick="closeSchemaModal()" class="text-gray-400 hover:text-gray-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div class="p-6 overflow-y-auto custom-scrollbar flex-1">
+        <div class="flex items-center justify-between mb-3">
+          <label class="text-xs font-bold text-gray-600">字段定义</label>
+          <button onclick="addSchemaField()" class="text-xs font-bold text-blue-600 hover:text-blue-700">+ 添加字段</button>
+        </div>
+        <div id="schemaFields" class="space-y-2"></div>
+      </div>
+      <div class="flex justify-end gap-2 p-6 border-t border-gray-100">
+        <button onclick="closeSchemaModal()" class="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-all">取消</button>
+        <button onclick="submitSchema()" class="px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 rounded-xl shadow-md hover:shadow-lg transition-all">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agent 授权弹窗 -->
+  <div id="bindingModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl shadow-2xl w-[520px] max-w-[90vw] animate-fade-in">
+      <div class="flex items-center justify-between p-6 border-b border-gray-100">
+        <h2 class="text-lg font-bold text-gray-900">Agent 授权</h2>
+        <button onclick="closeBindingModal()" class="text-gray-400 hover:text-gray-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div class="p-6">
+        <p class="text-xs text-gray-500 mb-3">只有授权的 Agent 才能检索此知识库。<code>*</code> 表示全局可见。</p>
+        <div>
+          <label class="text-xs font-bold text-gray-600 block mb-1">Agent 名称 <span class="text-red-500">*</span></label>
+          <input id="bindAgentName" type="text" placeholder="例如 CRM-Agent（或 * 代表全局）" class="w-full bg-gray-50 border border-gray-200 rounded-xl py-2 px-3 text-sm focus:ring-2 focus:ring-blue-500/20"/>
+        </div>
+        <div class="grid grid-cols-2 gap-3 mt-3">
+          <div>
+            <label class="text-xs font-bold text-gray-600 block mb-1">权限</label>
+            <select id="bindScope" class="w-full bg-gray-50 border border-gray-200 rounded-xl py-2 px-3 text-sm">
+              <option value="read">只读</option>
+              <option value="write">可写</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-bold text-gray-600 block mb-1">覆盖 Top-K</label>
+            <input id="bindTopK" type="number" value="0" min="0" max="20" class="w-full bg-gray-50 border border-gray-200 rounded-xl py-2 px-3 text-sm focus:ring-2 focus:ring-blue-500/20"/>
+          </div>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 p-6 border-t border-gray-100">
+        <button onclick="closeBindingModal()" class="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-all">取消</button>
+        <button onclick="submitBinding()" class="px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 rounded-xl shadow-md hover:shadow-lg transition-all">添加授权</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-sm px-4 py-2 rounded-xl shadow-lg z-[100] animate-fade-in"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// 工具函数
+// ═══════════════════════════════════════════════════════════
+
+const API = '';  // 同源
+function esc(t){if(t==null)return'';const d=document.createElement('div');d.textContent=String(t);return d.innerHTML}
+function fmtTime(ts){if(!ts)return'—';const d=new Date(typeof ts==='number'&&ts>1e12?ts:ts*1000);return d.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
+function fmtSize(bytes){if(!bytes)return'—';const u=['B','KB','MB','GB'];let i=0;let v=bytes;while(v>=1024&&i<u.length-1){v/=1024;i++;}return `${v.toFixed(v<10?1:0)} ${u[i]}`;}
+function toast(msg, type='info'){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `fixed bottom-6 left-1/2 -translate-x-1/2 text-white text-sm px-4 py-2 rounded-xl shadow-lg z-[100] animate-fade-in ${type==='error'?'bg-red-600':type==='success'?'bg-green-600':'bg-gray-900'}`;
+  el.classList.remove('hidden');
+  setTimeout(()=>el.classList.add('hidden'), 2500);
+}
+
+async function apiGet(path){
+  const r = await fetch(API + path);
+  if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+  return r.json();
+}
+async function apiPost(path, body){
+  const r = await fetch(API + path, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+  return r.json();
+}
+async function apiDelete(path){
+  const r = await fetch(API + path, {method: 'DELETE'});
+  if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+// ═══════════════════════════════════════════════════════════
+// 状态
+// ═══════════════════════════════════════════════════════════
+
+let kbs = [];
+let currentKb = null;
+let currentDocuments = [];
+let pendingFiles = [];
+let activePolls = new Map();  // task_id → intervalId
+
+function tenantId(){ return parseInt(document.getElementById('tenantInput').value || '1', 10); }
+
+// ═══════════════════════════════════════════════════════════
+// KB 列表
+// ═══════════════════════════════════════════════════════════
+
+async function loadKbs(){
+  try {
+    const data = await apiGet(`/api/knowledge?tenant_id=${tenantId()}`);
+    kbs = data.items || [];
+    renderKbList();
+  } catch (e) {
+    document.getElementById('kbList').innerHTML = `<div class="text-center text-red-500 text-xs py-8">加载失败: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderKbList(){
+  const list = document.getElementById('kbList');
+  if (!kbs.length) {
+    list.innerHTML = `<div class="text-center text-gray-400 text-xs py-8">暂无知识库<br/><span class="text-[10px] opacity-70">点击上方「新建知识库」</span></div>`;
+    return;
+  }
+  list.innerHTML = kbs.map(kb => `
+    <div onclick="selectKb(${kb.id})" class="kb-item cursor-pointer px-3 py-2.5 rounded-xl hover:bg-white/60 transition-all group ${currentKb && currentKb.id === kb.id ? 'bg-white/80 border border-blue-200 shadow-sm' : ''}" data-id="${kb.id}">
+      <div class="flex items-center gap-2 mb-1">
+        <div class="w-7 h-7 bg-gradient-to-br from-indigo-500 to-blue-500 rounded-lg flex items-center justify-center shrink-0">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/></svg>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-xs font-bold text-gray-900 truncate">${esc(kb.name)}</div>
+          <div class="text-[10px] text-gray-400 truncate">${esc(kb.api_key)}</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 text-[10px] text-gray-500">
+        <span>📄 ${kb.document_count}</span>
+        <span>🧩 ${kb.chunk_count}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function selectKb(id){
+  currentKb = kbs.find(k => k.id === id);
+  if (!currentKb) return;
+  renderKbList();
+  // 更新头部
+  document.getElementById('kbTitle').textContent = currentKb.name;
+  document.getElementById('kbSubtitle').textContent = `${currentKb.api_key} · ${currentKb.description || '暂无描述'}`;
+  document.getElementById('uploadBtn').classList.remove('hidden');
+  document.getElementById('manageSchemaBtn').classList.remove('hidden');
+  document.getElementById('manageBindBtn').classList.remove('hidden');
+  loadDocuments();
+  renderStats();
+}
+
+// ═══════════════════════════════════════════════════════════
+// 统计
+// ═══════════════════════════════════════════════════════════
+
+function renderStats(){
+  if (!currentKb) return;
+  const bar = document.getElementById('statsBar');
+  bar.classList.remove('hidden');
+  bar.innerHTML = `
+    ${statCard('📄', '文档', currentKb.document_count, 'blue')}
+    ${statCard('🧩', '切片', currentKb.chunk_count, 'indigo')}
+    ${statCard('🎯', '默认 Top-K', currentKb.default_top_k, 'purple')}
+  `;
+}
+
+function statCard(emoji, label, value, color){
+  const bg = {blue:'bg-blue-50 border-blue-100', indigo:'bg-indigo-50 border-indigo-100', purple:'bg-purple-50 border-purple-100'}[color];
+  return `
+    <div class="flex items-center gap-3 ${bg} border rounded-xl px-4 py-2.5">
+      <div class="text-xl">${emoji}</div>
+      <div>
+        <div class="text-[10px] font-bold text-gray-500 uppercase">${label}</div>
+        <div class="text-sm font-bold text-gray-900">${value ?? 0}</div>
+      </div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// 文档列表
+// ═══════════════════════════════════════════════════════════
+
+async function loadDocuments(){
+  if (!currentKb) return;
+  const list = document.getElementById('docList');
+  list.innerHTML = `<div class="text-center text-gray-400 text-sm py-10">加载中...</div>`;
+  try {
+    const data = await apiGet(`/api/knowledge/documents?tenant_id=${tenantId()}&knowledge_base_id=${currentKb.id}&limit=100`);
+    currentDocuments = data.items || [];
+    renderDocs();
+  } catch (e) {
+    list.innerHTML = `<div class="text-center text-red-500 text-sm py-10">加载失败: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderDocs(){
+  const list = document.getElementById('docList');
+  if (!currentDocuments.length) {
+    list.innerHTML = `
+      <div class="text-center text-gray-400 text-sm py-20">
+        <div class="text-5xl mb-4">📥</div>
+        <p class="font-medium mb-1">此知识库暂无文档</p>
+        <p class="text-xs opacity-70">点击右上角「上传文档」开始</p>
+      </div>
+    `;
+    return;
+  }
+  list.innerHTML = `
+    <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+          <tr>
+            <th class="px-4 py-3 text-left">文档</th>
+            <th class="px-4 py-3 text-left">状态</th>
+            <th class="px-4 py-3 text-left">切片</th>
+            <th class="px-4 py-3 text-left">质量</th>
+            <th class="px-4 py-3 text-left">大小</th>
+            <th class="px-4 py-3 text-left">创建时间</th>
+            <th class="px-4 py-3 text-right">操作</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          ${currentDocuments.map(d => renderDocRow(d)).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderDocRow(d){
+  const status = renderStatusBadge(d);
+  const quality = d.quality_score ? renderQualityBar(d.quality_score) : '<span class="text-gray-300 text-xs">—</span>';
+  return `
+    <tr class="hover:bg-blue-50/30 transition-colors">
+      <td class="px-4 py-3">
+        <div class="flex items-center gap-2">
+          <span class="text-lg">${fileEmoji(d.file_type)}</span>
+          <div class="min-w-0">
+            <div class="text-xs font-bold text-gray-900 truncate max-w-[240px]">${esc(d.title || d.file_name)}</div>
+            <div class="text-[10px] text-gray-400 truncate max-w-[240px]">${esc(d.file_name)}</div>
+          </div>
+        </div>
+      </td>
+      <td class="px-4 py-3">${status}</td>
+      <td class="px-4 py-3 text-xs text-gray-700">${d.chunk_count || 0} / ${d.segment_count || 0}<span class="text-[10px] text-gray-400 ml-1">切/章</span></td>
+      <td class="px-4 py-3">${quality}</td>
+      <td class="px-4 py-3 text-xs text-gray-500">${fmtSize(d.file_size)}</td>
+      <td class="px-4 py-3 text-xs text-gray-500">${fmtTime(d.created_at)}</td>
+      <td class="px-4 py-3 text-right">
+        <button onclick="openDocDetail('${esc(d.doc_id)}')" class="text-xs text-blue-600 hover:text-blue-700 font-bold mr-2">详情</button>
+        <button onclick="deleteDoc('${esc(d.doc_id)}')" class="text-xs text-red-500 hover:text-red-600 font-bold">删除</button>
+      </td>
+    </tr>
+  `;
+}
+
+function fileEmoji(ft){
+  const m = {pdf:'📕',docx:'📘',doc:'📘',xlsx:'📗',xls:'📗',pptx:'📙',ppt:'📙',md:'📝',txt:'📄',html:'🌐',csv:'📊'};
+  return m[String(ft||'').toLowerCase()] || '📄';
+}
+
+function renderStatusBadge(d){
+  const chunk = d.chunk_status;
+  const parse = d.parse_status;
+  if (chunk === 'indexed') return `<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 text-green-600 text-[10px] font-bold rounded-full border border-green-100">✓ 已入库</span>`;
+  if (parse === 'failed' || chunk === 'failed') return `<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 text-[10px] font-bold rounded-full border border-red-100">✗ 失败</span>`;
+  if (parse === 'parsed') return `<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-full border border-blue-100"><span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse-slow"></span> 切分中</span>`;
+  if (parse === 'parsing') return `<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-600 text-[10px] font-bold rounded-full border border-purple-100"><span class="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse-slow"></span> 解析中</span>`;
+  return `<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-50 text-gray-600 text-[10px] font-bold rounded-full border border-gray-100"><span class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-pulse-slow"></span> 处理中</span>`;
+}
+
+function renderQualityBar(score){
+  const pct = Math.round(score * 100);
+  const color = score >= 0.75 ? 'bg-green-500' : score >= 0.5 ? 'bg-yellow-500' : 'bg-red-500';
+  return `
+    <div class="flex items-center gap-2">
+      <div class="w-16 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+        <div class="${color} h-full" style="width:${pct}%"></div>
+      </div>
+      <span class="text-[10px] font-bold text-gray-700">${pct}</span>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// 新建 KB
+// ═══════════════════════════════════════════════════════════
+
+function openCreateKbModal(){ document.getElementById('createKbModal').classList.remove('hidden'); }
+function closeCreateKbModal(){ document.getElementById('createKbModal').classList.add('hidden'); }
+
+async function submitCreateKb(){
+  const apiKey = document.getElementById('newKbApiKey').value.trim();
+  const name = document.getElementById('newKbName').value.trim();
+  if (!apiKey || !name){ toast('请填写 API Key 和名称', 'error'); return; }
+  try {
+    await apiPost('/api/knowledge', {
+      tenant_id: tenantId(),
+      api_key: apiKey,
+      name,
+      description: document.getElementById('newKbDesc').value.trim(),
+      default_top_k: parseInt(document.getElementById('newKbTopK').value, 10) || 5,
+      enable_rerank: document.getElementById('newKbRerank').checked,
+      enable_self_query: document.getElementById('newKbSelfQuery').checked,
+    });
+    toast('知识库创建成功', 'success');
+    closeCreateKbModal();
+    await loadKbs();
+  } catch (e) {
+    toast('创建失败: ' + e.message, 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 文档上传
+// ═══════════════════════════════════════════════════════════
+
+function openUploadModal(){
+  if (!currentKb) return;
+  pendingFiles = [];
+  renderPendingFiles();
+  document.getElementById('uploadTitle').value = '';
+  document.getElementById('uploadModal').classList.remove('hidden');
+}
+function closeUploadModal(){ document.getElementById('uploadModal').classList.add('hidden'); }
+
+document.addEventListener('DOMContentLoaded', () => {
+  const drop = document.getElementById('uploadDrop');
+  const input = document.getElementById('uploadInput');
+  ['dragenter','dragover'].forEach(e=>drop.addEventListener(e, ev=>{ev.preventDefault();drop.classList.add('dragover');}));
+  ['dragleave','drop'].forEach(e=>drop.addEventListener(e, ev=>{ev.preventDefault();drop.classList.remove('dragover');}));
+  drop.addEventListener('drop', ev => {
+    ev.preventDefault();
+    Array.from(ev.dataTransfer.files).forEach(f => pendingFiles.push(f));
+    renderPendingFiles();
+  });
+  input.addEventListener('change', () => {
+    Array.from(input.files).forEach(f => pendingFiles.push(f));
+    input.value = '';
+    renderPendingFiles();
+  });
+  loadKbs();
+});
+
+function renderPendingFiles(){
+  const list = document.getElementById('uploadFileList');
+  const btn = document.getElementById('uploadSubmitBtn');
+  if (!pendingFiles.length){
+    list.innerHTML = '';
+    btn.disabled = true;
+    return;
+  }
+  btn.disabled = false;
+  list.innerHTML = pendingFiles.map((f, i) => `
+    <div class="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 text-xs">
+      <span class="text-sm">${fileEmoji(f.name.split('.').pop())}</span>
+      <span class="flex-1 truncate">${esc(f.name)}</span>
+      <span class="text-gray-400">${fmtSize(f.size)}</span>
+      <button onclick="removePendingFile(${i})" class="text-red-500 hover:text-red-600 font-bold">✕</button>
+    </div>
+  `).join('');
+}
+
+function removePendingFile(i){ pendingFiles.splice(i, 1); renderPendingFiles(); }
+
+async function submitUpload(){
+  if (!currentKb || !pendingFiles.length) return;
+  const title = document.getElementById('uploadTitle').value.trim();
+  const btn = document.getElementById('uploadSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = '上传中...';
+  let success = 0, failed = 0;
+  for (const f of pendingFiles) {
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      const params = new URLSearchParams({
+        tenant_id: tenantId(),
+        knowledge_base_id: currentKb.id,
+        title: title || '',
+      });
+      const r = await fetch(`${API}/api/knowledge/documents/upload?${params}`, {
+        method: 'POST', body: fd,
+      });
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      success++;
+      // 轮询任务进度
+      if (data.task_id) startPolling(data.task_id);
+    } catch (e) {
+      failed++;
+      console.error('Upload failed:', f.name, e);
+    }
+  }
+  btn.disabled = false;
+  btn.textContent = '上传';
+  pendingFiles = [];
+  closeUploadModal();
+  if (failed > 0) toast(`${success} 成功, ${failed} 失败`, 'error');
+  else toast(`${success} 个文档已入队`, 'success');
+  // 稍等刷新
+  setTimeout(loadDocuments, 500);
+}
+
+// ═══════════════════════════════════════════════════════════
+// 任务轮询（自动刷新文档列表状态）
+// ═══════════════════════════════════════════════════════════
+
+function startPolling(taskId){
+  if (activePolls.has(taskId)) return;
+  const id = setInterval(async () => {
+    try {
+      const s = await apiGet(`/api/knowledge/tasks/${taskId}`);
+      if (['success', 'failed', 'dead'].includes(s.queue_status || s.status)) {
+        clearInterval(id);
+        activePolls.delete(taskId);
+        loadDocuments();  // 刷新
+        loadKbs();        // 更新统计
+      } else {
+        // 中途也刷一下
+        loadDocuments();
+      }
+    } catch (e) {
+      clearInterval(id);
+      activePolls.delete(taskId);
+    }
+  }, 3000);
+  activePolls.set(taskId, id);
+  // 30 秒兜底停止
+  setTimeout(() => {
+    if (activePolls.has(taskId)) {
+      clearInterval(activePolls.get(taskId));
+      activePolls.delete(taskId);
+    }
+  }, 120000);
+}
+
+// ═══════════════════════════════════════════════════════════
+// 文档详情
+// ═══════════════════════════════════════════════════════════
+
+async function openDocDetail(docId){
+  document.getElementById('docModal').classList.remove('hidden');
+  const body = document.getElementById('docModalBody');
+  body.innerHTML = `<div class="text-center text-gray-400 py-10">加载中...</div>`;
+  try {
+    const [doc, chunks] = await Promise.all([
+      apiGet(`/api/knowledge/documents/${docId}`),
+      apiGet(`/api/knowledge/documents/${docId}/chunks?limit=20`),
+    ]);
+    document.getElementById('docModalTitle').textContent = doc.title || doc.file_name;
+    body.innerHTML = renderDocDetail(doc, chunks.items || []);
+  } catch (e) {
+    body.innerHTML = `<div class="text-red-500 text-sm text-center py-10">${esc(e.message)}</div>`;
+  }
+}
+
+function closeDocModal(){ document.getElementById('docModal').classList.add('hidden'); }
+
+function renderDocDetail(doc, chunks){
+  const metaEntries = Object.entries(doc.metadata || {}).filter(([k,v]) => v != null && v !== '');
+  return `
+    <!-- 摘要 -->
+    ${doc.summary ? `
+    <div>
+      <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">📝 摘要</h3>
+      <div class="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100 rounded-xl p-4 text-sm leading-relaxed text-gray-800">${esc(doc.summary)}</div>
+    </div>` : ''}
+
+    <!-- 基础信息 -->
+    <div>
+      <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">📋 基础信息</h3>
+      <div class="bg-gray-50 rounded-xl p-4 grid grid-cols-2 gap-3 text-xs">
+        <div><span class="text-gray-500">文件名</span><br/><span class="font-bold text-gray-900">${esc(doc.file_name)}</span></div>
+        <div><span class="text-gray-500">类型</span><br/><span class="font-bold text-gray-900">${esc(doc.file_type)}</span></div>
+        <div><span class="text-gray-500">切片数</span><br/><span class="font-bold text-gray-900">${doc.chunk_count || 0}</span></div>
+        <div><span class="text-gray-500">质量分</span><br/>${renderQualityBar(doc.quality_score || 0)}</div>
+        <div><span class="text-gray-500">创建时间</span><br/><span class="font-bold text-gray-900">${fmtTime(doc.created_at)}</span></div>
+        <div><span class="text-gray-500">Doc ID</span><br/><span class="font-mono text-[10px] text-gray-600">${esc(doc.doc_id)}</span></div>
+      </div>
+    </div>
+
+    <!-- 元数据 -->
+    ${metaEntries.length ? `
+    <div>
+      <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">🏷️ 元数据</h3>
+      <div class="flex flex-wrap gap-2">
+        ${metaEntries.map(([k,v]) => `
+          <span class="inline-flex items-center gap-1 bg-white border border-gray-200 rounded-full px-3 py-1 text-xs">
+            <span class="text-gray-500">${esc(k)}</span>
+            <span class="font-bold text-gray-900">${esc(Array.isArray(v) ? v.join(', ') : v)}</span>
+          </span>
+        `).join('')}
+      </div>
+    </div>` : ''}
+
+    <!-- 切片预览 -->
+    <div>
+      <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">🧩 切片预览（前 ${chunks.length} 条）</h3>
+      <div class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+        ${chunks.map(c => `
+          <div class="bg-white border border-gray-100 rounded-xl p-3 text-xs">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-bold text-[10px]">#${c.chunk_index}</span>
+              <span class="text-[10px] text-gray-500">${esc(c.chunk_type)}</span>
+              ${c.section_title ? `<span class="text-[10px] text-gray-400">· ${esc(c.section_title)}</span>` : ''}
+              <span class="ml-auto text-[10px] text-gray-400">${c.content_tokens} tokens · 命中 ${c.hit_count}</span>
+              ${c.vector_synced === 1 ? '<span class="text-[10px] text-green-600">🧠 已索引</span>' : '<span class="text-[10px] text-yellow-600">⏳ 待同步</span>'}
+            </div>
+            <div class="text-gray-700 leading-relaxed">${esc(c.content_preview)}</div>
+          </div>
+        `).join('') || '<div class="text-gray-400 text-xs py-4 text-center">暂无切片</div>'}
+      </div>
+    </div>
+  `;
+}
+
+async function deleteDoc(docId){
+  if (!confirm('确定删除此文档？（包含所有切片和向量）')) return;
+  try {
+    await apiDelete(`/api/knowledge/documents/${docId}?tenant_id=${tenantId()}`);
+    toast('文档已删除', 'success');
+    loadDocuments();
+    loadKbs();
+  } catch (e) {
+    toast('删除失败: ' + e.message, 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Schema 管理
+// ═══════════════════════════════════════════════════════════
+
+let currentSchemaFields = [];
+
+async function openSchemaModal(){
+  if (!currentKb) return;
+  document.getElementById('schemaModal').classList.remove('hidden');
+  try {
+    const s = await apiGet(`/api/knowledge/schemas/for-kb/${currentKb.id}?tenant_id=${tenantId()}`);
+    currentSchemaFields = s.fields || [];
+  } catch (e) {
+    currentSchemaFields = [];
+  }
+  renderSchemaFields();
+}
+
+function closeSchemaModal(){ document.getElementById('schemaModal').classList.add('hidden'); }
+
+function renderSchemaFields(){
+  const list = document.getElementById('schemaFields');
+  if (!currentSchemaFields.length){
+    list.innerHTML = `<div class="text-center text-gray-400 text-xs py-6">暂无字段，点击上方「添加字段」</div>`;
+    return;
+  }
+  list.innerHTML = currentSchemaFields.map((f, i) => `
+    <div class="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-2">
+      <div class="flex items-center gap-2">
+        <input type="text" value="${esc(f.field || '')}" oninput="currentSchemaFields[${i}].field=this.value" placeholder="字段名（如 docCategory）" class="flex-1 bg-white border border-gray-200 rounded-lg py-1.5 px-2 text-xs"/>
+        <select onchange="currentSchemaFields[${i}].type=this.value" class="bg-white border border-gray-200 rounded-lg py-1.5 px-2 text-xs">
+          <option value="enum" ${f.type==='enum'?'selected':''}>枚举</option>
+          <option value="string" ${f.type==='string'?'selected':''}>字符串</option>
+          <option value="date" ${f.type==='date'?'selected':''}>日期</option>
+        </select>
+        <button onclick="removeSchemaField(${i})" class="text-red-500 hover:text-red-600 text-xs px-2">✕</button>
+      </div>
+      <input type="text" value="${esc(f.description || '')}" oninput="currentSchemaFields[${i}].description=this.value" placeholder="字段描述（可选）" class="w-full bg-white border border-gray-200 rounded-lg py-1.5 px-2 text-xs"/>
+      ${f.type === 'enum' ? `
+        <input type="text" value="${esc((f.enum || []).join(', '))}" oninput="currentSchemaFields[${i}].enum=this.value.split(',').map(s=>s.trim()).filter(Boolean)" placeholder="枚举值，逗号分隔（如 产品手册, 成功案例）" class="w-full bg-white border border-gray-200 rounded-lg py-1.5 px-2 text-xs"/>
+      ` : ''}
+    </div>
+  `).join('');
+}
+
+function addSchemaField(){
+  currentSchemaFields.push({field: '', type: 'enum', description: '', enum: []});
+  renderSchemaFields();
+}
+
+function removeSchemaField(i){
+  currentSchemaFields.splice(i, 1);
+  renderSchemaFields();
+}
+
+async function submitSchema(){
+  if (!currentKb) return;
+  const cleanFields = currentSchemaFields.filter(f => f.field && f.field.trim());
+  try {
+    await apiPost('/api/knowledge/schemas', {
+      tenant_id: tenantId(),
+      knowledge_base_id: currentKb.id,
+      name: `kb_${currentKb.id}_schema`,
+      fields: cleanFields,
+    });
+    toast('Schema 已保存', 'success');
+    closeSchemaModal();
+  } catch (e) {
+    toast('保存失败: ' + e.message, 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Agent 授权
+// ═══════════════════════════════════════════════════════════
+
+function openBindingModal(){
+  if (!currentKb) return;
+  document.getElementById('bindAgentName').value = '';
+  document.getElementById('bindScope').value = 'read';
+  document.getElementById('bindTopK').value = '0';
+  document.getElementById('bindingModal').classList.remove('hidden');
+}
+function closeBindingModal(){ document.getElementById('bindingModal').classList.add('hidden'); }
+
+async function submitBinding(){
+  const agent = document.getElementById('bindAgentName').value.trim();
+  if (!agent){ toast('请填写 Agent 名称', 'error'); return; }
+  try {
+    await apiPost('/api/knowledge/bindings', {
+      tenant_id: tenantId(),
+      knowledge_base_id: currentKb.id,
+      agent_name: agent,
+      scope: document.getElementById('bindScope').value,
+      override_top_k: parseInt(document.getElementById('bindTopK').value, 10) || 0,
+    });
+    toast('授权已添加', 'success');
+    closeBindingModal();
+  } catch (e) {
+    toast('添加失败: ' + e.message, 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 初始化
+// ═══════════════════════════════════════════════════════════
+
+// loadKbs() 由 DOMContentLoaded 触发
+</script>
+</body>
+</html>
