@@ -86,6 +86,10 @@ class DataEntry:
     """对应 A2UI v0.8 §4.1 DataEntry
 
     每个 entry 必须有 key，且只有一个 value_*（邻接表约束）。
+
+    字段对齐 v0.8 规范：`value_list` 对应 `valueList`（规范名）。
+    `value_array` 作为 deprecated 别名保留，构造时任一者都能用；序列化时优先
+    用 `valueList`（规范名），同时附带 `valueArray` 供老前端兼容。
     """
     key: str
     value_string: str | None = None
@@ -93,7 +97,14 @@ class DataEntry:
     value_number: float | None = None
     value_boolean: bool | None = None
     value_map: list["DataEntry"] | None = None
+    value_list: list[Any] | None = None
+    # deprecated 别名（构造时接受，与 value_list 同义）
     value_array: list[Any] | None = None
+
+    def __post_init__(self) -> None:
+        # 合并 value_array（deprecated）到 value_list
+        if self.value_array is not None and self.value_list is None:
+            self.value_list = self.value_array
 
     def to_dict(self) -> dict:
         out: dict[str, Any] = {"key": self.key}
@@ -108,8 +119,10 @@ class DataEntry:
             out["valueBoolean"] = self.value_boolean
         elif self.value_map is not None:
             out["valueMap"] = [e.to_dict() for e in self.value_map]
-        elif self.value_array is not None:
-            out["valueArray"] = self.value_array
+        elif self.value_list is not None:
+            out["valueList"] = self.value_list
+            # 兼容老前端（仅在 value_array 未显式禁用时）
+            out["valueArray"] = self.value_list
         else:
             raise ValueError(f"DataEntry(key={self.key!r}) 必须提供一个 value_*")
         return out
@@ -131,7 +144,7 @@ def entry_map(key: str, entries: list[DataEntry]) -> DataEntry:
     return DataEntry(key=key, value_map=entries)
 
 def entry_list(key: str, items: list[Any]) -> DataEntry:
-    return DataEntry(key=key, value_array=items)
+    return DataEntry(key=key, value_list=items)
 
 
 def dict_to_entries(data: dict[str, Any]) -> list[DataEntry]:
@@ -246,3 +259,49 @@ class DeleteSurface:
 
 # 类型别名：任意 A2UI 消息
 A2UIMessage = SurfaceUpdate | DataModelUpdate | BeginRendering | DeleteSurface
+
+
+# ═══════════════════════════════════════════════════════════
+# 客户端入站消息（v0.8 §5）
+# ═══════════════════════════════════════════════════════════
+
+@dataclass
+class UserAction:
+    """客户端 → 服务端：用户交互事件（§5.2）"""
+    name: str
+    surface_id: str
+    source_component_id: str
+    timestamp: str
+    context: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {
+            "userAction": {
+                "name": self.name,
+                "surfaceId": self.surface_id,
+                "sourceComponentId": self.source_component_id,
+                "timestamp": self.timestamp,
+                "context": self.context,
+            }
+        }
+
+
+@dataclass
+class ClientError:
+    """客户端 → 服务端：渲染/绑定错误（§5.3）"""
+    message: str
+    component_id: str | None = None
+    surface_id: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        body: dict[str, Any] = {"message": self.message}
+        if self.component_id is not None:
+            body["componentId"] = self.component_id
+        if self.surface_id is not None:
+            body["surfaceId"] = self.surface_id
+        body.update(self.extra)
+        return {"error": body}
+
+
+ClientEvent = UserAction | ClientError
