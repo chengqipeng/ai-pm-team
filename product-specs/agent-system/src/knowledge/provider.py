@@ -106,7 +106,6 @@ class KnowledgeProvider(Protocol):
         enable_rerank: bool = True,
         enable_self_query: bool = True,
         conversation_history: list | None = None,
-        agent_name: str = "",
         user_id: str = "",
         thread_id: str = "",
         trace_id: str = "",
@@ -117,9 +116,9 @@ class KnowledgeProvider(Protocol):
     # ── 管理 ──
 
     async def list_knowledge_bases(
-        self, tenant_id: int, agent_name: str = "",
+        self, tenant_id: int,
     ) -> list[KnowledgeBaseInfo]:
-        """列出租户下可访问的知识库（可选按 agent_name 过滤绑定）"""
+        """列出租户下的所有知识库"""
         ...
 
     async def get_document_info(self, doc_id: str) -> DocumentInfo | None:

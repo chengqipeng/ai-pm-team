@@ -220,36 +220,10 @@ class StandaloneKnowledgeProvider:
         enable_rerank: bool = True,
         enable_self_query: bool = True,
         conversation_history: list | None = None,
-        agent_name: str = "",
         user_id: str = "",
         thread_id: str = "",
         trace_id: str = "",
     ) -> list[KnowledgeChunk]:
-        # Agent 授权校验
-        if agent_name:
-            if knowledge_base_id:
-                ok = KnowledgeBaseBindingDAO.check_access(
-                    tenant_id, agent_name, knowledge_base_id,
-                )
-                if not ok:
-                    logger.warning(
-                        "Agent %s not authorized for kb %s (tenant=%s)",
-                        agent_name, knowledge_base_id, tenant_id,
-                    )
-                    return []
-            else:
-                # 无指定 KB → 默认在该 Agent 可见的所有 KB 中检索
-                # 此处简化为：若无任何授权，则不检索
-                kb_ids = KnowledgeBaseBindingDAO.list_kb_ids_for_agent(
-                    tenant_id, agent_name,
-                )
-                if not kb_ids:
-                    return []
-                # 当前检索引擎支持单 KB；跨 KB 检索可多次调用聚合或扩展 filter_expr
-                # 简化：取第一个（未来可扩展为 OR IN 查询）
-                if len(kb_ids) == 1:
-                    knowledge_base_id = kb_ids[0]
-
         return await self._retriever.search(
             tenant_id=tenant_id,
             query=query,
@@ -269,15 +243,9 @@ class StandaloneKnowledgeProvider:
     # ═══════════════════════════════════════════════════════════
 
     async def list_knowledge_bases(
-        self, tenant_id: int, agent_name: str = "",
+        self, tenant_id: int,
     ) -> list[KnowledgeBaseInfo]:
         rows = KnowledgeBaseDAO.list_by_tenant(tenant_id)
-        # 按 agent_name 过滤
-        if agent_name:
-            allowed = set(KnowledgeBaseBindingDAO.list_kb_ids_for_agent(
-                tenant_id, agent_name,
-            ))
-            rows = [r for r in rows if r.id in allowed]
         return [
             KnowledgeBaseInfo(
                 id=r.id,

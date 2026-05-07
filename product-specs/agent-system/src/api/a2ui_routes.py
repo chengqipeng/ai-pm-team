@@ -209,8 +209,7 @@ class A2UIStreamRequest(BaseModel):
     a2uiClientCapabilities: dict | None = None
     run_id: str | None = Field(default=None, alias="runId")
 
-    class Config:
-        populate_by_name = True
+    model_config = {"populate_by_name": True}
 
 
 @a2ui_router.post("/agent/a2ui/stream")
@@ -265,8 +264,7 @@ class ChatReconnectRequest(BaseModel):
     thread_id: str = Field(alias="threadId")
     last_run_id: str | None = Field(default=None, alias="lastRunId")
 
-    class Config:
-        populate_by_name = True
+    model_config = {"populate_by_name": True}
 
 
 @a2ui_router.post("/agent/chat/reconnect")
