@@ -86,23 +86,43 @@ class StandaloneKnowledgeProvider:
             6. 入队 ai_knowledge_ingest_queue
             7. 立即返回 task_id，Worker 异步处理
         """
+        # ── 0. 参数校验 + 诊断日志 ──
+        logger.info(
+            "ingest_document start: tenant=%s kb=%s file=%s path=%s hash=%s meta=%s",
+            tenant_id, knowledge_base_id, file_name, file_path,
+            file_hash[:16] + "…" if file_hash else "(auto)", user_metadata,
+        )
+
         if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
+            logger.error("ingest_document: file not found: %s", file_path)
+            raise FileNotFoundError(f"文件不存在: {file_path}")
 
         file_name = file_name or os.path.basename(file_path)
         file_type = os.path.splitext(file_name)[1].lstrip(".").lower()
         file_size = os.path.getsize(file_path)
 
-        # 1. 计算 hash
-        if not file_hash:
-            file_hash = self._compute_hash(file_path)
+        if file_size == 0:
+            logger.error("ingest_document: empty file: %s", file_path)
+            raise ValueError(f"文件大小为 0: {file_name}")
 
-        # 2. 查重
+        # ── 1. 计算 hash ──
+        if not file_hash:
+            try:
+                file_hash = self._compute_hash(file_path)
+            except Exception as exc:
+                logger.exception("ingest_document: hash compute failed: %s", exc)
+                raise RuntimeError(f"计算文件 hash 失败: {exc}") from exc
+
+        # ── 2. 查重 ──
         try:
             existing = self._guard.check_duplicate(
                 tenant_id, knowledge_base_id, file_hash,
             )
         except DuplicateIngestionError as exc:
+            logger.info(
+                "ingest_document: duplicate detected, doc_id=%s status=%s",
+                exc.doc_id, exc.status,
+            )
             return IngestResult(
                 task_id="",
                 doc_id=exc.doc_id,
@@ -110,9 +130,16 @@ class StandaloneKnowledgeProvider:
                 reused=False,
                 message=str(exc),
             )
+        except Exception as exc:
+            logger.exception("ingest_document: check_duplicate failed: %s", exc)
+            raise RuntimeError(f"查重失败: {exc}") from exc
 
         if existing is not None and existing.parse_status == "parsed" \
                 and existing.chunk_status == "indexed":
+            logger.info(
+                "ingest_document: reuse existing doc_id=%s (hash match, already indexed)",
+                existing.doc_id,
+            )
             return IngestResult(
                 task_id="",
                 doc_id=existing.doc_id,
@@ -121,14 +148,33 @@ class StandaloneKnowledgeProvider:
                 message=f"复用已入库文档 {existing.doc_id}",
             )
 
-        # 3. 拷贝到 upload_dir（用 doc_id 命名）
+        # ── 3. 拷贝到 upload_dir（用 doc_id 命名） ──
         doc_id = f"doc_{uuid.uuid4().hex[:20]}"
         target_dir = self._upload_dir / str(tenant_id)
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / f"{doc_id}.{file_type}" if file_type else target_dir / doc_id
-        shutil.copy2(file_path, target_path)
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            logger.exception(
+                "ingest_document: mkdir failed: %s (upload_dir=%s)",
+                exc, self._upload_dir,
+            )
+            raise RuntimeError(f"创建上传目录失败: {exc}") from exc
 
-        # 4. 写 PG document（pending）
+        target_path = target_dir / f"{doc_id}.{file_type}" if file_type else target_dir / doc_id
+        try:
+            shutil.copy2(file_path, target_path)
+            logger.debug(
+                "ingest_document: file saved to %s (size=%d)",
+                target_path, file_size,
+            )
+        except Exception as exc:
+            logger.exception(
+                "ingest_document: copy file failed: %s → %s: %s",
+                file_path, target_path, exc,
+            )
+            raise RuntimeError(f"保存文件到知识库目录失败: {exc}") from exc
+
+        # ── 4. 写 PG document（pending）──
         doc_row = KnowledgeDocumentRow(
             doc_id=doc_id,
             tenant_id=tenant_id,
@@ -145,9 +191,24 @@ class StandaloneKnowledgeProvider:
             chunk_status="pending",
             parse_engine="lkeap",
         )
-        KnowledgeDocumentDAO.insert(doc_row)
+        try:
+            KnowledgeDocumentDAO.insert(doc_row)
+        except Exception as exc:
+            logger.exception(
+                "ingest_document: DAO insert document failed: doc_id=%s tenant=%s kb=%s: %s",
+                doc_id, tenant_id, knowledge_base_id, exc,
+            )
+            # 清理已写入的物理文件
+            try:
+                target_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"写入 ai_knowledge_document 失败（可能是 uk_doc_hash 冲突 "
+                f"或数据库不可用）: {exc}"
+            ) from exc
 
-        # 5. 构造任务 & 写 ingest_log
+        # ── 5. 构造任务 & 写 ingest_log ──
         task = IngestTask.new(
             tenant_id=tenant_id,
             knowledge_base_id=knowledge_base_id,
@@ -177,14 +238,29 @@ class StandaloneKnowledgeProvider:
             status="running",
             progress=1,
         )
-        KnowledgeIngestLogDAO.insert(log_row)
+        try:
+            KnowledgeIngestLogDAO.insert(log_row)
+        except Exception as exc:
+            logger.exception(
+                "ingest_document: DAO insert ingest_log failed: task_id=%s: %s",
+                task.task_id, exc,
+            )
+            # 不中断流程 — log 失败不影响主流程
 
-        # 6. 入队
-        self._queue.enqueue(task)
+        # ── 6. 入队 ──
+        try:
+            self._queue.enqueue(task)
+        except Exception as exc:
+            logger.exception(
+                "ingest_document: queue.enqueue failed: task_id=%s doc_id=%s: %s",
+                task.task_id, doc_id, exc,
+            )
+            raise RuntimeError(f"入队失败: {exc}") from exc
 
         logger.info(
-            "Ingest queued: tenant=%s kb=%s doc_id=%s task_id=%s file=%s",
-            tenant_id, knowledge_base_id, doc_id, task.task_id, file_name,
+            "Ingest queued: tenant=%s kb=%s doc_id=%s task_id=%s file=%s size=%d type=%s",
+            tenant_id, knowledge_base_id, doc_id,
+            task.task_id, file_name, file_size, file_type,
         )
 
         return IngestResult(
@@ -217,7 +293,7 @@ class StandaloneKnowledgeProvider:
         knowledge_base_id: int | None = None,
         filters: dict | None = None,
         top_k: int = 5,
-        enable_rerank: bool = True,
+        threshold: float | None = None,
         enable_self_query: bool = True,
         conversation_history: list | None = None,
         user_id: str = "",
@@ -230,7 +306,7 @@ class StandaloneKnowledgeProvider:
             knowledge_base_id=knowledge_base_id,
             filters=filters,
             top_k=top_k,
-            enable_rerank=enable_rerank,
+            threshold=threshold,
             enable_self_query=enable_self_query,
             conversation_history=conversation_history,
             user_id=user_id,
@@ -287,23 +363,36 @@ class StandaloneKnowledgeProvider:
         if row is None or row.tenant_id != tenant_id:
             return False
 
+        # 只有已成功入库（chunk_status=indexed）的文档才在 KB 统计中有贡献，
+        # 删除时才从统计扣减；未入库成功的文档（pending/failed）不扣减。
+        was_indexed = row.chunk_status == "indexed"
+
         # 1. 软删 PG 切片
         KnowledgeChunkDAO.delete_by_doc(doc_id)
-        # 2. 软删 PG Segment（DAO 未列出 delete，跳过；updated 时会被 doc_id 过滤失效）
-        # 3. 软删 PG Document
+        # 2. 软删 PG Document
         KnowledgeDocumentDAO.soft_delete(doc_id)
-        # 4. 删除 VDB 向量
+        # 3. 删除 VDB 向量（kb_chunks + kb_doc_metadata）
         try:
             self._vdb.delete_by_doc(str(tenant_id), doc_id)
         except Exception as exc:
             logger.warning("VDB delete failed (non-fatal): %s", exc)
-        # 5. KB 统计 -1
-        KnowledgeBaseDAO.update_stats(
-            row.knowledge_base_id,
-            doc_delta=-1,
-            chunk_delta=-row.chunk_count,
-        )
-        logger.info("Document deleted: tenant=%s doc_id=%s", tenant_id, doc_id)
+        # 4. KB 统计扣减（只对已入库成功的文档扣）
+        if was_indexed:
+            KnowledgeBaseDAO.update_stats(
+                row.knowledge_base_id,
+                doc_delta=-1,
+                chunk_delta=-row.chunk_count,
+            )
+            logger.info(
+                "Document deleted: tenant=%s doc_id=%s kb=%s chunks=-%d",
+                tenant_id, doc_id, row.knowledge_base_id, row.chunk_count,
+            )
+        else:
+            logger.info(
+                "Document deleted (not indexed, no stats change): "
+                "tenant=%s doc_id=%s kb=%s chunk_status=%s",
+                tenant_id, doc_id, row.knowledge_base_id, row.chunk_status,
+            )
         return True
 
     async def get_ingest_status(self, task_id: str) -> dict | None:

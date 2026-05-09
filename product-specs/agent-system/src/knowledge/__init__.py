@@ -38,6 +38,7 @@ from .quality import (
     DocumentQualityScorer,
     QualityScoreResult,
 )
+from .keyword_extract import KeywordExtractor
 from .provider import (
     DocumentInfo,
     IngestResult,
@@ -75,6 +76,8 @@ __all__ = [
     # Quality
     "DocumentQualityScorer",
     "QualityScoreResult",
+    # Keywords
+    "KeywordExtractor",
     # Provider
     "KnowledgeProvider",
     "KnowledgeChunk",

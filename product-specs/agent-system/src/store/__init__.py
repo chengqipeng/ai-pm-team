@@ -26,7 +26,6 @@ from .knowledge_dao import (
     KnowledgeDatasetDAO,
     KnowledgeSchemaDAO,
     KnowledgeDocumentDAO,
-    KnowledgeSegmentDAO,
     KnowledgeChunkDAO,
     KnowledgeIngestQueueDAO,
     KnowledgeIngestLogDAO,
@@ -50,7 +49,7 @@ __all__ = [
     "KnowledgeIngestLogRow", "KnowledgeSearchLogRow",
     # knowledge DAOs
     "KnowledgeBaseDAO", "KnowledgeDatasetDAO",
-    "KnowledgeSchemaDAO", "KnowledgeDocumentDAO", "KnowledgeSegmentDAO",
+    "KnowledgeSchemaDAO", "KnowledgeDocumentDAO",
     "KnowledgeChunkDAO", "KnowledgeIngestQueueDAO",
     "KnowledgeIngestLogDAO", "KnowledgeSearchLogDAO",
 ]

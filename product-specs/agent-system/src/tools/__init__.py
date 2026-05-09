@@ -1,8 +1,10 @@
-"""tools — Tool 基类、ToolRegistry、ToolLoader、AgentTool、SkillsTool、CRM 工具"""
+"""tools — Tool 基类、ToolRegistry、ToolLoader、AgentTool、SkillsTool、CRM 工具、Metarepo 工具"""
 from .base import Tool, ToolRegistry
 from .loader import ToolLoader
 from .crm_backend import CrmSimulatedBackend
 from .crm_tools import register_crm_tools
+from .metarepo_backend import MetarepoSimulatedBackend
+from .metarepo_tools import register_metarepo_tools
 
 # 延迟导入避免循环依赖（skills_tool → skills.base → tools.base）
 def __getattr__(name):

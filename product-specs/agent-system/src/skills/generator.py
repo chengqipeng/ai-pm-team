@@ -31,15 +31,15 @@ class SkillGenerator:
 
     def __init__(
         self,
-        skills_dir: str = "./skills/auto-generated",
         min_tool_calls: int = 5,
         skill_registry: Any = None,
         llm: Any = None,
+        tenant_id: int = 0,
     ) -> None:
-        self._skills_dir = Path(skills_dir)
         self._min_tool_calls = min_tool_calls
         self._skill_registry = skill_registry
-        self._llm = llm  # LLM 实例，用于高质量技能生成
+        self._llm = llm
+        self._tenant_id = tenant_id  # 写入 DB 时使用的租户
 
     def should_generate(self, messages: list) -> bool:
         """判断是否应该生成技能（工具调用数 >= 阈值）"""
@@ -51,8 +51,11 @@ class SkillGenerator:
     async def generate_with_llm(self, messages: list) -> str | None:
         """LLM 驱动的技能生成（优先使用）
 
-        如果有 optimizer，委托给 SkillOptimizer.generate_from_conversation。
-        否则 fallback 到规则生成。
+        委托给 SkillOptimizer.generate_from_conversation，直接把新 Skill 写入
+        ai_skill_definition 并注册到内存。无 LLM 时 fallback 到规则生成。
+
+        Returns:
+            生成的 Skill api_key，未生成时返回 None
         """
         if self._llm is not None and self.should_generate(messages):
             try:
@@ -60,55 +63,57 @@ class SkillGenerator:
                 from .tracker import SkillTracker
                 optimizer = SkillOptimizer(
                     llm=self._llm,
-                    tracker=SkillTracker(),  # 临时 tracker
-                    skills_dir=str(self._skills_dir),
+                    tracker=SkillTracker(),
                     skill_registry=self._skill_registry,
                 )
-                return await optimizer.generate_from_conversation(messages, self._min_tool_calls)
+                return await optimizer.generate_from_conversation(
+                    messages, self._min_tool_calls, tenant_id=self._tenant_id,
+                )
             except Exception as e:
                 logger.warning("LLM 技能生成失败，fallback 到规则: %s", e)
         return self.generate(messages)
 
     def generate(self, messages: list, task_description: str = "") -> str | None:
-        """从对话中生成 SKILL.md 文件（规则提取 fallback）
+        """从对话中生成 Skill 并写入数据库（规则提取 fallback）
 
-        返回生成的文件路径，失败返回 None
+        Returns:
+            新 Skill 的 api_key，失败返回 None
         """
         if not self.should_generate(messages):
             return None
 
-        # 提取任务信息
         task_info = self._extract_task_info(messages)
         if not task_info["description"]:
             return None
 
-        # 生成技能名
         skill_name = self._generate_skill_name(task_info["description"])
-
-        # 构建 SKILL.md 内容
         content = self._build_skill_content(skill_name, task_info)
 
-        # 写入文件
-        skill_dir = self._skills_dir / skill_name
-        skill_dir.mkdir(parents=True, exist_ok=True)
-        skill_path = skill_dir / "SKILL.md"
-        skill_path.write_text(content, encoding="utf-8")
+        try:
+            from src.skills.base import SkillLoader, SkillRegistry
 
-        logger.info("Auto-generated skill: %s → %s", skill_name, skill_path)
+            skill_def = SkillLoader.parse(content)
+            if not skill_def.name:
+                skill_def.name = skill_name
+            skill_def.tenant_id = self._tenant_id
+            skill_def.owner = skill_def.owner or "auto-generated"
+            SkillLoader.validate(skill_def)
 
-        # 自动注册到 SkillRegistry
-        if self._skill_registry is not None:
-            try:
-                from src.skills.base import SkillLoader
-                skill_def = SkillLoader.parse(content)
-                if not skill_def.name:
-                    skill_def.name = skill_name
+            registry = self._skill_registry or SkillRegistry()
+            registry.upsert_to_db(
+                skill_def, tenant_id=self._tenant_id, status="published",
+                changelog="auto-generated from conversation",
+            )
+            if self._skill_registry is not None:
                 self._skill_registry.register(skill_def)
-                logger.info("Auto-registered skill: %s", skill_name)
-            except Exception as e:
-                logger.warning("Failed to register auto-generated skill: %s", e)
+                logger.info("Auto-registered skill: %s", skill_def.name)
 
-        return str(skill_path)
+            logger.info("Auto-generated skill 写入 DB: tenant=%d api_key=%s",
+                        self._tenant_id, skill_def.name)
+            return skill_def.name
+        except Exception as e:
+            logger.warning("自动生成技能失败: %s", e)
+            return None
 
     def _extract_task_info(self, messages: list) -> dict:
         """从对话中提取任务信息"""
@@ -160,7 +165,7 @@ class SkillGenerator:
         return info
 
     def _generate_skill_name(self, description: str) -> str:
-        """从描述生成技能名（kebab-case）"""
+        """从描述生成技能名（kebab-case）— 唯一性由 DB upsert 天然保证"""
         # 提取中文关键词
         keywords = re.findall(r'[\u4e00-\u9fff]+', description)
         if keywords:
@@ -171,14 +176,6 @@ class SkillGenerator:
 
         if not name:
             name = f"auto-skill-{int(time.time())}"
-
-        # 确保唯一性
-        base_name = name
-        counter = 1
-        while (self._skills_dir / name / "SKILL.md").exists():
-            name = f"{base_name}-{counter}"
-            counter += 1
-
         return name
 
     def _build_skill_content(self, skill_name: str, task_info: dict) -> str:

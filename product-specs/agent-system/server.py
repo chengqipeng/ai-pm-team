@@ -22,6 +22,14 @@ import uuid
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(__file__))
+
+# 加载 .env 文件（如果存在），使 METAREPO_API_BASE 等配置生效
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=False)
+except ImportError:
+    pass
+
 os.environ.setdefault("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
 
 from fastapi import FastAPI, Request
@@ -34,12 +42,26 @@ from src.core.tracer import tracer, Tracer, SpanType
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(name)s %(message)s")
 logger = logging.getLogger("deepagent.server")
 
+
+def _build_metarepo_backend_for_server():
+    """按环境变量选择 Sim 或 HTTP 后端（与 /api/meta/* 共享同一 AuthClient）"""
+    from src.tools._http_auth import get_shared_auth_client
+    client = get_shared_auth_client()
+    if client is not None:
+        from src.tools.metarepo_http_backend import MetarepoHttpBackend
+        logger.warning("Metarepo tool backend: HTTP → %s", client.base_url)
+        return MetarepoHttpBackend(auth_client=client)
+    from src.tools.metarepo_backend import MetarepoSimulatedBackend
+    logger.warning("Metarepo tool backend: Simulated (未配置 METAREPO_API_BASE)")
+    return MetarepoSimulatedBackend()
+
 app = FastAPI(title="DeepAgent API", version="1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # ── Trace 持久化 ──
 from src.store.trace_writer import TraceWriter
-trace_writer = TraceWriter(tenant_id=1)
+from src.core.context import DEFAULT_TENANT_ID, DEFAULT_USER_ID, DEFAULT_USER_NAME, DEFAULT_USER_PHONE
+trace_writer = TraceWriter(tenant_id=DEFAULT_TENANT_ID)
 
 # ── Agent 懒加载 ──
 
@@ -62,17 +84,23 @@ async def _get_agent(multimodal: bool = False):
         from src.tools.base import ToolRegistry
         from src.tools.crm_backend import CrmSimulatedBackend
         from src.tools.crm_tools import register_crm_tools
+        from src.tools.metarepo_backend import MetarepoSimulatedBackend
+        from src.tools.metarepo_tools import register_metarepo_tools
         from src.skills.base import SkillRegistry
-        from src.skills.crm_skills import register_crm_skills
         from src.core.prompt_builder import build_system_prompt
         from src.middleware.builder import build_middleware
         from src.memory.viking_engine import VikingMemoryEngine
         from langchain_openai import ChatOpenAI
 
         backend = CrmSimulatedBackend()
+        metarepo_backend = _build_metarepo_backend_for_server()
         reg = ToolRegistry()
         skill_reg = SkillRegistry()
-        register_crm_skills(skill_reg)
+        # 权威数据源：ai_skill_definition 表（禁止硬编码）
+        try:
+            skill_reg.load_from_db(tenant_id=0)
+        except Exception as exc:
+            logger.warning("从 DB 加载 Skill 失败（Agent 将跳过技能）: %s", exc)
 
         aux_llm = ChatOpenAI(model="doubao-seed-2-0-lite-260215", api_key=os.environ["DOUBAO_API_KEY"],
                              base_url="https://ark.cn-beijing.volces.com/api/v3/", max_tokens=2048)
@@ -86,6 +114,7 @@ async def _get_agent(multimodal: bool = False):
         )
 
         register_crm_tools(reg, backend, memory_engine=memory_engine)
+        register_metarepo_tools(reg, metarepo_backend)
 
         system_prompt = build_system_prompt(agent_name="CRM-Agent", skills=skill_reg.list_all())
         middlewares = build_middleware(
@@ -251,6 +280,126 @@ except ImportError as exc:
     logger.warning("知识库 API 未启用: %s", exc)
 
 
+# ── 知识库 Provider 启动（全局持有，供 upload API / search Tool 使用）──
+
+_knowledge_supervisor = None  # 供 shutdown 停止 Worker
+
+
+@app.on_event("startup")
+async def _start_knowledge_provider():
+    """启动期初始化知识库 Provider + Worker 协程池
+
+    配置默认值直接写在 KnowledgeSettings 中（含 LKEAP 凭证）。
+    失败只记录日志，不阻塞服务启动。
+    Provider 未启动时，上传/检索接口会返回 503 + 明确提示。
+    """
+    global _knowledge_supervisor
+    try:
+        from src.config.models import KnowledgeSettings
+        from src.knowledge import build_knowledge_provider
+        from langchain_openai import ChatOpenAI
+
+        # 全部用 KnowledgeSettings 的默认值（凭证直接写死在那）
+        settings = KnowledgeSettings()
+
+        # 构造 LLM（给 Self-Querying / Auto-Tag 用），可选
+        llm = None
+        api_key = os.environ.get("DOUBAO_API_KEY")
+        if api_key:
+            try:
+                llm = ChatOpenAI(
+                    model="doubao-seed-2-0-lite-260215",
+                    api_key=api_key,
+                    base_url="https://ark.cn-beijing.volces.com/api/v3/",
+                    max_tokens=2048,
+                )
+            except Exception as exc:
+                logger.warning("知识库 LLM 初始化失败，自动打标降级: %s", exc)
+
+        provider, supervisor = build_knowledge_provider(settings, llm=llm)
+        app.state.knowledge_provider = provider
+        await supervisor.start()
+        _knowledge_supervisor = supervisor
+
+        # 启动调度任务检查器（每 60 秒检查一次到期任务）
+        # 传入 vdb 引用，让调度能同步 hit_count 到 VDB
+        from src.knowledge.scheduler import ScheduleRunner
+        _schedule_runner = ScheduleRunner(
+            check_interval_ms=60_000,
+            vdb=getattr(provider, "_vdb", None),
+        )
+        asyncio.create_task(_schedule_runner.run_forever())
+        app.state._schedule_runner = _schedule_runner
+
+        # 自动写入/升级默认 Schema（幂等）
+        # - 不存在 → INSERT
+        # - 字段过时 → 原地 UPDATE + version 递增（受 uk(tenant_id,name,kb_id) 约束，不能新增行）
+        try:
+            from src.knowledge.ingestion import _DEFAULT_SCHEMA_FIELDS
+            from src.store.knowledge_dao import KnowledgeSchemaDAO
+            from src.store.knowledge_models import KnowledgeSchemaRow
+            import json as _json
+
+            existing = KnowledgeSchemaDAO.get_for_kb(0, 0)
+            builtin_field_count = len(_DEFAULT_SCHEMA_FIELDS)
+            builtin_names = {f.get("field") for f in _DEFAULT_SCHEMA_FIELDS}
+            fields_json = _json.dumps(_DEFAULT_SCHEMA_FIELDS, ensure_ascii=False)
+
+            if not existing:
+                KnowledgeSchemaDAO.insert(KnowledgeSchemaRow(
+                    tenant_id=0,
+                    name="system_default",
+                    knowledge_base_id=0,
+                    fields=fields_json,
+                    version=1,
+                ))
+                logger.info(
+                    "已写入系统默认 Schema (tenant_id=0, name=system_default, "
+                    "version=1, fields=%d)", builtin_field_count,
+                )
+            else:
+                try:
+                    current_fields = _json.loads(existing.fields or "[]")
+                except Exception:
+                    current_fields = []
+                current_names = {f.get("field") for f in current_fields}
+                if len(current_fields) < builtin_field_count or current_names != builtin_names:
+                    next_version = int(getattr(existing, "version", 1) or 1) + 1
+                    KnowledgeSchemaDAO.update_fields(
+                        schema_id=existing.id,
+                        fields_json=fields_json,
+                        version=next_version,
+                    )
+                    logger.info(
+                        "已升级系统默认 Schema (id=%s, version=%d→%d, fields=%d→%d)",
+                        existing.id,
+                        int(getattr(existing, "version", 1) or 1), next_version,
+                        len(current_fields), builtin_field_count,
+                    )
+        except Exception as exc:
+            logger.warning("写入默认 Schema 失败（非致命）: %s", exc)
+
+        logger.info(
+            "✅ 知识库 Provider 已启动（worker_count=%d, lkeap_region=%s, vdb=%s）",
+            settings.ingest_worker_count,
+            settings.lkeap_region,
+            settings.vdb_database,
+        )
+    except Exception as exc:
+        logger.exception("知识库 Provider 启动失败，上传/检索将不可用: %s", exc)
+
+
+@app.on_event("shutdown")
+async def _stop_knowledge_provider():
+    global _knowledge_supervisor
+    if _knowledge_supervisor is not None:
+        try:
+            await _knowledge_supervisor.stop(timeout=10)
+            logger.info("知识库 Worker 已停止")
+        except Exception as exc:
+            logger.warning("停止知识库 Worker 失败: %s", exc)
+
+
 # ── 挂载 AG-UI / A2UI 路由 ──
 try:
     from src.api import a2ui_router
@@ -260,6 +409,24 @@ except ImportError as exc:
     logger.warning("A2UI API 未启用: %s", exc)
 
 
+# ── 挂载 元模型 / 元数据浏览 API ──
+try:
+    from src.api import metarepo_router
+    app.include_router(metarepo_router)
+    logger.info("已挂载 元模型浏览 API: /api/meta/*")
+except ImportError as exc:
+    logger.warning("元模型浏览 API 未启用: %s", exc)
+
+
+# ── 挂载 Skill 管理 API ──
+try:
+    from src.api import skill_router
+    app.include_router(skill_router)
+    logger.info("已挂载 Skill 管理 API: /api/skills/*")
+except ImportError as exc:
+    logger.warning("Skill 管理 API 未启用: %s", exc)
+
+
 # ── API 路由 ──
 
 @app.get("/api/health")
@@ -267,6 +434,47 @@ async def health():
     return {"status": "ok", "agent_ready": _agent is not None,
             "multimodal_ready": _agent_mm is not None,
             "text_model": TEXT_MODEL, "multimodal_model": MULTIMODAL_MODEL}
+
+
+@app.get("/api/auth/me")
+async def auth_me():
+    """返回当前 Agent 系统使用的用户身份（与 paas-platform-service 对齐）。
+
+    HTTP 模式：自动登录后缓存的用户信息
+    Sim 模式：返回 seed 数据里的默认用户
+    """
+    from src.tools._http_auth import get_shared_auth_client
+
+    client = get_shared_auth_client()
+    if client is not None:
+        # HTTP 模式：触发一次登录（如果还没登录），从 JWT 解析用户信息
+        try:
+            import httpx
+            token = await client._ensure_token()
+            # 解析 JWT payload（不验签，仅取 claims）
+            import base64
+            parts = token.split(".")
+            if len(parts) >= 2:
+                payload_b64 = parts[1] + "=" * (4 - len(parts[1]) % 4)
+                claims = json.loads(base64.urlsafe_b64decode(payload_b64))
+                return {
+                    "tenantId": claims.get("tenantId", DEFAULT_TENANT_ID),
+                    "userId": claims.get("userId"),
+                    "name": claims.get("name", ""),
+                    "phone": os.getenv("METAREPO_PHONE", "13800000001"),
+                    "backend": "http",
+                }
+        except Exception as e:
+            logger.warning("/api/auth/me HTTP 模式获取失败: %s", e)
+
+    # Sim 模式 / fallback：返回 seed 数据默认用户
+    return {
+        "tenantId": DEFAULT_TENANT_ID,
+        "userId": DEFAULT_USER_ID,
+        "name": DEFAULT_USER_NAME,
+        "phone": DEFAULT_USER_PHONE,
+        "backend": "sim",
+    }
 
 
 @app.post("/api/upload")
@@ -359,7 +567,7 @@ async def chat_stream(req: ChatRequest):
     # 设置请求级全局上下文
     from src.core.context import set_context, RequestContext
     set_context(RequestContext(
-        tenant_id=1,
+        tenant_id=DEFAULT_TENANT_ID,
         user_id=req.user_id,
         thread_id=req.thread_id,
         agent_name="CRM-Agent",
@@ -374,18 +582,56 @@ async def chat_stream(req: ChatRequest):
 
     from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
-    messages = []
+    # 构建历史消息（不含当前消息，供 QueryRewriter 使用）
+    history_messages = []
     for msg in req.history:
         if msg.get("role") == "user":
-            messages.append(HumanMessage(content=msg["content"]))
+            history_messages.append(HumanMessage(content=msg["content"]))
         elif msg.get("role") == "assistant":
-            messages.append(AIMessage(content=msg["content"]))
-    messages.append(HumanMessage(content=req.message))
+            history_messages.append(AIMessage(content=msg["content"]))
+
+    # ══════════════════════════════════════════════════════════════
+    # 入口层预处理流水线（在任何主 Agent 调用之前执行）
+    #   顺序：毒性检测 → 查询改写 → 送入 Agent
+    # ══════════════════════════════════════════════════════════════
+
+    # ── Step 1: 毒性检测（必须在改写之前，避免恶意输入进入任何 LLM 调用） ──
+    from src.core.content_reviewer import get_content_reviewer
+    reviewer = get_content_reviewer()
+    review_decision = await reviewer.review(req.message, thread_id=thread_id)
+
+    if not review_decision.passed:
+        # 拦截：直接返回拒绝响应，不进入改写和主 Agent 循环
+        logger.warning("[/api/chat] 输入被拦截: thread=%s reason=%s",
+                       thread_id, review_decision.blocked_reason)
+
+        async def _blocked_response():
+            from src.middleware.tracing import tracing_middleware
+            # 把刚记录的 content_review span 透传给前端
+            for mw_span in tracing_middleware.get_spans(thread_id):
+                yield f"data: {json.dumps({'type': 'mw_span', 'span': mw_span}, ensure_ascii=False)}\n\n"
+            tracing_middleware.clear(thread_id)
+            # 推送拒绝文本（一次性）
+            yield f"data: {json.dumps({'type': 'token', 'content': review_decision.blocked_reason}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'blocked': True}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(_blocked_response(), media_type="text/event-stream")
+
+    # ── Step 2: 查询改写（多轮对话指代消解，独立 LLM 调用，callbacks=[] 隔离） ──
+    from src.core.query_rewriter import get_query_rewriter
+    rewriter = get_query_rewriter()
+    effective_query = await rewriter.rewrite(
+        history_messages, req.message, thread_id=thread_id,
+    )
+
+    # 组装送入 Agent 的完整消息列表（最后一条 HumanMessage 使用改写后的 query）
+    messages = list(history_messages)
+    messages.append(HumanMessage(content=effective_query))
 
     # 获取该 thread 的上传文件
     files = _uploaded_files.get(thread_id, [])
 
-    # 开始 Trace
+    # 开始 Trace（使用用户原始输入，改写是内部处理不暴露）
     trace = tracer.start_trace(thread_id, req.message, model=TEXT_MODEL, agent_name="CRM-Agent")
     trace_id = trace.trace_id
     trace_writer.on_trace_start(trace)
@@ -394,7 +640,7 @@ async def chat_stream(req: ChatRequest):
         config = {
             "configurable": {
                 "thread_id": thread_id,
-                "tenant_id": "1",
+                "tenant_id": str(DEFAULT_TENANT_ID),
                 "user_id": req.user_id,
                 "files": files,
                 "parsed_files": files,  # FileProcessMiddleware 也从这里读
@@ -406,7 +652,14 @@ async def chat_stream(req: ChatRequest):
         current_tool_span = None
         # 增量推送中间件 spans
         from src.middleware.tracing import tracing_middleware
+        from src.core.stream_filter import StreamAnalysisFilter
         last_mw_idx = 0
+        # 流式过滤器 — 去除 LLM 输出中的 NLU 分析片段
+        stream_filter = StreamAnalysisFilter()
+        logger.warning("[stream_filter] 已启用 NLU 分析片段过滤（thread=%s）", thread_id)
+        # 统计过滤前后的差异
+        _raw_content = []
+        _filtered_content = []
 
         def flush_mw_spans():
             """检查并推送新的中间件 spans"""
@@ -436,14 +689,42 @@ async def chat_stream(req: ChatRequest):
                             content = "".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
                         if content:
                             full_content += content
-                            yield f"data: {json.dumps({'type': 'token', 'content': content}, ensure_ascii=False)}\n\n"
+                            _raw_content.append(content)
+                            # 流式过滤 NLU 分析片段
+                            filtered = stream_filter.feed(content)
+                            if filtered:
+                                _filtered_content.append(filtered)
+                                yield f"data: {json.dumps({'type': 'token', 'content': filtered}, ensure_ascii=False)}\n\n"
 
                 elif kind == "on_chat_model_start":
                     tracer.increment_iteration(trace_id)
                     iter_num = trace.iteration_count
                     span = tracer.start_span(trace_id, SpanType.LLM_CALL, f"第 {iter_num} 轮思考",
                                              metadata={"iteration": iter_num})
-                    yield f"data: {json.dumps({'type': 'llm_start', 'iteration': iter_num}, ensure_ascii=False)}\n\n"
+                    # 提取 LLM 输入消息摘要（用于前端展开时查看）
+                    llm_input_preview = []
+                    try:
+                        raw_input = data.get("input", {}) or {}
+                        msgs = raw_input.get("messages") or []
+                        # messages 可能是嵌套列表 [[msg1, msg2]] 或者扁平列表
+                        if msgs and isinstance(msgs[0], list):
+                            msgs = msgs[0]
+                        for m in msgs[-12:]:
+                            m_type = getattr(m, "type", None) or (m.get("type") if isinstance(m, dict) else "unknown")
+                            m_content = getattr(m, "content", None)
+                            if m_content is None and isinstance(m, dict):
+                                m_content = m.get("content", "")
+                            if isinstance(m_content, list):
+                                m_content = "".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in m_content)
+                            m_content = str(m_content or "")
+                            llm_input_preview.append({
+                                "role": m_type,
+                                "content": m_content[:1000],
+                            })
+                    except Exception:
+                        llm_input_preview = []
+                    span.input_data["messages_preview"] = llm_input_preview
+                    yield f"data: {json.dumps({'type': 'llm_start', 'iteration': iter_num, 'input': llm_input_preview}, ensure_ascii=False)}\n\n"
 
                 elif kind == "on_chat_model_end":
                     # 结束最后一个 LLM span — 提取完整的 token/tool_calls/is_final 信息
@@ -493,7 +774,7 @@ async def chat_stream(req: ChatRequest):
                             elif tool_calls:
                                 s.name = f"第 {s.metadata.get('iteration','')} 轮思考 → 调用 {', '.join(tool_calls)}"
                             s.finish("success", token_info)
-                            yield f"data: {json.dumps({'type': 'llm_end', 'duration_ms': round(s.duration_ms), 'tokens': token_info}, ensure_ascii=False)}\n\n"
+                            yield f"data: {json.dumps({'type': 'llm_end', 'duration_ms': round(s.duration_ms), 'tokens': token_info, 'output': ai_content[:2000] if ai_content else '', 'tool_calls': tool_calls, 'is_final': is_final}, ensure_ascii=False)}\n\n"
                             break
 
                 elif kind == "on_tool_start":
@@ -507,12 +788,42 @@ async def chat_stream(req: ChatRequest):
                         tool_input_full = raw_input
                     else:
                         tool_input_full = str(raw_input)
+
+                    # 对 skills_tool / agent_tool 等路由型工具，抽取真实调用目标
+                    sub_name = ""
+                    if tool_name in ("skills_tool", "agent_tool"):
+                        try:
+                            parsed_in = raw_input if isinstance(raw_input, dict) else json.loads(tool_input_full)
+                            if isinstance(parsed_in, dict):
+                                sub_name = str(
+                                    parsed_in.get("skill_name")
+                                    or parsed_in.get("agent_name")
+                                    or ""
+                                )
+                        except (json.JSONDecodeError, TypeError, ValueError):
+                            sub_name = ""
+
+                    display_name = f"{tool_name}({sub_name})" if sub_name else tool_name
                     current_tool_span = tracer.start_span(
-                        trace_id, SpanType.TOOL_CALL, f"tool:{tool_name}",
+                        trace_id, SpanType.TOOL_CALL, f"tool:{display_name}",
                         input_data={"tool_name": tool_name, "input": tool_input_full},
-                        metadata={"tool_name": tool_name, "input": tool_input_full[:200]},
+                        metadata={
+                            "tool_name": tool_name,
+                            "sub_name": sub_name,
+                            "display_name": display_name,
+                            "input": tool_input_full[:200],
+                        },
                     )
-                    yield f"data: {json.dumps({'type': 'tool_start', 'tool_name': tool_name, 'input': tool_input_full[:200]}, ensure_ascii=False)}\n\n"
+                    tool_start_payload = {
+                        "type": "tool_start",
+                        "tool_name": tool_name,
+                        "input": tool_input_full[:200],
+                        "input_full": tool_input_full[:4000],
+                    }
+                    if sub_name:
+                        tool_start_payload["sub_name"] = sub_name
+                        tool_start_payload["display_name"] = display_name
+                    yield f"data: {json.dumps(tool_start_payload, ensure_ascii=False)}\n\n"
 
                     # 提前检测文档类技能 → 发送 doc_start 信号
                     doc_prediction = _is_document_skill(tool_name, raw_input)
@@ -540,18 +851,41 @@ async def chat_stream(req: ChatRequest):
                         current_tool_span.metadata["status"] = "success"
                         current_tool_span.input_data["input"] = tool_input_full if 'tool_input_full' in dir() else current_tool_span.input_data.get("input", "")
                         current_tool_span.finish("success", {"output": output_full})
-                        yield f"data: {json.dumps({'type': 'tool_end', 'tool_name': tool_name, 'output': output_full[:300], 'duration_ms': round(current_tool_span.duration_ms)}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'type': 'tool_end', 'tool_name': tool_name, 'output': output_full[:300], 'output_full': output_full[:4000], 'duration_ms': round(current_tool_span.duration_ms)}, ensure_ascii=False)}\n\n"
                         current_tool_span = None
 
         except Exception as exc:
             err_span = tracer.start_span(trace_id, SpanType.ERROR, "error",
                                          input_data={"error": str(exc)})
             err_span.finish("error")
+            # 刷新流式过滤器 buffer
+            tail = stream_filter.flush()
+            if tail:
+                yield f"data: {json.dumps({'type': 'token', 'content': tail}, ensure_ascii=False)}\n\n"
             tracer.finish_trace(trace_id, "error", full_content)
             trace_writer.on_trace_finish(tracer.get_trace(trace_id))
             yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'trace_id': trace_id}, ensure_ascii=False)}\n\n"
             return
+
+        # 刷新流式过滤器 buffer（stream 正常结束）
+        tail = stream_filter.flush()
+        if tail:
+            _filtered_content.append(tail)
+            yield f"data: {json.dumps({'type': 'token', 'content': tail}, ensure_ascii=False)}\n\n"
+
+        # 过滤器诊断日志：对比原始 LLM 输出 vs 过滤后输出
+        _raw_all = "".join(_raw_content)
+        _filtered_all = "".join(_filtered_content)
+        if _raw_all != _filtered_all:
+            diff_len = len(_raw_all) - len(_filtered_all)
+            logger.warning(
+                "[stream_filter] 过滤生效: 原始=%d字符, 过滤后=%d字符, 剥离=%d字符\n  RAW: %s\n  OUT: %s",
+                len(_raw_all), len(_filtered_all), diff_len,
+                _raw_all[:300], _filtered_all[:300],
+            )
+        else:
+            logger.info("[stream_filter] 无需过滤: %d字符", len(_raw_all))
 
         tracer.finish_trace(trace_id, "success", full_content)
 
@@ -601,7 +935,7 @@ async def chat_sync(req: ChatRequest):
     """同步对话"""
     from src.core.context import set_context, RequestContext
     set_context(RequestContext(
-        tenant_id=1,
+        tenant_id=DEFAULT_TENANT_ID,
         user_id=req.user_id,
         thread_id=req.thread_id,
         agent_name="CRM-Agent",
@@ -684,9 +1018,9 @@ async def list_conversations(limit: int = 50):
                 SELECT thread_id, title, status, message_count, total_tokens,
                        last_message_at, agent_name, model
                 FROM ai_conversation
-                WHERE tenant_id=1 AND delete_flg=0
+                WHERE tenant_id=%s AND delete_flg=0
                 ORDER BY last_message_at DESC LIMIT %s
-            """, (limit,))
+            """, (DEFAULT_TENANT_ID, limit))
             rows = cur.fetchall()
             cols = [d[0] for d in cur.description]
         result = []
@@ -715,26 +1049,26 @@ async def delete_conversation(thread_id: str):
         with get_conn() as conn:
             cur = conn.cursor()
             # 删除消息
-            cur.execute("DELETE FROM ai_message WHERE tenant_id=1 AND thread_id=%s", (thread_id,))
+            cur.execute("DELETE FROM ai_message WHERE tenant_id=%s AND thread_id=%s", (DEFAULT_TENANT_ID, thread_id))
             deleted["messages"] = cur.rowcount
             # 删除消息扩展
             cur.execute("""
-                DELETE FROM ai_message_ext WHERE tenant_id=1 AND message_id IN (
-                    SELECT id FROM ai_message WHERE tenant_id=1 AND thread_id=%s
+                DELETE FROM ai_message_ext WHERE tenant_id=%s AND message_id IN (
+                    SELECT id FROM ai_message WHERE tenant_id=%s AND thread_id=%s
                 )
-            """, (thread_id,))
+            """, (DEFAULT_TENANT_ID, DEFAULT_TENANT_ID, thread_id))
             # 删除 trace spans
             cur.execute("""
                 DELETE FROM ai_trace_span WHERE trace_id IN (
-                    SELECT trace_id FROM ai_trace WHERE tenant_id=1 AND thread_id=%s
+                    SELECT trace_id FROM ai_trace WHERE tenant_id=%s AND thread_id=%s
                 )
-            """, (thread_id,))
+            """, (DEFAULT_TENANT_ID, thread_id))
             deleted["spans"] = cur.rowcount
             # 删除 traces
-            cur.execute("DELETE FROM ai_trace WHERE tenant_id=1 AND thread_id=%s", (thread_id,))
+            cur.execute("DELETE FROM ai_trace WHERE tenant_id=%s AND thread_id=%s", (DEFAULT_TENANT_ID, thread_id))
             deleted["traces"] = cur.rowcount
             # 删除会话
-            cur.execute("DELETE FROM ai_conversation WHERE tenant_id=1 AND thread_id=%s", (thread_id,))
+            cur.execute("DELETE FROM ai_conversation WHERE tenant_id=%s AND thread_id=%s", (DEFAULT_TENANT_ID, thread_id))
             deleted["conversation"] = cur.rowcount
         # 也从内存 tracer 中清除
         try:
@@ -864,10 +1198,30 @@ async def knowledge_browser():
     return "<h1>Knowledge Browser — 页面未找到</h1>"
 
 
+@app.get("/metamodel", response_class=HTMLResponse)
+async def metamodel_browser():
+    """元模型 & 元数据浏览页面"""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "metamodel_browser.html")
+    if os.path.exists(html_path):
+        with open(html_path, encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Metamodel Browser — 页面未找到</h1>"
+
+
+@app.get("/skills", response_class=HTMLResponse)
+async def skill_browser():
+    """Skill 技能管理页面"""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "skill_browser.html")
+    if os.path.exists(html_path):
+        with open(html_path, encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Skill Browser — 页面未找到</h1>"
+
+
 # ── 记忆浏览 API ──
 
 @app.get("/api/memory/users")
-async def memory_users(tenant_id: int = 1):
+async def memory_users(tenant_id: int = DEFAULT_TENANT_ID):
     """获取有记忆的用户列表（按租户）— 从 PG 读取"""
     try:
         from src.store.pg_pool import get_conn
@@ -896,7 +1250,7 @@ async def memory_users(tenant_id: int = 1):
 
 
 @app.get("/api/memory/list")
-async def memory_list(tenant_id: int = 1, user_id: str = "", category: str = "", limit: int = 200):
+async def memory_list(tenant_id: int = DEFAULT_TENANT_ID, user_id: str = "", category: str = "", limit: int = 200):
     """获取用户的记忆列表 — 从 PG 读取"""
     if not user_id:
         return {"memories": [], "total": 0}
@@ -935,7 +1289,7 @@ async def memory_list(tenant_id: int = 1, user_id: str = "", category: str = "",
 async def memory_archive(memory_id: str, request: Request):
     """归档记忆"""
     body = await request.json()
-    tenant_id = body.get("tenant_id", 1)
+    tenant_id = body.get("tenant_id", DEFAULT_TENANT_ID)
     try:
         from src.store.pg_pool import get_conn
         import time
@@ -953,7 +1307,7 @@ async def memory_archive(memory_id: str, request: Request):
 
 
 @app.delete("/api/memory/all")
-async def memory_delete_all(tenant_id: int = 1):
+async def memory_delete_all(tenant_id: int = DEFAULT_TENANT_ID):
     """一键清空租户下所有用户的全部记忆 — PG 软删除 + 向量库物理删除"""
     result = {"pg_deleted": 0, "vdb_deleted": 0}
     try:
@@ -1011,10 +1365,10 @@ async def memory_delete_all(tenant_id: int = 1):
 async def memory_delete(memory_id: str, request: Request):
     """删除记忆 — PG 软删除 + 向量库物理删除"""
     # 兼容前端传 body 或 query param
-    tenant_id = 1
+    tenant_id = DEFAULT_TENANT_ID
     try:
         body = await request.json()
-        tenant_id = int(body.get("tenant_id", 1))
+        tenant_id = int(body.get("tenant_id", DEFAULT_TENANT_ID))
     except Exception:
         pass
 
@@ -1091,7 +1445,7 @@ async def memory_delete(memory_id: str, request: Request):
 
 
 @app.delete("/api/memory/user/{user_id}")
-async def memory_delete_user(user_id: str, tenant_id: int = 1):
+async def memory_delete_user(user_id: str, tenant_id: int = DEFAULT_TENANT_ID):
     """删除用户的所有记忆 — PG 软删除 + 向量库物理删除"""
     result = {"pg_deleted": 0, "vdb_deleted": 0}
     try:

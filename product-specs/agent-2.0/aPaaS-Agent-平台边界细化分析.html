@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>aPaaS 与 Agent 平台边界</title>
+  <style>
+    :root {
+      --agent: #7c3aed;
+      --agent-bg: #f5f3ff;
+      --apaas: #059669;
+      --apaas-bg: #ecfdf5;
+      --shared: #d97706;
+      --shared-bg: #fffbeb;
+      --cross: #dc2626;
+      --cross-bg: #fef2f2;
+      --text: #1e293b;
+      --border: #e2e8f0;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: #f8fafc;
+      color: var(--text);
+      line-height: 1.8;
+      padding: 3rem 2rem;
+    }
+    .container { max-width: 1100px; margin: 0 auto; }
+    h1 { font-size: 1.8rem; text-align: center; margin-bottom: 0.3rem; }
+    .subtitle { text-align: center; color: #64748b; margin-bottom: 3rem; font-size: 0.9rem; }
+    section { background: #fff; border-radius: 12px; padding: 2rem; margin-bottom: 2rem; border: 1px solid var(--border); }
+    h2 { font-size: 1.3rem; margin-bottom: 1rem; color: var(--text); border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; }
+    h3 { font-size: 1.05rem; margin: 1.5rem 0 0.6rem; color: #334155; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.87rem; }
+    th, td { padding: 0.55rem 0.7rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: #f8fafc; font-weight: 600; }
+    .badge { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    .b-agent { background: var(--agent-bg); color: var(--agent); }
+    .b-apaas { background: var(--apaas-bg); color: var(--apaas); }
+    .b-shared { background: var(--shared-bg); color: var(--shared); }
+    .b-cross { background: var(--cross-bg); color: var(--cross); }
+    .diagram { background: #1e293b; color: #e2e8f0; padding: 1.5rem; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; overflow-x: auto; white-space: pre; line-height: 1.6; margin: 1rem 0; }
+    .box { padding: 1rem 1.2rem; border-radius: 8px; margin: 1rem 0; font-size: 0.9rem; }
+    .box-agent { background: var(--agent-bg); border-left: 4px solid var(--agent); }
+    .box-apaas { background: var(--apaas-bg); border-left: 4px solid var(--apaas); }
+    .box-warn { background: var(--shared-bg); border-left: 4px solid var(--shared); }
+    ul { padding-left: 1.3rem; margin: 0.4rem 0; }
+    li { margin: 0.2rem 0; font-size: 0.88rem; }
+    code { background: #f1f5f9; padding: 1px 5px; border-radius: 3px; font-size: 0.82rem; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin: 1rem 0; }
+    @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } body { padding: 1rem; } }
+  </style>
+</head>
+<body>
+<div class="container">
+
+<h1>aPaaS 与 Agent 平台边界</h1>
+<p class="subtitle">Agent 平台三大独立维度（Agent 框架 · 知识库 · 提示词模板） × aPaaS 平台职责划分</p>
+
+<!-- ===== 第一节：核心定位 ===== -->
+<section>
+  <h2>一、核心定位：一句话说清楚</h2>
+  <div class="two-col">
+    <div class="box box-agent">
+      <strong style="color:var(--agent)">Agent 平台（NeoAgent）</strong><br>
+      三大独立维度协同的智能中台：<strong>Agent 框架</strong>（Tool/Plugin/Skill/记忆/反思）+ <strong>知识库</strong>（管理/检索/业务线通用接入）+ <strong>提示词模板</strong>（平台/开发者/流程智能）。<br>
+      底层由 <strong>大模型网关平台</strong>（国内/国际模型统一接入）与 <strong>基础原子能力平台</strong>（文档解析/OCR/ASR/向量库）共同支撑。<br><br>
+      <strong>本质：智能决策层</strong> — 决定做什么、怎么做
+    </div>
+    <div class="box box-apaas">
+      <strong style="color:var(--apaas)">aPaaS 平台（NeoPlatform）</strong><br>
+      元数据驱动的业务平台，提供业务对象建模、数据 CRUD、校验规则、工作流、权限控制。<br><br>
+      <strong>本质：业务执行层</strong> — 保证做得对、做得安全
+    </div>
+  </div>
+
+  <div class="box box-warn">
+    <strong>关键关系：</strong>Agent 是 aPaaS 的"智能调用者"，不是"替代者"。Agent 通过 Tool 调用 aPaaS 的 API（包括 XOQL），aPaaS 的校验规则、权限、流程是硬约束，Agent 不能绕过。
+  </div>
+</section>
+
+<!-- ===== 第二节：大边界 ===== -->
+<section>
+  <h2>二、大边界划分</h2>
+
+  <div style="margin:1.5rem 0;">
+    <!-- 结构图用 HTML+CSS 绘制 -->
+    <div style="display:flex;flex-direction:column;gap:0;align-items:center;">
+
+      <!-- 用户入口 -->
+      <div style="background:#334155;color:#fff;padding:0.6rem 2rem;border-radius:8px 8px 0 0;font-weight:600;font-size:0.9rem;">
+        👤 用户（自然语言 / 语音 / 图片 / 文档）
+      </div>
+      <div style="width:2px;height:20px;background:#94a3b8;"></div>
+
+      <!-- 业务实现层 -->
+      <div style="width:100%;border:2px solid #db2777;border-radius:12px;padding:1.2rem 1.5rem;background:linear-gradient(135deg,#fdf2f8 0%,#fce7f3 100%);position:relative;">
+        <div style="position:absolute;top:-12px;left:20px;background:#db2777;color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">业务实现层（Business Applications）</div>
+        <div style="font-size:0.78rem;color:#9d174d;margin-bottom:0.6rem;margin-top:0.2rem;">直接面向终端用户的智能业务场景 · 由 Agent 平台能力驱动</div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;">
+
+          <!-- 左：Agent 平台默认能力 -->
+          <div style="border:1.5px solid var(--agent);border-radius:10px;padding:0.7rem;background:rgba(245,243,255,0.6);position:relative;">
+            <div style="position:absolute;top:-10px;left:12px;background:var(--agent);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;">Agent 平台默认能力</div>
+            <div style="font-size:0.68rem;color:var(--agent);margin:0.35rem 0 0.5rem;">开箱即用 · 跨租户通用</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
+              <div style="background:#fff;border:1px solid #c4b5fd;border-radius:8px;padding:0.6rem;text-align:center;">
+                <div style="font-weight:600;font-size:0.8rem;color:var(--agent);">🎙 智能录音</div>
+                <div style="font-size:0.68rem;color:#64748b;margin-top:0.2rem;">实时转写 / 摘要提取<br>待办自动抽取</div>
+              </div>
+              <div style="background:#fff;border:1px solid #c4b5fd;border-radius:8px;padding:0.6rem;text-align:center;">
+                <div style="font-weight:600;font-size:0.8rem;color:var(--agent);">🗨️ 百事通</div>
+                <div style="font-size:0.68rem;color:#64748b;margin-top:0.2rem;">智能问答 / 操作助手<br>知识 + 业务 QA</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 右：业务线新增应用 -->
+          <div style="border:1.5px solid #db2777;border-radius:10px;padding:0.7rem;background:rgba(255,255,255,0.6);position:relative;">
+            <div style="position:absolute;top:-10px;left:12px;background:#db2777;color:#fff;padding:1px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;">业务线新增应用</div>
+            <div style="font-size:0.68rem;color:#be185d;margin:0.35rem 0 0.5rem;">基于 Agent 能力定制 · 业务线自主交付</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
+              <div style="background:#fff;border:1px solid #f9a8d4;border-radius:8px;padding:0.6rem;text-align:center;">
+                <div style="font-weight:600;font-size:0.8rem;color:#be185d;">🔎 客户洞察</div>
+                <div style="font-size:0.68rem;color:#64748b;margin-top:0.2rem;">画像分析 / 行为追踪<br>关键事件挖掘</div>
+              </div>
+              <div style="background:#fff;border:1px solid #f9a8d4;border-radius:8px;padding:0.6rem;text-align:center;">
+                <div style="font-weight:600;font-size:0.8rem;color:#be185d;">💡 商机健康度评估</div>
+                <div style="font-size:0.68rem;color:#64748b;margin-top:0.2rem;">赢率预测 / 风险识别<br>推进建议</div>
+              </div>
+            </div>
+            <div style="margin-top:0.5rem;font-size:0.66rem;color:#9d174d;text-align:center;font-style:italic;">
+              更多场景化应用 · 营销 / 销售 / 服务 / 伙伴 …
+            </div>
+          </div>
+
+        </div>
+      </div>
+      <div style="width:2px;height:20px;background:#94a3b8;"></div>
+
+      <!-- Agent 平台 -->
+      <div style="width:100%;border:2px solid var(--agent);border-radius:12px;padding:1.5rem;background:var(--agent-bg);position:relative;">
+        <div style="position:absolute;top:-12px;left:20px;background:var(--agent);color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">Agent 平台（NeoAgent）</div>
+
+        <!-- 三大独立维度 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.8rem;margin-top:0.8rem;">
+
+          <!-- 维度一：Agent 框架 -->
+          <div style="border:1.5px solid #7c3aed;border-radius:8px;padding:0.8rem;background:#fff;position:relative;">
+            <div style="position:absolute;top:-10px;left:10px;background:var(--agent);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;">维度一 · Agent 框架</div>
+            <div style="font-size:0.7rem;color:#64748b;margin:0.3rem 0 0.5rem;text-align:center;">智能体核心引擎 · 决策与执行内核</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;">
+              <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.35rem;text-align:center;">
+                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">🛠 Tool</div>
+                <div style="font-size:0.65rem;color:#64748b;">原子操作</div>
+              </div>
+              <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.35rem;text-align:center;">
+                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">🔌 Plugin</div>
+                <div style="font-size:0.65rem;color:#64748b;">可插拔基础设施</div>
+              </div>
+              <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.35rem;text-align:center;">
+                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">🎯 Skill</div>
+                <div style="font-size:0.65rem;color:#64748b;">多步 SOP 编排</div>
+              </div>
+              <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.35rem;text-align:center;">
+                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">🔗 MCP</div>
+                <div style="font-size:0.65rem;color:#64748b;">外部工具/数据源接入</div>
+              </div>
+              <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.35rem;text-align:center;">
+                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">💾 记忆</div>
+                <div style="font-size:0.65rem;color:#64748b;">长期/短期/向量 · 遗忘</div>
+              </div>
+              <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.35rem;text-align:center;">
+                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">🔁 反思</div>
+                <div style="font-size:0.65rem;color:#64748b;">评估 / 自我优化</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 维度二：知识库 -->
+          <div style="border:1.5px solid #7c3aed;border-radius:8px;padding:0.8rem;background:#fff;position:relative;">
+            <div style="position:absolute;top:-10px;left:10px;background:var(--agent);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;">维度二 · 知识库</div>
+            <div style="font-size:0.7rem;color:#64748b;margin:0.3rem 0 0.5rem;text-align:center;">企业级知识中台 · AI / 业务线双向赋能</div>
+            <div style="display:grid;grid-template-columns:1fr;gap:0.35rem;">
+              <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.4rem;">
+                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">📚 知识库管理</div>
+                <div style="font-size:0.65rem;color:#64748b;">文档入库 / 切片 / 向量索引 / 版本治理</div>
+              </div>
+              <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.4rem;">
+                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">🔍 知识检索</div>
+                <div style="font-size:0.65rem;color:#64748b;">Agentic 多轮检索 / 混合搜索 / 重排</div>
+              </div>
+              <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.4rem;">
+                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">🧩 业务线通用接入能力</div>
+                <div style="font-size:0.65rem;color:#64748b;">客户问答 / 关联文档摘要 / OpenAPI 对接</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 维度三：提示词模板 -->
+          <div style="border:1.5px solid #7c3aed;border-radius:8px;padding:0.8rem;background:#fff;position:relative;">
+            <div style="position:absolute;top:-10px;left:10px;background:var(--agent);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;">维度三 · 提示词模板</div>
+            <div style="font-size:0.7rem;color:#64748b;margin:0.3rem 0 0.5rem;text-align:center;">Prompt 中台 · 三端统一复用</div>
+            <div style="display:grid;grid-template-columns:1fr;gap:0.35rem;">
+              <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.4rem;">
+                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">🏢 平台场景</div>
+                <div style="font-size:0.65rem;color:#64748b;">System Prompt / 角色人设 / 输出格式</div>
+              </div>
+              <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.4rem;">
+                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">👨‍💻 开发者平台</div>
+                <div style="font-size:0.65rem;color:#64748b;">自定义 Prompt / SDK 调用 / 脚本注入</div>
+              </div>
+              <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.4rem;">
+                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">⚙️ 流程智能业务</div>
+                <div style="font-size:0.65rem;color:#64748b;">工作流 Prompt / 自动流触发 / 业务模板</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- 支撑能力层 -->
+        <div style="margin-top:0.8rem;border:1px dashed #7c3aed;border-radius:8px;padding:0.8rem;background:#ede9fe;position:relative;">
+          <div style="position:absolute;top:-10px;left:12px;background:#ede9fe;padding:0 6px;font-size:0.72rem;color:#5b21b6;font-weight:600;">支撑能力层（跨三大维度共享）</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr;gap:0.5rem;margin-top:0.3rem;">
+            <div style="background:#fff;border:1px solid #a78bfa;border-radius:6px;padding:0.4rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;">🧠 推理引擎</div>
+              <div style="font-size:0.65rem;color:#64748b;">意图/规划</div>
+            </div>
+            <div style="background:#fff;border:1px solid #a78bfa;border-radius:6px;padding:0.4rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;">📐 上下文工程</div>
+              <div style="font-size:0.65rem;color:#64748b;">压缩/摘要</div>
+            </div>
+            <div style="background:#fff;border:1px solid #a78bfa;border-radius:6px;padding:0.4rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;">🏷️ 业务语义</div>
+              <div style="font-size:0.65rem;color:#64748b;">元数据映射</div>
+            </div>
+            <div style="background:#fff;border:1px solid #a78bfa;border-radius:6px;padding:0.4rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;">🖥️ AG-UI / A2UI</div>
+              <div style="font-size:0.65rem;color:#64748b;">前端协议</div>
+            </div>
+            <div style="background:#fff;border:1px solid #a78bfa;border-radius:6px;padding:0.4rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;">🤖 Multi-Agent</div>
+              <div style="font-size:0.65rem;color:#64748b;">子 Agent 协作</div>
+            </div>
+            <div style="background:#fff;border:1px solid #a78bfa;border-radius:6px;padding:0.4rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;">🛡️ 安全层</div>
+              <div style="font-size:0.65rem;color:#64748b;">审查/PII/HITL</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 基础设施平台层 -->
+        <div style="margin-top:0.8rem;display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;">
+
+          <!-- 大模型网关平台 -->
+          <div style="border:1.5px solid #6366f1;border-radius:8px;padding:0.8rem;background:linear-gradient(135deg,#eef2ff 0%,#e0e7ff 100%);position:relative;">
+            <div style="position:absolute;top:-10px;left:10px;background:#6366f1;color:#fff;padding:1px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;">🌐 大模型网关平台</div>
+            <div style="font-size:0.7rem;color:#4f46e5;margin:0.3rem 0 0.5rem;text-align:center;font-weight:500;">统一接入 · 路由 · 限流 · 降级 · 计费</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;">
+              <div style="background:#fff;border:1px solid #c7d2fe;border-radius:5px;padding:0.4rem;">
+                <div style="font-weight:600;font-size:0.72rem;color:#4338ca;">🇨🇳 国内模型</div>
+                <div style="font-size:0.65rem;color:#64748b;">通义千问 / 文心 / 豆包<br>DeepSeek / Kimi / 智谱</div>
+              </div>
+              <div style="background:#fff;border:1px solid #c7d2fe;border-radius:5px;padding:0.4rem;">
+                <div style="font-weight:600;font-size:0.72rem;color:#4338ca;">🌏 国际模型</div>
+                <div style="font-size:0.65rem;color:#64748b;">OpenAI / Claude<br>Gemini / LLaMA</div>
+              </div>
+              <div style="background:#fff;border:1px solid #c7d2fe;border-radius:5px;padding:0.4rem;grid-column:span 2;">
+                <div style="font-weight:600;font-size:0.72rem;color:#4338ca;">⚙️ 网关能力</div>
+                <div style="font-size:0.65rem;color:#64748b;">统一协议 · 智能路由 · 失败降级 · Token 计费 · 流量治理</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 基础原子能力平台 -->
+          <div style="border:1.5px solid #0891b2;border-radius:8px;padding:0.8rem;background:linear-gradient(135deg,#ecfeff 0%,#cffafe 100%);position:relative;">
+            <div style="position:absolute;top:-10px;left:10px;background:#0891b2;color:#fff;padding:1px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;">🧱 基础原子能力平台</div>
+            <div style="font-size:0.7rem;color:#0e7490;margin:0.3rem 0 0.5rem;text-align:center;font-weight:500;">多模态解析 · 向量化 · 原子服务</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;">
+              <div style="background:#fff;border:1px solid #a5f3fc;border-radius:5px;padding:0.4rem;">
+                <div style="font-weight:600;font-size:0.72rem;color:#0e7490;">📄 文档解析</div>
+                <div style="font-size:0.65rem;color:#64748b;">PDF / Word / Excel<br>PPT / HTML / Markdown</div>
+              </div>
+              <div style="background:#fff;border:1px solid #a5f3fc;border-radius:5px;padding:0.4rem;">
+                <div style="font-weight:600;font-size:0.72rem;color:#0e7490;">👁 OCR</div>
+                <div style="font-size:0.65rem;color:#64748b;">图片文字识别<br>版式还原 / 表格抽取</div>
+              </div>
+              <div style="background:#fff;border:1px solid #a5f3fc;border-radius:5px;padding:0.4rem;">
+                <div style="font-weight:600;font-size:0.72rem;color:#0e7490;">🎙 ASR</div>
+                <div style="font-size:0.65rem;color:#64748b;">语音转文字<br>实时/离线 · 多语种</div>
+              </div>
+              <div style="background:#fff;border:1px solid #a5f3fc;border-radius:5px;padding:0.4rem;">
+                <div style="font-weight:600;font-size:0.72rem;color:#0e7490;">🧬 向量库</div>
+                <div style="font-size:0.65rem;color:#64748b;">Embedding / 存储<br>相似度检索 / 重排</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 连接线 -->
+      <div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;">
+        <div style="width:1px;height:20px;background:linear-gradient(to bottom, transparent, #cbd5e1);"></div>
+      </div>
+      <div style="color:#94a3b8;padding:0.3rem 1rem;font-size:0.8rem;display:flex;align-items:center;gap:0.5rem;font-weight:500;letter-spacing:0.02em;">
+        <span style="color:#cbd5e1;font-size:0.7rem;">◇</span>
+        <span>接入底层基座能力</span>
+        <span style="color:#cbd5e1;font-size:0.7rem;">◇</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;">
+        <div style="width:1px;height:20px;background:linear-gradient(to bottom, #cbd5e1, transparent);"></div>
+      </div>
+
+      <!-- aPaaS 平台 -->
+      <div style="width:100%;border:2px solid var(--apaas);border-radius:12px;padding:1.5rem;background:var(--apaas-bg);position:relative;">
+        <div style="position:absolute;top:-12px;left:20px;background:var(--apaas);color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">aPaaS 平台（NeoPlatform）</div>
+
+        <!-- 业务引擎 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.6rem;margin-top:0.8rem;">
+          <div style="background:#fff;border:1px solid #6ee7b7;border-radius:6px;padding:0.6rem;text-align:center;">
+            <div style="font-weight:600;font-size:0.82rem;color:var(--apaas);">📐 元数据引擎</div>
+            <div style="font-size:0.72rem;color:#64748b;margin-top:0.2rem;">业务对象建模<br>字段 / 关联 / 规则</div>
+          </div>
+          <div style="background:#fff;border:1px solid #6ee7b7;border-radius:6px;padding:0.6rem;text-align:center;">
+            <div style="font-weight:600;font-size:0.82rem;color:var(--apaas);">🗄️ 数据引擎</div>
+            <div style="font-size:0.72rem;color:#64748b;margin-top:0.2rem;">XOQL / CRUD<br>ES 全文检索 / 聚合</div>
+          </div>
+          <div style="background:#fff;border:1px solid #6ee7b7;border-radius:6px;padding:0.6rem;text-align:center;">
+            <div style="font-weight:600;font-size:0.82rem;color:var(--apaas);">⚙️ 流程引擎</div>
+            <div style="font-size:0.72rem;color:#64748b;margin-top:0.2rem;">工作流 / 审批流<br>自动流 / 规则引擎</div>
+          </div>
+          <div style="background:#fff;border:1px solid #6ee7b7;border-radius:6px;padding:0.6rem;text-align:center;">
+            <div style="font-weight:600;font-size:0.82rem;color:var(--apaas);">🔐 权限引擎</div>
+            <div style="font-size:0.72rem;color:#64748b;margin-top:0.2rem;">RBAC / 行级权限<br>共享规则 / FLS</div>
+          </div>
+        </div>
+
+        <!-- 开发者平台 -->
+        <div style="margin-top:0.8rem;border:1px dashed #059669;border-radius:8px;padding:0.7rem;position:relative;background:#f0fdf4;">
+          <div style="position:absolute;top:-10px;left:12px;background:#f0fdf4;padding:0 6px;font-size:0.72rem;color:#047857;font-weight:600;">开发者平台</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:0.5rem;margin-top:0.3rem;">
+            <div style="background:#fff;border:1px solid #a7f3d0;border-radius:5px;padding:0.4rem;text-align:center;">
+              <div style="font-size:0.75rem;font-weight:600;">Open API</div>
+              <div style="font-size:0.68rem;color:#64748b;">RESTful 接口</div>
+            </div>
+            <div style="background:#fff;border:1px solid #a7f3d0;border-radius:5px;padding:0.4rem;text-align:center;">
+              <div style="font-size:0.75rem;font-weight:600;">脚本引擎</div>
+              <div style="font-size:0.68rem;color:#64748b;">Groovy / JS</div>
+            </div>
+            <div style="background:#fff;border:1px solid #a7f3d0;border-radius:5px;padding:0.4rem;text-align:center;">
+              <div style="font-size:0.75rem;font-weight:600;">自定义 API</div>
+              <div style="font-size:0.68rem;color:#64748b;">业务接口暴露</div>
+            </div>
+            <div style="background:#fff;border:1px solid #a7f3d0;border-radius:5px;padding:0.4rem;text-align:center;">
+              <div style="font-size:0.75rem;font-weight:600;">NEX 扩展</div>
+              <div style="font-size:0.68rem;color:#64748b;">第三方插件</div>
+            </div>
+            <div style="background:#fff;border:1px solid #a7f3d0;border-radius:5px;padding:0.4rem;text-align:center;">
+              <div style="font-size:0.75rem;font-weight:600;">SDK / CLI</div>
+              <div style="font-size:0.68rem;color:#64748b;">开发工具链</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 连接线 -->
+      <div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0;">
+        <div style="width:2px;height:20px;background:#94a3b8;"></div>
+      </div>
+
+      <!-- 统一服务 -->
+      <div style="width:100%;border:2px solid var(--shared);border-radius:12px;padding:1rem 1.5rem;background:var(--shared-bg);position:relative;">
+        <div style="position:absolute;top:-12px;left:20px;background:var(--shared);color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">统一平台服务（双方共享）</div>
+        <div style="display:flex;flex-wrap:wrap;gap:0.8rem;margin-top:0.5rem;justify-content:center;">
+          <span style="background:#fff;padding:0.3rem 0.8rem;border-radius:6px;font-size:0.8rem;border:1px solid #fbbf24;">身份认证 / SSO</span>
+          <span style="background:#fff;padding:0.3rem 0.8rem;border-radius:6px;font-size:0.8rem;border:1px solid #fbbf24;">权限体系</span>
+          <span style="background:#fff;padding:0.3rem 0.8rem;border-radius:6px;font-size:0.8rem;border:1px solid #fbbf24;">审计日志</span>
+          <span style="background:#fff;padding:0.3rem 0.8rem;border-radius:6px;font-size:0.8rem;border:1px solid #fbbf24;">API 网关</span>
+          <span style="background:#fff;padding:0.3rem 0.8rem;border-radius:6px;font-size:0.8rem;border:1px solid #fbbf24;">多端适配</span>
+          <span style="background:#fff;padding:0.3rem 0.8rem;border-radius:6px;font-size:0.8rem;border:1px solid #fbbf24;">多租户底座</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ===== 第三节：Agent 侧职责 ===== -->
+<section>
+  <h2>三、Agent 平台的职责边界（三大独立维度）</h2>
+
+  <p>Agent 平台对外呈现三个相互独立、可单独产品化运营的维度，三者共享推理引擎、上下文工程、安全层等底层支撑能力：</p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin:1rem 0;">
+    <div class="box box-agent" style="margin:0;">
+      <strong style="color:var(--agent);">维度一 · Agent 框架</strong><br>
+      <span style="font-size:0.82rem;color:#64748b;">智能体核心引擎，围绕任务执行闭环组织能力</span>
+      <ul style="margin-top:0.4rem;">
+        <li>Tool · 原子操作</li>
+        <li>Plugin · 可插拔基础设施</li>
+        <li>Skill · 多步 SOP 编排</li>
+        <li>MCP · 外部工具/数据源接入</li>
+        <li>记忆 · 长期/短期/向量 · 遗忘</li>
+        <li>反思 · 执行评估与自我优化</li>
+      </ul>
+    </div>
+    <div class="box box-agent" style="margin:0;">
+      <strong style="color:var(--agent);">维度二 · 知识库</strong><br>
+      <span style="font-size:0.82rem;color:#64748b;">企业级知识中台，面向 AI 与各业务线统一赋能</span>
+      <ul style="margin-top:0.4rem;">
+        <li>知识库管理 · 入库/切片/向量化</li>
+        <li>知识检索 · Agentic 检索 + 混合搜索</li>
+        <li>业务线通用接入能力 · 客户问答 / 关联文档摘要</li>
+      </ul>
+    </div>
+    <div class="box box-agent" style="margin:0;">
+      <strong style="color:var(--agent);">维度三 · 提示词模板</strong><br>
+      <span style="font-size:0.82rem;color:#64748b;">Prompt 中台，跨平台、开发者平台、流程智能复用</span>
+      <ul style="margin-top:0.4rem;">
+        <li>平台场景 · System Prompt / 角色人设 / 输出格式</li>
+        <li>开发者平台 · 自定义 Prompt / SDK / 脚本注入</li>
+        <li>流程智能业务 · 工作流 / 自动流 / 业务模板</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>维度一：Agent 框架（智能体核心引擎）</h3>
+  <table>
+    <thead>
+      <tr><th>模块</th><th>定位</th><th>举例</th><th>与 aPaaS 的关系</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Tool</strong><br><span class="badge b-agent">LLM 的手</span></td>
+        <td>一次原子操作，LLM 通过 function calling 调用</td>
+        <td>query_data / modify_data / analyze_data / query_schema / web_search / search_memories</td>
+        <td><strong>部分封装 aPaaS API</strong>（query_data → paas-entity-service），部分完全独立（web_search）</td>
+      </tr>
+      <tr>
+        <td><strong>Plugin</strong><br><span class="badge b-agent">系统器官</span></td>
+        <td>可插拔基础设施，有生命周期、有配置</td>
+        <td>llm-plugin / memory-plugin / search-plugin / document-parse-plugin / image-gen-plugin</td>
+        <td>完全独立于 aPaaS，Agent 内部消费</td>
+      </tr>
+      <tr>
+        <td><strong>Skill</strong><br><span class="badge b-agent">Agent 的 SOP</span></td>
+        <td>多步业务流程编排，有判断有分支</td>
+        <td>diagnose / data_analysis / batch_data / competitive_analysis / config_entity</td>
+        <td>内部编排多个 Tool，部分 Tool 会调用 aPaaS API</td>
+      </tr>
+      <tr>
+        <td><strong>MCP</strong><br><span class="badge b-agent">外部协议接入</span></td>
+        <td>标准化接入外部工具、数据源、服务能力</td>
+        <td>第三方 SaaS 工具 / 远程数据源 / 行业标准服务 / 企业内部系统</td>
+        <td>独立于 aPaaS，扩展 Agent 的可用工具集与数据源边界</td>
+      </tr>
+      <tr>
+        <td><strong>记忆（Memory）</strong><br><span class="badge b-agent">认知沉淀</span></td>
+        <td>长期/短期/向量记忆统一存取 + 记忆遗忘机制</td>
+        <td>profile / preferences / agent_rules / entities / 会话短期记忆 / 过期衰减 / 冲突覆盖 / 主动遗忘</td>
+        <td>记忆是"认知"，与 aPaaS 的"事实数据"冲突时以 aPaaS 为准</td>
+      </tr>
+      <tr>
+        <td><strong>反思（Reflection）</strong><br><span class="badge b-agent">自我优化</span></td>
+        <td>执行结果评估、错误识别、策略调整</td>
+        <td>Skill 执行后反思、Tool 失败重试判断、Plan 动态调整</td>
+        <td>独立于 aPaaS，仅消费 Tool 返回的 aPaaS 错误信息做决策修正</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>维度二：知识库（企业级知识中台）</h3>
+  <table>
+    <thead>
+      <tr><th>模块</th><th>定位</th><th>典型能力</th><th>服务对象</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>知识库管理</strong><br><span class="badge b-agent">内容治理</span></td>
+        <td>文档全生命周期管理</td>
+        <td>多源导入 / 文档解析 / 分段切片 / 向量化 / 版本与权限治理 / 增量更新</td>
+        <td>AI（RAG 底座）+ 业务线（文档管理 / OpenAPI）</td>
+      </tr>
+      <tr>
+        <td><strong>知识检索</strong><br><span class="badge b-agent">检索服务</span></td>
+        <td>混合检索 + Agentic 多轮改写</td>
+        <td>BM25 / 向量召回 / 重排 / 查询改写 / 多轮检索评估 / 引用溯源</td>
+        <td>AI（Agent RAG）+ 业务线（搜索 API）</td>
+      </tr>
+      <tr>
+        <td><strong>业务线通用接入能力</strong><br><span class="badge b-cross">业务输出</span></td>
+        <td>向各业务线开放标准化的知识消费能力</td>
+        <td>客户问答（企业内/对外 QA） / 关联文档摘要（基于业务对象聚合相关文档） / 知识卡片嵌入 / OpenAPI 对接</td>
+        <td>aPaaS 业务页面、CRM 业务线、第三方系统</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="box box-warn">
+    <strong>关键设计：</strong>知识库不是 Agent 的附属模块，而是独立可产品化的企业级中台。它既为 Agent 提供 RAG 底座，也通过 OpenAPI/SDK 向各业务线输出客户问答、关联文档摘要等标准化接入能力。
+  </div>
+
+  <h3>维度三：提示词模板（Prompt 中台）</h3>
+  <table>
+    <thead>
+      <tr><th>应用场景</th><th>定位</th><th>典型模板</th><th>对接方式</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>平台场景</strong><br><span class="badge b-agent">Agent 内部</span></td>
+        <td>支撑 Agent 自身的对话与技能</td>
+        <td>System Prompt / 角色人设 / 输出格式约束 / 安全指令</td>
+        <td>Agent 内部加载，版本化管理</td>
+      </tr>
+      <tr>
+        <td><strong>开发者平台</strong><br><span class="badge b-cross">外部调用</span></td>
+        <td>供开发者自定义调用 LLM 能力</td>
+        <td>自定义 Prompt 模板 / 工作流节点 Prompt / 自动流触发模板 / 审批建议模板</td>
+        <td>SDK / API</td>
+      </tr>
+      <tr>
+        <td><strong>流程智能业务</strong><br><span class="badge b-cross">流程节点</span></td>
+        <td>嵌入 aPaaS 工作流、自动流做智能节点</td>
+        <td>自定义 Prompt 模板 / 工作流节点 Prompt / 自动流触发模板 / 审批建议模板</td>
+        <td>SDK / API</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="box box-warn">
+    <strong>关键设计：</strong>提示词模板是统一的 Prompt 中台，同一个模板注册中心同时支撑三类场景。平台场景面向 Agent 自身，开发者平台面向二开用户，流程智能业务面向 aPaaS 流程节点，避免 Prompt 能力在多处重复建设。
+  </div>
+
+  <h3>三大维度共享的底层能力</h3>
+  <ul>
+    <li><strong>推理引擎</strong> — 意图理解、任务规划、XOQL 生成等 LLM 推理链路</li>
+    <li><strong>上下文工程</strong> — 管理 LLM 上下文窗口，四层压缩与摘要</li>
+    <li><strong>业务语义层</strong> — aPaaS 元数据的自然语言语义描述，让 LLM 理解业务对象</li>
+    <li><strong>多模态处理</strong> — 图片/文档/语音的理解与生成</li>
+    <li><strong>安全审查</strong> — PII 掩码、Prompt 注入防护、输出验证、内容审查</li>
+    <li><strong>HITL 风险识别</strong> — 判断操作是否危险，决定是否暂停等待人工审批</li>
+    <li><strong>AG-UI / A2UI 协议</strong> — 与前端的流式交互和动态组件渲染</li>
+    <li><strong>Multi-Agent</strong> — 子 Agent 委派与多 Agent 协作</li>
+  </ul>
+
+  <h3>基础设施平台（Agent 平台自持的底层引擎）</h3>
+  <p style="font-size:0.88rem;color:#64748b;">两个独立的基础设施平台向三大维度提供原子能力，也可通过 OpenAPI 向外部业务开放。</p>
+
+  <table>
+    <thead>
+      <tr><th>平台</th><th>定位</th><th>核心能力</th><th>服务对象</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>大模型网关平台</strong><br><span class="badge b-agent">统一 LLM 入口</span></td>
+        <td>屏蔽不同模型厂商差异，提供统一的调用、路由与治理能力</td>
+        <td>国内模型接入（通义千问 / 文心 / 豆包 / DeepSeek / Kimi / 智谱等）<br>国际模型接入（OpenAI / Claude / Gemini / LLaMA 等）<br>统一协议适配 / 智能路由 / 负载均衡 / 失败降级 / Token 计费 / 流量治理 / 敏感词前置拦截</td>
+        <td>Agent 框架 / 知识库 / 提示词模板 / 开发者平台</td>
+      </tr>
+      <tr>
+        <td><strong>基础原子能力平台</strong><br><span class="badge b-agent">多模态 & 向量</span></td>
+        <td>沉淀可复用的原子 AI 能力，统一服务上层业务</td>
+        <td>文档解析（PDF / Word / Excel / PPT / HTML / Markdown）<br>OCR（图片文字识别 / 版式还原 / 表格抽取）<br>ASR（语音转文字 / 实时/离线 / 多语种）<br>向量库（Embedding 生成 / 向量存储 / 相似度检索 / 重排）</td>
+        <td>知识库（文档入库/切片）、Agent 框架（Plugin/Tool）、业务线应用</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="box box-warn">
+    <strong>关键设计：</strong>基础设施平台与三大维度解耦，对内通过标准接口被 Agent 框架、知识库、提示词模板等消费；对外通过 OpenAPI 向 aPaaS 业务、第三方系统开放，避免能力烟囱化。
+  </div>
+</section>
+
+<!-- ===== 第四节：两大平台职责与边界 ===== -->
+<section>
+  <h2>四、两大平台职责与边界</h2>
+
+  <p>NeoAgent 与 aPaaS 围绕<strong>"智能决策 vs 业务执行"</strong>主轴分工协作。Agent 决定"做什么、怎么做"，aPaaS 保证"做得对、做得安全"。两者通过 API / XOQL / 事件总线 / HITL 协议解耦协作。</p>
+
+  <!-- 4.1 并置职责总览图 -->
+  <h3>4.1 两大平台职责总览</h3>
+  <div style="margin:1.5rem 0;">
+    <div style="display:grid;grid-template-columns:1fr 80px 1fr;gap:0;align-items:stretch;">
+
+      <!-- NeoAgent 平台 -->
+      <div style="border:2px solid var(--agent);border-radius:12px;padding:1rem 1.2rem;background:var(--agent-bg);position:relative;">
+        <div style="position:absolute;top:-12px;left:16px;background:var(--agent);color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">🧠 NeoAgent 平台</div>
+        <div style="font-size:0.8rem;color:var(--agent);margin:0.3rem 0 0.6rem;font-weight:600;">智能决策层 · 决定做什么、怎么做</div>
+        <div style="font-size:0.75rem;color:#64748b;line-height:1.8;">
+          · 意图理解 / 任务规划 / 反思优化<br>
+          · Tool / Skill / Plugin / MCP 执行<br>
+          · 记忆沉淀 + 知识库 + RAG 检索<br>
+          · 提示词模板治理<br>
+          · 大模型网关 + 基础原子能力<br>
+          · AG-UI / A2UI 前端协议
+        </div>
+      </div>
+
+      <!-- 中间 BUS -->
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.5rem;">
+        <div style="writing-mode:vertical-rl;color:#94a3b8;font-size:0.7rem;letter-spacing:0.15em;">协作接口</div>
+        <div style="background:#f8fafc;border:1px dashed #cbd5e1;border-radius:999px;padding:0.5rem 0.3rem;font-size:0.68rem;color:#64748b;text-align:center;">
+          HTTP API<br>XOQL<br>事件总线<br>SDK
+        </div>
+        <div style="color:#94a3b8;font-size:1.2rem;">⇄</div>
+      </div>
+
+      <!-- aPaaS 平台 -->
+      <div style="border:2px solid var(--apaas);border-radius:12px;padding:1rem 1.2rem;background:var(--apaas-bg);position:relative;">
+        <div style="position:absolute;top:-12px;left:16px;background:var(--apaas);color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">🗂 aPaaS 平台</div>
+        <div style="font-size:0.8rem;color:var(--apaas);margin:0.3rem 0 0.6rem;font-weight:600;">业务执行层 · 保证做得对、做得安全</div>
+        <div style="font-size:0.75rem;color:#64748b;line-height:1.8;">
+          · 元数据 / 元模型权威存储<br>
+          · 业务数据 CRUD + XOQL 执行<br>
+          · ES 全文检索 + 聚合分析<br>
+          · 校验规则 + 工作流 / 审批流 / 自动流<br>
+          · RBAC + 行级权限 + 字段级安全<br>
+          · 租户隔离 + 开发者平台
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 4.2 关键协作点边界表 -->
+  <h3>4.2 关键协作点边界一览</h3>
+  <p style="font-size:0.88rem;color:#64748b;">列出所有 Agent ↔ aPaaS 之间需要协作的关键点，每一行明确双方各做什么、通过什么接口衔接。</p>
+
+  <table>
+    <thead>
+      <tr><th style="width:18%;">协作点</th><th style="width:40%;">Agent 侧职责</th><th>aPaaS 侧职责</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>业务数据查询</strong><br><span style="color:#64748b;font-size:0.78rem;">（XOQL / ES 全文检索）</span></td>
+        <td>基于用户问题 + Agent 平台维护的业务语义 / 元数据描述生成 XOQL；基于用户问题提取关键字检索 ES</td>
+        <td>根据 Agent 平台的底层查询需求，提供对应的 XOQL 执行能力与 ES 全文检索能力；<strong>根据 Agent 平台的实际场景提供新能力的支持</strong></td>
+      </tr>
+      <tr>
+        <td><strong>业务数据写入</strong><br><span style="color:#64748b;font-size:0.78rem;">（create / update / delete）</span></td>
+        <td>生成写入参数；破坏性操作先发起 HITL 确认；收到校验/权限错误后重试或询问用户</td>
+        <td>执行校验规则 / 唯一性 / 必填校验；过滤行级 + 字段级权限；触发自动流与工作流；<strong>根据 Agent 平台的实际场景提供新能力的支持</strong></td>
+      </tr>
+      <tr>
+        <td><strong>元数据 / 业务语义</strong></td>
+        <td>持有业务语义描述（自然语言）；动态生成 Tool input_schema；订阅 aPaaS 变更事件更新语义</td>
+        <td>元模型 / 元数据权威存储；<strong>根据 Agent 平台的实际场景提供新能力的支持</strong></td>
+      </tr>
+      <tr>
+        <td><strong>权限与身份</strong></td>
+        <td>使用 aPaaS 统一权限体系</td>
+        <td>统一权限体系：数据权限、元数据权限、功能权限、租户隔离等；<strong>根据 Agent 平台的实际场景提供新能力的支持</strong></td>
+      </tr>
+      <tr>
+        <td><strong>流程 / 脚本</strong></td>
+        <td>Agent 侧能力如有 SDK 影响，需提前同步 aPaaS 并协同实现</td>
+        <td>根据最新规范维护开发者 SDK，向工作流节点 / 自动流 / 开发者脚本暴露调用入口；<strong>根据 Agent 平台的实际场景提供新能力的支持</strong></td>
+      </tr>
+      <tr>
+        <td><strong>前端 UI</strong></td>
+        <td>AG-UI（事件流 SSE）+ A2UI（动态组件渲染）独立体系；自有卡片/图表/Markdown 组件</td>
+        <td>独立前端体系（Antd + 元数据驱动布局）；作为 Agent UI 的宿主容器；<strong>根据 Agent 平台的实际场景提供新能力的支持</strong></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===== 第五节：未来新业务的边界定义 ===== -->
+<section>
+  <h2>五、未来新业务的边界定义</h2>
+
+  <div class="box box-warn">
+    <strong>一句话原则：</strong>通用 AI 原子能力由 <strong>Agent 平台</strong> 负责，具体业务场景由 <strong>业务侧</strong> 实现；业务侧不自建 AI 原子能力，Agent 平台不替业务做场景。<br>
+    <span style="font-size:0.86rem;color:#92400e;">📌 中间还有两类"可沉淀到 Agent 平台"的能力：<strong>① 通用业务实现</strong>（如百事通、知识库问答——直接交付完整产品）；<strong>② 通用场景智能组件 + 业务语义</strong>（如智能填充、智能推荐——业务侧声明即用）。平台和业务线自己的个性化 AI 场景（如元数据自动翻译、销售预测、合同审阅）归为<strong>"具体业务场景（落地）"</strong>，由各自业务团队基于上层组件实现。</span>
+  </div>
+
+  <h3>5.1 归属规则</h3>
+  <table>
+    <thead>
+      <tr><th style="width:22%;">新业务类型</th><th style="width:20%;">归属</th><th>边界说明</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>① 底层原子 AI 能力</strong><br><span style="color:#64748b;font-size:0.82rem;">新模型、文档解析、ASR/OCR、向量库、生图等</span></td>
+        <td><span class="badge b-agent">Agent 平台</span></td>
+        <td>由"大模型网关 + 基础原子能力平台"统一提供；业务侧禁止自接 SDK、禁止自建同类能力</td>
+      </tr>
+      <tr>
+        <td><strong>② 可复用的 AI 能力封装</strong><br><span style="color:#64748b;font-size:0.82rem;">通用 Skill/Tool、行业知识包、平台级提示词模板、MCP 适配</span></td>
+        <td><span class="badge b-agent">Agent 平台</span></td>
+        <td>能被 ≥2 个业务场景复用的才沉淀到 Agent 三大维度（框架 / 知识库 / 提示词），不复用的不沉淀</td>
+      </tr>
+      <tr>
+        <td><strong>③ 通用业务实现</strong><br><span style="color:#64748b;font-size:0.82rem;">百事通查询、知识库问答、通用分析助手、智能搜索等</span></td>
+        <td><span class="badge b-agent">Agent 平台</span></td>
+        <td>业务形态稳定、跨业务线可复用的"AI 应用标品"；业务侧不重复实现，按需订阅/嵌入；数据源与权限接各租户自己的</td>
+      </tr>
+      <tr>
+        <td><strong>④ 通用场景智能组件 + 业务语义</strong><br><span style="color:#64748b;font-size:0.82rem;">智能填充组件、智能推荐组件、业务语义理解层等（跨业务线可复用的智能零件）</span></td>
+        <td><span class="badge b-agent">Agent 平台</span></td>
+        <td>把"某类智能场景的通用模式 + 对应业务语义"抽象为组件，业务侧<strong>声明即用</strong>（只填业务配置/上下文），不用重复造组件</td>
+      </tr>
+      <tr>
+        <td><strong>⑤(a) 平台个性化业务实现</strong><br><span style="color:#64748b;font-size:0.82rem;">aPaaS 平台自身各模块的个性化 AI 场景（元数据、工作流、权限等）</span></td>
+        <td><span class="badge b-cross">平台模块团队实现</span></td>
+        <td>只服务平台自身某模块的个性化 AI 场景（如元数据模块的自动翻译、Schema 变更影响分析）；由对应模块团队基于上层组件 + aPaaS 落地，不实现 AI 逻辑</td>
+      </tr>
+      <tr>
+        <td><strong>⑤(b) 业务线个性化业务实现</strong><br><span style="color:#64748b;font-size:0.82rem;">各业务线（销售、服务、营销等）独有的 AI 场景</span></td>
+        <td><span class="badge b-cross">业务线团队实现</span></td>
+        <td>只服务某一业务线、强业务语义不通用的 AI 场景（如销售预测、合同条款审阅、工单智能审阅）；由业务线团队基于上层组件 + aPaaS 落地，不实现 AI 逻辑</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="box box-agent" style="margin-top:0.8rem;">
+    <strong style="color:var(--agent)">③ 与 ④ 与 ⑤ 的区别：</strong>
+    <ul style="font-size:0.85rem;margin-top:0.3rem;">
+      <li><strong>③ 通用业务实现</strong>：独立的 AI 应用，用户<strong>直接打开使用</strong>（例如百事通聊天窗）；Agent 平台交付完整产品。</li>
+      <li><strong>④ 通用场景智能组件</strong>：<strong>跨业务线可复用</strong>的智能零件（如字段填充、智能推荐）；业务侧在 aPaaS 元数据/流程里声明使用即触发。</li>
+      <li><strong>⑤(a) 平台个性化</strong>：只服务 aPaaS 自身模块的个性化 AI 场景（如元数据自动翻译），由平台模块团队自己落地。</li>
+      <li><strong>⑤(b) 业务线个性化</strong>：只服务某一业务线的 AI 场景（如销售预测、合同审阅），由业务线团队自己落地。</li>
+    </ul>
+  </div>
+
+  <div class="box box-warn">
+    <strong>边界铁律：</strong>Agent 不直连 aPaaS 数据库；业务数据一律经 aPaaS API / XOQL；模型调用一律经大模型网关；原子能力（OCR/ASR/解析/向量）一律经基础原子能力平台；破坏性操作一律 HITL。
+  </div>
+</section>
+
+<footer style="text-align:center;padding:1.5rem;color:#94a3b8;font-size:0.8rem;">
+  NeoAgent + NeoPlatform 边界分析 | 2026-05-09
+</footer>
+
+</div>
+</body>
+</html>

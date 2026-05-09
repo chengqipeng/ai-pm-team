@@ -31,27 +31,8 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
         </div>
         <span class="font-bold text-lg tracking-tight text-gray-900">长期记忆</span>
       </div>
-      <!-- 导航 -->
-      <div class="space-y-1 mb-6">
-        <a href="/" class="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-gray-500 hover:bg-white/60 hover:text-blue-600 transition-all no-underline">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          返回对话
-        </a>
-        <a href="/knowledge" class="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-gray-500 hover:bg-white/60 hover:text-blue-600 transition-all no-underline">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/></svg>
-          知识库
-        </a>
-        <a href="/trace" class="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-gray-500 hover:bg-white/60 hover:text-blue-600 transition-all no-underline">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          Trace 链路
-        </a>
-      </div>
       <!-- 筛选 -->
       <div class="space-y-3">
-        <div>
-          <label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">租户 ID</label>
-          <input id="tenant-input" type="number" value="1" onchange="loadUsers()" class="w-full bg-gray-100/50 border-none rounded-xl py-2 px-3 text-xs focus:ring-2 focus:ring-blue-500/20 placeholder:text-gray-400"/>
-        </div>
         <div>
           <label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">搜索用户</label>
           <div class="relative">
@@ -71,9 +52,24 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
   <!-- 主区域 -->
   <main class="flex-1 flex flex-col min-w-0 relative z-10">
     <!-- 头部 -->
-    <div id="header" class="px-8 py-5 bg-white/40 backdrop-blur-md border-b border-gray-200/50 shrink-0">
-      <h1 class="text-lg font-bold text-gray-900">选择一个用户</h1>
-      <p class="text-xs text-gray-400 mt-1">从左侧选择用户查看长期记忆</p>
+    <div id="header" class="px-8 py-5 bg-white/40 backdrop-blur-md border-b border-gray-200/50 shrink-0 flex items-center justify-between gap-4">
+      <div id="header-title" class="flex-1 min-w-0">
+        <h1 class="text-lg font-bold text-gray-900">选择一个用户</h1>
+        <p class="text-xs text-gray-400 mt-1">从左侧选择用户查看长期记忆</p>
+      </div>
+      <div class="flex items-center gap-3 shrink-0">
+        <div class="flex items-center gap-2 px-3 py-1.5 bg-white/60 border border-gray-200/50 rounded-xl text-[11px]">
+          <span class="text-gray-400 font-medium">租户</span>
+          <input id="tenant-input" type="text" value="" onchange="loadUsers()" class="w-20 bg-transparent border-none outline-none text-gray-800 font-bold text-center focus:bg-blue-50 rounded" placeholder="..."/>
+          <span class="text-gray-200">|</span>
+          <span class="text-gray-400 font-medium">用户</span>
+          <span id="currentUserDisplay" class="text-gray-800 font-bold max-w-[120px] truncate" title="">—</span>
+        </div>
+        <a href="/" class="flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all no-underline">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          返回对话
+        </a>
+      </div>
     </div>
     <!-- 分类标签 -->
     <div id="cat-tabs" class="hidden px-8 py-3 bg-white/30 border-b border-gray-200/30 flex gap-2 flex-wrap"></div>
@@ -99,7 +95,7 @@ const CAT_ICONS={profile:'👤',preferences:'⚙️',entities:'🏢',agent_rules
 const CAT_COLORS={profile:'bg-blue-50 text-blue-600 border-blue-100',preferences:'bg-green-50 text-green-600 border-green-100',entities:'bg-orange-50 text-orange-600 border-orange-100',agent_rules:'bg-purple-50 text-purple-600 border-purple-100',events:'bg-pink-50 text-pink-600 border-pink-100',cases:'bg-indigo-50 text-indigo-600 border-indigo-100',patterns:'bg-teal-50 text-teal-600 border-teal-100',tools:'bg-gray-50 text-gray-600 border-gray-200',skills:'bg-lime-50 text-lime-600 border-lime-100',soul:'bg-red-50 text-red-600 border-red-100'};
 
 async function loadUsers(){
-  const tenantId=document.getElementById('tenant-input').value||'1';
+  const tenantId=document.getElementById('tenant-input').value||'292193';
   try{
     const res=await fetch(`${API}/api/memory/users?tenant_id=${tenantId}`);
     const data=await res.json();
@@ -130,12 +126,12 @@ function renderUsers(users){
 async function clearAllMemories(){
   if(!confirm('⚠️ 确认清空当前租户下所有用户的全部记忆？'))return;
   if(!confirm('再次确认：这将删除所有记忆数据，确定继续？'))return;
-  const tenantId=document.getElementById('tenant-input').value||'1';
+  const tenantId=document.getElementById('tenant-input').value||'292193';
   try{
     const res=await fetch(`${API}/api/memory/all?tenant_id=${tenantId}`,{method:'DELETE'});
     const data=await res.json();
     if(data.success){alert(`清空完成！已删除 ${data.pg_deleted} 条记忆。`);allUsers=[];renderUsers([]);currentUser=null;
-      document.getElementById('header').innerHTML='<h1 class="text-lg font-bold text-gray-900">选择一个用户</h1>';
+      document.getElementById('header-title').innerHTML='<h1 class="text-lg font-bold text-gray-900">选择一个用户</h1>';
       document.getElementById('cat-tabs').classList.add('hidden');
       document.getElementById('memory-list').innerHTML='<div class="text-center text-gray-400 text-sm py-20"><div class="text-4xl mb-3">✅</div><p>所有记忆已清空</p></div>';
     }else{alert('清空失败: '+(data.error||'未知错误'))}
@@ -144,12 +140,12 @@ async function clearAllMemories(){
 
 async function deleteUser(userId){
   if(!confirm('确认删除用户 '+userId+' 的所有记忆？'))return;
-  const tenantId=document.getElementById('tenant-input').value||'1';
+  const tenantId=document.getElementById('tenant-input').value||'292193';
   try{
     await fetch(API+'/api/memory/user/'+encodeURIComponent(userId)+'?tenant_id='+tenantId,{method:'DELETE'});
     allUsers=allUsers.filter(u=>u.user_id!==userId);renderUsers(allUsers);
     if(currentUser===userId){currentUser=null;
-      document.getElementById('header').innerHTML='<h1 class="text-lg font-bold text-gray-900">选择一个用户</h1>';
+      document.getElementById('header-title').innerHTML='<h1 class="text-lg font-bold text-gray-900">选择一个用户</h1>';
       document.getElementById('cat-tabs').classList.add('hidden');
       document.getElementById('memory-list').innerHTML='<div class="text-center text-gray-400 text-sm py-20"><div class="text-4xl mb-3">👈</div><p>从左侧选择用户</p></div>';
     }
@@ -158,7 +154,7 @@ async function deleteUser(userId){
 
 async function selectUser(userId){
   currentUser=userId;currentCategory='all';renderUsers(allUsers.filter(u=>true));
-  const tenantId=document.getElementById('tenant-input').value||'1';
+  const tenantId=document.getElementById('tenant-input').value||'292193';
   document.getElementById('memory-list').innerHTML='<div class="text-center text-gray-400 text-xs py-20">加载中...</div>';
   try{
     const res=await fetch(`${API}/api/memory/list?tenant_id=${tenantId}&user_id=${userId}`);
@@ -166,12 +162,10 @@ async function selectUser(userId){
     allMemories=data.memories||[];
     const byCat={};allMemories.forEach(m=>{byCat[m.category]=(byCat[m.category]||0)+1});
 
-    document.getElementById('header').innerHTML=`
-      <div class="flex items-center justify-between">
-        <div>
-          <h1 class="text-lg font-bold text-gray-900">👤 ${esc(userId)}</h1>
-          <p class="text-xs text-gray-400 mt-1">租户 ${tenantId} · ${allMemories.length} 条记忆</p>
-        </div>
+    document.getElementById('header-title').innerHTML=`
+      <div>
+        <h1 class="text-lg font-bold text-gray-900">👤 ${esc(userId)}</h1>
+        <p class="text-xs text-gray-400 mt-1">租户 ${tenantId} · ${allMemories.length} 条记忆</p>
       </div>
       <div class="flex gap-3 mt-4 flex-wrap">
         ${Object.entries(byCat).map(([c,n])=>`<div class="text-center bg-white/60 rounded-xl px-4 py-2 border border-white/60 shadow-sm"><div class="text-base font-bold text-blue-600">${n}</div><div class="text-[10px] text-gray-400 mt-0.5">${CAT_ICONS[c]||'📋'} ${CAT_LABELS[c]||c}</div></div>`).join('')}
@@ -283,7 +277,7 @@ function toggleCard(i){
 async function archiveMemory(id,idx){
   if(!confirm('确认归档该记忆？'))return;
   try{
-    const tenantId=document.getElementById('tenant-input').value||'1';
+    const tenantId=document.getElementById('tenant-input').value||'292193';
     await fetch(`${API}/api/memory/${id}/archive`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenant_id:parseInt(tenantId)})});
     allMemories[idx].status='archived';renderMemories(allMemories);
   }catch(e){alert('归档失败: '+e.message)}
@@ -292,13 +286,49 @@ async function archiveMemory(id,idx){
 async function deleteMemory(id,idx){
   if(!confirm('确认删除该记忆？'))return;
   try{
-    const tenantId=document.getElementById('tenant-input').value||'1';
+    const tenantId=document.getElementById('tenant-input').value||'292193';
     await fetch(`${API}/api/memory/${id}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenant_id:parseInt(tenantId)})});
     allMemories.splice(idx,1);renderMemories(allMemories);
   }catch(e){alert('删除失败: '+e.message)}
 }
 
-loadUsers();
+// 与对话页保持一致：优先从 /api/auth/me 获取真实 tenant_id 和 user_id
+(async function initIdentity(){
+  let userId = localStorage.getItem('deepagent_user_id') || '';
+  let tenantId = '';
+
+  try {
+    const r = await fetch(API + '/api/auth/me');
+    if (r.ok) {
+      const me = await r.json();
+      if (me.userId) {
+        userId = String(me.userId);
+        localStorage.setItem('deepagent_user_id', userId);
+      }
+      if (me.tenantId) {
+        tenantId = String(me.tenantId);
+      }
+    }
+  } catch (e) { /* 后端未启动或接口不存在，用 fallback */ }
+
+  if (!userId) {
+    userId = 'user_' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem('deepagent_user_id', userId);
+  }
+  if (!tenantId) tenantId = '292193';
+
+  // 同步到页面控件
+  const tenantInput = document.getElementById('tenant-input');
+  if (tenantInput) tenantInput.value = tenantId;
+
+  const userDisplay = document.getElementById('currentUserDisplay');
+  if (userDisplay) { userDisplay.textContent = userId; userDisplay.title = userId; }
+
+  console.log('[Memory] tenant_id:', tenantId, 'user_id:', userId);
+
+  // 初始化完成后再加载用户列表
+  loadUsers();
+})();
 </script>
 </body>
 </html>

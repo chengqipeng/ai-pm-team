@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
@@ -55,10 +56,20 @@ def _get_provider(request: Request):
 
     server.py 启动时应调用：
         app.state.knowledge_provider = provider
+
+    若 Provider 未启用，前端收到 503 + 明确错误信息。
     """
     provider = getattr(request.app.state, "knowledge_provider", None)
     if provider is None:
-        raise HTTPException(503, "知识库 Provider 未启用，上传/检索等功能不可用")
+        logger.error(
+            "KnowledgeProvider 未注入到 app.state — "
+            "请在 server.py 启动时调用 build_knowledge_provider() 并挂 app.state.knowledge_provider"
+        )
+        raise HTTPException(
+            503,
+            "知识库 Provider 未启用。请在 server.py 启动时挂载 "
+            "app.state.knowledge_provider（调用 build_knowledge_provider）"
+        )
     return provider
 
 
@@ -69,7 +80,8 @@ def _require_tenant(tenant_id: int) -> None:
 
 def _kb_to_dict(kb: KnowledgeBaseRow) -> dict:
     return {
-        "id": kb.id,
+        # ⚠️ id 是雪花 BIGINT，超过 JS Number 精度上限（2^53），必须用 string 传给前端
+        "id": str(kb.id),
         "tenant_id": kb.tenant_id,
         "api_key": kb.api_key,
         "name": kb.name,
@@ -79,7 +91,7 @@ def _kb_to_dict(kb: KnowledgeBaseRow) -> dict:
         "min_score": kb.min_score,
         "enable_rerank": bool(kb.enable_rerank),
         "enable_self_query": bool(kb.enable_self_query),
-        "schema_id": kb.schema_id,
+        "schema_id": str(kb.schema_id) if kb.schema_id else "0",
         "document_count": kb.document_count,
         "chunk_count": kb.chunk_count,
         "status": kb.status,
@@ -99,6 +111,7 @@ def _doc_row_to_dict(r) -> dict:
         "file_name": r.file_name,
         "file_type": r.file_type,
         "file_size": r.file_size,
+        "knowledge_base_id": str(r.knowledge_base_id),
         "parse_status": r.parse_status,
         "clean_status": r.clean_status,
         "chunk_status": r.chunk_status,
@@ -128,20 +141,53 @@ async def upload_document(
     """上传文档 → 存本地 → 入队 → 立即返回 task_id"""
     provider = _get_provider(request)
 
+    # ── 前置校验 ──
+    if not file or not file.filename:
+        logger.warning("Upload rejected: empty file (tenant=%s kb=%s)", tenant_id, knowledge_base_id)
+        raise HTTPException(400, "未提供有效文件")
+
+    kb = KnowledgeBaseDAO.get_by_id(knowledge_base_id)
+    if kb is None or kb.tenant_id != tenant_id:
+        logger.warning(
+            "Upload rejected: kb not found or tenant mismatch "
+            "(tenant=%s kb=%s file=%s)",
+            tenant_id, knowledge_base_id, file.filename,
+        )
+        raise HTTPException(404, f"知识库 id={knowledge_base_id} 不存在或不属于该租户")
+
+    # ── 落临时文件 ──
     suffix = os.path.splitext(file.filename or "")[1] or ""
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        content = await file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+        file_size = len(content)
+        logger.info(
+            "Upload received: tenant=%s kb=%s file=%s size=%d type=%s tmp=%s",
+            tenant_id, knowledge_base_id, file.filename, file_size, suffix, tmp_path,
+        )
+    except Exception as exc:
+        logger.exception(
+            "Upload failed to save tmp file: tenant=%s kb=%s file=%s: %s",
+            tenant_id, knowledge_base_id, file.filename, exc,
+        )
+        raise HTTPException(500, f"临时文件写入失败: {exc}")
 
     try:
         result = await provider.ingest_document(
             tenant_id=tenant_id,
             knowledge_base_id=knowledge_base_id,
             file_path=tmp_path,
-            file_name=file.filename or os.path.basename(tmp_path),
+            file_name=file.filename,
             user_metadata={"title": title} if title else None,
             dataset_id=dataset_id,
+        )
+        logger.info(
+            "Upload queued: tenant=%s kb=%s file=%s task_id=%s doc_id=%s status=%s reused=%s",
+            tenant_id, knowledge_base_id, file.filename,
+            result.task_id, result.doc_id, result.status, result.reused,
         )
         return {
             "task_id": result.task_id,
@@ -150,11 +196,20 @@ async def upload_document(
             "reused": result.reused,
             "message": result.message,
         }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "Upload ingest_document failed: tenant=%s kb=%s file=%s: %s",
+            tenant_id, knowledge_base_id, file.filename, exc,
+        )
+        raise HTTPException(500, f"文档入库失败: {type(exc).__name__}: {exc}")
     finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError as exc:
+                logger.debug("Failed to remove tmp file %s: %s", tmp_path, exc)
 
 
 @router.get("/documents")
@@ -208,17 +263,24 @@ async def get_document(doc_id: str):
         md = json.loads(row.metadata) if row.metadata else {}
     except json.JSONDecodeError:
         md = {}
+    try:
+        qs = json.loads(row.quality_signals) if row.quality_signals else {}
+    except json.JSONDecodeError:
+        qs = {}
     return {
         "doc_id": row.doc_id,
         "title": row.title,
         "file_name": row.file_name,
         "file_type": row.file_type,
         "file_size": row.file_size,
-        "knowledge_base_id": row.knowledge_base_id,
+        "knowledge_base_id": str(row.knowledge_base_id),
         "summary": row.summary,
+        "keywords": row.keywords,
+        "candidate_keywords": row.candidate_keywords,
         "chunk_count": row.chunk_count,
         "segment_count": row.segment_count,
         "quality_score": row.quality_score,
+        "quality_signals": qs,
         "metadata": md,
         "parse_status": row.parse_status,
         "clean_status": row.clean_status,
@@ -275,7 +337,7 @@ async def create_dataset(req: CreateDatasetReq):
         chunk_overlap=req.chunk_overlap,
     )
     KnowledgeDatasetDAO.insert(ds)
-    return {"id": ds.id, "name": ds.name}
+    return {"id": str(ds.id), "name": ds.name}
 
 
 @router.get("/datasets")
@@ -287,7 +349,7 @@ async def list_datasets(
     return {
         "items": [
             {
-                "id": r.id, "name": r.name, "description": r.description,
+                "id": str(r.id), "name": r.name, "description": r.description,
                 "chunk_strategy": r.chunk_strategy,
                 "document_count": r.document_count,
                 "chunk_count": r.chunk_count,
@@ -324,24 +386,29 @@ async def create_schema(req: CreateSchemaReq):
         fields=json.dumps(req.fields, ensure_ascii=False),
     )
     KnowledgeSchemaDAO.insert(row)
-    return {"id": row.id, "name": row.name}
+    return {"id": str(row.id), "name": row.name}
 
 
 @router.get("/schemas/for-kb/{kb_id}")
 async def get_schema_for_kb(kb_id: int, tenant_id: int = Query(..., gt=0)):
-    """获取 KB 专属 Schema，无则回退租户默认"""
+    """获取 KB 专属 Schema，无则回退租户默认，再无则回退系统默认(tenant_id=0)"""
+    # 1. KB 专属
     row = KnowledgeSchemaDAO.get_for_kb(tenant_id, kb_id)
+    # 2. 回退系统默认
     if row is None:
-        return {"fields": []}
+        row = KnowledgeSchemaDAO.get_for_kb(0, 0)
+    if row is None:
+        return {"fields": [], "source": "none"}
     try:
         fields = json.loads(row.fields or "[]")
     except json.JSONDecodeError:
         fields = []
     return {
-        "id": row.id,
+        "id": str(row.id),
         "name": row.name,
         "version": row.version,
         "fields": fields,
+        "source": "system_default" if row.tenant_id == 0 else "custom",
     }
 
 
@@ -389,6 +456,7 @@ class CreateKnowledgeBaseReq(BaseModel):
     description: str = ""
     owner: str = ""
     default_top_k: int = Field(default=5, ge=1, le=50)
+    min_score: float = Field(default=0.3, ge=0.0, le=1.0)
     enable_rerank: bool = True
     enable_self_query: bool = True
     schema_id: int = 0
@@ -408,13 +476,14 @@ async def create_knowledge_base(req: CreateKnowledgeBaseReq):
         description=req.description,
         owner=req.owner,
         default_top_k=req.default_top_k,
+        min_score=req.min_score,
         enable_rerank=1 if req.enable_rerank else 0,
         enable_self_query=1 if req.enable_self_query else 0,
         schema_id=req.schema_id,
     )
     KnowledgeBaseDAO.insert(kb)
     logger.info("KB created: id=%s tenant=%s api_key=%s", kb.id, kb.tenant_id, kb.api_key)
-    return {"id": kb.id, "api_key": kb.api_key, "name": kb.name}
+    return {"id": str(kb.id), "api_key": kb.api_key, "name": kb.name}
 
 
 @router.get("")
@@ -430,7 +499,7 @@ async def list_knowledge_bases(
     return {
         "items": [
             {
-                "id": kb.id,
+                "id": str(kb.id),
                 "api_key": kb.api_key,
                 "name": kb.name,
                 "description": kb.description,
@@ -451,9 +520,105 @@ async def get_knowledge_base(kb_id: int):
     return _kb_to_dict(kb)
 
 
+@router.post("/{kb_id}/recompute-stats")
+async def recompute_kb_stats(kb_id: int):
+    """从实际文档重算 KB 统计（纠错；尤其用于修复负数或历史脏数据）"""
+    kb = KnowledgeBaseDAO.get_by_id(kb_id)
+    if kb is None:
+        raise HTTPException(404, "知识库不存在")
+    result = KnowledgeBaseDAO.recompute_stats(kb_id)
+    logger.info(
+        "KB stats recomputed: kb_id=%s document_count=%d chunk_count=%d",
+        kb_id, result["document_count"], result["chunk_count"],
+    )
+    return result
+
+
+@router.post("/maintenance/decay-hit-counts")
+async def decay_hit_counts(decay_factor: float = Query(0.7, ge=0.1, le=1.0)):
+    """热度衰减 — 手动触发（也可通过调度自动执行）"""
+    doc_count = KnowledgeDocumentDAO.decay_hit_counts(decay_factor)
+    chunk_count = KnowledgeChunkDAO.decay_hit_counts(decay_factor)
+    logger.info(
+        "Hit counts decayed: factor=%.2f docs=%d chunks=%d",
+        decay_factor, doc_count, chunk_count,
+    )
+    return {
+        "decay_factor": decay_factor,
+        "documents_decayed": doc_count,
+        "chunks_decayed": chunk_count,
+    }
+
+
+@router.get("/maintenance/schedules")
+async def list_schedules():
+    """列出所有调度任务"""
+    from src.knowledge.scheduler import ScheduleDAO
+    tasks = ScheduleDAO.list_all()
+    for t in tasks:
+        t["id"] = str(t["id"])
+        try:
+            t["params"] = json.loads(t.get("params") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            t["params"] = {}
+    return {"items": tasks}
+
+
+class UpdateScheduleReq(BaseModel):
+    enabled: bool | None = None
+    interval_days: float | None = Field(None, ge=0.0007, le=365, description="[兼容] 执行间隔（天），最小约 1 分钟")
+    interval_ms: int | None = Field(None, ge=60_000, description="执行间隔（毫秒），最小 60000（1 分钟）")
+    params: dict | None = None
+
+
+@router.put("/maintenance/schedules/{name}")
+async def update_schedule(name: str, req: UpdateScheduleReq):
+    """更新调度任务配置"""
+    from src.knowledge.scheduler import ScheduleDAO
+    if req.interval_ms is not None:
+        interval_ms = req.interval_ms
+    elif req.interval_days is not None:
+        interval_ms = int(req.interval_days * 24 * 60 * 60 * 1000)
+    else:
+        interval_ms = None
+    params_json = json.dumps(req.params, ensure_ascii=False) if req.params is not None else None
+    enabled = int(req.enabled) if req.enabled is not None else None
+    ok = ScheduleDAO.update_config(
+        name,
+        enabled=enabled,
+        interval_ms=interval_ms,
+        params=params_json,
+    )
+    if not ok:
+        raise HTTPException(404, f"调度任务 '{name}' 不存在")
+    return {"updated": True, "name": name}
+
+
+@router.post("/maintenance/schedules/{name}/run")
+async def run_schedule_now(name: str, request: Request):
+    """立即执行某个调度任务（不等下次到期）"""
+    from src.knowledge.scheduler import ScheduleDAO, ScheduleExecutor
+    task = ScheduleDAO.get_by_name(name)
+    if not task:
+        raise HTTPException(404, f"调度任务 '{name}' 不存在")
+    # 注入 VDB 引用（如果 provider 存在），让 VDB 同步类任务能工作
+    provider = getattr(request.app.state, "knowledge_provider", None)
+    vdb = getattr(provider, "_vdb", None) if provider else None
+    executor = ScheduleExecutor(vdb=vdb)
+    try:
+        params = json.loads(task.get("params") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        params = {}
+    result = await executor._execute(task["task_type"], params)
+    # 更新执行记录
+    next_run = int(time.time() * 1000) + task["interval_ms"]
+    ScheduleDAO.mark_run(name, "success", json.dumps(result, ensure_ascii=False), next_run)
+    return {"name": name, "status": "success", "result": result}
+
+
 @router.delete("/{kb_id}")
 async def delete_knowledge_base(kb_id: int):
     ok = KnowledgeBaseDAO.soft_delete(kb_id)
     if not ok:
         raise HTTPException(404, "知识库不存在")
-    return {"deleted": True, "id": kb_id}
+    return {"deleted": True, "id": str(kb_id)}

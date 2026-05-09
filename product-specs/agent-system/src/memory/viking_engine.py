@@ -1466,18 +1466,27 @@ class VikingMemoryEngine(MemoryEngine):
             logger.error("Agent rules cache refresh failed: %s", e)
 
     def get_agent_rules_text(self, user_id: str) -> str:
-        """获取 Agent 行为准则 — 优先内存缓存 → PG → 空"""
+        """获取 Agent 行为准则 — 优先内存缓存 → PG → 空
+
+        对齐 Hermes Agent 设计：以声明式事实注入，不使用指令式语气。
+        """
         # 内存缓存
         rules = self._agent_rules_cache.get(user_id, "")
         if rules:
-            return f"<agent_rules>\n{rules}\n</agent_rules>"
+            return (
+                "## User Preferences\n"
+                f"{rules}"
+            )
         # PG 查询
         if self._use_pg and self._pg:
             try:
                 row = self._pg.get_agent_rules(user_id)
                 if row and row.content:
                     self._agent_rules_cache[user_id] = row.content
-                    return f"<agent_rules>\n{row.content}\n</agent_rules>"
+                    return (
+                        "## User Preferences\n"
+                        f"{row.content}"
+                    )
             except Exception as e:
                 logger.debug("PG get_agent_rules failed: %s", e)
         return ""

@@ -35,22 +35,6 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
         <span class="font-bold text-lg tracking-tight text-gray-900">知识库</span>
       </div>
 
-      <!-- 导航 -->
-      <div class="space-y-1 mb-6">
-        <a href="/" class="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-gray-500 hover:bg-white/60 hover:text-blue-600 transition-all no-underline">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          返回对话
-        </a>
-      </div>
-
-      <!-- 租户筛选 -->
-      <div class="space-y-3 mb-4">
-        <div>
-          <label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">租户 ID</label>
-          <input id="tenantInput" type="number" value="1" onchange="loadKbs()" class="w-full bg-gray-100/50 border-none rounded-xl py-2 px-3 text-xs focus:ring-2 focus:ring-blue-500/20 placeholder:text-gray-400"/>
-        </div>
-      </div>
-
       <!-- 新建 KB 按钮 -->
       <button onclick="openCreateKbModal()" class="w-full py-2.5 px-3 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -75,15 +59,32 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
         <h1 id="kbTitle" class="text-lg font-bold text-gray-900">选择一个知识库</h1>
         <p id="kbSubtitle" class="text-xs text-gray-400 mt-1">从左侧选择知识库查看文档</p>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-3">
         <button id="manageSchemaBtn" onclick="openSchemaModal()" class="hidden px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-50 transition-all flex items-center gap-2">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
           元数据 Schema
+        </button>
+        <button onclick="openScheduleModal()" class="px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-50 transition-all flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          调度任务
         </button>
         <button id="uploadBtn" onclick="openUploadModal()" class="hidden px-3 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-2">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           上传文档
         </button>
+        <div class="h-6 w-px bg-gray-200 mx-1"></div>
+        <!-- 租户 / 用户 信息 -->
+        <div class="flex items-center gap-2 px-3 py-1.5 bg-white/60 border border-gray-200/50 rounded-xl text-[11px]">
+          <span class="text-gray-400 font-medium">租户</span>
+          <input id="tenantInput" type="text" value="" onchange="loadKbs()" class="w-20 bg-transparent border-none outline-none text-gray-800 font-bold text-center focus:bg-blue-50 rounded" placeholder="..."/>
+          <span class="text-gray-200">|</span>
+          <span class="text-gray-400 font-medium">用户</span>
+          <span id="currentUserDisplay" class="text-gray-800 font-bold max-w-[120px] truncate" title="">—</span>
+        </div>
+        <a href="/" class="flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all no-underline">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          返回对话
+        </a>
       </div>
     </div>
 
@@ -124,10 +125,15 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
             <label class="text-xs font-bold text-gray-600 block mb-1">默认 Top-K</label>
             <input id="newKbTopK" type="number" value="5" min="1" max="20" class="w-full bg-gray-50 border border-gray-200 rounded-xl py-2 px-3 text-sm focus:ring-2 focus:ring-blue-500/20"/>
           </div>
-          <div class="flex items-center gap-4 pt-5">
-            <label class="flex items-center gap-2 text-xs"><input id="newKbRerank" type="checkbox" checked> 启用 Rerank</label>
-            <label class="flex items-center gap-2 text-xs"><input id="newKbSelfQuery" type="checkbox" checked> Self-Query</label>
+          <div>
+            <label class="text-xs font-bold text-gray-600 block mb-1" title="finalScore 低于此值的结果会被丢弃，留 0 关闭过滤">
+              相关性阈值 <span class="text-gray-400 font-normal">(0~1)</span>
+            </label>
+            <input id="newKbMinScore" type="number" value="0.3" min="0" max="1" step="0.05" class="w-full bg-gray-50 border border-gray-200 rounded-xl py-2 px-3 text-sm focus:ring-2 focus:ring-blue-500/20"/>
           </div>
+        </div>
+        <div class="flex items-center gap-4">
+          <label class="flex items-center gap-2 text-xs"><input id="newKbSelfQuery" type="checkbox" checked> 启用 Self-Query（LLM 识别元数据过滤）</label>
         </div>
       </div>
       <div class="flex justify-end gap-2 mt-5">
@@ -164,14 +170,14 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
     </div>
   </div>
 
-  <!-- 文档详情弹窗 -->
-  <div id="docModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-    <div class="bg-white rounded-2xl shadow-2xl w-[720px] max-w-[90vw] max-h-[85vh] flex flex-col animate-fade-in">
-      <div class="flex items-center justify-between p-6 border-b border-gray-100">
-        <h2 id="docModalTitle" class="text-lg font-bold text-gray-900">文档详情</h2>
-        <button onclick="closeDocModal()" class="text-gray-400 hover:text-gray-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+  <!-- 文档详情抽屉（右侧滑入） -->
+  <div id="docModal" class="hidden fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-sm">
+    <div id="docDrawer" class="bg-white w-[640px] max-w-[85vw] h-full shadow-2xl flex flex-col transform translate-x-full transition-transform duration-300 ease-out">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+        <h2 id="docModalTitle" class="text-base font-bold text-gray-900 truncate pr-4">文档详情</h2>
+        <button onclick="closeDocModal()" class="text-gray-400 hover:text-gray-600 shrink-0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
-      <div id="docModalBody" class="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-4">
+      <div id="docModalBody" class="px-6 py-5 overflow-y-auto custom-scrollbar flex-1 space-y-5">
         <div class="text-center text-gray-400 py-10">加载中...</div>
       </div>
     </div>
@@ -190,13 +196,32 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
       <div class="p-6 overflow-y-auto custom-scrollbar flex-1">
         <div class="flex items-center justify-between mb-3">
           <label class="text-xs font-bold text-gray-600">字段定义</label>
-          <button onclick="addSchemaField()" class="text-xs font-bold text-blue-600 hover:text-blue-700">+ 添加字段</button>
+          <div class="flex items-center gap-2">
+            <button onclick="loadDefaultSchema()" class="text-xs font-bold text-gray-500 hover:text-blue-600">📋 加载默认</button>
+            <button onclick="addSchemaField()" class="text-xs font-bold text-blue-600 hover:text-blue-700">+ 添加字段</button>
+          </div>
         </div>
         <div id="schemaFields" class="space-y-2"></div>
       </div>
       <div class="flex justify-end gap-2 p-6 border-t border-gray-100">
         <button onclick="closeSchemaModal()" class="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-all">取消</button>
         <button onclick="submitSchema()" class="px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 rounded-xl shadow-md hover:shadow-lg transition-all">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 调度任务弹窗 -->
+  <div id="scheduleModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl shadow-2xl w-[580px] max-w-[90vw] max-h-[80vh] flex flex-col animate-fade-in">
+      <div class="flex items-center justify-between p-6 border-b border-gray-100">
+        <div>
+          <h2 class="text-lg font-bold text-gray-900">调度任务</h2>
+          <p class="text-xs text-gray-500 mt-0.5">管理定时执行的维护任务（如热度衰减）</p>
+        </div>
+        <button onclick="closeScheduleModal()" class="text-gray-400 hover:text-gray-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div id="scheduleList" class="p-6 overflow-y-auto custom-scrollbar flex-1">
+        <div class="text-center text-gray-400 text-xs py-8">加载中...</div>
       </div>
     </div>
   </div>
@@ -251,7 +276,44 @@ let currentDocuments = [];
 let pendingFiles = [];
 let activePolls = new Map();  // task_id → intervalId
 
-function tenantId(){ return parseInt(document.getElementById('tenantInput').value || '1', 10); }
+function tenantId(){ return document.getElementById('tenantInput').value || '292193'; }
+
+// 与对话页保持一致：优先从 /api/auth/me 获取真实 tenant_id 和 user_id
+let currentUserId = localStorage.getItem('deepagent_user_id') || '';
+
+(async function initIdentity(){
+  try {
+    const r = await fetch(API + '/api/auth/me');
+    if (r.ok) {
+      const me = await r.json();
+      if (me.userId) {
+        currentUserId = String(me.userId);
+        localStorage.setItem('deepagent_user_id', currentUserId);
+      }
+      if (me.tenantId) {
+        document.getElementById('tenantInput').value = String(me.tenantId);
+      }
+    }
+  } catch (e) { /* 后端未启动或接口不存在，用 fallback */ }
+
+  if (!currentUserId) {
+    currentUserId = 'user_' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem('deepagent_user_id', currentUserId);
+  }
+  if (!document.getElementById('tenantInput').value) {
+    document.getElementById('tenantInput').value = '292193';
+  }
+
+  console.log('[Knowledge] tenant_id:', tenantId(), 'user_id:', currentUserId);
+  renderUserDisplay();
+
+  // 初始化完成后再加载知识库列表
+  loadKbs();
+})();
+function renderUserDisplay(){
+  const el = document.getElementById('currentUserDisplay');
+  if (el) { el.textContent = currentUserId; el.title = currentUserId; }
+}
 
 // ═══════════════════════════════════════════════════════════
 // KB 列表
@@ -274,7 +336,7 @@ function renderKbList(){
     return;
   }
   list.innerHTML = kbs.map(kb => `
-    <div onclick="selectKb(${kb.id})" class="kb-item cursor-pointer px-3 py-2.5 rounded-xl hover:bg-white/60 transition-all group ${currentKb && currentKb.id === kb.id ? 'bg-white/80 border border-blue-200 shadow-sm' : ''}" data-id="${kb.id}">
+    <div onclick="selectKb('${kb.id}')" class="kb-item cursor-pointer px-3 py-2.5 rounded-xl hover:bg-white/60 transition-all group ${currentKb && String(currentKb.id) === String(kb.id) ? 'bg-white/80 border border-blue-200 shadow-sm' : ''}" data-id="${kb.id}">
       <div class="flex items-center gap-2 mb-1">
         <div class="w-7 h-7 bg-gradient-to-br from-indigo-500 to-blue-500 rounded-lg flex items-center justify-center shrink-0">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/></svg>
@@ -293,7 +355,8 @@ function renderKbList(){
 }
 
 function selectKb(id){
-  currentKb = kbs.find(k => k.id === id);
+  // id 是字符串（BIGINT 超过 JS Number 精度）
+  currentKb = kbs.find(k => String(k.id) === String(id));
   if (!currentKb) return;
   renderKbList();
   // 更新头部
@@ -317,6 +380,9 @@ function renderStats(){
     ${statCard('📄', '文档', currentKb.document_count, 'blue')}
     ${statCard('🧩', '切片', currentKb.chunk_count, 'indigo')}
     ${statCard('🎯', '默认 Top-K', currentKb.default_top_k, 'purple')}
+    <button onclick="recomputeKbStats()" title="从实际文档重算（修正脏数据）" class="ml-auto self-center text-[10px] text-gray-400 hover:text-blue-600 border border-gray-200 rounded-lg px-2 py-1">
+      🔄 重算统计
+    </button>
   `;
 }
 
@@ -457,7 +523,7 @@ async function submitCreateKb(){
       name,
       description: document.getElementById('newKbDesc').value.trim(),
       default_top_k: parseInt(document.getElementById('newKbTopK').value, 10) || 5,
-      enable_rerank: document.getElementById('newKbRerank').checked,
+      min_score: parseFloat(document.getElementById('newKbMinScore').value) || 0,
       enable_self_query: document.getElementById('newKbSelfQuery').checked,
     });
     toast('知识库创建成功', 'success');
@@ -496,7 +562,6 @@ document.addEventListener('DOMContentLoaded', () => {
     input.value = '';
     renderPendingFiles();
   });
-  loadKbs();
 });
 
 function renderPendingFiles(){
@@ -597,7 +662,14 @@ function startPolling(taskId){
 // ═══════════════════════════════════════════════════════════
 
 async function openDocDetail(docId){
-  document.getElementById('docModal').classList.remove('hidden');
+  const modal = document.getElementById('docModal');
+  const drawer = document.getElementById('docDrawer');
+  modal.classList.remove('hidden');
+  // 触发滑入动画（下一帧移除 translate-x-full）
+  requestAnimationFrame(() => {
+    drawer.classList.remove('translate-x-full');
+    drawer.classList.add('translate-x-0');
+  });
   const body = document.getElementById('docModalBody');
   body.innerHTML = `<div class="text-center text-gray-400 py-10">加载中...</div>`;
   try {
@@ -612,10 +684,43 @@ async function openDocDetail(docId){
   }
 }
 
-function closeDocModal(){ document.getElementById('docModal').classList.add('hidden'); }
+function closeDocModal(){
+  const modal = document.getElementById('docModal');
+  const drawer = document.getElementById('docDrawer');
+  drawer.classList.remove('translate-x-0');
+  drawer.classList.add('translate-x-full');
+  // 等动画结束再隐藏遮罩
+  setTimeout(() => modal.classList.add('hidden'), 300);
+}
+
+// 点击遮罩关闭
+document.addEventListener('DOMContentLoaded', () => {
+  const modal = document.getElementById('docModal');
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeDocModal();
+    });
+  }
+});
 
 function renderDocDetail(doc, chunks){
   const metaEntries = Object.entries(doc.metadata || {}).filter(([k,v]) => v != null && v !== '');
+  // 解析 keywords（可能是 JSON string 或 array）
+  let keywords = [];
+  try {
+    keywords = typeof doc.keywords === 'string' ? JSON.parse(doc.keywords || '[]') : (doc.keywords || []);
+  } catch(e) { keywords = []; }
+  // 解析 candidate_keywords
+  let candidates = [];
+  try {
+    candidates = typeof doc.candidate_keywords === 'string' ? JSON.parse(doc.candidate_keywords || '[]') : (doc.candidate_keywords || []);
+  } catch(e) { candidates = []; }
+  // 解析 quality_signals
+  let qSignals = {};
+  try {
+    qSignals = typeof doc.quality_signals === 'string' ? JSON.parse(doc.quality_signals || '{}') : (doc.quality_signals || {});
+  } catch(e) { qSignals = {}; }
+
   return `
     <!-- 摘要 -->
     ${doc.summary ? `
@@ -624,6 +729,80 @@ function renderDocDetail(doc, chunks){
       <div class="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100 rounded-xl p-4 text-sm leading-relaxed text-gray-800">${esc(doc.summary)}</div>
     </div>` : ''}
 
+    <!-- 关键词（LLM 精选） -->
+    ${keywords.length ? `
+    <div>
+      <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">🔑 关键词（LLM 精选）</h3>
+      <div class="flex flex-wrap gap-1.5">
+        ${keywords.map(kw => `
+          <span class="inline-block bg-blue-50 text-blue-700 border border-blue-100 rounded-full px-2.5 py-0.5 text-xs font-medium">${esc(kw)}</span>
+        `).join('')}
+      </div>
+    </div>` : ''}
+
+    <!-- 候选关键词（TF-IDF 本地提取） -->
+    ${candidates.length ? `
+    <div>
+      <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">📊 候选关键词（TF-IDF Top-20）</h3>
+      <div class="flex flex-wrap gap-1.5">
+        ${candidates.map(kw => `
+          <span class="inline-block bg-gray-50 text-gray-600 border border-gray-200 rounded-full px-2.5 py-0.5 text-[11px]">${esc(kw)}</span>
+        `).join('')}
+      </div>
+    </div>` : ''}
+
+    <!-- 元数据标签 -->
+    ${metaEntries.length ? `
+    <div>
+      <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">🏷️ 元数据标签</h3>
+      <div class="flex flex-wrap gap-2">
+        ${metaEntries.map(([k,v]) => `
+          <span class="inline-flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs shadow-sm">
+            <span class="text-gray-400 font-medium">${esc(k)}</span>
+            <span class="font-bold text-gray-900">${esc(Array.isArray(v) ? v.join(', ') : v)}</span>
+          </span>
+        `).join('')}
+      </div>
+    </div>` : `
+    <div>
+      <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">🏷️ 元数据标签</h3>
+      <div class="text-xs text-gray-400 bg-gray-50 rounded-xl p-3">
+        未配置元数据 Schema，无法自动打标。请在「元数据 Schema」中定义字段和枚举值。
+      </div>
+    </div>`}
+
+    <!-- 质量评估 -->
+    <div>
+      <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">📊 质量评估</h3>
+      <div class="bg-gray-50 rounded-xl p-4">
+        <div class="flex items-center gap-3 mb-3">
+          <span class="text-2xl font-bold ${doc.quality_score >= 0.75 ? 'text-green-600' : doc.quality_score >= 0.5 ? 'text-yellow-600' : 'text-red-600'}">${Math.round((doc.quality_score || 0) * 100)}</span>
+          <span class="text-xs text-gray-500">/ 100</span>
+          ${renderQualityBar(doc.quality_score || 0)}
+        </div>
+        ${qSignals.completeness != null ? `
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <div class="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-100">
+            <span class="text-gray-500">完整度</span>
+            <span class="font-bold ${qSignals.completeness >= 0.8 ? 'text-green-600' : 'text-yellow-600'}">${Math.round((qSignals.completeness || 0) * 100)}%</span>
+          </div>
+          <div class="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-100">
+            <span class="text-gray-500">结构度</span>
+            <span class="font-bold ${qSignals.structure >= 0.6 ? 'text-green-600' : 'text-yellow-600'}">${Math.round((qSignals.structure || 0) * 100)}%</span>
+          </div>
+          <div class="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-100">
+            <span class="text-gray-500">内容密度</span>
+            <span class="font-bold ${qSignals.density >= 0.7 ? 'text-green-600' : 'text-yellow-600'}">${Math.round((qSignals.density || 0) * 100)}%</span>
+          </div>
+          <div class="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-100">
+            <span class="text-gray-500">清洗分数</span>
+            <span class="font-bold ${qSignals.clean_score >= 0.9 ? 'text-green-600' : 'text-yellow-600'}">${Math.round((qSignals.clean_score || 0) * 100)}%</span>
+          </div>
+        </div>
+        ` : '<div class="text-xs text-gray-400">暂无分项评估数据</div>'}
+      </div>
+    </div>
+
     <!-- 基础信息 -->
     <div>
       <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">📋 基础信息</h3>
@@ -631,30 +810,16 @@ function renderDocDetail(doc, chunks){
         <div><span class="text-gray-500">文件名</span><br/><span class="font-bold text-gray-900">${esc(doc.file_name)}</span></div>
         <div><span class="text-gray-500">类型</span><br/><span class="font-bold text-gray-900">${esc(doc.file_type)}</span></div>
         <div><span class="text-gray-500">切片数</span><br/><span class="font-bold text-gray-900">${doc.chunk_count || 0}</span></div>
-        <div><span class="text-gray-500">质量分</span><br/>${renderQualityBar(doc.quality_score || 0)}</div>
+        <div><span class="text-gray-500">段落数</span><br/><span class="font-bold text-gray-900">${doc.segment_count || 0}</span></div>
         <div><span class="text-gray-500">创建时间</span><br/><span class="font-bold text-gray-900">${fmtTime(doc.created_at)}</span></div>
         <div><span class="text-gray-500">Doc ID</span><br/><span class="font-mono text-[10px] text-gray-600">${esc(doc.doc_id)}</span></div>
       </div>
     </div>
 
-    <!-- 元数据 -->
-    ${metaEntries.length ? `
-    <div>
-      <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">🏷️ 元数据</h3>
-      <div class="flex flex-wrap gap-2">
-        ${metaEntries.map(([k,v]) => `
-          <span class="inline-flex items-center gap-1 bg-white border border-gray-200 rounded-full px-3 py-1 text-xs">
-            <span class="text-gray-500">${esc(k)}</span>
-            <span class="font-bold text-gray-900">${esc(Array.isArray(v) ? v.join(', ') : v)}</span>
-          </span>
-        `).join('')}
-      </div>
-    </div>` : ''}
-
     <!-- 切片预览 -->
     <div>
       <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">🧩 切片预览（前 ${chunks.length} 条）</h3>
-      <div class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+      <div class="space-y-2">
         ${chunks.map(c => `
           <div class="bg-white border border-gray-100 rounded-xl p-3 text-xs">
             <div class="flex items-center gap-2 mb-1.5">
@@ -677,10 +842,39 @@ async function deleteDoc(docId){
   try {
     await apiDelete(`/api/knowledge/documents/${docId}?tenant_id=${tenantId()}`);
     toast('文档已删除', 'success');
-    loadDocuments();
-    loadKbs();
+    // 删除后从服务端重取 KB 列表（拿到权威的最新统计）
+    const prevKbId = currentKb ? String(currentKb.id) : null;
+    await loadKbs();
+    // 维持选中当前 KB，刷新文档列表 + 统计卡
+    if (prevKbId) {
+      const still = kbs.find(k => String(k.id) === prevKbId);
+      if (still) {
+        currentKb = still;
+        renderKbList();
+        renderStats();
+        loadDocuments();
+      }
+    }
   } catch (e) {
     toast('删除失败: ' + e.message, 'error');
+  }
+}
+
+// 人工触发重算 KB 统计（右键/工具菜单可用，修复历史脏数据）
+async function recomputeKbStats(){
+  if (!currentKb) return;
+  try {
+    const r = await apiPost(`/api/knowledge/${currentKb.id}/recompute-stats`, {});
+    toast(`统计已重算：文档 ${r.document_count} / 切片 ${r.chunk_count}`, 'success');
+    await loadKbs();
+    const still = kbs.find(k => String(k.id) === String(currentKb.id));
+    if (still) {
+      currentKb = still;
+      renderKbList();
+      renderStats();
+    }
+  } catch (e) {
+    toast('重算失败: ' + e.message, 'error');
   }
 }
 
@@ -689,6 +883,7 @@ async function deleteDoc(docId){
 // ═══════════════════════════════════════════════════════════
 
 let currentSchemaFields = [];
+let currentSchemaSource = '';  // 'system_default' | 'custom' | 'none'
 
 async function openSchemaModal(){
   if (!currentKb) return;
@@ -696,8 +891,10 @@ async function openSchemaModal(){
   try {
     const s = await apiGet(`/api/knowledge/schemas/for-kb/${currentKb.id}?tenant_id=${tenantId()}`);
     currentSchemaFields = s.fields || [];
+    currentSchemaSource = s.source || 'none';
   } catch (e) {
     currentSchemaFields = [];
+    currentSchemaSource = 'none';
   }
   renderSchemaFields();
 }
@@ -706,37 +903,85 @@ function closeSchemaModal(){ document.getElementById('schemaModal').classList.ad
 
 function renderSchemaFields(){
   const list = document.getElementById('schemaFields');
+
+  // 来源提示
+  const sourceHint = {
+    'system_default': '<div class="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs text-blue-700 mb-3">📋 当前使用<b>系统内置默认 Schema</b>。保存后将为此知识库创建专属配置。</div>',
+    'custom': '<div class="bg-green-50 border border-green-100 rounded-lg px-3 py-2 text-xs text-green-700 mb-3">✅ 当前使用<b>自定义 Schema</b>（此知识库专属）。</div>',
+    'none': '<div class="bg-yellow-50 border border-yellow-100 rounded-lg px-3 py-2 text-xs text-yellow-700 mb-3">⚠️ 未配置 Schema，将使用代码内置默认值。点击「添加字段」开始配置。</div>',
+  }[currentSchemaSource] || '';
+
   if (!currentSchemaFields.length){
-    list.innerHTML = `<div class="text-center text-gray-400 text-xs py-6">暂无字段，点击上方「添加字段」</div>`;
+    list.innerHTML = `${sourceHint}<div class="text-center text-gray-400 text-xs py-6">暂无字段，点击上方「添加字段」或「加载默认」</div>`;
     return;
   }
-  list.innerHTML = currentSchemaFields.map((f, i) => `
+  list.innerHTML = `${sourceHint}` + currentSchemaFields.map((f, i) => `
     <div class="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-2">
       <div class="flex items-center gap-2">
+        <span class="inline-flex items-center justify-center w-7 h-6 rounded-md bg-blue-50 border border-blue-100 text-[11px] font-bold text-blue-600 tabular-nums shrink-0" title="字段序号">${String(i+1).padStart(2,'0')}</span>
         <input type="text" value="${esc(f.field || '')}" oninput="currentSchemaFields[${i}].field=this.value" placeholder="字段名（如 docCategory）" class="flex-1 bg-white border border-gray-200 rounded-lg py-1.5 px-2 text-xs"/>
-        <select onchange="currentSchemaFields[${i}].type=this.value" class="bg-white border border-gray-200 rounded-lg py-1.5 px-2 text-xs">
+        <select onchange="currentSchemaFields[${i}].type=this.value;renderSchemaFields()" class="bg-white border border-gray-200 rounded-lg py-1.5 px-2 text-xs">
           <option value="enum" ${f.type==='enum'?'selected':''}>枚举</option>
           <option value="string" ${f.type==='string'?'selected':''}>字符串</option>
           <option value="date" ${f.type==='date'?'selected':''}>日期</option>
         </select>
+        <label class="flex items-center gap-1 text-[10px] text-gray-500"><input type="checkbox" ${f.required?'checked':''} onchange="currentSchemaFields[${i}].required=this.checked"> 必填</label>
         <button onclick="removeSchemaField(${i})" class="text-red-500 hover:text-red-600 text-xs px-2">✕</button>
       </div>
-      <input type="text" value="${esc(f.description || '')}" oninput="currentSchemaFields[${i}].description=this.value" placeholder="字段描述（可选）" class="w-full bg-white border border-gray-200 rounded-lg py-1.5 px-2 text-xs"/>
+      <input type="text" value="${esc(f.description || '')}" oninput="currentSchemaFields[${i}].description=this.value" placeholder="字段描述（帮助 LLM 理解语义）" class="w-full bg-white border border-gray-200 rounded-lg py-1.5 px-2 text-xs"/>
       ${f.type === 'enum' ? `
-        <input type="text" value="${esc((f.enum || []).join(', '))}" oninput="currentSchemaFields[${i}].enum=this.value.split(',').map(s=>s.trim()).filter(Boolean)" placeholder="枚举值，逗号分隔（如 产品手册, 成功案例）" class="w-full bg-white border border-gray-200 rounded-lg py-1.5 px-2 text-xs"/>
+        <div class="relative">
+          <input type="text" value="${esc((f.enum || []).join(', '))}" oninput="currentSchemaFields[${i}].enum=this.value.split(',').map(s=>s.trim()).filter(Boolean)" placeholder="枚举值，逗号分隔（如 产品手册, 成功案例, 技术白皮书）" class="w-full bg-white border border-gray-200 rounded-lg py-1.5 px-2 text-xs pr-12"/>
+          <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">${(f.enum||[]).length} 项</span>
+        </div>
       ` : ''}
     </div>
   `).join('');
 }
 
 function addSchemaField(){
-  currentSchemaFields.push({field: '', type: 'enum', description: '', enum: []});
+  currentSchemaFields.push({field: '', type: 'enum', required: false, description: '', enum: []});
   renderSchemaFields();
 }
 
 function removeSchemaField(i){
   currentSchemaFields.splice(i, 1);
   renderSchemaFields();
+}
+
+function loadDefaultSchema(){
+  // 加载系统内置默认 Schema（较全面版，19 字段，覆盖核心分类/业务维度/访问控制/内容形态/时效性/治理）
+  currentSchemaFields = [
+    // 核心分类（必填）
+    {field:'docCategory', type:'enum', required:true, description:'文档类别（必填）', enum:['产品手册','技术白皮书','解决方案','成功案例','销售话术','培训材料','FAQ','内部政策','竞品分析','合同模板','行业报告','操作指南','API 文档','会议纪要','客户沟通记录','其他']},
+    // 业务维度
+    {field:'industryVertical', type:'enum', required:false, description:'所属行业', enum:['制造业','金融服务','互联网','医疗健康','教育培训','零售消费','能源化工','政府公共','房地产','物流运输','农林牧渔','批发贸易','建筑工程','文化娱乐','通用/跨行业']},
+    {field:'businessStage', type:'enum', required:false, description:'适用业务阶段', enum:['市场推广','线索获取','售前咨询','需求调研','方案设计','产品演示','商务谈判','合同签订','实施交付','上线培训','售后服务','客户成功','续费拓展','通用']},
+    {field:'targetAudience', type:'enum', required:false, description:'目标受众', enum:['CEO/COO','CFO','CIO/CTO','业务负责人','销售负责人','一线销售','市场人员','实施顾问','技术人员','运维人员','产品经理','终端用户','财务人员','人事行政','通用']},
+    {field:'productService', type:'string', required:false, description:'涉及的产品/服务名称，多个用逗号分隔'},
+    {field:'businessFunction', type:'enum', required:false, description:'业务职能（文档归属的职能域）', enum:['销售','市场','售前','交付/实施','客户成功','产品','研发','运维','客服','财务','人力资源','法务/合规','采购/供应链','行政','IT/信息化','战略/投资','通用']},
+    {field:'region', type:'enum', required:false, description:'适用地域/区域', enum:['中国大陆','港澳台','北美','欧洲','亚太（不含大中华）','中东','拉美','非洲','全球/跨区域'], default:'中国大陆'},
+    // 访问控制
+    {field:'confidentiality', type:'enum', required:false, description:'保密级别', enum:['公开','内部','机密','绝密'], default:'内部'},
+    {field:'audience_scope', type:'enum', required:false, description:'适用团队范围', enum:['全公司','销售团队','售前团队','实施团队','技术团队','客服团队','管理层','合作伙伴']},
+    // 内容形态
+    {field:'contentFormat', type:'enum', required:false, description:'文档内容形态', enum:['纯文本','图文混合','表格密集','流程图','代码示例','视频/音频转写','数据报告','长文档（>50 页）']},
+    {field:'language', type:'enum', required:false, description:'主要语言', enum:['中文','英文','中英混合','其他'], default:'中文'},
+    // 时效性 & 生命周期
+    {field:'datePublished', type:'date', required:false, description:'文档发布/生效日期，格式 YYYY-MM-DD（影响 γ 维度时效性）'},
+    {field:'dateExpires', type:'date', required:false, description:'文档过期日期，格式 YYYY-MM-DD'},
+    {field:'version', type:'string', required:false, description:'文档版本号，如 v1.2.3 / 2024Q2'},
+    {field:'documentStatus', type:'enum', required:false, description:'文档生命周期状态（已废弃/已归档可被过滤排除）', enum:['草稿','审核中','已发布','已更新','已归档','已废弃'], default:'已发布'},
+    {field:'reviewCycle', type:'enum', required:false, description:'复审周期（知识运营/合规过期提醒）', enum:['无需复审','季度','半年','年度','两年','按需'], default:'年度'},
+    // 来源与治理
+    {field:'source', type:'enum', required:false, description:'文档来源（影响可信度与引用策略）', enum:['内部原创','内部汇编','客户提供','合作伙伴','外部采购','公开资料','监管/标准机构','AI 生成','其他'], default:'内部原创'},
+    // 自由文本
+    {field:'tags', type:'string', required:false, description:'自由标签，多个用逗号分隔'},
+    {field:'author', type:'string', required:false, description:'作者/归属部门'},
+  ];
+  currentSchemaSource = 'custom';
+  renderSchemaFields();
+  toast('已加载默认 Schema 模板（19 字段）', 'info');
 }
 
 async function submitSchema(){
@@ -760,7 +1005,225 @@ async function submitSchema(){
 // 初始化
 // ═══════════════════════════════════════════════════════════
 
-// loadKbs() 由 DOMContentLoaded 触发
+// ═══════════════════════════════════════════════════════════
+// 调度任务管理
+// ═══════════════════════════════════════════════════════════
+
+async function openScheduleModal(){
+  document.getElementById('scheduleModal').classList.remove('hidden');
+  await loadSchedules();
+}
+function closeScheduleModal(){ document.getElementById('scheduleModal').classList.add('hidden'); }
+
+async function loadSchedules(){
+  const list = document.getElementById('scheduleList');
+  try {
+    const data = await apiGet('/api/knowledge/maintenance/schedules');
+    const tasks = data.items || [];
+    if (!tasks.length){
+      list.innerHTML = '<div class="text-center text-gray-400 text-xs py-8">暂无调度任务</div>';
+      return;
+    }
+    list.innerHTML = tasks.map(t => renderScheduleCard(t)).join('');
+  } catch(e) {
+    list.innerHTML = `<div class="text-red-500 text-xs text-center py-8">${esc(e.message)}</div>`;
+  }
+}
+
+function fmtInterval(ms){
+  if (!ms) return {value: 0, unit: '分钟', factor: 60000};
+  if (ms >= 86400000) return {value: (ms / 86400000).toFixed(1), unit: '天', factor: 86400000};
+  if (ms >= 3600000)  return {value: (ms / 3600000).toFixed(1),  unit: '小时', factor: 3600000};
+  return {value: Math.max(1, Math.round(ms / 60000)), unit: '分钟', factor: 60000};
+}
+
+function renderScheduleParams(t, params) {
+  const name = esc(t.name);
+  const type = t.task_type;
+  // 不同任务的可调参数
+  if (type === 'decay_hit_counts') {
+    return `
+      <div class="bg-white rounded-lg px-3 py-2 border border-gray-100">
+        <span class="text-gray-400">衰减系数</span>
+        <div class="font-bold text-gray-900 mt-0.5">
+          <input type="number" value="${params.decay_factor ?? 0.7}" min="0.1" max="1.0" step="0.05"
+            onchange="updateScheduleParam('${name}', 'decay_factor', parseFloat(this.value))"
+            class="w-16 bg-transparent border-b border-gray-300 text-center font-bold focus:border-blue-500 outline-none"/>
+        </div>
+      </div>
+      <div class="bg-white rounded-lg px-3 py-2 border border-gray-100">
+        <span class="text-gray-400">按租户独立</span>
+        <div class="font-bold text-gray-900 mt-0.5">
+          <label class="inline-flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" ${params.per_tenant ? 'checked' : ''}
+              onchange="updateScheduleParam('${name}', 'per_tenant', this.checked)"/>
+            <span class="text-[11px] text-gray-600">${params.per_tenant ? '开' : '关'}</span>
+          </label>
+        </div>
+      </div>`;
+  }
+  if (type === 'sync_vdb_hit_count') {
+    return `
+      <div class="bg-white rounded-lg px-3 py-2 border border-gray-100">
+        <span class="text-gray-400">单次上限</span>
+        <div class="font-bold text-gray-900 mt-0.5">
+          <input type="number" value="${params.max_docs ?? 1000}" min="10" max="10000" step="100"
+            onchange="updateScheduleParam('${name}', 'max_docs', parseInt(this.value, 10))"
+            class="w-20 bg-transparent border-b border-gray-300 text-center font-bold focus:border-blue-500 outline-none"/> 文档
+        </div>
+      </div>
+      <div class="bg-white rounded-lg px-3 py-2 border border-gray-100">
+        <span class="text-gray-400">全量模式</span>
+        <div class="font-bold text-gray-900 mt-0.5">
+          <label class="inline-flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" ${params.all ? 'checked' : ''}
+              onchange="updateScheduleParam('${name}', 'all', this.checked)"/>
+            <span class="text-[11px] text-gray-600">${params.all ? '开' : '关（仅增量）'}</span>
+          </label>
+        </div>
+      </div>`;
+  }
+  if (type === 'rebuild_doc_metadata') {
+    return `
+      <div class="bg-white rounded-lg px-3 py-2 border border-gray-100">
+        <span class="text-gray-400">回溯时长</span>
+        <div class="font-bold text-gray-900 mt-0.5">
+          <input type="number" value="${params.since_minutes ?? 60}" min="5" max="1440" step="5"
+            onchange="updateScheduleParam('${name}', 'since_minutes', parseInt(this.value, 10))"
+            class="w-16 bg-transparent border-b border-gray-300 text-center font-bold focus:border-blue-500 outline-none"/> 分钟
+        </div>
+      </div>
+      <div class="bg-white rounded-lg px-3 py-2 border border-gray-100">
+        <span class="text-gray-400">单次上限</span>
+        <div class="font-bold text-gray-900 mt-0.5">
+          <input type="number" value="${params.max_docs ?? 500}" min="10" max="5000" step="50"
+            onchange="updateScheduleParam('${name}', 'max_docs', parseInt(this.value, 10))"
+            class="w-20 bg-transparent border-b border-gray-300 text-center font-bold focus:border-blue-500 outline-none"/> 文档
+        </div>
+      </div>`;
+  }
+  if (type === 'vdb_health_check') {
+    return `
+      <div class="bg-white rounded-lg px-3 py-2 border border-gray-100">
+        <span class="text-gray-400">按租户对比</span>
+        <div class="font-bold text-gray-900 mt-0.5">
+          <label class="inline-flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" ${params.per_tenant !== false ? 'checked' : ''}
+              onchange="updateScheduleParam('${name}', 'per_tenant', this.checked)"/>
+            <span class="text-[11px] text-gray-600">${params.per_tenant !== false ? '开' : '关（全局）'}</span>
+          </label>
+        </div>
+      </div>
+      <div class="bg-white rounded-lg px-3 py-2 border border-gray-100">
+        <span class="text-gray-400">自动修复</span>
+        <div class="font-bold text-gray-900 mt-0.5">
+          <label class="inline-flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" ${params.auto_repair ? 'checked' : ''}
+              onchange="updateScheduleParam('${name}', 'auto_repair', this.checked)"/>
+            <span class="text-[11px] ${params.auto_repair ? 'text-orange-600 font-bold' : 'text-gray-600'}">${params.auto_repair ? '开（差异时触发 rebuild）' : '关（仅告警）'}</span>
+          </label>
+        </div>
+      </div>`;
+  }
+  return '<div class="col-span-2 text-xs text-gray-400 italic">此任务无可调参数</div>';
+}
+
+function renderScheduleCard(t){
+  const params = t.params || {};
+  const iv = fmtInterval(t.interval_ms);
+  const statusColor = t.last_run_status === 'success' ? 'text-green-600' : t.last_run_status === 'failed' ? 'text-red-600' : 'text-gray-400';
+  return `
+    <div class="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-3">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-bold text-gray-900">${esc(t.name)}</span>
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100">${esc(t.task_type)}</span>
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${t.enabled ? 'bg-green-50 text-green-600 border border-green-100' : 'bg-gray-100 text-gray-500 border border-gray-200'}">${t.enabled ? '启用' : '停用'}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="toggleSchedule('${esc(t.name)}', ${t.enabled ? 0 : 1})" class="text-xs font-bold ${t.enabled ? 'text-yellow-600 hover:text-yellow-700' : 'text-green-600 hover:text-green-700'}">${t.enabled ? '停用' : '启用'}</button>
+          <button onclick="runScheduleNow('${esc(t.name)}')" class="text-xs font-bold text-blue-600 hover:text-blue-700">立即执行</button>
+        </div>
+      </div>
+      <p class="text-xs text-gray-500 mb-3">${esc(t.description)}</p>
+      <div class="grid grid-cols-2 gap-3 text-xs">
+        <div class="bg-white rounded-lg px-3 py-2 border border-gray-100">
+          <span class="text-gray-400">执行间隔</span>
+          <div class="font-bold text-gray-900 mt-0.5">
+            <input type="number" value="${iv.value}" min="1" step="1"
+              data-unit="${iv.unit}" data-factor="${iv.factor}"
+              onchange="updateScheduleInterval('${esc(t.name)}', this.value, ${iv.factor})"
+              class="w-16 bg-transparent border-b border-gray-300 text-center font-bold focus:border-blue-500 outline-none"/> ${iv.unit}
+          </div>
+        </div>
+        ${renderScheduleParams(t, params)}
+        <div class="bg-white rounded-lg px-3 py-2 border border-gray-100">
+          <span class="text-gray-400">上次执行</span>
+          <div class="font-bold ${statusColor} mt-0.5">${t.last_run_at ? fmtTime(t.last_run_at) : '从未执行'}</div>
+        </div>
+        <div class="bg-white rounded-lg px-3 py-2 border border-gray-100">
+          <span class="text-gray-400">下次执行</span>
+          <div class="font-bold text-gray-900 mt-0.5">${t.next_run_at ? fmtTime(t.next_run_at) : '—'}</div>
+        </div>
+        <div class="col-span-2 bg-white rounded-lg px-3 py-2 border border-gray-100">
+          <span class="text-gray-400">累计执行</span>
+          <span class="font-bold text-gray-900 ml-2">${t.run_count} 次</span>
+          ${t.last_run_result ? `<span class="text-gray-400 ml-3">最近结果: ${esc(typeof t.last_run_result === 'string' ? t.last_run_result.substring(0, 120) : JSON.stringify(t.last_run_result).substring(0, 120))}</span>` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function toggleSchedule(name, enabled){
+  try {
+    await fetch(`${API}/api/knowledge/maintenance/schedules/${name}`, {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled: !!enabled}),
+    });
+    toast(enabled ? '已启用' : '已停用', 'success');
+    await loadSchedules();
+  } catch(e) { toast('操作失败: ' + e.message, 'error'); }
+}
+
+async function updateScheduleInterval(name, value, factor){
+  const ms = Math.round(parseFloat(value) * (factor || 86400000));
+  if (!ms || ms < 60000) { toast('间隔至少 1 分钟', 'error'); return; }
+  try {
+    await fetch(`${API}/api/knowledge/maintenance/schedules/${name}`, {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({interval_ms: ms}),
+    });
+    toast(`间隔已更新`, 'success');
+    await loadSchedules();
+  } catch(e) { toast('更新失败: ' + e.message, 'error'); }
+}
+
+async function updateScheduleParam(name, key, value){
+  try {
+    // 先获取当前 params
+    const data = await apiGet('/api/knowledge/maintenance/schedules');
+    const task = (data.items || []).find(t => t.name === name);
+    const params = task ? (task.params || {}) : {};
+    params[key] = value;
+    await fetch(`${API}/api/knowledge/maintenance/schedules/${name}`, {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({params}),
+    });
+    toast(`参数已更新: ${key}=${value}`, 'success');
+  } catch(e) { toast('更新失败: ' + e.message, 'error'); }
+}
+
+async function runScheduleNow(name){
+  if (!confirm(`确定立即执行「${name}」？`)) return;
+  try {
+    const r = await apiPost(`/api/knowledge/maintenance/schedules/${name}/run`, {});
+    toast(`执行完成: ${JSON.stringify(r.result)}`, 'success');
+    await loadSchedules();
+  } catch(e) { toast('执行失败: ' + e.message, 'error'); }
+}
+
+// loadKbs() 由 initIdentity() 完成后触发
 </script>
 </body>
 </html>

@@ -53,7 +53,7 @@ def _create_engine(llm=None):
         database_name="viking_test_db",
         collection_name="viking_test_memories",
         llm=llm or _get_llm(),
-        soul_threshold=3,
+        agent_rules_threshold=3,
     )
 
 
@@ -135,7 +135,7 @@ async def test_soul_generation():
     """SOUL 蒸馏"""
     print("\n📦 4. SOUL 蒸馏")
     engine = _create_engine()
-    engine._soul_threshold = 2  # 降低阈值方便测试
+    engine._agent_rules_threshold = 2  # 降低阈值方便测试
 
     # 写入多轮对话触发 SOUL
     for i, (q, a) in enumerate([

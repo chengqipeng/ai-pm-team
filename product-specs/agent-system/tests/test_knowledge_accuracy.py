@@ -84,26 +84,48 @@ def test_json_extraction_no_json():
 # ═══════════════════════════════════════════════════════════
 
 def test_segment_respects_h1_boundary():
-    from dataclasses import dataclass
     from knowledge.ingestion import DocumentIngestionPipeline
     from knowledge.queue import IngestTask
 
     pipeline = _make_empty_pipeline()
+    # 调大 seg_max，避免内容被"超长回溯"切断
+    # 内容要大于 seg_min/2，避免碎片合并回吸
+    pipeline._seg_min = 10
+    pipeline._seg_target = 100
+    pipeline._seg_max = 500
     task = IngestTask.new(tenant_id=1, knowledge_base_id=1, payload={"doc_id": "d1"})
-    content = "# 第一部分\n内容 A\n# 第二部分\n内容 B"
+    # 避免用 "第一部分" 这种会被中文章节正则误匹配的标题
+    # （"部" 是 data-process 规则里 [章部篇] 的一员，正文里"第一部分"会当 L1 标题）
+    content = (
+        "# 章节一\n"
+        + ("章节一的详细内容说明。" * 5) + "\n"
+        + "# 章节二\n"
+        + ("章节二的详细内容说明。" * 5)
+    )
     segs = pipeline._split_segments(doc_id="d1", task=task, content=content)
     titles = [s.title for s in segs]
-    assert titles == ["第一部分", "第二部分"], f"got {titles}"
+    assert titles == ["章节一", "章节二"], f"got {titles}"
     assert all(s.heading_level == 1 for s in segs)
 
 
 def test_segment_builds_hierarchical_path():
     from knowledge.queue import IngestTask
     pipeline = _make_empty_pipeline()
+    # 二级标题的切分条件是 "当前累计 > seg_min"，调小以触发
+    pipeline._seg_min = 10
+    pipeline._seg_target = 30
+    pipeline._seg_max = 200
     task = IngestTask.new(tenant_id=1, knowledge_base_id=1, payload={"doc_id": "d1"})
-    content = "# 概述\n介绍\n## 1.1 背景\n内容 X\n## 1.2 目标\n内容 Y"
+    content = (
+        "# 概述\n"
+        + ("介绍文字介绍文字。" * 5) + "\n"
+        + "## 1.1 背景\n"
+        + ("内容 X 内容 X 内容。" * 5) + "\n"
+        + "## 1.2 目标\n"
+        + ("内容 Y 内容 Y 内容。" * 5)
+    )
     segs = pipeline._split_segments(doc_id="d1", task=task, content=content)
-    assert len(segs) == 3
+    assert len(segs) == 3, f"got {len(segs)}"
     # 第一段：只有 H1
     assert segs[0].title == "概述"
     assert segs[0].section_path == "概述"
@@ -128,23 +150,31 @@ def test_segment_no_heading_fallback():
 
 
 def test_segment_forced_split_when_too_long():
-    """Segment 超过 seg_target×2 → 强制截断"""
+    """Segment 超过 seg_max → 在句子边界回溯切分"""
     from knowledge.queue import IngestTask
     pipeline = _make_empty_pipeline()
-    pipeline._seg_target = 500  # 阈值变成 1000
+    # 把阈值调小以便测试触发
+    pipeline._seg_min = 200
+    pipeline._seg_target = 300
+    pipeline._seg_max = 500
     task = IngestTask.new(tenant_id=1, knowledge_base_id=1, payload={"doc_id": "d1"})
-    # 单一 H1 下放 2500 字符，应被强制截断为 ≥3 个 Segment
-    content = "# 长章节\n" + ("段内容段内容段内容段内容段内容" * 100)  # ~2000 chars
+    # 单 H1 下放 >500 字符的内容（用句号分隔，让边界回溯能找到切分点）
+    sentences = "段内容段内容段内容段内容段内容。" * 40  # ~600 chars, 40 句
+    content = f"# 长章节\n{sentences}"
     segs = pipeline._split_segments(doc_id="d1", task=task, content=content)
+    # 总内容远超 seg_max，至少应切成 2 段
     assert len(segs) >= 2, f"got {len(segs)} segments"
+    # 每段都应落在句子边界上（以句号结尾，除了最后一段）
+    for seg in segs[:-1]:
+        assert seg.content.rstrip().endswith("。"), f"segment 未在句号处切分: {seg.content[-20:]!r}"
 
 
 # ═══════════════════════════════════════════════════════════
-# 3. Chunk 切分
+# 3. Chunk 切分（句子级，对齐 data-process）
 # ═══════════════════════════════════════════════════════════
 
 def test_chunk_short_segment_becomes_one_chunk():
-    """短 Segment（< chunk_char_size）直接作为单个 Chunk"""
+    """短 Segment（< chunk_target）直接作为单个 Chunk"""
     from knowledge.cleaning import CleaningResult, CleaningSignals
     from knowledge.queue import IngestTask
     pipeline = _make_empty_pipeline()
@@ -158,16 +188,18 @@ def test_chunk_short_segment_becomes_one_chunk():
         assert c.section_title == s.title
 
 
-def test_chunk_long_segment_uses_sliding_window():
-    """长 Segment → 多 Chunk，且 parent_segment_id 都指向它"""
+def test_chunk_long_segment_uses_sentence_split():
+    """长 Segment → 按句子累加切多个 Chunk，且 parent_segment_id 都指向它"""
     from knowledge.cleaning import CleaningResult, CleaningSignals
     from knowledge.queue import IngestTask
     pipeline = _make_empty_pipeline()
-    # 强制让 chunk_char_size = 200
-    pipeline._chunk_size = 100       # 100 tokens → ≈ 200 chars
-    pipeline._chunk_overlap = 20     # 20 tokens → ≈ 40 chars
+    # 小目标，方便触发多 chunk
+    pipeline._chunk_target = 120
+    pipeline._chunk_min = 40
+    pipeline._chunk_max = 200
     task = IngestTask.new(tenant_id=1, knowledge_base_id=1, payload={"doc_id": "d1"})
-    long_section = "内容行" * 300  # 900 chars
+    # 30 个短句，每句 ~15 字，总 450 字
+    long_section = "".join(f"这是句子内容第{i}段。" for i in range(30))
     segs = pipeline._split_segments(
         doc_id="d1", task=task, content=f"# 长标题\n{long_section}",
     )
@@ -180,44 +212,63 @@ def test_chunk_long_segment_uses_sliding_window():
     # chunk_index 递增
     indices = [c.chunk_index for c in chunks]
     assert indices == sorted(indices)
+    # 每个 chunk 不超过 max（除了可能被"尾部合并"后的最后一个）
+    for c in chunks[:-1]:
+        assert len(c.content) <= pipeline._chunk_max + 50, f"chunk overflow: {len(c.content)}"
 
 
-def test_chunk_overlap_exceeds_size_no_infinite_loop():
-    """❌ 边界缺陷：当 overlap >= chunk_char_size 时当前实现会死循环
-
-    缺陷：`start = end - overlap_chars` 若 overlap >= size，start 停留或倒退。
-    需要在 pipeline 中加防御性裁剪。
-    """
+def test_chunk_sentence_overlap_preserves_context():
+    """句子级 overlap：每个 chunk 开头应包含上一个 chunk 最后 N 句（模糊校验）"""
     from knowledge.cleaning import CleaningResult, CleaningSignals
     from knowledge.queue import IngestTask
     pipeline = _make_empty_pipeline()
-    # overlap 等于 chunk size → 致命配置
-    pipeline._chunk_size = 50
-    pipeline._chunk_overlap = 50
+    pipeline._chunk_target = 100
+    pipeline._chunk_min = 30
+    pipeline._chunk_max = 160
+    pipeline._chunk_overlap_sentences = 2
     task = IngestTask.new(tenant_id=1, knowledge_base_id=1, payload={"doc_id": "d1"})
-    content = "# h\n" + ("x" * 500)
+    # 连续编号句子，便于校验 overlap
+    content = "# 主题\n" + "".join(f"句子编号{i:03d}结束。" for i in range(30))
     segs = pipeline._split_segments(doc_id="d1", task=task, content=content)
     cleaning = CleaningResult(display_content="", content=content, signals=CleaningSignals())
-
-    import signal as _signal
-    class TimeoutError_(Exception): ...
-    def _alarm(*_):
-        raise TimeoutError_()
-    # macOS 支持 SIGALRM
-    if hasattr(_signal, "SIGALRM"):
-        _signal.signal(_signal.SIGALRM, _alarm)
-        _signal.alarm(5)
-    try:
-        chunks = pipeline._local_split_chunks(
-            doc_id="d1", task=task, segments=segs, cleaning=cleaning,
+    chunks = pipeline._local_split_chunks(doc_id="d1", task=task, segments=segs, cleaning=cleaning)
+    assert len(chunks) >= 2
+    # 相邻 chunk 必须有句子重叠：第 i+1 个 chunk 的开头至少出现过第 i 个 chunk 的尾部某个句子编号
+    for i in range(len(chunks) - 1):
+        cur_end = chunks[i].content[-40:]  # 当前 chunk 尾部
+        next_start = chunks[i + 1].content[:60]  # 下一个 chunk 开头
+        # 至少有一个公共"编号 XXX"
+        import re as _re
+        cur_nums = set(_re.findall(r"\d{3}", cur_end))
+        next_nums = set(_re.findall(r"\d{3}", next_start))
+        assert cur_nums & next_nums, (
+            f"chunk {i} 和 {i+1} 无句子级 overlap: "
+            f"cur_end={cur_end!r} next_start={next_start!r}"
         )
-        # 不应死循环：chunk 数量有限（即使是 step=1 也只产 len(text) 条）
-        assert 0 < len(chunks) < 1000, f"got {len(chunks)} chunks"
-        # 每个 chunk 内容 <= chunk_char_size
-        assert all(len(c.content) <= 100 for c in chunks)
-    finally:
-        if hasattr(_signal, "SIGALRM"):
-            _signal.alarm(0)
+
+
+def test_chunk_sentence_split_handles_english_period():
+    """英文句号 `.` 后若非空格/大写字母不切分，保护数值/缩写
+
+    注意：对齐 data-process 的规则是"后面是空格或大写字母即切分"，
+    所以 U.S.A 这种**连续大写**会被切，但 "3.14" 不会被切（数字非大写非空格）。
+    """
+    from knowledge.ingestion import DocumentIngestionPipeline
+    # 数字带小数点：不应切
+    text1 = "Pi is 3.14 approximately."
+    sentences1 = DocumentIngestionPipeline._split_by_sentence(text1)
+    non_empty = [s for s in sentences1 if s.strip()]
+    assert len(non_empty) == 1, f"3.14 被错误切分: {non_empty}"
+
+    # 带空格的英文句号：必须切
+    text2 = "First sentence. Second sentence."
+    sentences2 = DocumentIngestionPipeline._split_by_sentence(text2)
+    non_empty2 = [s for s in sentences2 if s.strip()]
+    assert len(non_empty2) == 2, f"正常英文应切成 2 句: {non_empty2}"
+
+    # 切分后拼接还原
+    full = "".join(sentences1)
+    assert full == text1
 
 
 def test_chunk_type_detection():
@@ -447,7 +498,7 @@ def _make_empty_pipeline():
 
     class _NoopVDB:
         def upsert_chunks(self, rs): return 0
-        def upsert_summaries(self, rs): return 0
+        def upsert_doc_metadata(self, rs): return 0
 
     return DocumentIngestionPipeline(
         lkeap=_NoopLKEAP(),
@@ -479,8 +530,9 @@ if __name__ == "__main__":
         test_segment_no_heading_fallback,
         test_segment_forced_split_when_too_long,
         test_chunk_short_segment_becomes_one_chunk,
-        test_chunk_long_segment_uses_sliding_window,
-        test_chunk_overlap_exceeds_size_no_infinite_loop,
+        test_chunk_long_segment_uses_sentence_split,
+        test_chunk_sentence_overlap_preserves_context,
+        test_chunk_sentence_split_handles_english_period,
         test_chunk_type_detection,
         test_rough_tokens_cjk_and_ascii,
         test_apply_metadata_to_chunks_basic,

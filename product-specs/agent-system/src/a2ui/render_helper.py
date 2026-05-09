@@ -46,6 +46,7 @@ from src.agui import models as agui
 from .aggregator import SnapshotAggregator
 from .builder import A2UIBuilder
 from .catalog import CatalogRegistry, STANDARD_V08
+from .thread_store import ThreadStore, thread_store as _default_thread_store
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,9 @@ class A2UIRenderHelper:
     """组合 SnapshotAggregator + A2UIBuilder + CatalogRegistry 的一站式渲染辅助。
 
     生命周期：每个 Agent run 一个实例。
+
+    若传入 `thread_store`，Helper 会把每次 render() 产出的 operations 登记到
+    store，供 `/agent/chat/reconnect` 使用。
     """
 
     def __init__(
@@ -67,6 +71,7 @@ class A2UIRenderHelper:
         aggregator: SnapshotAggregator | None = None,
         catalog_registry: CatalogRegistry | None = None,
         catalog_id: str | None = None,
+        thread_store: ThreadStore | None = _default_thread_store,
     ) -> None:
         self.run_id = run_id
         self.thread_id = thread_id
@@ -75,6 +80,11 @@ class A2UIRenderHelper:
         self._catalog_id = catalog_id or (
             catalog_registry.default_id() if catalog_registry else STANDARD_V08
         )
+        self._thread_store = thread_store
+        # 将 aggregator 绑到 thread，使重连时能拿到 Shared State
+        if self._thread_store and self.thread_id:
+            self._thread_store.bind_aggregator(self.thread_id, self.aggregator)
+            self._thread_store.set_last_run(self.thread_id, self.run_id)
 
     # ── 主 API ──
 
@@ -120,6 +130,12 @@ class A2UIRenderHelper:
         events.extend(self.aggregator.emit_ui(
             render_type, messages, activity_type=activity_type,
         ))
+
+        # 4. 登记到 ThreadStore（供 /agent/chat/reconnect 重放）
+        if self._thread_store and self.thread_id:
+            operations = [m.to_dict() for m in messages]
+            self._thread_store.record_activity(self.thread_id, render_type, operations)
+
         return events
 
     def update_data(self, render_type: str, data: Any) -> list[agui.AGUIEvent]:

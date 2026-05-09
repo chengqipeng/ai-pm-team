@@ -66,8 +66,10 @@ from .inbound import (
     InboundDedupe,
     parse_client_event,
 )
+from .projector import A2UIProjector, parse_a2ui_message
 from .stream import a2ui_jsonl_stream, a2ui_sse_stream
 from .render_helper import A2UIRenderHelper, SurfaceBuilder
+from .thread_store import ThreadState, ThreadStore, thread_store
 
 
 __all__ = [
@@ -88,8 +90,12 @@ __all__ = [
     "STANDARD_V08", "VIKING_CRM_V1", "SCHEMA_MATCH_THRESHOLD",
     # Inbound
     "A2UIInboundHandler", "InboundDedupe", "parse_client_event",
+    # Projector (Mode A)
+    "A2UIProjector", "parse_a2ui_message",
     # Stream (Mode A)
     "a2ui_jsonl_stream", "a2ui_sse_stream",
     # Helper
     "A2UIRenderHelper", "SurfaceBuilder",
+    # Thread Store（重连）
+    "ThreadState", "ThreadStore", "thread_store",
 ]

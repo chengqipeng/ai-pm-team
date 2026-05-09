@@ -94,19 +94,27 @@ class IngestWorker:
             self._queue.ack(task.task_id)
             elapsed_ms = int((time.time() - start) * 1000)
             logger.info(
-                "Task %s completed in %dms (worker=%s)",
+                "Task %s completed in %dms (worker=%s tenant=%s kb=%s doc=%s)",
                 task.task_id, elapsed_ms, self._worker_id,
+                task.tenant_id, task.knowledge_base_id,
+                task.payload.get("doc_id", ""),
             )
         except Exception as exc:
             tb = traceback.format_exc()
-            logger.exception(
-                "Task %s failed (worker=%s): %s", task.task_id, self._worker_id, exc,
+            logger.error(
+                "Task %s FAILED (worker=%s tenant=%s kb=%s doc=%s retry=%d/%d): %s",
+                task.task_id, self._worker_id,
+                task.tenant_id, task.knowledge_base_id,
+                task.payload.get("doc_id", ""),
+                task.retry_count, task.max_retry,
+                exc,
             )
+            # DEBUG 级别打印完整堆栈（避免正常日志被刷屏）
+            logger.debug("Task %s traceback:\n%s", task.task_id, tb)
             error_msg = f"{type(exc).__name__}: {exc}\n{tb}"
             try:
                 self._queue.nack(task.task_id, error_msg)
             except Exception as nack_exc:
-                # nack 自身失败不应影响其他任务
                 logger.error("Nack also failed for %s: %s", task.task_id, nack_exc)
 
     def stop(self) -> None:

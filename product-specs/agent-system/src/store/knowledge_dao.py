@@ -87,16 +87,48 @@ class KnowledgeBaseDAO:
     @staticmethod
     def update_stats(kb_id: int, doc_delta: int = 0, chunk_delta: int = 0,
                      token_delta: int = 0) -> None:
+        """更新 KB 统计。GREATEST(0, ...) 兜底防止因异常累加导致负值。"""
         now = int(time.time() * 1000)
         with get_conn() as conn:
             conn.cursor().execute("""
                 UPDATE ai_knowledge_base
-                SET document_count = document_count + %s,
-                    chunk_count = chunk_count + %s,
-                    total_tokens = total_tokens + %s,
+                SET document_count = GREATEST(0, document_count + %s),
+                    chunk_count = GREATEST(0, chunk_count + %s),
+                    total_tokens = GREATEST(0, total_tokens + %s),
                     updated_at = %s
                 WHERE id = %s
             """, (doc_delta, chunk_delta, token_delta, now, kb_id))
+
+    @staticmethod
+    def recompute_stats(kb_id: int) -> dict:
+        """从 ai_knowledge_document 表重算 KB 统计（纠错 / 一次性修复用）"""
+        now = int(time.time() * 1000)
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT COUNT(*),
+                       COALESCE(SUM(chunk_count), 0),
+                       COALESCE(SUM(total_chars), 0)
+                FROM ai_knowledge_document
+                WHERE knowledge_base_id = %s
+                  AND delete_flg = 0
+                  AND chunk_status = 'indexed'
+            """, (kb_id,))
+            row = cur.fetchone()
+            doc_count, chunk_total, total_chars = row[0], row[1], row[2]
+            cur.execute("""
+                UPDATE ai_knowledge_base
+                SET document_count = %s,
+                    chunk_count = %s,
+                    updated_at = %s
+                WHERE id = %s
+            """, (doc_count, chunk_total, now, kb_id))
+            return {
+                "kb_id": kb_id,
+                "document_count": doc_count,
+                "chunk_count": chunk_total,
+                "total_chars": total_chars,
+            }
 
     @staticmethod
     def soft_delete(kb_id: int) -> bool:
@@ -173,6 +205,18 @@ class KnowledgeSchemaDAO:
                   s.created_at, s.created_by, s.updated_at, s.updated_by))
 
     @staticmethod
+    def update_fields(schema_id: int, fields_json: str, version: int) -> None:
+        """原地更新 Schema 字段 JSON 并递增版本号（用于默认 Schema 升级）"""
+        import time as _time
+        now = int(_time.time() * 1000)
+        with get_conn() as conn:
+            conn.cursor().execute("""
+                UPDATE ai_knowledge_schema
+                SET fields=%s, version=%s, updated_at=%s
+                WHERE id=%s
+            """, (fields_json, version, now, schema_id))
+
+    @staticmethod
     def get_by_id(schema_id: int) -> KnowledgeSchemaRow | None:
         with get_conn() as conn:
             cur = conn.cursor()
@@ -224,21 +268,24 @@ class KnowledgeDocumentDAO:
                  parse_status, parse_task_id, parse_engine, parse_error, failed_pages,
                  clean_status, clean_error,
                  chunk_status, chunk_count, segment_count,
-                 summary, keywords, metadata, metadata_tagged,
+                 summary, keywords, candidate_keywords, metadata, metadata_tagged,
+                 toc,
                  quality_score, quality_signals,
                  date_published, search_hit_count,
                  status, ext_info, delete_flg,
                  created_at, created_by, updated_at, updated_by)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                        %s,%s,%s,%s,%s,%s,%s,%s,%s)
+                Values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                        %s,
+                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (d.id, d.doc_id, d.tenant_id, d.knowledge_base_id, d.dataset_id,
                   d.title, d.file_name, d.file_type, d.file_size, d.file_hash,
                   d.raw_url, d.parsed_md_url, d.parsed_json_url, d.page_count, d.total_chars,
                   d.parse_status, d.parse_task_id, d.parse_engine, d.parse_error, d.failed_pages,
                   d.clean_status, d.clean_error,
                   d.chunk_status, d.chunk_count, d.segment_count,
-                  d.summary, d.keywords, d.metadata, d.metadata_tagged,
+                  d.summary, d.keywords, d.candidate_keywords, d.metadata, d.metadata_tagged,
+                  d.toc,
                   d.quality_score, d.quality_signals,
                   d.date_published, d.search_hit_count,
                   d.status, d.ext_info, d.delete_flg,
@@ -252,6 +299,20 @@ class KnowledgeDocumentDAO:
                         (doc_id,))
             row = cur.fetchone()
             return _row_to_model(cur.description, row, KnowledgeDocumentRow) if row else None
+
+    @staticmethod
+    def get_by_doc_ids(doc_ids: list[str]) -> list[KnowledgeDocumentRow]:
+        """批量按 doc_id 拉取（检索后补元数据用，避免 N 次 SELECT）"""
+        if not doc_ids:
+            return []
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT * FROM ai_knowledge_document
+                WHERE doc_id = ANY(%s) AND delete_flg = 0
+            """, (doc_ids,))
+            return [_row_to_model(cur.description, r, KnowledgeDocumentRow)
+                    for r in cur.fetchall()]
 
     @staticmethod
     def find_by_hash(tenant_id: int, knowledge_base_id: int,
@@ -340,18 +401,21 @@ class KnowledgeDocumentDAO:
     @staticmethod
     def update_metadata(doc_id: str, summary: str, keywords: str,
                         metadata: str, quality_score: float,
-                        quality_signals: str, date_published: int = 0) -> None:
+                        quality_signals: str, date_published: int = 0,
+                        candidate_keywords: str = "[]") -> None:
         now = int(time.time() * 1000)
         with get_conn() as conn:
             conn.cursor().execute("""
                 UPDATE ai_knowledge_document
                 SET summary = %s, keywords = %s, metadata = %s,
+                    candidate_keywords = %s,
                     metadata_tagged = 1,
                     quality_score = %s, quality_signals = %s,
                     date_published = CASE WHEN %s > 0 THEN %s ELSE date_published END,
                     updated_at = %s
                 WHERE doc_id = %s
             """, (summary, keywords, metadata,
+                  candidate_keywords,
                   quality_score, quality_signals,
                   date_published, date_published,
                   now, doc_id))
@@ -374,6 +438,21 @@ class KnowledgeDocumentDAO:
                   now, doc_id))
 
     @staticmethod
+    def update_toc(doc_id: str, toc: str) -> None:
+        """写入目录路径索引（对齐 data-process directoryPath）。
+
+        内容由 ingestion 在切片完成后聚合所有 section_path 去重生成，
+        用于 B2 元数据文本召回加分。
+        """
+        now = int(time.time() * 1000)
+        with get_conn() as conn:
+            conn.cursor().execute("""
+                UPDATE ai_knowledge_document
+                SET toc = %s, updated_at = %s
+                WHERE doc_id = %s
+            """, (toc[:8000], now, doc_id))
+
+    @staticmethod
     def increment_hit(doc_id: str) -> None:
         now = int(time.time() * 1000)
         with get_conn() as conn:
@@ -382,6 +461,127 @@ class KnowledgeDocumentDAO:
                 SET search_hit_count = search_hit_count + 1, updated_at = %s
                 WHERE doc_id = %s
             """, (now, doc_id))
+
+    @staticmethod
+    def decay_hit_counts(
+        decay_factor: float = 0.7,
+        tenant_id: int | None = None,
+    ) -> int:
+        """文档级热度衰减（可按租户独立执行）
+
+        防止老文档热度永远居高不下，让新文档有机会通过近期高频命中超越。
+        建议每月执行一次。decay_factor=0.7 表示每月保留 70% 热度。
+        tenant_id 非空时只衰减该租户，否则全局衰减。
+        """
+        now = int(time.time() * 1000)
+        if tenant_id:
+            sql = """
+                UPDATE ai_knowledge_document
+                SET search_hit_count = GREATEST(0, FLOOR(search_hit_count * %s)),
+                    updated_at = %s
+                WHERE search_hit_count > 0 AND delete_flg = 0 AND tenant_id = %s
+            """
+            args: tuple = (decay_factor, now, tenant_id)
+        else:
+            sql = """
+                UPDATE ai_knowledge_document
+                SET search_hit_count = GREATEST(0, FLOOR(search_hit_count * %s)),
+                    updated_at = %s
+                WHERE search_hit_count > 0 AND delete_flg = 0
+            """
+            args = (decay_factor, now)
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, args)
+            return cur.rowcount
+
+    @staticmethod
+    def list_hit_counts_since(since_ms: int, limit: int = 1000) -> list[dict]:
+        """列出 `updated_at >= since_ms` 且 hit_count > 0 的文档。
+
+        供 scheduler 增量同步 PG → VDB 的 search_hit_count。
+        返回 [{doc_id, tenant_id, search_hit_count, updated_at}]
+        """
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT doc_id, tenant_id, search_hit_count, updated_at
+                FROM ai_knowledge_document
+                WHERE delete_flg = 0
+                  AND updated_at >= %s
+                  AND search_hit_count > 0
+                ORDER BY updated_at DESC
+                LIMIT %s
+            """, (since_ms, limit))
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    @staticmethod
+    def list_all_hit_counts(limit: int = 5000) -> list[dict]:
+        """列出所有已索引文档的 hit_count（用于 decay 后全量同步到 VDB）。"""
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT doc_id, tenant_id, search_hit_count
+                FROM ai_knowledge_document
+                WHERE delete_flg = 0 AND chunk_status = 'indexed'
+                ORDER BY updated_at DESC
+                LIMIT %s
+            """, (limit,))
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    @staticmethod
+    def list_tenants_with_hits() -> list[int]:
+        """列出有文档命中数 > 0 的所有租户（供按租户独立 decay 使用）。"""
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT DISTINCT tenant_id
+                FROM ai_knowledge_document
+                WHERE delete_flg = 0 AND search_hit_count > 0
+                ORDER BY tenant_id
+            """)
+            return [r[0] for r in cur.fetchall()]
+
+    @staticmethod
+    def count_indexed_docs(tenant_id: int | None = None) -> int:
+        """统计已索引文档数（供 VDB 健康检查任务使用）。"""
+        with get_conn() as conn:
+            cur = conn.cursor()
+            if tenant_id:
+                cur.execute("""
+                    SELECT COUNT(*) FROM ai_knowledge_document
+                    WHERE delete_flg=0 AND chunk_status='indexed' AND tenant_id=%s
+                """, (tenant_id,))
+            else:
+                cur.execute("""
+                    SELECT COUNT(*) FROM ai_knowledge_document
+                    WHERE delete_flg=0 AND chunk_status='indexed'
+                """)
+            return int(cur.fetchone()[0])
+
+    @staticmethod
+    def list_docs_needing_rebuild(
+        since_ms: int, limit: int = 500,
+    ) -> list[dict]:
+        """列出需要重建 VDB doc_metadata 的文档（title/summary/keywords/toc 近期变动）。
+
+        当前简化实现：updated_at 在 since_ms 之后的所有 indexed 文档都算。
+        返回 [{doc_id, tenant_id, knowledge_base_id, dataset_id}]
+        """
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT doc_id, tenant_id, knowledge_base_id, dataset_id, updated_at
+                FROM ai_knowledge_document
+                WHERE delete_flg=0 AND chunk_status='indexed'
+                  AND updated_at >= %s
+                ORDER BY updated_at DESC
+                LIMIT %s
+            """, (since_ms, limit))
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
 
     @staticmethod
     def soft_delete(doc_id: str) -> bool:
@@ -393,67 +593,6 @@ class KnowledgeDocumentDAO:
                 WHERE doc_id=%s AND delete_flg=0
             """, (now, doc_id))
             return cur.rowcount > 0
-
-
-# ═══════════════════════════════════════════════════════════
-# KnowledgeSegmentDAO
-# ═══════════════════════════════════════════════════════════
-
-class KnowledgeSegmentDAO:
-
-    @staticmethod
-    def batch_insert(segments: list[KnowledgeSegmentRow]) -> None:
-        if not segments:
-            return
-        with get_conn() as conn:
-            cur = conn.cursor()
-            args = [(s.segment_id, s.tenant_id, s.knowledge_base_id, s.doc_id,
-                     s.title, s.section_path, s.content, s.content_tokens,
-                     s.segment_index, s.heading_level, s.page_start, s.page_end,
-                     s.start_offset, s.end_offset, s.chunk_count,
-                     s.delete_flg, s.created_at, s.updated_at)
-                    for s in segments]
-            cur.executemany("""
-                INSERT INTO ai_knowledge_segment
-                (segment_id, tenant_id, knowledge_base_id, doc_id,
-                 title, section_path, content, content_tokens,
-                 segment_index, heading_level, page_start, page_end,
-                 start_offset, end_offset, chunk_count,
-                 delete_flg, created_at, updated_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """, args)
-
-    @staticmethod
-    def get_by_segment_id(segment_id: str) -> KnowledgeSegmentRow | None:
-        with get_conn() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM ai_knowledge_segment WHERE segment_id=%s AND delete_flg=0",
-                        (segment_id,))
-            row = cur.fetchone()
-            return _row_to_model(cur.description, row, KnowledgeSegmentRow) if row else None
-
-    @staticmethod
-    def list_by_doc(doc_id: str) -> list[KnowledgeSegmentRow]:
-        with get_conn() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT * FROM ai_knowledge_segment
-                WHERE doc_id=%s AND delete_flg=0
-                ORDER BY segment_index
-            """, (doc_id,))
-            return [_row_to_model(cur.description, r, KnowledgeSegmentRow)
-                    for r in cur.fetchall()]
-
-    @staticmethod
-    def delete_by_doc(doc_id: str) -> int:
-        now = int(time.time() * 1000)
-        with get_conn() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                UPDATE ai_knowledge_segment SET delete_flg=1, updated_at=%s
-                WHERE doc_id=%s AND delete_flg=0
-            """, (now, doc_id))
-            return cur.rowcount
 
 
 # ═══════════════════════════════════════════════════════════
@@ -618,6 +757,38 @@ class KnowledgeChunkDAO:
             """, (now, chunk_ids))
 
     @staticmethod
+    def decay_hit_counts(
+        decay_factor: float = 0.7,
+        tenant_id: int | None = None,
+    ) -> int:
+        """切片级热度衰减（可按租户独立执行）
+
+        与 KnowledgeDocumentDAO.decay_hit_counts 配合使用。
+        建议每月执行一次。
+        """
+        now = int(time.time() * 1000)
+        if tenant_id:
+            sql = """
+                UPDATE ai_knowledge_chunk
+                SET hit_count = GREATEST(0, FLOOR(hit_count * %s)),
+                    updated_at = %s
+                WHERE hit_count > 0 AND delete_flg = 0 AND tenant_id = %s
+            """
+            args: tuple = (decay_factor, now, tenant_id)
+        else:
+            sql = """
+                UPDATE ai_knowledge_chunk
+                SET hit_count = GREATEST(0, FLOOR(hit_count * %s)),
+                    updated_at = %s
+                WHERE hit_count > 0 AND delete_flg = 0
+            """
+            args = (decay_factor, now)
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, args)
+            return cur.rowcount
+
+    @staticmethod
     def delete_by_doc(doc_id: str) -> int:
         now = int(time.time() * 1000)
         with get_conn() as conn:
@@ -714,6 +885,20 @@ class KnowledgeIngestQueueDAO:
                     updated_at = %s
                 WHERE task_id = %s AND status = 'running'
             """, (now, error[:2000], now, task_id))
+
+    @staticmethod
+    def mark_dead(task_id: str, error: str) -> None:
+        """直接进死信（用于配置性错误 — 重试没用）"""
+        now = int(time.time() * 1000)
+        with get_conn() as conn:
+            conn.cursor().execute("""
+                UPDATE ai_knowledge_ingest_queue
+                SET status = 'dead',
+                    retry_count = retry_count + 1,
+                    last_error = %s,
+                    updated_at = %s
+                WHERE task_id = %s
+            """, (error[:2000], now, task_id))
 
     @staticmethod
     def reclaim_stuck() -> int:

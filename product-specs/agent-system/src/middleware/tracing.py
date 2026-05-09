@@ -66,6 +66,24 @@ class TracingMiddleware(AgentMiddleware):
             "children": children or [],
         })
 
+    def _add_to_thread(
+        self, thread_id: str, span_type: str, name: str,
+        duration_ms: float = 0, metadata: dict | None = None,
+        children: list | None = None,
+    ) -> None:
+        """显式指定 thread_id 写入 span
+
+        用于入口层（如 QueryRewriter）调用，此时没有 LangGraph runtime context。
+        """
+        self._spans.setdefault(thread_id, []).append({
+            "type": span_type,
+            "name": name,
+            "timestamp": time.time(),
+            "duration_ms": round(duration_ms, 1),
+            "metadata": metadata or {},
+            "children": children or [],
+        })
+
     def get_spans(self, thread_id: str) -> list[dict]:
         return self._spans.get(thread_id, [])
 
@@ -75,7 +93,52 @@ class TracingMiddleware(AgentMiddleware):
         self._memory_result.pop(thread_id, None)
         self._intent_result.pop(thread_id, None)
 
-    # ── 外部注入接口（供 MemoryMiddleware / SkillExecutor 等调用） ──
+    # ── 外部注入接口（供 QueryRewriter / MemoryMiddleware / SkillExecutor 等调用） ──
+
+    def record_query_rewrite(
+        self, original_query: str = "", rewritten_query: str = "",
+        changed: bool = False, duration_ms: float = 0,
+        source: str = "entry",
+    ) -> None:
+        """记录 query_rewrite span — 由入口层 QueryRewriter 主动调用
+
+        注意：这里只记录 span 结果（input/output/duration），不会捕获 LLM 调用的
+        astream_events 事件。QueryRewriter 的 LLM 调用用 callbacks=[] 隔离。
+
+        Args:
+            original_query: 用户原始输入
+            rewritten_query: 改写后的查询
+            changed: 是否发生改写（单轮或无变化时为 False）
+            duration_ms: 改写耗时
+            source: 调用方标识（entry=入口层，fallback=中间件兜底）
+        """
+        self._add("query_rewrite", "query_rewrite", duration_ms, {
+            "original_query": original_query[:500],
+            "rewritten_query": rewritten_query[:500],
+            "changed": changed,
+            "source": source,
+        })
+
+    def record_content_review(
+        self, direction: str, passed: bool,
+        blocked_keywords: list[str] | None = None,
+        blocked_reason: str = "", duration_ms: float = 0,
+    ) -> None:
+        """记录 content_review span — 由入口层毒性检测调用
+
+        Args:
+            direction: "input" / "output"
+            passed: 是否通过审查
+            blocked_keywords: 命中的关键词
+            blocked_reason: 拦截原因
+            duration_ms: 审查耗时
+        """
+        self._add("content_review", f"content_review_{direction}", duration_ms, {
+            "direction": direction,
+            "passed": passed,
+            "blocked_keywords": blocked_keywords or [],
+            "blocked_reason": blocked_reason[:200],
+        })
 
     def record_memory_retrieval(
         self, duration_ms: float, query_used: str = "",
@@ -84,12 +147,12 @@ class TracingMiddleware(AgentMiddleware):
     ) -> None:
         """记录 memory_retrieval span — 由 MemoryMiddleware 调用"""
         self._add("memory_retrieval", "memory_retrieval", duration_ms, {
-            "query_used": query_used[:200],
+            "query_used": query_used[:500],
             "dimensions": dimensions or [],
             "hit_count": hit_count,
             "items_preview": [
-                {"dimension": it.get("dimension", ""), "content": it.get("content", "")[:100]}
-                for it in (items or [])[:5]
+                {"dimension": it.get("dimension", ""), "content": it.get("content", "")[:200]}
+                for it in (items or [])[:10]
             ],
         })
 
@@ -152,14 +215,26 @@ class TracingMiddleware(AgentMiddleware):
         msg_count = len(messages)
         token_est = sum(len(str(getattr(m, "content", ""))) // 2 for m in messages)
 
+        # 记录详细的消息列表摘要（用于排查）
+        msg_summary = []
+        for i, m in enumerate(messages[-10:]):  # 最近 10 条
+            m_type = getattr(m, "type", "unknown")
+            m_content = getattr(m, "content", "")
+            if isinstance(m_content, str):
+                preview = m_content[:150]
+            else:
+                preview = str(m_content)[:150]
+            msg_summary.append({"index": len(messages) - 10 + i, "type": m_type, "preview": preview})
+
         dur = (time.monotonic() - start) * 1000
         self._add("context_build", "context_build", dur, {
             "message_count": msg_count,
             "estimated_tokens": token_est,
+            "recent_messages": msg_summary,
         })
         return None
 
-    # ── before_model: iter 计数 + 首次触发 intent_analysis ──
+    # ── before_model: iter 计数 + 首次触发 intent_analysis + 记录 LLM 输入 ──
 
     def before_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
         tid = self._tid()
@@ -167,6 +242,28 @@ class TracingMiddleware(AgentMiddleware):
         self._iter_start[tid] = time.monotonic()
 
         iter_num = self._iter_count[tid]
+
+        # 记录每轮 LLM 调用的输入消息摘要（关键排查信息）
+        messages = state.get("messages", [])
+        llm_input_summary = []
+        for m in messages[-15:]:  # 最近 15 条（含 system/tool messages）
+            m_type = getattr(m, "type", "unknown")
+            m_content = getattr(m, "content", "")
+            if isinstance(m_content, str):
+                preview = m_content[:300]
+            else:
+                preview = str(m_content)[:300]
+            tool_calls = getattr(m, "tool_calls", None)
+            entry = {"type": m_type, "content_preview": preview}
+            if tool_calls:
+                entry["tool_calls"] = [tc.get("name", "") for tc in tool_calls[:5]]
+            llm_input_summary.append(entry)
+
+        self._add("llm_input", f"llm_input_iter_{iter_num}", 0, {
+            "iteration": iter_num,
+            "total_messages": len(messages),
+            "messages_to_llm": llm_input_summary,
+        })
 
         # 首次 before_model 时，如果还没有 intent_analysis span，
         # 生成一个基于规则的 intent_analysis（LLM 驱动的由外部注入）
@@ -215,41 +312,53 @@ class TracingMiddleware(AgentMiddleware):
 
     def wrap_tool_call(self, request: ToolCallRequest, handler) -> ToolMessage | Command:
         name = request.tool_call.get("name", "unknown")
-        args = str(request.tool_call.get("args", {}))[:200]
+        args = str(request.tool_call.get("args", {}))[:500]
         start = time.monotonic()
         try:
             result = handler(request)
             dur = (time.monotonic() - start) * 1000
-            output = str(getattr(result, "content", ""))[:200]
+            output = str(getattr(result, "content", ""))[:500]
             status = getattr(result, "status", "success")
             self._add("tool_call", f"tool:{name}", dur, {
-                "input": args, "output": output, "status": status,
+                "tool_name": name,
+                "input": args,
+                "output": output,
+                "status": status,
             })
             return result
         except Exception as exc:
             dur = (time.monotonic() - start) * 1000
             self._add("tool_call", f"tool:{name}", dur, {
-                "input": args, "error": str(exc)[:200], "status": "error",
+                "tool_name": name,
+                "input": args,
+                "error": str(exc)[:500],
+                "status": "error",
             })
             raise
 
     async def awrap_tool_call(self, request: ToolCallRequest, handler) -> ToolMessage | Command:
         name = request.tool_call.get("name", "unknown")
-        args = str(request.tool_call.get("args", {}))[:200]
+        args = str(request.tool_call.get("args", {}))[:500]
         start = time.monotonic()
         try:
             result = await handler(request)
             dur = (time.monotonic() - start) * 1000
-            output = str(getattr(result, "content", ""))[:200]
+            output = str(getattr(result, "content", ""))[:500]
             status = getattr(result, "status", "success")
             self._add("tool_call", f"tool:{name}", dur, {
-                "input": args, "output": output, "status": status,
+                "tool_name": name,
+                "input": args,
+                "output": output,
+                "status": status,
             })
             return result
         except Exception as exc:
             dur = (time.monotonic() - start) * 1000
             self._add("tool_call", f"tool:{name}", dur, {
-                "input": args, "error": str(exc)[:200], "status": "error",
+                "tool_name": name,
+                "input": args,
+                "error": str(exc)[:500],
+                "status": "error",
             })
             raise
 

@@ -41,6 +41,7 @@ class TraceWriter:
 
     def __init__(self, tenant_id: int = 1) -> None:
         self._tenant_id = tenant_id
+        self._user_id: int = 0  # 由请求上下文动态设置
 
     def on_trace_start(self, trace: Any) -> None:
         """trace 开始时写入 ai_trace（status=running）"""
@@ -127,12 +128,28 @@ class TraceWriter:
             logger.error("TraceWriter.on_trace_finish failed: %s", e)
 
     def _upsert_conversation(self, trace: Any, now: int) -> None:
-        """创建或更新 ai_conversation 记录，持久化会话标题"""
+        """创建或更新 ai_conversation 记录，持久化会话标题
+
+        标题优先级：
+        1. TitleMiddleware 已持久化的 LLM 标题（直接跳过更新）
+        2. trace.title（由 TitleMiddleware 通过 state 传递）
+        3. 规则截取（fallback）
+        """
         try:
             from .pg_pool import get_conn
             thread_id = trace.thread_id or ''
             if not thread_id:
                 return
+
+            # 从请求上下文获取 user_id
+            user_id = self._user_id
+            try:
+                from src.core.context import get_context
+                ctx = get_context()
+                if ctx.user_id:
+                    user_id = int(ctx.user_id) if str(ctx.user_id).isdigit() else 0
+            except Exception:
+                pass
 
             with get_conn() as conn:
                 cur = conn.cursor()
@@ -146,7 +163,7 @@ class TraceWriter:
                 user_input = (trace.user_input or '')[:500]
 
                 if row:
-                    # 已存在 → 更新统计 + 标题（如果当前标题为空或为默认值）
+                    # 已存在 → 更新统计
                     conv_id, existing_title = row
                     cur.execute("""
                         UPDATE ai_conversation
@@ -157,9 +174,12 @@ class TraceWriter:
                         WHERE id = %s
                     """, (total_tokens, now, now, conv_id))
 
-                    # 如果标题为空/默认，用用户输入生成
+                    # 标题更新：只在标题为空/默认值且 TitleMiddleware 未更新时才用规则生成
                     if not existing_title or existing_title in ('', '新对话', '对话'):
-                        title = self._generate_title(user_input)
+                        # 优先使用 trace 中传递的 LLM 标题
+                        title = getattr(trace, 'title', '') or ''
+                        if not title:
+                            title = self._generate_title(user_input)
                         cur.execute(
                             "UPDATE ai_conversation SET title=%s WHERE id=%s",
                             (title, conv_id))
@@ -167,17 +187,20 @@ class TraceWriter:
                     # 不存在 → 创建新会话
                     from .snowflake import next_id
                     conv_id = next_id()
-                    title = self._generate_title(user_input)
+                    # 优先使用 trace 中传递的 LLM 标题
+                    title = getattr(trace, 'title', '') or ''
+                    if not title:
+                        title = self._generate_title(user_input)
                     cur.execute("""
                         INSERT INTO ai_conversation
                         (id, tenant_id, user_id, thread_id, agent_name, title, model,
                          status, message_count, total_tokens, last_message_at,
                          delete_flg, created_at, created_by, updated_at, updated_by)
                         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    """, (conv_id, self._tenant_id, 0, thread_id,
+                    """, (conv_id, self._tenant_id, user_id, thread_id,
                           trace.agent_name or 'CRM-Agent', title, trace.model or '',
                           'active', 1, total_tokens, now,
-                          0, now, 0, now, 0))
+                          0, now, user_id, now, user_id))
 
         except Exception as e:
             logger.warning("_upsert_conversation failed (non-fatal): %s", e)
@@ -196,7 +219,7 @@ class TraceWriter:
         return text or "新对话"
 
     def read_traces(self, limit: int = 50) -> list[dict]:
-        """从 PG 读取 trace 列表"""
+        """从 PG 读取 trace 列表（按 tenant_id 隔离）"""
         try:
             from .pg_pool import get_conn
             with get_conn() as conn:
@@ -205,9 +228,9 @@ class TraceWriter:
                     SELECT trace_id, thread_id, user_input, agent_output, model, agent_name,
                            status, total_tokens, total_cost, iteration_count, tool_count,
                            span_count, duration_ms, start_time, end_time
-                    FROM ai_trace WHERE delete_flg=0
+                    FROM ai_trace WHERE tenant_id=%s AND delete_flg=0
                     ORDER BY start_time DESC LIMIT %s
-                """, (limit,))
+                """, (self._tenant_id, limit))
                 rows = cur.fetchall()
                 cols = [d[0] for d in cur.description]
                 return [dict(zip(cols, r)) for r in rows]

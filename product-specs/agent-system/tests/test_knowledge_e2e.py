@@ -106,7 +106,7 @@ class MockVectorStore:
 
     def __init__(self):
         self._chunks: dict[str, dict] = {}
-        self._summaries: dict[str, dict] = {}
+        self._doc_metas: dict[str, dict] = {}
 
     def upsert_chunks(self, records: list[dict]) -> int:
         for r in records:
@@ -115,33 +115,50 @@ class MockVectorStore:
             self._chunks[r["id"]] = dict(r)
         return len(records)
 
-    def upsert_summaries(self, records: list[dict]) -> int:
+    def upsert_doc_metadata(self, records: list[dict]) -> int:
         for r in records:
-            self._summaries[r["id"]] = dict(r)
+            self._doc_metas[r["id"]] = dict(r)
         return len(records)
 
     def search_chunks(
         self, tenant_id: str, vector: list[float],
         query_text: str = "", extra_filter: str = "",
-        top_k: int = 20, **kwargs,
+        top_k: int = 20, output_fields=None, **kwargs,
     ) -> list[dict]:
-        # 忽略向量相似度，直接按租户 + filter 返回全部（测试够用）
         if not tenant_id:
             raise ValueError("tenant_id required")
         results = []
         for chunk in self._chunks.values():
             if chunk.get("tenant_id") != tenant_id:
                 continue
-            # 简化 filter 匹配
             results.append({**chunk, "score": 0.5})
         return results[:top_k]
 
-    def search_summaries(self, tenant_id, vector, extra_filter="", top_k=10):
+    def search_doc_metadata_by_vector(
+        self, tenant_id, vector, extra_filter="", top_k=10,
+    ) -> list[dict]:
         return []
+
+    def search_doc_metadata_by_bm25(
+        self, tenant_id, query_text, extra_filter="", top_k=50,
+    ) -> list[dict]:
+        return []
+
+    def list_chunks_by_doc_range(
+        self, tenant_id, doc_id, start_index, end_index, output_fields=None,
+    ) -> list[dict]:
+        return [
+            c for c in self._chunks.values()
+            if c.get("doc_id") == doc_id
+            and start_index <= c.get("chunk_index", 0) <= end_index
+        ]
+
+    def get_doc_metadata(self, tenant_id, doc_ids, output_fields=None):
+        return {did: self._doc_metas[did] for did in doc_ids if did in self._doc_metas}
 
     def delete_by_doc(self, tenant_id: str, doc_id: str):
         self._chunks = {k: v for k, v in self._chunks.items() if v.get("doc_id") != doc_id}
-        self._summaries = {k: v for k, v in self._summaries.items() if v.get("doc_id") != doc_id}
+        self._doc_metas.pop(doc_id, None)
 
     def delete_by_knowledge_base(self, tenant_id, knowledge_base_id):
         pass

@@ -169,7 +169,15 @@ def test_a2ui_event_missing_required_field_returns_400(client: TestClient):
 # /agent/a2ui/stream — Mode A
 # ═══════════════════════════════════════════════════════════
 
-def test_a2ui_stream_ndjson_default(client: TestClient):
+def test_a2ui_stream_ndjson_default(client: TestClient, monkeypatch):
+    import src.agents.adapter as adapter_mod
+
+    async def empty(*args, **kwargs):
+        return
+        yield  # type: ignore[unreachable]
+
+    monkeypatch.setattr(adapter_mod.neo_agent_v2_adapter, "execute_a2ui",
+                        empty, raising=False)
     resp = client.post("/agent/a2ui/stream", json={
         "threadId": "t-stream-1",
         "message": "hi",
@@ -179,12 +187,20 @@ def test_a2ui_stream_ndjson_default(client: TestClient):
     })
     assert resp.status_code == 200
     assert "application/x-ndjson" in resp.headers["content-type"]
-    # 占位实现：无消息但正常结束
+    # 空流
     assert resp.text == ""
-    assert resp.headers.get("X-A2UI-Catalog")  # 协商结果下传
+    assert resp.headers.get("X-A2UI-Catalog")
 
 
-def test_a2ui_stream_sse_when_accept_header_set(client: TestClient):
+def test_a2ui_stream_sse_when_accept_header_set(client: TestClient, monkeypatch):
+    import src.agents.adapter as adapter_mod
+
+    async def empty(*args, **kwargs):
+        return
+        yield  # type: ignore[unreachable]
+
+    monkeypatch.setattr(adapter_mod.neo_agent_v2_adapter, "execute_a2ui",
+                        empty, raising=False)
     resp = client.post(
         "/agent/a2ui/stream",
         json={"threadId": "t-stream-2"},
@@ -194,7 +210,15 @@ def test_a2ui_stream_sse_when_accept_header_set(client: TestClient):
     assert "text/event-stream" in resp.headers["content-type"]
 
 
-def test_a2ui_stream_catalog_negotiation_header(client: TestClient):
+def test_a2ui_stream_catalog_negotiation_header(client: TestClient, monkeypatch):
+    import src.agents.adapter as adapter_mod
+
+    async def empty(*args, **kwargs):
+        return
+        yield  # type: ignore[unreachable]
+
+    monkeypatch.setattr(adapter_mod.neo_agent_v2_adapter, "execute_a2ui",
+                        empty, raising=False)
     resp = client.post("/agent/a2ui/stream", json={
         "threadId": "t-stream-3",
         "a2uiClientCapabilities": {"supportedCatalogIds": ["urn:unknown"]},
@@ -202,6 +226,68 @@ def test_a2ui_stream_catalog_negotiation_header(client: TestClient):
     assert resp.status_code == 200
     # 未命中任何 → 降级到 standard
     assert resp.headers["X-A2UI-Catalog"] == STANDARD_V08
+
+
+def test_a2ui_stream_projects_real_a2ui_messages(client: TestClient, monkeypatch):
+    """接入 Adapter 后：流里真正有 A2UI 消息。
+
+    用 monkeypatch 把 adapter.execute_a2ui 替换为固定的假 generator，
+    验证路由把消息正确序列化为 NDJSON。
+    """
+    import src.agents.adapter as adapter_mod
+    from src.a2ui.models import BeginRendering, Component, SurfaceUpdate
+
+    async def fake_execute_a2ui(thread_id, user_input, run_id=None, history=None,
+                                *, include_state_as_data_model=False):
+        yield SurfaceUpdate(surface_id="s1", components=[
+            Component(id="root", type="Text", props={"text": {"literalString": "hi"}}),
+        ])
+        yield BeginRendering(surface_id="s1", root="root", catalog_id="crm-v1")
+
+    monkeypatch.setattr(adapter_mod.neo_agent_v2_adapter, "execute_a2ui",
+                        fake_execute_a2ui, raising=False)
+
+    resp = client.post("/agent/a2ui/stream", json={
+        "threadId": "t-stream-real",
+        "message": "show me a card",
+    })
+    assert resp.status_code == 200
+    lines = [line for line in resp.text.split("\n") if line.strip()]
+    assert len(lines) == 2
+    import json
+    first = json.loads(lines[0])
+    second = json.loads(lines[1])
+    assert "surfaceUpdate" in first
+    assert "beginRendering" in second
+    assert second["beginRendering"]["root"] == "root"
+
+
+def test_a2ui_stream_sse_projects_events(client: TestClient, monkeypatch):
+    import src.agents.adapter as adapter_mod
+    from src.a2ui.models import BeginRendering, Component, SurfaceUpdate
+
+    async def fake_execute_a2ui(thread_id, user_input, run_id=None, history=None,
+                                *, include_state_as_data_model=False):
+        yield SurfaceUpdate(surface_id="s1", components=[
+            Component(id="root", type="Column",
+                      props={"children": {"explicitList": []}}),
+        ])
+        yield BeginRendering(surface_id="s1", root="root")
+
+    monkeypatch.setattr(adapter_mod.neo_agent_v2_adapter, "execute_a2ui",
+                        fake_execute_a2ui, raising=False)
+
+    resp = client.post(
+        "/agent/a2ui/stream",
+        json={"threadId": "t-stream-sse"},
+        headers={"Accept": "text/event-stream"},
+    )
+    assert resp.status_code == 200
+    body = resp.text
+    # SSE 帧：每条消息 event: a2ui\ndata: ...\n\n
+    assert body.count("event: a2ui") == 2
+    assert "surfaceUpdate" in body
+    assert "beginRendering" in body
 
 
 # ═══════════════════════════════════════════════════════════
@@ -275,3 +361,125 @@ def test_a2ui_event_invalid_records_error_span(client: TestClient):
     assert len(spans) == 1
     assert spans[0].status == "error"
     assert spans[0].metadata.get("error")
+
+
+# ═══════════════════════════════════════════════════════════
+# /api/chat/agui — 统一 AG-UI 事件流对话端点
+# ═══════════════════════════════════════════════════════════
+
+def _parse_sse_events(body: str) -> list[tuple[str, dict]]:
+    import json
+    out = []
+    frames = body.strip().split("\n\n")
+    for frame in frames:
+        name = None
+        data = None
+        for line in frame.splitlines():
+            if line.startswith("event:"):
+                name = line[len("event:"):].strip()
+            elif line.startswith("data:"):
+                data = json.loads(line[len("data:"):].strip())
+        if name is not None:
+            out.append((name, data))
+    return out
+
+
+def test_chat_agui_emits_run_lifecycle(client: TestClient, monkeypatch):
+    """happy path：execute_agui 产出一串 AG-UI 事件，端点原样下发。"""
+    import src.agents.adapter as adapter_mod
+    from src.agui import (
+        run_started, run_finished, text_message_start,
+        text_message_content, text_message_end,
+    )
+
+    async def fake_execute_agui(thread_id, user_input, run_id=None, history=None):
+        yield run_started(run_id or "r1", thread_id)
+        yield text_message_start("m1")
+        yield text_message_content("m1", "Hello ")
+        yield text_message_content("m1", "world")
+        yield text_message_end("m1")
+        yield run_finished(run_id or "r1", thread_id)
+
+    monkeypatch.setattr(adapter_mod.neo_agent_v2_adapter, "execute_agui",
+                        fake_execute_agui, raising=False)
+
+    resp = client.post("/api/chat/agui", json={
+        "threadId": "t-agui-1",
+        "message": "hi",
+    })
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers["content-type"]
+    assert resp.headers.get("X-A2UI-Catalog")
+
+    events = _parse_sse_events(resp.text)
+    names = [n for n, _ in events]
+    assert names[0] == "RUN_STARTED"
+    assert names[-1] == "RUN_FINISHED"
+    assert "TEXT_MESSAGE_START" in names
+    assert "TEXT_MESSAGE_CONTENT" in names
+    assert "TEXT_MESSAGE_END" in names
+
+
+def test_chat_agui_activity_snapshot_registers_thread_store(client: TestClient, monkeypatch):
+    """当 execute_agui 产出带 render_type 的 ACTIVITY_SNAPSHOT，端点会登记到 ThreadStore。"""
+    import src.agents.adapter as adapter_mod
+    from src.a2ui.thread_store import reset_for_tests
+    from src.a2ui import thread_store
+
+    # 使用真实的 activity_snapshot 构造
+    from src.agui import activity_snapshot, run_started, run_finished
+
+    reset_for_tests()
+
+    async def fake_execute_agui(thread_id, user_input, run_id=None, history=None):
+        yield run_started(run_id or "r1", thread_id)
+        yield activity_snapshot(
+            message_id="a2ui-1",
+            activity_type="a2ui-surface",
+            content={
+                "render_type": "orders",
+                "operations": [
+                    {"surfaceUpdate": {"surfaceId": "panel-slot-1", "components": []}},
+                    {"beginRendering": {"surfaceId": "panel-slot-1", "root": "root"}},
+                ],
+            },
+        )
+        yield run_finished(run_id or "r1", thread_id)
+
+    monkeypatch.setattr(adapter_mod.neo_agent_v2_adapter, "execute_agui",
+                        fake_execute_agui, raising=False)
+
+    resp = client.post("/api/chat/agui", json={
+        "threadId": "t-agui-store",
+        "message": "show orders",
+    })
+    assert resp.status_code == 200
+
+    # 验证 ThreadStore 里已登记
+    state = thread_store.get("t-agui-store")
+    assert state is not None
+    activities = state.active_activities()
+    assert len(activities) == 1
+    assert activities[0]["content"]["surface_id"]  # ensure_surface 已分配
+
+
+def test_chat_agui_adapter_exception_emits_run_error(client: TestClient, monkeypatch):
+    import src.agents.adapter as adapter_mod
+
+    async def fake_execute_agui(*args, **kwargs):
+        raise RuntimeError("boom")
+        yield  # type: ignore[unreachable]
+
+    monkeypatch.setattr(adapter_mod.neo_agent_v2_adapter, "execute_agui",
+                        fake_execute_agui, raising=False)
+
+    resp = client.post("/api/chat/agui", json={
+        "threadId": "t-agui-err",
+        "message": "hi",
+    })
+    assert resp.status_code == 200
+    events = _parse_sse_events(resp.text)
+    names = [n for n, _ in events]
+    assert "RUN_ERROR" in names
+    err_evt = next(d for n, d in events if n == "RUN_ERROR")
+    assert err_evt["code"] == "RuntimeError"

@@ -12,6 +12,7 @@ API 文档：https://cloud.tencent.com/document/product/1772/115345
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import json
 import logging
@@ -22,6 +23,47 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+# ═══════════════════════════════════════════════════════════
+# 凭证处理：自动识别 base64 编码的 secret
+# ═══════════════════════════════════════════════════════════
+
+def _maybe_decode_base64(value: str) -> str:
+    """自动识别并解码 base64 编码的凭证
+
+    腾讯云 SecretId 格式：AKID + 32 个字符（总 36 字符，全 ASCII）
+    腾讯云 SecretKey：32 个字符
+
+    识别规则：
+        - 为空 → 原样返回
+        - 以 AKID 开头且长度合理 → 明文，原样返回
+        - 长度是 4 的倍数、只含 base64 字符、解码后是合法 ASCII → 视为 base64，解码
+        - 其他 → 原样返回
+    """
+    if not value:
+        return value
+
+    # 明文 SecretId 特征
+    if value.startswith("AKID") and len(value) <= 50 and value.isalnum():
+        return value
+
+    # base64 特征：长度 4 的倍数、只含 base64 字符集
+    stripped = value.strip()
+    if len(stripped) % 4 != 0:
+        return value
+
+    try:
+        decoded = base64.b64decode(stripped, validate=True).decode("ascii")
+    except (ValueError, UnicodeDecodeError):
+        return value
+
+    # 解码后仍需符合腾讯云凭证长度（避免误判）
+    if 20 <= len(decoded) <= 60 and decoded.isprintable():
+        logger.debug("Decoded base64 credential: %s → %s***",
+                     stripped[:6], decoded[:6])
+        return decoded
+    return value
 
 
 # ── 数据模型 ──
@@ -93,18 +135,39 @@ class TencentLKEAPClient:
         """延迟初始化腾讯云 SDK 客户端"""
         if self._client is not None:
             return self._client
-        from tencentcloud.common import credential
-        from tencentcloud.common.profile.client_profile import ClientProfile
-        from tencentcloud.common.profile.http_profile import HttpProfile
-        from tencentcloud.lkeap.v20240522 import lkeap_client
+        try:
+            from tencentcloud.common import credential
+            from tencentcloud.common.profile.client_profile import ClientProfile
+            from tencentcloud.common.profile.http_profile import HttpProfile
+            from tencentcloud.lkeap.v20240522 import lkeap_client
+        except ImportError as exc:
+            raise RuntimeError(
+                "tencentcloud-sdk-python 未安装。请执行："
+                "pip install 'tencentcloud-sdk-python>=3.1.86'。"
+                f"原始错误: {exc}"
+            ) from exc
 
-        cred = credential.Credential(self._secret_id, self._secret_key)
+        # 凭证自动 base64 解码（支持 plain 和 base64 两种传入方式）
+        secret_id = _maybe_decode_base64(self._secret_id)
+        secret_key = _maybe_decode_base64(self._secret_key)
+
+        if not secret_id or not secret_key:
+            raise RuntimeError(
+                "LKEAP 凭证未配置：lkeap_secret_id / lkeap_secret_key 为空。"
+                "请通过环境变量 LKEAP_SECRET_ID / LKEAP_SECRET_KEY 或 "
+                "KnowledgeSettings 传入。"
+            )
+
+        cred = credential.Credential(secret_id, secret_key)
         http_profile = HttpProfile()
         http_profile.endpoint = "lkeap.tencentcloudapi.com"
         client_profile = ClientProfile()
         client_profile.httpProfile = http_profile
         self._client = lkeap_client.LkeapClient(cred, self._region, client_profile)
-        logger.info("LKEAP client initialized: region=%s", self._region)
+        logger.info(
+            "LKEAP client initialized: region=%s secret_id=%s***",
+            self._region, secret_id[:6],
+        )
         return self._client
 
     # ── 异步文档解析 ──
@@ -323,7 +386,7 @@ class TencentLKEAPClient:
     def get_embedding(
         self, texts: list[str], model: str = "lke-text-embedding-v1"
     ) -> list[list[float]]:
-        """文本向量化
+        """文本向量化（逐条调用，腾讯云 LKEAP 单次只接受 1 个 input）
 
         Args:
             texts: 待向量化的文本列表
@@ -332,10 +395,30 @@ class TencentLKEAPClient:
         client = self._ensure_client()
         from tencentcloud.lkeap.v20240522 import models
 
-        req = models.GetEmbeddingRequest()
-        req.from_json_string(json.dumps({"Model": model, "Inputs": texts}))
-        resp = client.GetEmbedding(req)
-        return [item.Embedding for item in resp.Data]
+        if not texts:
+            return []
+
+        vectors: list[list[float]] = []
+        for i, text in enumerate(texts):
+            if not text:
+                # 空文本给一个 0 向量占位，保持顺序对齐
+                logger.warning("get_embedding: empty text at index %d, skip", i)
+                vectors.append([])
+                continue
+            req = models.GetEmbeddingRequest()
+            # 注意：腾讯云 LKEAP GetEmbedding 限制单次 1 个 Input
+            req.from_json_string(json.dumps({"Model": model, "Inputs": [text]}))
+            try:
+                resp = client.GetEmbedding(req)
+            except Exception as exc:
+                logger.exception(
+                    "get_embedding failed at index %d/%d (text_len=%d): %s",
+                    i, len(texts), len(text), exc,
+                )
+                raise
+            vec = resp.Data[0].Embedding if resp.Data else []
+            vectors.append(vec)
+        return vectors
 
     # ── Rerank ──
 

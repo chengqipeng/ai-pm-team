@@ -174,8 +174,12 @@ class KnowledgeDocumentRow:
     # LLM 打标
     summary: str = ""
     keywords: str = "[]"
+    candidate_keywords: str = "[]"      # jieba TF-IDF 候选词 Top-20
     metadata: str = "{}"
     metadata_tagged: int = 0
+
+    # 目录路径（所有切片 section_path 去重聚合，对齐 data-process directoryPath）
+    toc: str = ""
 
     # 质量评分
     quality_score: float = 0.0

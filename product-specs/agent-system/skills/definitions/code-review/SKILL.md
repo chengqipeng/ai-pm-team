@@ -1,6 +1,12 @@
+<!--
+  [DISABLED] 此技能入口已注释，暂不注册到 SkillRegistry。
+  恢复方法：去掉 frontmatter 中 description/when_to_use 的 `#` 前缀。
+  说明：SkillLoader.validate 检测到 description 为空会抛 SkillValidationError，
+  SkillLoader.discover 对该异常做了捕获，不会加入可调用技能列表。
+-->
 ---
-description: 审查代码质量，检查潜在问题、安全隐患和最佳实践违规
-when_to_use: 代码审查|review|检查代码
+# description: 审查代码质量，检查潜在问题、安全隐患和最佳实践违规
+# when_to_use: 代码审查|review|检查代码
 arguments:
   - code
   - language

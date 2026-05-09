@@ -171,7 +171,26 @@ class PgIngestQueue:
         """任务失败 — 指数退避重试，耗尽后进死信
 
         重试间隔：2^retry × 60s（1min, 2min, 4min, 8min, ...）
+
+        如果是「配置性错误」（凭证缺失、依赖未装、不支持的文件类型等），
+        直接进死信，不浪费资源反复重试。
         """
+        # 简单关键字识别配置性错误
+        lower = (error or "").lower()
+        config_markers = [
+            "no module named", "importerror",
+            "invalidcredential", "secret id should not",
+            "凭证未配置", "sdk 未安装",
+            "unsupported file type", "不支持的文件类型",
+        ]
+        if any(m in lower for m in config_markers):
+            KnowledgeIngestQueueDAO.mark_dead(task_id, error)
+            logger.warning(
+                "Task %s → DEAD (config error, no retry): %s",
+                task_id, error[:200],
+            )
+            return
+
         KnowledgeIngestQueueDAO.nack(task_id, error)
         logger.warning("Task %s nacked: %s", task_id, error[:200])
 

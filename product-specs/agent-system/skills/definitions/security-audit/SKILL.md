@@ -1,6 +1,12 @@
+<!--
+  [DISABLED] 此技能入口已注释，暂不注册到 SkillRegistry。
+  恢复方法：去掉 frontmatter 中 description/when_to_use 的 `#` 前缀。
+  说明：SkillLoader.validate 检测到 description 为空会抛 SkillValidationError，
+  SkillLoader.discover 对该异常做了捕获，不会加入可调用技能列表。
+-->
 ---
-description: 对业务数据进行安全审计，检查权限配置和数据访问异常
-when_to_use: 安全审计|权限检查|数据安全
+# description: 对业务数据进行安全审计，检查权限配置和数据访问异常
+# when_to_use: 安全审计|权限检查|数据安全
 arguments:
   - scope
 allowed-tools:

@@ -103,14 +103,18 @@ class KnowledgeProvider(Protocol):
         knowledge_base_id: int | None = None,
         filters: dict | None = None,
         top_k: int = 5,
-        enable_rerank: bool = True,
+        threshold: float | None = None,
         enable_self_query: bool = True,
         conversation_history: list | None = None,
         user_id: str = "",
         thread_id: str = "",
         trace_id: str = "",
     ) -> list[KnowledgeChunk]:
-        """知识检索：Self-Querying → 混合检索 → Rerank → 上下文扩展"""
+        """知识检索：Self-Querying → 多路召回 → 归一化多维度加权 → threshold 过滤
+
+        threshold 优先级：调用方显式 > KB.min_score > 默认值 (0.3)。
+        传 0 可关闭过滤；传 None 按优先级自动解析。
+        """
         ...
 
     # ── 管理 ──

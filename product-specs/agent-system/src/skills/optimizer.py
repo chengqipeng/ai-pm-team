@@ -79,21 +79,23 @@ class SkillOptimizer:
         self,
         llm: Any,
         tracker: SkillTracker,
-        skills_dir: str = "./skills/auto-generated",
         skill_registry: Any = None,
         optimize_threshold: int = 5,
+        skills_dir: str | None = None,  # 兼容参数，已废弃
     ) -> None:
         self._llm = llm
         self._tracker = tracker
-        self._skills_dir = Path(skills_dir)
         self._skill_registry = skill_registry
         self._optimize_threshold = optimize_threshold
+        # skills_dir 保留用于兼容旧调用方，不再使用
+        self._skills_dir = Path(skills_dir) if skills_dir else None
 
-    async def generate_from_conversation(self, messages: list, min_tool_calls: int = 5) -> str | None:
-        """LLM 驱动的技能生成（替代规则提取）
+    async def generate_from_conversation(self, messages: list, min_tool_calls: int = 5,
+                                            tenant_id: int = 0) -> str | None:
+        """LLM 驱动的技能生成，直接落库到 ai_skill_definition
 
         Returns:
-            生成的 SKILL.md 文件路径，失败返回 None
+            生成的 Skill api_key，失败返回 None
         """
         from langchain_core.messages import ToolMessage
 
@@ -113,25 +115,32 @@ class SkillOptimizer:
                 logger.warning("LLM 生成的内容不是有效的 SKILL.md 格式")
                 return None
 
-            # 验证并保存
+            # 解析并验证
             from src.skills.base import SkillLoader
             skill = SkillLoader.parse(content)
             if not skill.name:
                 skill.name = f"auto-{int(time.time())}"
             SkillLoader.validate(skill)
+            skill.owner = skill.owner or "auto-generated"
+            skill.tenant_id = tenant_id
 
-            skill_dir = self._skills_dir / skill.name
-            skill_dir.mkdir(parents=True, exist_ok=True)
-            skill_path = skill_dir / "SKILL.md"
-            skill_path.write_text(content, encoding="utf-8")
+            # 落库（发布状态）+ 注册到内存
+            if self._skill_registry is not None:
+                self._skill_registry.upsert_to_db(
+                    skill, tenant_id=tenant_id, status="published",
+                    changelog="auto-generated from conversation",
+                )
+                self._skill_registry.register(skill)
+            else:
+                # 降级：直接调 DAO
+                from src.skills.base import SkillRegistry
+                tmp = SkillRegistry()
+                tmp.upsert_to_db(skill, tenant_id=tenant_id, status="published",
+                                  changelog="auto-generated from conversation")
 
-            # 注册
-            if self._skill_registry:
-                skill_def = SkillLoader.load(str(skill_path))
-                self._skill_registry.register(skill_def)
-
-            logger.info("LLM 生成技能: %s → %s", skill.name, skill_path)
-            return str(skill_path)
+            logger.info("LLM 生成技能: api_key=%s (tenant=%d) → ai_skill_definition",
+                        skill.name, tenant_id)
+            return skill.name
 
         except Exception as e:
             logger.error("LLM 技能生成失败: %s", e)
@@ -146,28 +155,34 @@ class SkillOptimizer:
         return (metrics.total_executions > 0 and
                 metrics.total_executions % self._optimize_threshold == 0)
 
-    async def optimize(self, skill_name: str) -> bool:
-        """优化技能 — 分析执行轨迹，用 LLM 改写 SKILL.md
+    async def optimize(self, skill_name: str, tenant_id: int = 0) -> bool:
+        """优化技能 — 分析执行轨迹，用 LLM 改写 Skill，结果直接落库
 
         Returns:
-            是否成功优化（True=已改写，False=无需改进或失败）
+            是否成功优化（True=已改写并发布新版，False=无需改进或失败）
         """
         metrics = self._tracker.get_metrics(skill_name)
         if metrics is None:
             return False
 
-        # 读取当前 SKILL.md
-        skill_path = self._skills_dir / skill_name / "SKILL.md"
-        if not skill_path.exists():
-            # 尝试从 skills/definitions 查找
-            alt_path = Path("skills/definitions") / skill_name / "SKILL.md"
-            if alt_path.exists():
-                skill_path = alt_path
-            else:
-                logger.warning("技能文件不存在: %s", skill_path)
-                return False
+        # 读取当前 Skill（从内存或 DB）
+        from src.skills.base import SkillLoader, SkillDefinition
+        from src.store.skill_dao import SkillDefinitionDAO
 
-        skill_content = skill_path.read_text(encoding="utf-8")
+        skill_content = ""
+        current_version = getattr(metrics, "version", 1)
+        current_row = SkillDefinitionDAO.get_by_api_key(tenant_id, skill_name)
+        if current_row is not None:
+            skill_content = _compose_skill_md(current_row)
+            try:
+                # 解析 "1.0.0" → 取 patch 号
+                parts = (current_row.version or "1.0.0").split(".")
+                current_version = int(parts[-1]) if parts[-1].isdigit() else current_version
+            except Exception:
+                pass
+        else:
+            logger.warning("DB 中找不到 Skill '%s'，跳过优化", skill_name)
+            return False
 
         # 获取最近执行轨迹
         executions = self._tracker.get_executions(skill_name, limit=5)
@@ -194,43 +209,48 @@ class SkillOptimizer:
                 return False
 
             # 验证新版本
-            from src.skills.base import SkillLoader
             new_skill = SkillLoader.parse(content)
+            if not new_skill.name:
+                new_skill.name = skill_name
             SkillLoader.validate(new_skill)
 
-            # 备份旧版本
-            backup_path = skill_path.with_suffix(f".v{metrics.version}.md.bak")
-            backup_path.write_text(skill_content, encoding="utf-8")
+            # 递增版本号 — 保守策略：patch +1
+            new_version = _bump_patch(current_row.version or "1.0.0")
+            new_skill.version = new_version
+            new_skill.tenant_id = tenant_id
+            new_skill.owner = current_row.owner or new_skill.owner
 
-            # 写入新版本
-            skill_path.write_text(content, encoding="utf-8")
+            # 发布新版本到 DB
+            if self._skill_registry is not None:
+                self._skill_registry.upsert_to_db(
+                    new_skill, tenant_id=tenant_id, status="published",
+                    changelog=f"LLM 自动优化 v{current_row.version} → v{new_version}",
+                )
+                self._skill_registry.register(new_skill)
 
-            # 更新注册
-            if self._skill_registry:
-                new_skill_def = SkillLoader.load(str(skill_path))
-                self._skill_registry.register(new_skill_def)
-
-            logger.info("技能优化完成: %s (v%d → v%d)", skill_name,
-                        metrics.version, metrics.version + 1)
+            logger.info("技能优化完成并落库: %s (v%s → v%s)",
+                        skill_name, current_row.version, new_version)
             return True
 
         except Exception as e:
             logger.error("技能优化失败: %s — %s", skill_name, e)
             return False
 
-    async def cleanup_retiring(self) -> list[str]:
-        """清理应该淘汰的技能"""
+    async def cleanup_retiring(self, tenant_id: int = 0) -> list[str]:
+        """清理应该淘汰的技能 — DB 软删除 + 内存反注册"""
+        from src.store.skill_dao import SkillDefinitionDAO
+
         retiring = self._tracker.get_retiring_skills()
         removed = []
         for name in retiring:
-            skill_dir = self._skills_dir / name
-            if skill_dir.exists():
-                import shutil
-                shutil.rmtree(skill_dir)
+            try:
+                SkillDefinitionDAO.soft_delete(tenant_id, name)
                 removed.append(name)
                 if self._skill_registry:
                     self._skill_registry.unregister(name)
-                logger.info("淘汰技能: %s", name)
+                logger.info("淘汰技能: %s (tenant=%d)", name, tenant_id)
+            except Exception as exc:
+                logger.warning("淘汰技能失败 %s: %s", name, exc)
         return removed
 
     @staticmethod
@@ -258,3 +278,57 @@ class SkillOptimizer:
             if ex.output:
                 lines.append(f"  输出: {ex.output[:200]}")
         return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════
+# 辅助函数 — 把 DB 行拼成 SKILL.md 供 LLM 阅读；版本号递增
+# ═══════════════════════════════════════════════════════════
+
+def _compose_skill_md(row) -> str:
+    """SkillDefinitionRow → SKILL.md 文本（仅用于 LLM 评估，不落盘）"""
+    import json as _json
+    try:
+        allowed_tools = _json.loads(row.allowed_tools or "[]")
+    except Exception:
+        allowed_tools = []
+    try:
+        arguments = _json.loads(row.arguments or "[]")
+    except Exception:
+        arguments = []
+    fm_lines = [
+        "---",
+        f"name: {row.api_key}",
+        f"description: {row.description}",
+        f"when_to_use: {row.when_to_use or ''}",
+        f"context: {row.context}",
+    ]
+    if row.agent:
+        fm_lines.append(f"agent: {row.agent}")
+    if arguments:
+        fm_lines.append("arguments:")
+        for a in arguments:
+            fm_lines.append(f"  - {a}")
+    else:
+        fm_lines.append("arguments: []")
+    if allowed_tools:
+        fm_lines.append("allowed-tools:")
+        for t in allowed_tools:
+            fm_lines.append(f"  - {t}")
+    else:
+        fm_lines.append("allowed-tools: []")
+    fm_lines.append(f"version: {row.version}")
+    fm_lines.append("---")
+    return "\n".join(fm_lines) + "\n\n" + (row.prompt or "")
+
+
+def _bump_patch(version: str) -> str:
+    """1.2.3 → 1.2.4，解析失败时退回 '{v}.1'"""
+    parts = (version or "1.0.0").split(".")
+    try:
+        nums = [int(p) for p in parts]
+        while len(nums) < 3:
+            nums.append(0)
+        nums[-1] += 1
+        return ".".join(str(n) for n in nums[:3])
+    except ValueError:
+        return f"{version}.1"

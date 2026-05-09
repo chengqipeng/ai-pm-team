@@ -7,7 +7,7 @@
 --   2. ai_knowledge_dataset       ── 数据集（文档分组）
 --   3. ai_knowledge_schema        ── 元数据 Schema
 --   4. ai_knowledge_document      ── 文档主表
---   5. ai_knowledge_segment       ── 章节级聚合
+--      （ai_knowledge_segment 已下线）
 --   6. ai_knowledge_chunk         ── 切片主表
 --   7. ai_knowledge_ingest_queue  ── 入库任务队列（SKIP LOCKED）
 --   8. ai_knowledge_ingest_log    ── 入库任务日志
@@ -170,8 +170,13 @@ CREATE TABLE IF NOT EXISTS ai_knowledge_document (
     -- LLM 自动打标结果
     summary           TEXT          NOT NULL DEFAULT '',
     keywords          TEXT          NOT NULL DEFAULT '[]',
+    candidate_keywords TEXT         NOT NULL DEFAULT '[]',   -- jieba TF-IDF 候选词 Top-20
     metadata          TEXT          NOT NULL DEFAULT '{}',
     metadata_tagged   SMALLINT      NOT NULL DEFAULT 0,
+
+    -- 目录路径索引（所有切片 section_path 去重聚合，参与元数据文本召回）
+    -- 对齐 data-process 的 directoryPath 字段
+    toc               TEXT          NOT NULL DEFAULT '',
 
     -- 质量评分
     quality_score     DECIMAL(5,4)  NOT NULL DEFAULT 0.0,
@@ -214,47 +219,18 @@ COMMENT ON TABLE ai_knowledge_document IS '文档主表 — 存元数据/解析�
 
 
 -- ═══════════════════════════════════════════════════════════
--- 5. ai_knowledge_segment — 章节级聚合
+-- 5. ai_knowledge_segment — 已下线（2026-05 全 VDB 架构）
+--    原本用于 Parent-Child 扩展的父节点聚合表，实际未参与检索逻辑，
+--    切片 section_path 信息已冗余到 ai_knowledge_chunk，段落结构在
+--    入库时直接作为内存 dataclass 传递，不再持久化。
+--    DROP TABLE IF EXISTS ai_knowledge_segment;
 -- ═══════════════════════════════════════════════════════════
-
-CREATE TABLE IF NOT EXISTS ai_knowledge_segment (
-    id                BIGSERIAL     PRIMARY KEY,
-    segment_id        VARCHAR(64)   NOT NULL,
-    tenant_id         BIGINT        NOT NULL,
-    knowledge_base_id BIGINT        NOT NULL,
-    doc_id            VARCHAR(64)   NOT NULL,
-
-    -- Segment 内容
-    title             VARCHAR(500)  NOT NULL DEFAULT '',
-    section_path      VARCHAR(1000) NOT NULL DEFAULT '',
-    content           TEXT          NOT NULL,
-    content_tokens    INT           NOT NULL DEFAULT 0,
-
-    -- 结构信息
-    segment_index     INT           NOT NULL DEFAULT 0,
-    heading_level     INT           NOT NULL DEFAULT 0,
-    page_start        INT           NOT NULL DEFAULT 0,
-    page_end          INT           NOT NULL DEFAULT 0,
-    start_offset      INT           NOT NULL DEFAULT 0,
-    end_offset        INT           NOT NULL DEFAULT 0,
-    chunk_count       INT           NOT NULL DEFAULT 0,
-
-    delete_flg        SMALLINT      NOT NULL DEFAULT 0,
-    created_at        BIGINT        NOT NULL,
-    updated_at        BIGINT        NOT NULL
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS uk_segment_segid
-    ON ai_knowledge_segment(segment_id);
-CREATE INDEX IF NOT EXISTS idx_segment_doc
-    ON ai_knowledge_segment(doc_id, segment_index) WHERE delete_flg = 0;
-
-COMMENT ON TABLE ai_knowledge_segment IS '章节级聚合 — Parent-Child 扩展的父节点（2000~8000 字符）';
 
 
 -- ═══════════════════════════════════════════════════════════
 -- 6. ai_knowledge_chunk — 切片主表
 -- ═══════════════════════════════════════════════════════════
+
 
 CREATE TABLE IF NOT EXISTS ai_knowledge_chunk (
     id                BIGSERIAL     PRIMARY KEY,
@@ -486,3 +462,123 @@ CREATE INDEX IF NOT EXISTS idx_search_log_feedback
     WHERE user_feedback != '';
 
 COMMENT ON TABLE ai_knowledge_search_log IS '检索审计日志 — 效果分析 + 坏例挖掘';
+
+
+-- ═══════════════════════════════════════════════════════════
+-- 9. ai_knowledge_schedule — 调度任务表
+-- ═══════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS ai_knowledge_schedule (
+    id                  BIGSERIAL     PRIMARY KEY,
+    name                VARCHAR(100)  NOT NULL,            -- 任务名，唯一
+    description         VARCHAR(500)  NOT NULL DEFAULT '',
+    task_type           VARCHAR(50)   NOT NULL,            -- decay_hit_counts / sync_vdb_hit_count
+    cron_expr           VARCHAR(50)   NOT NULL DEFAULT '', -- 预留，当前未使用
+    interval_ms         BIGINT        NOT NULL,            -- 执行间隔（毫秒）
+    params              TEXT          NOT NULL DEFAULT '{}', -- JSON 参数
+    enabled             SMALLINT      NOT NULL DEFAULT 1,
+    -- 执行状态
+    last_run_at         BIGINT        NOT NULL DEFAULT 0,
+    last_run_status     VARCHAR(20)   NOT NULL DEFAULT '',
+    last_run_result     TEXT          NOT NULL DEFAULT '',
+    next_run_at         BIGINT        NOT NULL DEFAULT 0,
+    run_count           BIGINT        NOT NULL DEFAULT 0,
+    -- 审计
+    delete_flg          SMALLINT      NOT NULL DEFAULT 0,
+    created_at          BIGINT        NOT NULL,
+    updated_at          BIGINT        NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_schedule_name
+    ON ai_knowledge_schedule(name) WHERE delete_flg = 0;
+CREATE INDEX IF NOT EXISTS idx_schedule_due
+    ON ai_knowledge_schedule(enabled, next_run_at) WHERE delete_flg = 0;
+
+COMMENT ON TABLE ai_knowledge_schedule IS '知识库调度任务表（热度衰减 + VDB 同步）';
+
+
+-- ═══════════════════════════════════════════════════════════
+-- 调度任务种子数据（幂等）
+-- ═══════════════════════════════════════════════════════════
+
+INSERT INTO ai_knowledge_schedule (
+    name, description, task_type, interval_ms, params, enabled,
+    next_run_at, created_at, updated_at
+)
+SELECT
+    'hit_count_decay',
+    '每 30 天衰减文档/切片的 search_hit_count，避免老文档永占高位；同步 VDB',
+    'decay_hit_counts',
+    30 * 24 * 60 * 60 * 1000,  -- 30 天
+    '{"decay_factor": 0.7, "per_tenant": false}',
+    1,
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT + 30 * 24 * 60 * 60 * 1000,
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+WHERE NOT EXISTS (SELECT 1 FROM ai_knowledge_schedule WHERE name = 'hit_count_decay');
+
+INSERT INTO ai_knowledge_schedule (
+    name, description, task_type, interval_ms, params, enabled,
+    next_run_at, created_at, updated_at
+)
+SELECT
+    'vdb_hit_count_sync',
+    '每 15 分钟把 PG 的 search_hit_count 增量同步到 VDB kb_doc_metadata',
+    'sync_vdb_hit_count',
+    15 * 60 * 1000,  -- 15 分钟
+    '{"max_docs": 1000}',
+    1,
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT + 15 * 60 * 1000,
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+WHERE NOT EXISTS (SELECT 1 FROM ai_knowledge_schedule WHERE name = 'vdb_hit_count_sync');
+
+-- 文档元数据重建任务：KB/dataset 改名后重写 VDB 的 toc/title（默认每小时扫近 1 小时变动）
+INSERT INTO ai_knowledge_schedule (
+    name, description, task_type, interval_ms, params, enabled,
+    next_run_at, created_at, updated_at
+)
+SELECT
+    'rebuild_doc_metadata',
+    '扫描最近变动的文档，重写 VDB kb_doc_metadata 的 title/summary/toc 等字段',
+    'rebuild_doc_metadata',
+    60 * 60 * 1000,  -- 1 小时
+    '{"since_minutes": 60, "max_docs": 500}',
+    1,
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT + 60 * 60 * 1000,
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+WHERE NOT EXISTS (SELECT 1 FROM ai_knowledge_schedule WHERE name = 'rebuild_doc_metadata');
+
+-- VDB 健康检查任务：默认每 12 小时对比 PG ↔ VDB 文档数，不一致告警
+INSERT INTO ai_knowledge_schedule (
+    name, description, task_type, interval_ms, params, enabled,
+    next_run_at, created_at, updated_at
+)
+SELECT
+    'vdb_health_check',
+    '每 12 小时对比 PG 与 VDB 的文档数，不一致时告警（可配置自动修复）',
+    'vdb_health_check',
+    12 * 60 * 60 * 1000,  -- 12 小时
+    '{"per_tenant": true, "auto_repair": false}',
+    1,
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT + 12 * 60 * 60 * 1000,
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+WHERE NOT EXISTS (SELECT 1 FROM ai_knowledge_schedule WHERE name = 'vdb_health_check');
+
+
+-- ═══════════════════════════════════════════════════════════
+-- 增量迁移（兼容已部署库）
+-- ═══════════════════════════════════════════════════════════
+
+-- 2026-05: 目录路径索引（对齐 data-process directoryPath）
+ALTER TABLE ai_knowledge_document
+    ADD COLUMN IF NOT EXISTS toc TEXT NOT NULL DEFAULT '';
+
+
+-- 2026-05: 全 VDB 架构迁移 — ai_knowledge_segment 已不再使用，可择机 DROP
+-- 在全 VDB 架构下，section_path 只在 Phase 3 切片时作为临时变量用于构造 toc 与 chunk 字段。
+-- 不需要持久化 segment 表。保留 DDL 兼容旧部署，但不再插入数据。
+-- 手动 DROP:
+--   DROP TABLE IF EXISTS ai_knowledge_segment;

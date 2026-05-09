@@ -19,12 +19,27 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 
+# ═══════════════════════════════════════════════════════════
+# 全局默认租户 ID / 用户 ID
+# ═══════════════════════════════════════════════════════════
+# - 与 paas-platform-service seed 数据对齐（init_paas_auth_data.sql 里所有 p_user 的
+#   tenant_id 都是 292193，"鸿阳科技"），保证 HTTP backend 登录后拿到的 JWT 里的
+#   tenantId 与 agent-system RequestContext/TraceWriter/ai_* 表的 tenant_id 一致
+# - 可通过环境变量 DEFAULT_TENANT_ID / DEFAULT_USER_ID 覆盖
+import os as _os
+
+DEFAULT_TENANT_ID: int = int(_os.getenv("DEFAULT_TENANT_ID", "292193"))
+DEFAULT_USER_ID: int = int(_os.getenv("DEFAULT_USER_ID", "100000000000000006"))
+DEFAULT_USER_NAME: str = _os.getenv("DEFAULT_USER_NAME", "张伟")
+DEFAULT_USER_PHONE: str = _os.getenv("DEFAULT_USER_PHONE", "13800000001")
+
+
 @dataclass
 class RequestContext:
     """贯穿单次请求生命周期的上下文"""
 
     # 租户隔离
-    tenant_id: int = 1
+    tenant_id: int = DEFAULT_TENANT_ID
 
     # 用户身份
     user_id: str = ""

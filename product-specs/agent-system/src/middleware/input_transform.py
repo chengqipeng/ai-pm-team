@@ -88,7 +88,11 @@ class InputTransformer(ABC):
 # ═══════════════════════════════════════════════════════════
 
 class ContentReviewTransformer(InputTransformer):
-    """输入内容审查转换器 — 在消息送入 Agent 前拦截敏感词
+    """输入内容审查转换器 — 中间件层 fallback
+
+    ⚠️ 主要链路：入口层 ContentReviewer（src/core/content_reviewer.py）已在
+    /api/chat 等入口处对用户输入做毒性检测，本 Transformer 作为 fallback，
+    覆盖直接从 adapter / 其他路径调用但未经入口检测的场景。
 
     排在 PIIRedactTransformer 之前：先拦截违规内容，再对合规内容做 PII 脱敏。
 

@@ -48,12 +48,16 @@ class MemorySettings(BaseModel):
 
 
 class KnowledgeSettings(BaseModel):
-    """知识库配置 — 腾讯云 LKEAP 文档解析 + 知识检索 + PG 任务队列"""
-    enabled: bool = False
+    """知识库配置 — 腾讯云 LKEAP 文档解析 + 知识检索 + PG 任务队列
 
-    # ── 腾讯云 LKEAP 配置 ──
-    lkeap_secret_id: str = ""
-    lkeap_secret_key: str = ""
+    所有凭证默认硬编码在此；需要替换时直接改这里（或在构造时覆盖）。
+    Secret 以 base64 形式存储，运行时由 lkeap_client._maybe_decode_base64 解码。
+    """
+    enabled: bool = True
+
+    # ── 腾讯云 LKEAP 配置（base64 编码，使用时自动解码）──
+    lkeap_secret_id: str = "QUtJRHVnVkZzTnNIZjJKVVlSSjJlOGMyVHlPaHYyNzk0cVR6"
+    lkeap_secret_key: str = "VG13endnQ3hkQVdxMzh6cWFCZjFCQjZ4Zko0bk5qdTc="
     lkeap_region: str = "ap-guangzhou"
 
     # ── Embedding 模型 ──
@@ -61,12 +65,12 @@ class KnowledgeSettings(BaseModel):
     embedding_dim: int = 1024
 
     # ── 腾讯云向量数据库（单库多租户，tenant_id 字段隔离） ──
-    vdb_url: str = ""
-    vdb_key: str = ""
+    vdb_url: str = "http://10.60.2.17"
+    vdb_key: str = "bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck"
     vdb_username: str = "root"
     vdb_database: str = "knowledge"
     vdb_chunk_collection: str = "kb_chunks"
-    vdb_summary_collection: str = "kb_doc_summary"
+    vdb_doc_metadata_collection: str = "kb_doc_metadata"
 
     # ── 本地文件存储 ──
     upload_dir: str = "./data/knowledge/uploads"      # 原始上传文件
@@ -85,7 +89,7 @@ class KnowledgeSettings(BaseModel):
     enable_query_rewrite: bool = False
 
     # ── 入库 Worker ──
-    ingest_worker_count: int = 4
+    ingest_worker_count: int = 2
     ingest_batch_size: int = 4
     ingest_poll_interval_ms: int = 500
     lkeap_concurrency: int = 3

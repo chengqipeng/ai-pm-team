@@ -274,16 +274,28 @@ async def a2ui_stream(req: A2UIStreamRequest, http: Request) -> StreamingRespons
     )
     logger.info("[a2ui.stream] thread=%s catalog=%s", req.thread_id, negotiated)
 
+    # 选择消息源：真实 Adapter（有 execute_a2ui 即视为就绪）或空流兜底
     async def messages_from_adapter() -> AsyncGenerator[A2UIMessage, None]:
-        """占位 generator：
-
-        生产实现需要调用 Adapter 的 execute_a2ui_only(thread_id, user_input)，
-        抽取 ACTIVITY_SNAPSHOT.content.operations[] 并反序列化回 A2UI 消息。
-        此处仅返回空流以便端点可用。
-        """
-        if False:  # pragma: no cover
-            yield  # type: ignore[unreachable]
-        return
+        try:
+            from src.agents.adapter import neo_agent_v2_adapter
+        except Exception:  # pragma: no cover
+            logger.warning("Adapter unavailable; returning empty A2UI stream")
+            return
+        if not hasattr(neo_agent_v2_adapter, "execute_a2ui"):
+            logger.warning("Adapter missing execute_a2ui; returning empty A2UI stream")
+            return
+        try:
+            async for msg in neo_agent_v2_adapter.execute_a2ui(
+                thread_id=req.thread_id,
+                user_input=req.message or "",
+                run_id=req.run_id,
+            ):
+                yield msg
+        except Exception:
+            # Adapter 初始化 / 运行期异常不应让整个 SSE 连接崩溃；
+            # 打 log 后平静结束流，客户端按"Agent 暂不可用"处理
+            logger.exception("execute_a2ui failed; closing A2UI stream gracefully")
+            return
 
     if "text/event-stream" in accept:
         generator = a2ui_sse_stream(messages_from_adapter())
@@ -310,6 +322,23 @@ class ChatReconnectRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ChatAguiRequest(BaseModel):
+    """`/api/chat/agui` 请求体。
+
+    与老 `/api/chat` 相比：
+    - 输出统一 AG-UI 事件流（RUN_STARTED/TEXT_MESSAGE_*/TOOL_CALL_*/...）
+    - A2UI 消息嵌入在 ACTIVITY_SNAPSHOT 里
+    - Catalog 协商通过 `a2uiClientCapabilities`
+    """
+    thread_id: str = Field(alias="threadId")
+    message: str = ""
+    history: list[dict[str, str]] = Field(default_factory=list)
+    run_id: str | None = Field(default=None, alias="runId")
+    a2uiClientCapabilities: dict | None = None
+
+    model_config = {"populate_by_name": True}
+
+
 @a2ui_router.post("/agent/chat/reconnect")
 async def chat_reconnect(req: ChatReconnectRequest) -> StreamingResponse:
     """断线重连首包 + tail 订阅（设计 §2.7 固定顺序）：
@@ -319,25 +348,128 @@ async def chat_reconnect(req: ChatReconnectRequest) -> StreamingResponse:
     3. STATE_SNAPSHOT
     4. ACTIVITY_SNAPSHOT × N
     5. tail 恢复推送
+
+    数据来源：
+    - MESSAGES_SNAPSHOT: ThreadState.messages（仅近期可序列化版；深度历史请走 checkpointer）
+    - STATE_SNAPSHOT:    ThreadState.aggregator.get_snapshot()
+    - ACTIVITY_SNAPSHOT: ThreadState.surface_operations（最近一次 render 的 operations）
     """
     import uuid
     from src.agui import AGUIConverter
+    from src.a2ui import thread_store
 
     async def generator() -> AsyncGenerator[str, None]:
         run_id = uuid.uuid4().hex
+        parent_run_id = req.last_run_id
+
+        # 从 ThreadStore 拉真实态
+        state = thread_store.get(req.thread_id)
+        messages = list(state.messages) if state else []
+        state_snapshot = state.snapshot_state() if state else None
+        activities = state.active_activities() if state else []
+        if state and state.last_run_id and parent_run_id is None:
+            parent_run_id = state.last_run_id
+
         converter = AGUIConverter(
             run_id=run_id,
             thread_id=req.thread_id,
-            parent_run_id=req.last_run_id,
+            parent_run_id=parent_run_id,
         )
 
-        # 首包快照（空骨架；生产实现需要从 checkpointer / aggregator 里拉真实状态）
         async for event in converter.emit_reconnect_snapshot(
-            messages=[],           # TODO: 从 checkpointer 读取
-            state_snapshot=None,   # TODO: 从 aggregator 读取
-            activities=[],         # TODO: 从活跃 surfaces 读取
-            parent_run_id=req.last_run_id,
+            messages=messages,
+            state_snapshot=state_snapshot,
+            activities=activities,
+            parent_run_id=parent_run_id,
         ):
             yield event.to_sse()
 
     return StreamingResponse(generator(), media_type="text/event-stream")
+
+
+# ═══════════════════════════════════════════════════════════
+# POST /api/chat/agui — 统一 AG-UI 事件流对话端点
+# ═══════════════════════════════════════════════════════════
+
+@a2ui_router.post("/api/chat/agui")
+async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
+    """AG-UI 统一对话端点。
+
+    替代老的 `/api/chat`，输出格式完全对齐 AG-UI Python SDK 事件类型。
+    A2UI 消息通过 ACTIVITY_SNAPSHOT 事件下发（Mode B）。
+
+    流程：
+    1. Catalog 协商 → 选定 catalog_id
+    2. Trace start（复用 src.core.tracer）
+    3. 调用 Adapter.execute_agui 拿事件流
+    4. 顺便把每条消息写入 ThreadStore（供断线重连）
+    """
+    import uuid as _uuid
+    from src.a2ui import thread_store
+
+    # 1. Catalog 协商
+    reg = get_catalog_registry()
+    cap = req.a2uiClientCapabilities or {}
+    catalog_id = reg.negotiate(
+        client_supported=cap.get("supportedCatalogIds") or [],
+        client_inline=cap.get("inlineCatalogs") or [],
+        accepts_inline=False,
+    )
+
+    # 2. Trace start
+    trace = None
+    if _TRACE_ENABLED:
+        try:
+            trace = tracer.start_trace(
+                thread_id=req.thread_id,
+                user_input=req.message,
+                agent_name="CRM-Agent",
+            )
+        except Exception:
+            logger.exception("tracer.start_trace failed")
+
+    # 3. 记录本次消息入 ThreadStore
+    if req.message:
+        thread_store.append_message(req.thread_id, {
+            "role": "user", "content": req.message,
+        })
+
+    run_id = req.run_id or _uuid.uuid4().hex
+    thread_store.set_last_run(req.thread_id, run_id)
+
+    async def generator() -> AsyncGenerator[str, None]:
+        from src.agents.adapter import neo_agent_v2_adapter
+
+        try:
+            async for event in neo_agent_v2_adapter.execute_agui(
+                thread_id=req.thread_id,
+                user_input=req.message or "",
+                run_id=run_id,
+                history=req.history or None,
+            ):
+                # ACTIVITY_SNAPSHOT 带 a2ui-surface 时登记到 ThreadStore
+                t_val = getattr(event.type, "value", event.type)
+                if (t_val == "ACTIVITY_SNAPSHOT"
+                        and event.data.get("activity_type") == "a2ui-surface"):
+                    ops = (event.data.get("content") or {}).get("operations") or []
+                    render_type = (event.data.get("content") or {}).get("render_type")
+                    if render_type and ops:
+                        thread_store.record_activity(req.thread_id, render_type, ops)
+                yield event.to_sse()
+        except Exception as exc:
+            logger.exception("execute_agui failed")
+            # 产出一个 RUN_ERROR 再结束流
+            from src.agui import run_error
+            yield run_error("INTERNAL_ERROR", code=type(exc).__name__).to_sse()
+        finally:
+            if trace is not None:
+                try:
+                    trace.finish("success")
+                except Exception:
+                    pass
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={"X-A2UI-Catalog": catalog_id},
+    )

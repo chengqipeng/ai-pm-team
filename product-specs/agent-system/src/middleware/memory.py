@@ -192,8 +192,10 @@ class MemoryMiddleware(AgentMiddleware):
         start = _time.monotonic()
 
         try:
-            query = (await self._engine.rewrite_query(messages, current_query, tenant_id)
-                     if self._has_context(messages) else current_query)
+            # 入口层已完成查询改写（src/core/query_rewriter.py），
+            # current_query 已经是改写后的自包含查询。
+            # MemoryMiddleware 不再调用 rewrite_query，避免重复改写和推理链污染。
+            query = current_query
             result = await self._engine.retrieve(query, self._dimensions, tenant_id, user_id)
 
             dur = (_time.monotonic() - start) * 1000
@@ -361,12 +363,8 @@ class MemoryMiddleware(AgentMiddleware):
                 lines.append(f"  - [ID:{mem_id}] [{category}] {item.content}")
 
         return (
-            "<memory_context>\n"
-            "以下是与当前问题相关的记忆摘要（L0）。\n"
-            "- [DIR:xxx] 是目录摘要，调用 memory_read(memory_id=xxx, level='L1') 获取结构化概览\n"
-            "- [ID:xxx] 是记忆摘要，调用 memory_read(memory_id=xxx, level='L2') 获取完整内容\n\n"
+            "## Relevant Memory\n"
             + "\n".join(lines)
-            + "\n</memory_context>"
         )
 
     async def _async_extract(self, messages, thread_id, tenant_id, user_id):

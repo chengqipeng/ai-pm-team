@@ -3,8 +3,8 @@
 核心能力：
     - 查询改写（多轮对话的指代消解）
     - Self-Querying（从查询提取 metadata 过滤条件）
-    - 向量 + BM25 混合检索
-    - LKEAP Rerank 精排
+    - 三路并行召回（切片混合检索 + 文档摘要向量 + PG 元数据文本）
+    - 归一化多维度加权排序（α×相关性 + β×元数据 + γ×文档属性）
     - Parent-Child 上下文扩展
 
 Schema 动态注入：
@@ -146,7 +146,6 @@ class KnowledgeSearchTool(BaseTool):
                 knowledge_base_id=knowledge_base_id,
                 filters=filters or None,
                 top_k=top_k,
-                enable_rerank=True,
                 enable_self_query=True,
                 user_id=user_id,
                 thread_id=thread_id,

@@ -50,6 +50,38 @@ def build_knowledge_provider(
         provider 用于 knowledge_search Tool 调用
         supervisor.start() 启动后台 Worker；应用退出时 supervisor.stop()
     """
+    # 启动期配置诊断（帮助排查 "为什么 Provider 没起来"）
+    # 注意：凭证可能是 base64 编码，用解码后的值做校验
+    from .lkeap_client import _maybe_decode_base64
+
+    sid_decoded = _maybe_decode_base64(settings.lkeap_secret_id)
+    skey_decoded = _maybe_decode_base64(settings.lkeap_secret_key)
+
+    issues = []
+    if not sid_decoded or not skey_decoded:
+        issues.append("lkeap_secret_id/lkeap_secret_key 未配置")
+    if not settings.vdb_url:
+        issues.append("vdb_url 未配置")
+    if not settings.vdb_key:
+        issues.append("vdb_key 未配置")
+    if llm is None:
+        issues.append("llm 未注入（自动打标/Self-Querying 将降级）")
+
+    if issues:
+        logger.warning(
+            "KnowledgeProvider 配置不完整: %s", "; ".join(issues),
+        )
+
+    logger.info(
+        "KnowledgeProvider 组装: "
+        "lkeap_region=%s vdb=%s/%s dim=%d worker_count=%d lkeap_concurrency=%d",
+        settings.lkeap_region,
+        settings.vdb_database, settings.vdb_chunk_collection,
+        settings.embedding_dim,
+        settings.ingest_worker_count,
+        settings.lkeap_concurrency,
+    )
+
     # 1. LKEAP 客户端
     lkeap = TencentLKEAPClient(
         secret_id=settings.lkeap_secret_id,
@@ -64,7 +96,7 @@ def build_knowledge_provider(
         username=settings.vdb_username,
         database_name=settings.vdb_database,
         chunk_collection=settings.vdb_chunk_collection,
-        summary_collection=settings.vdb_summary_collection,
+        doc_metadata_collection=settings.vdb_doc_metadata_collection,
         dimension=settings.embedding_dim,
     )
 
@@ -104,8 +136,6 @@ def build_knowledge_provider(
         lkeap=lkeap,
         llm=llm,
         embedding_fn=embedding_fn,
-        rrf_k=settings.rrf_k,
-        rerank_top_k=settings.rerank_top_k,
         expand_context_n=settings.expand_context_n,
     )
 

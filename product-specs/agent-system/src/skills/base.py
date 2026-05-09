@@ -41,6 +41,14 @@ class SkillDefinition:
     model: str = ""                              # 指定模型（空=继承主模型）
     context: str = "inline"                      # inline | fork
     agent: str = ""                              # fork 模式下指定的子 Agent 名称
+    # 扩展字段（DB 版本引入；内存构造也可以保持默认）
+    version: str = "1.0.0"
+    risk_level: str = "read_only"                # read_only | mutating | destructive
+    requires_confirmation: bool = False
+    max_tool_calls: int = 20
+    timeout_ms: int = 60000
+    owner: str = ""
+    tenant_id: int = 0                           # 0 = 平台级
 
     def format_prompt(self, arguments: dict[str, str]) -> str:
         """替换 prompt 中的 {arg} 占位符"""
@@ -48,6 +56,41 @@ class SkillDefinition:
         for key, value in arguments.items():
             result = result.replace(f"{{{key}}}", str(value))
         return result
+
+    @classmethod
+    def from_db_row(cls, row: "Any") -> "SkillDefinition":
+        """从 ai_skill_definition 行（SkillDefinitionRow）构建运行时对象"""
+        import json
+        try:
+            allowed_tools = json.loads(row.allowed_tools or "[]")
+            if not isinstance(allowed_tools, list):
+                allowed_tools = []
+        except (json.JSONDecodeError, TypeError):
+            allowed_tools = []
+        try:
+            arguments = json.loads(row.arguments or "[]")
+            if not isinstance(arguments, list):
+                arguments = []
+        except (json.JSONDecodeError, TypeError):
+            arguments = []
+        return cls(
+            name=row.api_key,
+            description=row.description or row.name,
+            prompt=row.prompt or "",
+            when_to_use=row.when_to_use or "",
+            arguments=[str(a) for a in arguments],
+            allowed_tools=[str(t) for t in allowed_tools],
+            model=row.model or "",
+            context=row.context or "inline",
+            agent=row.agent or "",
+            version=row.version or "1.0.0",
+            risk_level=row.risk_level or "read_only",
+            requires_confirmation=bool(row.requires_confirmation),
+            max_tool_calls=row.max_tool_calls or 20,
+            timeout_ms=row.timeout_ms or 60000,
+            owner=row.owner or "",
+            tenant_id=row.tenant_id or 0,
+        )
 
 
 # ═══════════════════════════════════════════════════════════
@@ -76,6 +119,99 @@ class SkillRegistry:
 
     def unregister(self, name: str) -> None:
         self._skills.pop(name, None)
+
+    # ── DB 集成：运行时单一数据源 ──
+
+    def load_from_db(self, tenant_id: int = 0, *, clear: bool = True,
+                      include_platform: bool = True) -> int:
+        """从 ai_skill_definition 表加载 status='published' 的技能
+
+        Args:
+            tenant_id: 目标租户；0 表示仅加载平台级
+            clear: 是否清空现有内存注册（默认 True，保证加载后是 DB 的全量快照）
+            include_platform: 是否把 tenant_id=0 的平台级技能并入结果
+        Returns:
+            加载到的技能数量
+        """
+        from src.store.skill_dao import SkillDefinitionDAO
+
+        if clear:
+            self._skills.clear()
+
+        rows = SkillDefinitionDAO.list_active(
+            tenant_id=tenant_id, include_platform=include_platform,
+        )
+        loaded = 0
+        for row in rows:
+            try:
+                skill = SkillDefinition.from_db_row(row)
+                self._skills[skill.name] = skill
+                loaded += 1
+            except Exception as exc:
+                logger.warning("加载 Skill 失败 api_key=%s: %s", row.api_key, exc)
+        logger.info("SkillRegistry 从 DB 加载完成: tenant=%d, count=%d",
+                    tenant_id, loaded)
+        return loaded
+
+    def upsert_to_db(self, skill: SkillDefinition, *, tenant_id: int | None = None,
+                      status: str = "published", changelog: str = "",
+                      published_by: int = 0) -> None:
+        """把 SkillDefinition 持久化到 ai_skill_definition + ai_skill_version
+
+        供 SkillInstaller / SkillOptimizer / SkillGenerator 使用。
+        不会自动注册到内存，调用方决定是否 self.register(skill)。
+        """
+        import json
+        import time
+
+        from src.store.skill_dao import SkillDefinitionDAO, SkillVersionDAO
+        from src.store.skill_models import SkillDefinitionRow, SkillVersionRow
+
+        tid = tenant_id if tenant_id is not None else getattr(skill, "tenant_id", 0)
+        now = int(time.time() * 1000)
+        row = SkillDefinitionRow(
+            api_key=skill.name,
+            tenant_id=tid,
+            name=skill.name,
+            description=skill.description,
+            when_to_use=skill.when_to_use,
+            owner=getattr(skill, "owner", ""),
+            context=skill.context,
+            agent=skill.agent,
+            model=skill.model,
+            allowed_tools=json.dumps(skill.allowed_tools, ensure_ascii=False),
+            arguments=json.dumps(skill.arguments, ensure_ascii=False),
+            prompt=skill.prompt,
+            risk_level=getattr(skill, "risk_level", "read_only"),
+            requires_confirmation=1 if getattr(skill, "requires_confirmation", False) else 0,
+            max_tool_calls=getattr(skill, "max_tool_calls", 20),
+            timeout_ms=getattr(skill, "timeout_ms", 60000),
+            version=getattr(skill, "version", "1.0.0"),
+            status=status,
+            published_at=now if status == "published" else 0,
+        )
+        SkillDefinitionDAO.upsert(row)
+
+        version_row = SkillVersionRow(
+            tenant_id=tid,
+            skill_api_key=skill.name,
+            version=row.version,
+            description=row.description,
+            when_to_use=row.when_to_use,
+            context=row.context,
+            agent=row.agent,
+            model=row.model,
+            allowed_tools=row.allowed_tools,
+            arguments=row.arguments,
+            prompt=row.prompt,
+            risk_level=row.risk_level,
+            requires_confirmation=row.requires_confirmation,
+            max_tool_calls=row.max_tool_calls,
+            timeout_ms=row.timeout_ms,
+            changelog=changelog,
+            published_by=published_by,
+        )
+        SkillVersionDAO.insert(version_row)
 
     def match_by_intent(self, intent: str, tracker: Any = None) -> SkillDefinition | None:
         """按意图匹配技能 — 关键词粗筛 + 度量加权精排

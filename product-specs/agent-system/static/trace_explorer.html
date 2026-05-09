@@ -33,16 +33,6 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
         </div>
         <span class="font-bold text-lg tracking-tight text-gray-900">Trace 链路</span>
       </div>
-      <div class="space-y-1 mb-6">
-        <a href="/" class="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-gray-500 hover:bg-white/60 hover:text-blue-600 transition-all no-underline">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          返回对话
-        </a>
-        <a href="/memory" class="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-gray-500 hover:bg-white/60 hover:text-blue-600 transition-all no-underline">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-          长期记忆
-        </a>
-      </div>
       <!-- 筛选 -->
       <div class="space-y-3">
         <div>
@@ -68,6 +58,26 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
 
   <!-- 主区域 -->
   <main class="flex-1 flex flex-col min-w-0 relative z-10 overflow-hidden">
+    <!-- 头部 -->
+    <div class="px-8 py-5 bg-white/40 backdrop-blur-md border-b border-gray-200/50 shrink-0 flex items-center justify-between gap-4">
+      <div>
+        <h1 class="text-lg font-bold text-gray-900">Trace 链路</h1>
+        <p class="text-xs text-gray-400 mt-1">查看 Agent 调用链路详情</p>
+      </div>
+      <div class="flex items-center gap-3 shrink-0">
+        <div class="flex items-center gap-2 px-3 py-1.5 bg-white/60 border border-gray-200/50 rounded-xl text-[11px]">
+          <span class="text-gray-400 font-medium">租户</span>
+          <span id="currentTenantDisplay" class="text-gray-800 font-bold">1</span>
+          <span class="text-gray-200">|</span>
+          <span class="text-gray-400 font-medium">用户</span>
+          <span id="currentUserDisplay" class="text-gray-800 font-bold max-w-[120px] truncate" title="">—</span>
+        </div>
+        <a href="/" class="flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all no-underline">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          返回对话
+        </a>
+      </div>
+    </div>
     <div id="main-content" class="flex-1 overflow-y-auto custom-scrollbar px-8 py-6">
       <div class="text-center text-gray-400 text-sm py-20">
         <div class="text-4xl mb-3">🔍</div>
@@ -233,6 +243,14 @@ function renderDetail(trace){
 
   el.innerHTML=html;
 }
+
+// 显示当前浏览器的 user_id（与对话页一致）
+(function(){
+  let id = localStorage.getItem('deepagent_user_id');
+  if (!id) { id = 'user_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('deepagent_user_id', id); }
+  const el = document.getElementById('currentUserDisplay');
+  if (el) { el.textContent = id; el.title = id; }
+})();
 
 loadTraces();
 </script>
