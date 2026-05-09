@@ -279,6 +279,13 @@ try:
 except ImportError as exc:
     logger.warning("知识库 API 未启用: %s", exc)
 
+try:
+    from src.api.knowledge_search_debug_api import router as knowledge_debug_router
+    app.include_router(knowledge_debug_router)
+    logger.info("已挂载知识库检索调试 API: /api/knowledge/search-debug")
+except ImportError as exc:
+    logger.warning("知识库检索调试 API 未启用: %s", exc)
+
 
 # ── 知识库 Provider 启动（全局持有，供 upload API / search Tool 使用）──
 
@@ -884,6 +891,17 @@ async def chat_stream(req: ChatRequest):
                 len(_raw_all), len(_filtered_all), diff_len,
                 _raw_all[:300], _filtered_all[:300],
             )
+            # 兜底：如果过滤后为空但原始内容非空，说明整段回复被误过滤
+            if not _filtered_all.strip() and _raw_all.strip():
+                logger.error(
+                    "[stream_filter] ⚠️ 整段回复被过滤为空！回退输出原始内容（去除 NLU 标记行）"
+                )
+                # 使用 OutputValidationMiddleware 的清理逻辑做最后兜底
+                from src.middleware.output_validation import OutputValidationMiddleware
+                fallback = OutputValidationMiddleware._strip_internal_analysis(_raw_all)
+                if fallback.strip():
+                    yield f"data: {json.dumps({'type': 'token', 'content': fallback}, ensure_ascii=False)}\n\n"
+                    _filtered_content.append(fallback)
         else:
             logger.info("[stream_filter] 无需过滤: %d字符", len(_raw_all))
 
@@ -1250,8 +1268,12 @@ async def memory_users(tenant_id: int = DEFAULT_TENANT_ID):
 
 
 @app.get("/api/memory/list")
-async def memory_list(tenant_id: int = DEFAULT_TENANT_ID, user_id: str = "", category: str = "", limit: int = 200):
-    """获取用户的记忆列表 — 从 PG 读取"""
+async def memory_list(tenant_id: int = DEFAULT_TENANT_ID, user_id: str = "", category: str = "",
+                      include_archived: bool = False, limit: int = 200):
+    """获取用户的记忆列表 — 从 PG 读取
+
+    include_archived=true 时同时返回 archived 状态的记忆（用于展示反思变化过程）
+    """
     if not user_id:
         return {"memories": [], "total": 0}
     try:
@@ -1269,6 +1291,8 @@ async def memory_list(tenant_id: int = DEFAULT_TENANT_ID, user_id: str = "", cat
                 WHERE (tenant_id = %s OR tenant_id = 0) AND user_id = %s AND delete_flg = 0
             """
             params: list = [tenant_id, user_id]
+            if not include_archived:
+                sql += " AND status = 'active'"
             if category:
                 sql += " AND category = %s"
                 params.append(category)
@@ -1360,6 +1384,47 @@ async def memory_delete_all(tenant_id: int = DEFAULT_TENANT_ID):
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+
+# ── 反思日志 API ──
+
+@app.get("/api/memory/reflection-log")
+async def reflection_log(tenant_id: int = DEFAULT_TENANT_ID, user_id: str = "", limit: int = 50):
+    """查询反思日志 — 用于验证反思决策链路
+
+    返回最近的反思记录，包含：
+    - reflection_type: session/failure/correction/global
+    - relation: identical/contradiction/evolution/unrelated/error
+    - action: discard_new/archive_old/update_old/keep_both/delete
+    - llm_reason: LLM 判断理由
+    - trigger_source: 触发原因
+    - old/new_memory_id: 关联的记忆 ID
+    """
+    try:
+        from src.store.pg_pool import get_conn
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                sql = """
+                    SELECT id, tenant_id, user_id, reflection_type, trigger_source,
+                           old_memory_id, new_memory_id, relation, action,
+                           llm_reason, created_at
+                    FROM ai_memory_reflection_log
+                    WHERE tenant_id = %s
+                """
+                params: list = [tenant_id]
+                if user_id:
+                    sql += " AND user_id = %s"
+                    params.append(user_id)
+                sql += " ORDER BY created_at DESC LIMIT %s"
+                params.append(limit)
+                cur.execute(sql, params)
+                cols = [d[0] for d in cur.description]
+                rows = cur.fetchall()
+
+        logs = [dict(zip(cols, row)) for row in rows]
+        return {"logs": logs, "total": len(logs)}
+    except Exception as e:
+        logger.error("reflection_log failed: %s", e)
+        return {"logs": [], "total": 0, "error": str(e)}
 
 @app.delete("/api/memory/{memory_id}")
 async def memory_delete(memory_id: str, request: Request):

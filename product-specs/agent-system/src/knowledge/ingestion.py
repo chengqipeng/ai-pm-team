@@ -618,39 +618,56 @@ class DocumentIngestionPipeline:
 
         KnowledgeDocumentDAO.update_parse_status(doc_id, "parsing")
 
-        # 直接用本地文件 → base64
-        try:
-            with open(file_path, "rb") as f:
-                data = f.read()
-        except Exception as exc:
-            logger.exception(
-                "Phase1 read file failed: doc=%s path=%s: %s",
-                doc_id, file_path, exc,
-            )
-            KnowledgeDocumentDAO.update_parse_status(
-                doc_id, "failed",
-                parse_error=f"读取文件失败: {exc}"[:2000],
-            )
-            raise
+        # 优先使用 COS URL（避免大文件 base64 传输），降级用本地文件 base64
+        cos_url = payload.get("cos_url", "")
+        file_url: str | None = cos_url if cos_url else None
+        file_base64: str | None = None
 
-        file_base64 = base64.b64encode(data).decode("utf-8")
+        if not file_url:
+            # 无 COS URL，走本地文件 → base64
+            try:
+                with open(file_path, "rb") as f:
+                    data = f.read()
+            except Exception as exc:
+                logger.exception(
+                    "Phase1 read file failed: doc=%s path=%s: %s",
+                    doc_id, file_path, exc,
+                )
+                KnowledgeDocumentDAO.update_parse_status(
+                    doc_id, "failed",
+                    parse_error=f"读取文件失败: {exc}"[:2000],
+                )
+                raise
+            file_base64 = base64.b64encode(data).decode("utf-8")
+        else:
+            # 有 COS URL，仍需读取文件大小用于日志
+            try:
+                data = open(file_path, "rb").read() if os.path.exists(file_path) else b""
+            except Exception:
+                data = b""
 
         # 小文件用 SSE（准实时），大文件用异步轮询（SSE 对 100M 以上不支持）
+        file_size_for_mode = len(data) if data else payload.get("file_size", 0)
         logger.info(
-            "Phase1 LKEAP calling: doc=%s type=%s size=%d mode=%s",
-            doc_id, file_type, len(data),
-            "sse" if len(data) < 50 * 1024 * 1024 else "async",
+            "Phase1 LKEAP calling: doc=%s type=%s size=%d mode=%s source=%s",
+            doc_id, file_type, file_size_for_mode,
+            "sse" if file_size_for_mode < 50 * 1024 * 1024 else "async",
+            "cos_url" if file_url else "base64",
         )
         try:
             async with self._guard.acquire_lkeap_slot():
-                if len(data) < 50 * 1024 * 1024:
+                if file_size_for_mode < 50 * 1024 * 1024:
                     result: ParseResult = await asyncio.to_thread(
                         self._lkeap.parse_document_sse,
-                        file_base64=file_base64, file_type=file_type,
+                        file_url=file_url,
+                        file_base64=file_base64,
+                        file_type=file_type,
                     )
                 else:
                     result = await self._lkeap.parse_document(
-                        file_base64=file_base64, file_type=file_type,
+                        file_url=file_url,
+                        file_base64=file_base64,
+                        file_type=file_type,
                         poll_interval=3.0, max_wait=1800.0,
                     )
         except Exception as exc:

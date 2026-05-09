@@ -115,12 +115,24 @@ class StreamAnalysisFilter:
     def flush(self) -> str:
         """刷新剩余 buffer。流结束时调用。
 
-        如果 skip 模式下仍有未结束的片段，直接丢弃（因为没有明确结束标记，
-        安全起见不输出以免泄露部分分析内容）。
+        修复：之前在 skip 模式下直接丢弃所有 buffer，导致 LLM 最终回复
+        如果以 NLU 分析开头（如"意图：确认修改。好的，已为您更新..."），
+        整段回复被吞掉。
+
+        新策略：skip 模式下仍尝试从 buffer 中提取结束标记之后的正常内容。
+        如果 buffer 全是分析内容（无结束标记），才丢弃。
         """
         remaining = self._buffer
         self._buffer = ""
         if self._skipping:
             self._skipping = False
+            # 尝试从 remaining 中找到结束标记，输出其后的正常内容
+            for i, ch in enumerate(remaining):
+                if ch in _NLU_END_CHARS:
+                    # 结束标记之后的内容是正常文本
+                    after = remaining[i + 1:].lstrip()
+                    if after:
+                        return after
+            # 没有结束标记，整段可能是分析内容，丢弃
             return ""
         return remaining

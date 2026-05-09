@@ -80,6 +80,8 @@ async def stream_agent_response(
         yield SSEEvent(event="token", data={"content": tail})
     yield SSEEvent(event="done", data={"finished": True})
 
+    # 注意：如果整个流没有产出任何 token（全被过滤），调用方应检查 full_content 做兜底
+
 
 def _map_event(event: dict[str, Any]) -> SSEEvent | None:
     kind = event.get("event", "")

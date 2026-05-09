@@ -40,6 +40,10 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
             <input id="user-search" type="text" placeholder="输入用户ID..." oninput="filterUsers()" class="w-full bg-gray-100/50 border-none rounded-xl py-2 pl-9 pr-3 text-xs focus:ring-2 focus:ring-blue-500/20 placeholder:text-gray-400"/>
           </div>
         </div>
+        <div class="flex items-center gap-2">
+          <label class="text-[10px] text-gray-400">显示归档</label>
+          <input id="show-archived" type="checkbox" onchange="selectUser(currentUser)" class="w-3.5 h-3.5 rounded accent-blue-600"/>
+        </div>
         <button onclick="clearAllMemories()" class="w-full py-2 px-3 bg-red-50 border border-red-100 rounded-xl text-xs font-bold text-red-500 hover:bg-red-100 transition-all">🗑 清空所有记忆</button>
       </div>
     </div>
@@ -80,6 +84,8 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
         <p>从左侧选择用户查看长期记忆</p>
       </div>
     </div>
+    <!-- 反思日志面板（默认隐藏） -->
+    <div id="reflection-panel" class="hidden flex-1 overflow-y-auto custom-scrollbar px-8 py-6"></div>
   </main>
 </div>
 
@@ -155,9 +161,12 @@ async function deleteUser(userId){
 async function selectUser(userId){
   currentUser=userId;currentCategory='all';renderUsers(allUsers.filter(u=>true));
   const tenantId=document.getElementById('tenant-input').value||'292193';
+  const includeArchived=document.getElementById('show-archived')?.checked||false;
   document.getElementById('memory-list').innerHTML='<div class="text-center text-gray-400 text-xs py-20">加载中...</div>';
+  document.getElementById('memory-list').classList.remove('hidden');
+  document.getElementById('reflection-panel').classList.add('hidden');
   try{
-    const res=await fetch(`${API}/api/memory/list?tenant_id=${tenantId}&user_id=${userId}`);
+    const res=await fetch(`${API}/api/memory/list?tenant_id=${tenantId}&user_id=${userId}&include_archived=${includeArchived}`);
     const data=await res.json();
     allMemories=data.memories||[];
     const byCat={};allMemories.forEach(m=>{byCat[m.category]=(byCat[m.category]||0)+1});
@@ -165,7 +174,7 @@ async function selectUser(userId){
     document.getElementById('header-title').innerHTML=`
       <div>
         <h1 class="text-lg font-bold text-gray-900">👤 ${esc(userId)}</h1>
-        <p class="text-xs text-gray-400 mt-1">租户 ${tenantId} · ${allMemories.length} 条记忆</p>
+        <p class="text-xs text-gray-400 mt-1">租户 ${tenantId} · ${allMemories.length} 条记忆${includeArchived?' (含归档)':''}</p>
       </div>
       <div class="flex gap-3 mt-4 flex-wrap">
         ${Object.entries(byCat).map(([c,n])=>`<div class="text-center bg-white/60 rounded-xl px-4 py-2 border border-white/60 shadow-sm"><div class="text-base font-bold text-blue-600">${n}</div><div class="text-[10px] text-gray-400 mt-0.5">${CAT_ICONS[c]||'📋'} ${CAT_LABELS[c]||c}</div></div>`).join('')}
@@ -174,7 +183,8 @@ async function selectUser(userId){
     const tabsEl=document.getElementById('cat-tabs');
     tabsEl.classList.remove('hidden');
     tabsEl.innerHTML=`<button onclick="filterCategory('all')" class="px-3 py-1.5 rounded-full text-[11px] font-bold transition-all ${currentCategory==='all'?'bg-blue-600 text-white shadow-sm':'bg-white/60 text-gray-500 hover:bg-white border border-gray-200/50'}">全部 ${allMemories.length}</button>`+
-      Object.entries(byCat).map(([c,n])=>`<button onclick="filterCategory('${c}')" class="px-3 py-1.5 rounded-full text-[11px] font-bold transition-all ${currentCategory===c?'bg-blue-600 text-white shadow-sm':'bg-white/60 text-gray-500 hover:bg-white border border-gray-200/50'}">${CAT_ICONS[c]||''} ${CAT_LABELS[c]||c} ${n}</button>`).join('');
+      Object.entries(byCat).map(([c,n])=>`<button onclick="filterCategory('${c}')" class="px-3 py-1.5 rounded-full text-[11px] font-bold transition-all ${currentCategory===c?'bg-blue-600 text-white shadow-sm':'bg-white/60 text-gray-500 hover:bg-white border border-gray-200/50'}">${CAT_ICONS[c]||''} ${CAT_LABELS[c]||c} ${n}</button>`).join('')+
+      `<button onclick="showReflectionLog()" class="px-3 py-1.5 rounded-full text-[11px] font-bold transition-all bg-white/60 text-amber-600 hover:bg-amber-50 border border-amber-200/50">🔍 反思日志</button>`;
 
     renderMemories(allMemories);
   }catch(e){document.getElementById('memory-list').innerHTML=`<div class="text-center text-red-400 text-sm py-20">加载失败: ${e.message}</div>`}
@@ -241,13 +251,18 @@ function renderMemories(memories){
 
 function renderMemoryCard(m){
   const i = m._idx;
+  const isArchived = m.status === 'archived';
+  const cardStyle = isArchived
+    ? 'mb-2 rounded-xl bg-gray-50/70 backdrop-blur-sm border border-gray-200/60 shadow-sm opacity-70'
+    : 'mb-2 rounded-xl bg-white/70 backdrop-blur-sm border border-white/40 shadow-sm hover:shadow-md transition-all overflow-hidden';
   return `
-    <div id="card-${i}" class="mb-2 rounded-xl bg-white/70 backdrop-blur-sm border border-white/40 shadow-sm hover:shadow-md transition-all overflow-hidden">
+    <div id="card-${i}" class="${cardStyle}">
       <div onclick="toggleCard(${i})" class="flex items-start gap-2 p-3 cursor-pointer">
         <div class="flex-1 min-w-0">
-          <p class="text-[12px] leading-relaxed text-gray-800">${esc(m.abstract)}</p>
+          <p class="text-[12px] leading-relaxed ${isArchived?'text-gray-500 line-through':'text-gray-800'}">${esc(m.abstract)}</p>
           <div class="flex items-center gap-2 mt-1.5 flex-wrap">
             ${m.merge_key?`<span class="text-[10px] text-gray-400">🔑 ${esc(m.merge_key)}</span>`:''}
+            ${isArchived?`<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">📦 已归档</span>`:''}
             <span class="text-[10px] px-1.5 py-0.5 rounded ${m.source_type==='system_data'?'bg-orange-50 text-orange-500':'bg-green-50 text-green-500'}">${m.source_type==='system_data'?'系统':'洞察'}</span>
             <span class="text-[10px] text-gray-300">📅 ${fmtTime(m.updated_at)}</span>
           </div>
@@ -258,8 +273,13 @@ function renderMemoryCard(m){
       <div class="card-detail hidden border-t border-gray-100/50 p-3 bg-gray-50/30 space-y-2 text-xs">
         ${m.content?`<div><span class="text-[10px] font-bold text-gray-400">内容:</span><p class="text-gray-700 mt-0.5 whitespace-pre-wrap">${esc(m.content)}</p></div>`:''}
         ${m.overview?`<div><span class="text-[10px] font-bold text-gray-400">概览:</span><pre class="bg-white rounded-lg p-2 border border-gray-100 text-[11px] text-gray-600 whitespace-pre-wrap mt-0.5">${esc(m.overview)}</pre></div>`:''}
+        <div class="flex items-center gap-2 text-[10px] text-gray-400">
+          <span>状态: ${m.status||'active'}</span>
+          <span>·</span>
+          <span>memory_id: ${esc(m.memory_id||'')}</span>
+        </div>
         <div class="flex gap-2 pt-1">
-          <button onclick="event.stopPropagation();archiveMemory('${m.memory_id||m.id}',${i})" class="px-2 py-1 rounded-lg text-[10px] bg-white border border-gray-200 text-gray-500 hover:border-blue-300 hover:text-blue-600">📦 归档</button>
+          ${!isArchived?`<button onclick="event.stopPropagation();archiveMemory('${m.memory_id||m.id}',${i})" class="px-2 py-1 rounded-lg text-[10px] bg-white border border-gray-200 text-gray-500 hover:border-blue-300 hover:text-blue-600">📦 归档</button>`:''}
           <button onclick="event.stopPropagation();deleteMemory('${m.memory_id||m.id}',${i})" class="px-2 py-1 rounded-lg text-[10px] bg-white border border-gray-200 text-red-400 hover:border-red-300 hover:bg-red-50">🗑 删除</button>
         </div>
       </div>
@@ -290,6 +310,81 @@ async function deleteMemory(id,idx){
     await fetch(`${API}/api/memory/${id}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenant_id:parseInt(tenantId)})});
     allMemories.splice(idx,1);renderMemories(allMemories);
   }catch(e){alert('删除失败: '+e.message)}
+}
+
+// ── 反思日志展示 ──
+
+const REFLECTION_TYPE_LABELS = {session:'会话反思',failure:'失败反思',correction:'纠正反思',global:'全局反思'};
+const RELATION_LABELS = {identical:'完全相同',contradiction:'直接矛盾',evolution:'信息演进',unrelated:'不相关',error:'错误记忆'};
+const ACTION_LABELS = {discard_new:'丢弃新记忆',archive_old:'归档旧记忆',update_old:'合并更新',keep_both:'保留两条',delete:'删除'};
+const ACTION_COLORS = {discard_new:'text-gray-500',archive_old:'text-amber-600',update_old:'text-blue-600',keep_both:'text-green-600',delete:'text-red-500'};
+
+async function showReflectionLog(){
+  if(!currentUser) return;
+  const tenantId=document.getElementById('tenant-input').value||'292193';
+  document.getElementById('memory-list').classList.add('hidden');
+  const panel=document.getElementById('reflection-panel');
+  panel.classList.remove('hidden');
+  panel.innerHTML='<div class="text-center text-gray-400 text-xs py-20">加载反思日志...</div>';
+
+  try{
+    const res=await fetch(`${API}/api/memory/reflection-log?tenant_id=${tenantId}&user_id=${currentUser}&limit=50`);
+    const data=await res.json();
+    const logs=data.logs||[];
+
+    if(!logs.length){
+      panel.innerHTML=`<div class="text-center text-gray-400 text-sm py-20">
+        <div class="text-4xl mb-3">📭</div>
+        <p>暂无反思日志</p>
+        <p class="text-[11px] mt-2">反思在记忆提取后自动触发，或由用户纠正/工具失败触发</p>
+        <button onclick="backToMemories()" class="mt-4 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-bold hover:bg-blue-100">← 返回记忆列表</button>
+      </div>`;
+      return;
+    }
+
+    let html=`<div class="mb-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-sm font-bold text-gray-800">🔍 反思日志</h2>
+        <p class="text-[11px] text-gray-400 mt-0.5">共 ${logs.length} 条反思记录，展示决策链路</p>
+      </div>
+      <button onclick="backToMemories()" class="px-3 py-1.5 bg-white border border-gray-200 rounded-xl text-[11px] font-bold text-gray-500 hover:text-blue-600 hover:border-blue-200">← 返回记忆</button>
+    </div>`;
+
+    html += '<div class="space-y-2">';
+    logs.forEach(log=>{
+      const typeLabel = REFLECTION_TYPE_LABELS[log.reflection_type]||log.reflection_type;
+      const relationLabel = RELATION_LABELS[log.relation]||log.relation||'—';
+      const actionLabel = ACTION_LABELS[log.action]||log.action||'—';
+      const actionColor = ACTION_COLORS[log.action]||'text-gray-600';
+      const time = fmtTime(log.created_at);
+
+      html += `<div class="rounded-xl bg-white/70 backdrop-blur-sm border border-white/40 shadow-sm p-3 animate-fade-in">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 font-bold">${typeLabel}</span>
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">${relationLabel}</span>
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-gray-50 ${actionColor} font-bold">${actionLabel}</span>
+          <span class="text-[10px] text-gray-300 ml-auto">📅 ${time}</span>
+        </div>
+        <div class="space-y-1 text-[11px]">
+          ${log.trigger_source?`<div class="flex gap-2"><span class="text-gray-400 shrink-0">触发:</span><span class="text-gray-600">${esc(log.trigger_source).slice(0,150)}</span></div>`:''}
+          ${log.llm_reason?`<div class="flex gap-2"><span class="text-gray-400 shrink-0">理由:</span><span class="text-gray-700">${esc(log.llm_reason).slice(0,200)}</span></div>`:''}
+          <div class="flex gap-4 text-[10px] text-gray-400 pt-1">
+            ${log.old_memory_id?`<span>旧记忆: ${log.old_memory_id.slice(0,12)}...</span>`:''}
+            ${log.new_memory_id?`<span>新记忆: ${log.new_memory_id.slice(0,12)}...</span>`:''}
+          </div>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+    panel.innerHTML=html;
+  }catch(e){
+    panel.innerHTML=`<div class="text-center text-red-400 text-sm py-20">加载失败: ${e.message}<br><button onclick="backToMemories()" class="mt-4 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-bold">← 返回</button></div>`;
+  }
+}
+
+function backToMemories(){
+  document.getElementById('reflection-panel').classList.add('hidden');
+  document.getElementById('memory-list').classList.remove('hidden');
 }
 
 // 与对话页保持一致：优先从 /api/auth/me 获取真实 tenant_id 和 user_id

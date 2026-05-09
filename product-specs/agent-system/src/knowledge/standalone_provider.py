@@ -27,6 +27,7 @@ from src.store.knowledge_models import (
     KnowledgeDocumentRow, KnowledgeIngestLogRow,
 )
 
+from .cos_client import TencentCOSClient
 from .guard import DuplicateIngestionError, IngestionGuard
 from .lkeap_client import TencentLKEAPClient
 from .provider import (
@@ -50,6 +51,7 @@ class StandaloneKnowledgeProvider:
         queue: PgIngestQueue,
         guard: IngestionGuard,
         upload_dir: str = "./data/knowledge/uploads",
+        cos_client: TencentCOSClient | None = None,
     ) -> None:
         self._lkeap = lkeap
         self._vdb = vector_store
@@ -58,6 +60,7 @@ class StandaloneKnowledgeProvider:
         self._guard = guard
         self._upload_dir = Path(upload_dir)
         self._upload_dir.mkdir(parents=True, exist_ok=True)
+        self._cos = cos_client
 
     # ═══════════════════════════════════════════════════════════
     # 入库
@@ -174,6 +177,29 @@ class StandaloneKnowledgeProvider:
             )
             raise RuntimeError(f"保存文件到知识库目录失败: {exc}") from exc
 
+        # ── 3.5. 上传到 COS（如果配置了 COS 客户端） ──
+        cos_url = ""
+        if self._cos is not None:
+            try:
+                object_key = self._cos.build_object_key(
+                    tenant_id, knowledge_base_id, doc_id, file_name,
+                )
+                cos_url = self._cos.upload_file(
+                    local_path=str(target_path),
+                    object_key=object_key,
+                )
+                logger.info(
+                    "ingest_document: COS upload success: doc_id=%s url=%s",
+                    doc_id, cos_url,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "ingest_document: COS upload failed (will use local path): "
+                    "doc_id=%s file=%s: %s",
+                    doc_id, file_name, exc,
+                )
+                # COS 上传失败不阻断流程，降级使用本地路径 + base64
+
         # ── 4. 写 PG document（pending）──
         doc_row = KnowledgeDocumentRow(
             doc_id=doc_id,
@@ -185,7 +211,7 @@ class StandaloneKnowledgeProvider:
             file_type=file_type,
             file_size=file_size,
             file_hash=file_hash,
-            raw_url=str(target_path),
+            raw_url=cos_url or str(target_path),
             parse_status="pending",
             clean_status="pending",
             chunk_status="pending",
@@ -220,6 +246,7 @@ class StandaloneKnowledgeProvider:
                 "file_type": file_type,
                 "file_size": file_size,
                 "file_hash": file_hash,
+                "cos_url": cos_url,
                 "title": (user_metadata or {}).get("title") or file_name,
                 "user_metadata": user_metadata or {},
             },

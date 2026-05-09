@@ -72,6 +72,13 @@ class KnowledgeSettings(BaseModel):
     vdb_chunk_collection: str = "kb_chunks"
     vdb_doc_metadata_collection: str = "kb_doc_metadata"
 
+    # ── 腾讯云 COS 对象存储（文件上传后持久化到 COS，URL 存 PG） ──
+    cos_secret_id: str = ""       # 通过环境变量 COS_SECRET_ID 注入
+    cos_secret_key: str = ""      # 通过环境变量 COS_SECRET_KEY 注入
+    cos_bucket: str = "domainverify-1253467224"
+    cos_region: str = "ap-beijing"
+    cos_key_prefix: str = "knowledge/"   # COS 对象 key 前缀
+
     # ── 本地文件存储 ──
     upload_dir: str = "./data/knowledge/uploads"      # 原始上传文件
     parsed_dir: str = "./data/knowledge/parsed"       # LKEAP 解析产物

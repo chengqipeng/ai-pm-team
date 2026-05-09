@@ -19,6 +19,7 @@ Phase 1 + Phase 2 交付：
 """
 
 from .lkeap_client import TencentLKEAPClient
+from .cos_client import TencentCOSClient
 from .vdb_writer import KnowledgeVectorStore
 from .guard import IngestionGuard, DuplicateIngestionError, ConcurrentIngestionError
 from .queue import IngestTask, PgIngestQueue
@@ -55,6 +56,8 @@ from .factory import build_knowledge_provider
 __all__ = [
     # LKEAP
     "TencentLKEAPClient",
+    # COS
+    "TencentCOSClient",
     # VDB
     "KnowledgeVectorStore",
     # Guard

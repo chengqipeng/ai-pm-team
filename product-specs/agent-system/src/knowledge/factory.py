@@ -15,11 +15,13 @@ knowledge_search Tool 使用。
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from src.config.models import KnowledgeSettings
 
 from .cleaning import CleaningConfig, DocumentCleaningService
+from .cos_client import TencentCOSClient
 from .guard import IngestionGuard
 from .ingestion import DocumentIngestionPipeline
 from .lkeap_client import TencentLKEAPClient
@@ -139,7 +141,29 @@ def build_knowledge_provider(
         expand_context_n=settings.expand_context_n,
     )
 
-    # 8. 组装 Provider
+    # 8. COS 客户端（可选，凭证通过环境变量注入）
+    cos_client: TencentCOSClient | None = None
+    cos_secret_id = settings.cos_secret_id or os.environ.get("COS_SECRET_ID", "")
+    cos_secret_key = settings.cos_secret_key or os.environ.get("COS_SECRET_KEY", "")
+    if cos_secret_id and cos_secret_key:
+        try:
+            cos_client = TencentCOSClient(
+                secret_id=cos_secret_id,
+                secret_key=cos_secret_key,
+                bucket=settings.cos_bucket or os.environ.get("COS_BUCKET", ""),
+                region=settings.cos_region or os.environ.get("COS_REGION", "ap-beijing"),
+                key_prefix=settings.cos_key_prefix or os.environ.get("COS_KEY_PREFIX", "knowledge/"),
+            )
+            logger.info(
+                "COS client initialized: bucket=%s region=%s prefix=%s",
+                settings.cos_bucket, settings.cos_region, settings.cos_key_prefix,
+            )
+        except Exception as exc:
+            logger.warning("COS client init failed (upload will use local path): %s", exc)
+    else:
+        logger.info("COS credentials not configured; file upload will use local storage only")
+
+    # 9. 组装 Provider
     provider = StandaloneKnowledgeProvider(
         lkeap=lkeap,
         vector_store=vdb,
@@ -147,6 +171,7 @@ def build_knowledge_provider(
         queue=queue,
         guard=guard,
         upload_dir=settings.upload_dir,
+        cos_client=cos_client,
     )
 
     logger.info(

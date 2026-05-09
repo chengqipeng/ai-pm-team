@@ -398,6 +398,8 @@ class VectorStore:
         # 尝试获取已有 collection
         try:
             self._coll = self._db.describe_collection(self._coll_name)
+            # 尝试为旧集合补充 status 字段（如果缺失）
+            self._migrate_add_status_field()
             return
         except Exception:
             pass
@@ -438,6 +440,28 @@ class VectorStore:
             except Exception as e:
                 logger.warning("BM25Encoder init failed: %s", e)
         return self._bm25
+
+    def _migrate_add_status_field(self):
+        """为旧集合补充 status 过滤字段（幂等操作）
+
+        旧版集合创建时没有 status 字段，导致 reflect_on_session 的
+        filter_expr 报错 'Field Not Found: status'。
+        tcvectordb SDK 支持 add_index 动态添加字段。
+        """
+        try:
+            from tcvectordb.model.index import FilterIndex
+            from tcvectordb.model.enum import FieldType, IndexType
+            self._coll.add_index(
+                FilterIndex(name="status", field_type=FieldType.String, index_type=IndexType.FILTER)
+            )
+            logger.info("Migrated collection %s: added 'status' filter index", self._coll_name)
+        except Exception as e:
+            # 字段已存在、或 SDK 不支持 add_index → 静默忽略
+            err_msg = str(e)
+            if "already exist" in err_msg.lower() or "duplicate" in err_msg.lower():
+                pass  # 字段已存在，无需处理
+            else:
+                logger.debug("Migration add_index(status) skipped: %s", err_msg)
 
     def upsert(self, records: list[dict]):
         self._ensure_collection()
@@ -1048,9 +1072,13 @@ class VikingMemoryEngine(MemoryEngine):
     async def _safe_reflect_on_session(self, items: list[MemoryItem], user_id: str):
         """安全包装 reflect_on_session，异常不影响主流程"""
         try:
+            # 等待一小段时间，确保 _dedup_and_store 的向量库写入完成
+            await asyncio.sleep(2)
             stats = await self.reflect_on_session(items, user_id)
             if stats.get("conflicts", 0) > 0:
                 logger.info("Session reflection: %s", stats)
+            else:
+                logger.debug("Session reflection: no conflicts (checked=%d)", stats.get("checked", 0))
         except Exception as e:
             logger.warning("Session reflection failed: %s", e)
 
@@ -1854,15 +1882,38 @@ class VikingMemoryEngine(MemoryEngine):
                 cat = item.metadata.get("category", "")
                 # 检索已有的相似记忆（同类别 + 排除 archived）
                 vec = await asyncio.to_thread(self._emb.embed_query, item.content)
+                # 兼容旧集合（可能没有 status 字段）：先尝试带 status 过滤，失败则降级
                 filter_expr = f'user_id = "{user_id}" and category = "{cat}" and status != "archived"'
-                candidates = await asyncio.to_thread(self._vdb.search, vec, 5, filter_expr)
+                try:
+                    candidates = await asyncio.to_thread(self._vdb.search, vec, 5, filter_expr)
+                except Exception as filter_err:
+                    if "Field Not Found" in str(filter_err) and "status" in str(filter_err):
+                        # 旧集合没有 status 字段，降级为不过滤 status
+                        filter_expr_fallback = f'user_id = "{user_id}" and category = "{cat}"'
+                        candidates = await asyncio.to_thread(self._vdb.search, vec, 5, filter_expr_fallback)
+                        # 在内存中过滤 archived（如果文档恰好有 status 字段值）
+                        candidates = [c for c in candidates if c.get("status") != "archived"]
+                    else:
+                        raise
 
                 # 排除本次会话写入的记忆
                 candidates = [c for c in candidates if c.get("id", "") not in new_ids]
 
+                logger.info(
+                    "reflect_on_session: item=%s, candidates_total=%d, after_exclude_new=%d, new_ids=%s",
+                    item.content[:50], len(candidates) + len(new_ids), len(candidates),
+                    list(new_ids)[:3],
+                )
+
                 # 过滤高相似度候选
                 high_sim = [c for c in candidates
                             if c.get("score", 0) > _REFLECTION_SIMILARITY_THRESHOLD]
+
+                logger.info(
+                    "reflect_on_session: high_sim=%d (threshold=%.2f), scores=%s",
+                    len(high_sim), _REFLECTION_SIMILARITY_THRESHOLD,
+                    [(c.get("id","")[:8], c.get("score",0), c.get("abstract","")[:30]) for c in candidates[:3]],
+                )
                 if not high_sim:
                     continue
 
