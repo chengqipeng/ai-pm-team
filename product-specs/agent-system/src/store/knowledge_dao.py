@@ -1,4 +1,4 @@
-"""知识库数据访问层 — 10 张 ai_knowledge_* 表的 CRUD + 专用查询
+"""知识库数据访问层 — 9 张 ai_knowledge_* 表的 CRUD + 专用查询
 
 对齐 src/store/dao.py 的风格：
 - 使用 get_conn() 上下文管理器，自动 commit/rollback
@@ -18,7 +18,6 @@ from .knowledge_models import (
     KnowledgeDatasetRow,
     KnowledgeSchemaRow,
     KnowledgeDocumentRow,
-    KnowledgeSegmentRow,
     KnowledgeChunkRow,
     KnowledgeIngestQueueRow,
     KnowledgeIngestLogRow,

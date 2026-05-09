@@ -233,7 +233,7 @@ async def run_e2e():
     with get_conn() as conn:
         cur = conn.cursor()
         for tbl in [
-            "ai_knowledge_chunk", "ai_knowledge_segment",
+            "ai_knowledge_chunk",
             "ai_knowledge_document", "ai_knowledge_ingest_log",
             "ai_knowledge_ingest_queue", "ai_knowledge_base_binding",
             "ai_knowledge_dataset", "ai_knowledge_schema",

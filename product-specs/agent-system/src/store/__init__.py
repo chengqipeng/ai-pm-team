@@ -44,7 +44,8 @@ __all__ = [
     "MemoryDAO", "MemoryRow",
     # knowledge models
     "KnowledgeBaseRow", "KnowledgeDatasetRow",
-    "KnowledgeSchemaRow", "KnowledgeDocumentRow", "KnowledgeSegmentRow",
+    "KnowledgeSchemaRow", "KnowledgeDocumentRow",
+    "KnowledgeSegmentRow",  # 内存 dataclass，无对应 PG 表
     "KnowledgeChunkRow", "KnowledgeIngestQueueRow",
     "KnowledgeIngestLogRow", "KnowledgeSearchLogRow",
     # knowledge DAOs

@@ -1,10 +1,12 @@
-"""知识库数据模型 — 对应 paas_ai.ai_knowledge_* 表（10 张）
+"""知识库数据模型 — 对应 paas_ai.ai_knowledge_* 表（9 张 + 1 内存 dataclass）
 
 对齐 src/store/models.py 的风格：
 - 雪花 BIGINT 主键（id）+ 业务 UUID（doc_id/chunk_id/segment_id/task_id）
 - 毫秒时间戳（created_at / updated_at）
 - BaseEntity 审计字段（delete_flg / created_by / updated_by）
 - 所有 JSON 字段存为 TEXT，默认 '{}' 或 '[]'
+
+注：KnowledgeSegmentRow 已不对应 PG 表（2026-05 下线），仅作为入库切分的内存中间结构。
 """
 from __future__ import annotations
 
@@ -208,7 +210,8 @@ class KnowledgeDocumentRow:
 
 
 # ═══════════════════════════════════════════════════════════
-# 6. KnowledgeSegmentRow — ai_knowledge_segment
+# 6. KnowledgeSegmentRow — 仅内存 dataclass（ai_knowledge_segment 表已 DROP）
+#    用于入库切分流程中传递章节结构信息，不持久化到 PG。
 # ═══════════════════════════════════════════════════════════
 
 @dataclass
