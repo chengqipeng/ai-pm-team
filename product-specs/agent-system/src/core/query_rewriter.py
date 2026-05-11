@@ -253,7 +253,7 @@ class QueryRewriter:
 
         # 去除引号包裹
         if len(text) >= 2:
-            pairs = [('"', '"'), ("'", "'"), ('"', '"'), ("'", "'")]
+            pairs = [('"', '"'), ("'", "'"), ("\u201c", "\u201d"), ("\u2018", "\u2019")]
             for lq, rq in pairs:
                 if text[0] == lq and text[-1] == rq:
                     text = text[1:-1]

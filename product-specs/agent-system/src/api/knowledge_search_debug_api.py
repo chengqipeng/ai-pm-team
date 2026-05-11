@@ -213,7 +213,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         detail=self_query_raw,
     ))
 
-    # ── Node 4: 多路召回 ──
+    # ── Node 4-1: Embedding + 切片级混合检索（dense + BM25） ──
     t0 = time.time()
     filter_expr = retriever._build_chunk_filter(req.knowledge_base_id, extracted_filters)
     doc_filter = retriever._build_doc_filter(req.knowledge_base_id, extracted_filters)
@@ -224,43 +224,105 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
     query_vec: list[float] = []
     embed_status = "success"
     embed_error = ""
+    embed_ms = 0
+    t_embed = time.time()
     try:
         query_vec = await retriever._embed(semantic_query)
     except Exception as exc:
         embed_status = "failed"
         embed_error = f"{type(exc).__name__}: {exc}"
         logger.warning("Debug search embedding failed: %s", exc)
+    embed_ms = int((time.time() - t_embed) * 1000)
 
-    # 三路并行召回
+    # A 路：切片级 hybrid_search
     chunk_results: list[dict] = []
-    doc_meta_hybrid: list[dict] = []
     chunk_recall_error = ""
-    doc_recall_error = ""
-
+    t_chunk = time.time()
     try:
-        chunk_results_raw, doc_meta_raw = await asyncio.gather(
-            retriever._recall_chunks(
-                req.tenant_id, query_vec, semantic_query, filter_expr, chunk_limit,
-            ),
-            retriever._recall_doc_metadata_hybrid(
-                req.tenant_id, query_vec, semantic_query, doc_filter, doc_limit,
-            ),
-            return_exceptions=True,
+        chunk_results_raw = await retriever._recall_chunks(
+            req.tenant_id, query_vec, semantic_query, filter_expr, chunk_limit,
         )
         if isinstance(chunk_results_raw, Exception):
             chunk_recall_error = f"{type(chunk_results_raw).__name__}: {chunk_results_raw}"
         else:
             chunk_results = chunk_results_raw
+    except Exception as exc:
+        chunk_recall_error = f"{type(exc).__name__}: {exc}"
+    chunk_recall_ms = int((time.time() - t_chunk) * 1000)
+    step4_1_ms = int((time.time() - t0) * 1000)
+
+    nodes.append(PipelineNode(
+        step=4,
+        name="切片混合检索 (向量+BM25)",
+        name_en="chunk_hybrid_search",
+        status="success" if chunk_results else ("failed" if embed_status == "failed" or chunk_recall_error else "skipped"),
+        duration_ms=step4_1_ms,
+        input_data={
+            "semantic_query": semantic_query,
+            "filter": filter_expr,
+            "embedding_dim": len(query_vec),
+            "embedding_status": embed_status,
+            "embedding_error": embed_error,
+            "embedding_ms": embed_ms,
+            "chunk_limit": chunk_limit,
+            "dense_weight": 0.3,
+            "sparse_weight": 0.7,
+        },
+        output_data={
+            "hits": len(chunk_results),
+            "error": chunk_recall_error,
+            "recall_ms": chunk_recall_ms,
+            "top5_scores": [round(r.get("score", 0), 4) for r in chunk_results[:5]],
+        },
+        detail=(
+            f"Embedding {embed_ms}ms (dim={len(query_vec)}) → "
+            f"VDB hybrid_search {chunk_recall_ms}ms → 命中 {len(chunk_results)} 条切片"
+            + (f"\n❌ {chunk_recall_error}" if chunk_recall_error else "")
+        ),
+    ))
+
+    # ── Node 4-2: 文档级元数据检索（摘要向量 ANN + 加权文本 BM25） ──
+    t0 = time.time()
+    doc_meta_hybrid: list[dict] = []
+    doc_recall_error = ""
+    try:
+        doc_meta_raw = await retriever._recall_doc_metadata_hybrid(
+            req.tenant_id, query_vec, semantic_query, doc_filter, doc_limit,
+        )
         if isinstance(doc_meta_raw, Exception):
             doc_recall_error = f"{type(doc_meta_raw).__name__}: {doc_meta_raw}"
         else:
             doc_meta_hybrid = doc_meta_raw
     except Exception as exc:
-        chunk_recall_error = f"{type(exc).__name__}: {exc}"
-        logger.warning("Debug search recall failed: %s", exc)
+        doc_recall_error = f"{type(exc).__name__}: {exc}"
+    step4_2_ms = int((time.time() - t0) * 1000)
 
     doc_meta_rank = [r.get("id", "") for r in doc_meta_hybrid if r.get("id")]
-    recall_ms = int((time.time() - t0) * 1000)
+
+    nodes.append(PipelineNode(
+        step=5,
+        name="文档元数据检索 (摘要ANN+BM25)",
+        name_en="doc_metadata_hybrid",
+        status="success" if doc_meta_hybrid else ("failed" if doc_recall_error else "skipped"),
+        duration_ms=step4_2_ms,
+        input_data={
+            "semantic_query": semantic_query,
+            "filter": doc_filter,
+            "doc_limit": doc_limit,
+            "dense_weight": 0.5,
+            "sparse_weight": 0.5,
+            "bm25_fields": "title×3 + summary×2 + keywords×2 + candidate×1 + toc×1",
+        },
+        output_data={
+            "hits": len(doc_meta_rank),
+            "error": doc_recall_error,
+            "matched_doc_ids": doc_meta_rank[:5],
+        },
+        detail=(
+            f"文档级 hybrid_search → 命中 {len(doc_meta_rank)} 个文档"
+            + (f"\n❌ {doc_recall_error}" if doc_recall_error else "")
+        ),
+    ))
 
     # 安全机制：如果有过滤条件但召回为 0，去掉过滤重试
     filter_fallback_used = False
@@ -285,6 +347,18 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                 doc_meta_rank = [r.get("id", "") for r in doc_meta_hybrid if r.get("id")]
         except Exception:
             pass
+        if filter_fallback_used:
+            # 追加一个降级说明节点
+            nodes.append(PipelineNode(
+                step=5,
+                name="过滤降级重试",
+                name_en="filter_fallback",
+                status="success" if chunk_results else "failed",
+                duration_ms=0,
+                input_data={"reason": "原始过滤条件导致召回为空", "removed_filters": extracted_filters},
+                output_data={"chunk_hits_after_fallback": len(chunk_results)},
+                detail=f"⚠️ 去掉过滤条件后重试，召回 {len(chunk_results)} 条切片",
+            ))
 
     # 诊断信息：当召回为 0 时，检查 VDB 中是否有该 KB 的数据
     vdb_diagnosis = ""
@@ -295,7 +369,6 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         try:
             vdb = retriever._vdb
             vdb_doc_count = vdb.count_docs(str(req.tenant_id))
-            # 尝试列出该 KB 在 VDB 中的 doc_ids
             from tcvectordb.model.document import Filter
             vdb._ensure_collections()
             kb_filter = f'tenant_id = "{req.tenant_id}" and knowledge_base_id = "{req.knowledge_base_id}" and status = "active"'
@@ -313,10 +386,8 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                 vdb_chunk_count = -1
                 vdb_diagnosis += f"VDB chunk query error: {e2}; "
 
-            # 检查 PG 中该 KB 的 chunk vector_synced 状态
             try:
                 from src.store.knowledge_dao import KnowledgeChunkDAO, KnowledgeDocumentDAO
-                # 查该 KB 下的文档
                 docs = KnowledgeDocumentDAO.list_by_kb(
                     req.tenant_id, req.knowledge_base_id, limit=10, offset=0,
                 )
@@ -341,11 +412,6 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                         "vector_synced": synced_count,
                         "vector_not_synced": not_synced_count,
                         "vector_failed": failed_count,
-                        "doc_statuses": [
-                            {"doc_id": d.doc_id, "title": d.title, "chunk_status": d.chunk_status,
-                             "chunk_count": d.chunk_count}
-                            for d in docs[:5]
-                        ],
                     }
                 else:
                     pg_chunk_stats = {"total_docs_in_pg": 0}
@@ -353,102 +419,34 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                 pg_chunk_stats = {"error": str(pg_exc)}
 
             if vdb_chunk_count == 0:
-                # 进一步分析原因
                 total_pg = pg_chunk_stats.get("total_chunks_in_pg", 0)
                 synced = pg_chunk_stats.get("vector_synced", 0)
                 not_synced = pg_chunk_stats.get("vector_not_synced", 0)
                 failed = pg_chunk_stats.get("vector_failed", 0)
-
                 if total_pg == 0:
-                    vdb_diagnosis += (
-                        f"⚠️ PG 中该知识库也无切片数据。文档可能未完成入库流水线。"
-                        f"请检查文档的 parse_status 和 chunk_status。"
-                    )
+                    vdb_diagnosis += "⚠️ PG 中该知识库也无切片数据。文档可能未完成入库流水线。"
                 elif not_synced > 0 or failed > 0:
-                    vdb_diagnosis += (
-                        f"⚠️ PG 中有 {total_pg} 个切片，但 vector_synced 状态："
-                        f"已同步={synced}, 未同步={not_synced}, 失败={failed}。"
-                        f"向量未写入 VDB！原因可能是：1) Embedding 服务不可用；"
-                        f"2) VDB 连接失败；3) Phase 4 执行异常。"
-                        f"请检查 ingest_log 中的 error_message，或手动触发向量补偿任务。"
-                    )
+                    vdb_diagnosis += f"⚠️ PG 有 {total_pg} 切片，已同步={synced}, 未同步={not_synced}, 失败={failed}。需要执行向量补偿。"
                 elif synced > 0:
-                    vdb_diagnosis += (
-                        f"⚠️ PG 中有 {total_pg} 个切片且标记为已同步(vector_synced=1)，"
-                        f"但 VDB 中查不到数据。可能原因：1) VDB 被清空/重建过；"
-                        f"2) tenant_id 不匹配（PG 中 tenant={req.tenant_id}）；"
-                        f"3) VDB 集合名称配置不一致。"
-                        f"建议：执行「rebuild_doc_metadata」调度任务重建 VDB 索引。"
-                    )
-                else:
-                    vdb_diagnosis += (
-                        f"⚠️ VDB 中该知识库(kb_id={req.knowledge_base_id})无切片数据。"
-                        f"PG chunk 统计: {json.dumps(pg_chunk_stats, ensure_ascii=False)}"
-                    )
+                    vdb_diagnosis += f"⚠️ PG 标记已同步 {synced} 切片，但 VDB 中无数据。VDB 可能被清空，需要重建。"
             elif vdb_chunk_count > 0 and embed_status == "failed":
-                vdb_diagnosis += (
-                    f"VDB 中有 {vdb_chunk_count} 条切片，但 Embedding 生成失败：{embed_error}。"
-                    f"无法进行向量检索。"
-                )
-            elif vdb_chunk_count > 0 and not query_vec:
-                vdb_diagnosis += (
-                    f"VDB 中有 {vdb_chunk_count} 条切片，但查询向量为空。"
-                    f"请检查 Embedding 服务是否正常。"
-                )
+                vdb_diagnosis += f"VDB 有 {vdb_chunk_count} 切片，但 Embedding 失败：{embed_error}"
         except Exception as diag_exc:
             vdb_diagnosis += f"诊断异常: {diag_exc}"
 
-    recall_status = "success"
-    if not chunk_results and not doc_meta_hybrid:
-        recall_status = "failed"
-    elif chunk_recall_error or doc_recall_error:
-        recall_status = "partial"
+        # 诊断节点
+        if vdb_diagnosis:
+            nodes.append(PipelineNode(
+                step=5,
+                name="召回诊断",
+                name_en="recall_diagnosis",
+                status="failed",
+                input_data={"vdb_chunk_count": vdb_chunk_count, "pg_chunk_stats": pg_chunk_stats},
+                output_data={"diagnosis": vdb_diagnosis},
+                detail=vdb_diagnosis,
+            ))
 
-    nodes.append(PipelineNode(
-        step=4,
-        name="多路召回",
-        name_en="multi_path_recall",
-        status=recall_status,
-        duration_ms=recall_ms,
-        input_data={
-            "semantic_query": semantic_query,
-            "chunk_filter": filter_expr,
-            "doc_filter": doc_filter,
-            "embedding_dim": len(query_vec),
-            "embedding_status": embed_status,
-            "embedding_error": embed_error,
-            "chunk_limit": chunk_limit,
-            "doc_limit": doc_limit,
-        },
-        output_data={
-            "chunk_hits": len(chunk_results),
-            "doc_metadata_hits": len(doc_meta_rank),
-            "filter_fallback_used": filter_fallback_used,
-            "recall_paths": [
-                {
-                    "path": "A: VDB chunk hybrid_search (dense+sparse)",
-                    "hits": len(chunk_results),
-                    "error": chunk_recall_error,
-                },
-                {
-                    "path": "B: VDB doc_metadata hybrid (ANN+BM25)",
-                    "hits": len(doc_meta_rank),
-                    "error": doc_recall_error,
-                },
-            ],
-            "vdb_diagnosis": vdb_diagnosis,
-            "vdb_chunk_count_in_kb": vdb_chunk_count,
-            "vdb_doc_count_in_tenant": vdb_doc_count,
-            "pg_chunk_stats": pg_chunk_stats,
-        },
-        detail=(
-            f"切片召回 {len(chunk_results)} 条，文档元数据召回 {len(doc_meta_rank)} 条"
-            + (f"\n⚠️ 过滤条件导致召回为空，已自动去掉过滤重试" if filter_fallback_used else "")
-            + (f"\n🔍 诊断: {vdb_diagnosis}" if vdb_diagnosis else "")
-        ),
-    ))
-
-    # ── Node 5: Hydrate（切片内容填充） ──
+    # ── Node 6: Hydrate（切片内容填充） ──
     t0 = time.time()
     chunks = await retriever._hydrate_and_expand(chunk_results, req.tenant_id)
     hydrate_ms = int((time.time() - t0) * 1000)
@@ -469,7 +467,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         ))
 
     nodes.append(PipelineNode(
-        step=5,
+        step=6,
         name="命中分片详情",
         name_en="chunk_hydration",
         status="success" if chunks else "skipped",
@@ -627,7 +625,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
     rrf_ms = int((time.time() - t0) * 1000)
 
     nodes.append(PipelineNode(
-        step=6,
+        step=7,
         name="RRF 三维度加权排序",
         name_en="rrf_scoring",
         status="success" if rrf_details else "skipped",
@@ -655,9 +653,9 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         ),
     ))
 
-    # ── Node 7: 最终排序结果 ──
+    # ── Node 8: 最终排序结果 ──
     nodes.append(PipelineNode(
-        step=7,
+        step=8,
         name="综合排序结果",
         name_en="final_ranking",
         input_data={"top_k": req.top_k, "threshold": effective_threshold},
@@ -669,7 +667,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         detail=f"最终返回 {len(chunk_hits)} 个分片，来自 {len({ch.doc_id for ch in chunk_hits})} 个文档",
     ))
 
-    # ── Node 8: 回答上下文生成 ──
+    # ── Node 9: 回答上下文生成 ──
     answer_context = ""
     if chunk_hits:
         context_parts = []
@@ -681,7 +679,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         answer_context = "\n\n---\n\n".join(context_parts)
 
     nodes.append(PipelineNode(
-        step=8,
+        step=9,
         name="回答上下文",
         name_en="answer_context",
         input_data={"top_chunks_used": min(5, len(chunk_hits))},

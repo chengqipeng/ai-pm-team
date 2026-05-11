@@ -1548,7 +1548,7 @@ function renderPipelinePanel(data){
     const bgColor = node.status === 'failed' ? 'bg-red-50/50' : node.status === 'partial' ? 'bg-yellow-50/30' : 'bg-white';
 
     html += `
-      <details class="mb-2 group" ${node.step === 4 || node.status === 'failed' ? 'open' : ''}>
+      <details class="mb-2 group" ${node.step === 4 || node.step === 5 || node.status === 'failed' ? 'open' : ''}>
         <summary class="cursor-pointer ${bgColor} border border-gray-100 border-l-4 ${borderColor} rounded-lg px-3 py-2 flex items-center justify-between hover:bg-gray-50/80 transition-all list-none">
           <div class="flex items-center gap-2 min-w-0">
             <span class="text-xs shrink-0">${icon}</span>
@@ -1679,30 +1679,49 @@ function renderPipelinePanel(data){
 }
 
 function _renderNodeExtra(node){
-  if (node.step === 4 && node.output_data) {
-    const paths = node.output_data.recall_paths || [];
-    const diag = node.output_data.vdb_diagnosis || '';
-    const pgStats = node.output_data.pg_chunk_stats || {};
+  // 切片混合检索（Step 4）— 显示检索统计
+  if (node.name_en === 'chunk_hybrid_search' && node.output_data) {
+    const hits = node.output_data.hits || 0;
+    const scores = node.output_data.top5_scores || [];
     let extra = '';
-    if (paths.length) {
-      extra += `<div class="space-y-1 mt-1">`;
-      paths.forEach(p => {
-        const color = p.hits > 0 ? 'bg-green-50 border-green-100 text-green-700' : 'bg-red-50 border-red-100 text-red-700';
-        extra += `<div class="flex items-center justify-between ${color} border rounded-lg px-2.5 py-1.5 text-[10px]"><span class="font-medium">${esc(p.path)}</span><span class="font-bold">${p.hits} 条${p.error ? ' ⚠️' : ''}</span></div>`;
-        if (p.error) extra += `<div class="text-[9px] text-red-500 pl-2 mt-0.5">${esc(p.error)}</div>`;
-      });
-      extra += `</div>`;
+    const color = hits > 0 ? 'bg-green-50 border-green-100 text-green-700' : 'bg-red-50 border-red-100 text-red-700';
+    extra += `<div class="flex items-center justify-between ${color} border rounded-lg px-2.5 py-1.5 text-[10px] mt-1"><span class="font-medium">切片 hybrid_search (向量30% + BM25 70%)</span><span class="font-bold">${hits} 条</span></div>`;
+    if (scores.length) {
+      extra += `<div class="text-[9px] text-gray-400 mt-1">Top5 分数: ${scores.join(', ')}</div>`;
     }
+    if (node.output_data.error) {
+      extra += `<div class="text-[9px] text-red-500 mt-1">❌ ${esc(node.output_data.error)}</div>`;
+    }
+    return extra;
+  }
+  // 文档元数据检索（Step 5）
+  if (node.name_en === 'doc_metadata_hybrid' && node.output_data) {
+    const hits = node.output_data.hits || 0;
+    let extra = '';
+    const color = hits > 0 ? 'bg-green-50 border-green-100 text-green-700' : 'bg-yellow-50 border-yellow-100 text-yellow-700';
+    extra += `<div class="flex items-center justify-between ${color} border rounded-lg px-2.5 py-1.5 text-[10px] mt-1"><span class="font-medium">文档 hybrid_search (摘要ANN 50% + BM25 50%)</span><span class="font-bold">${hits} 文档</span></div>`;
+    if (node.output_data.error) {
+      extra += `<div class="text-[9px] text-red-500 mt-1">❌ ${esc(node.output_data.error)}</div>`;
+    }
+    return extra;
+  }
+  // 召回诊断
+  if (node.name_en === 'recall_diagnosis' && node.output_data) {
+    const diag = node.output_data.diagnosis || '';
+    let extra = '';
     if (diag) {
-      extra += `<div class="mt-2 text-[10px] text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-2.5 py-2 leading-relaxed">🔍 <b>诊断:</b> ${esc(diag)}</div>`;
-      // 添加修复按钮
+      extra += `<div class="mt-1 text-[10px] text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-2.5 py-2 leading-relaxed">🔍 ${esc(diag)}</div>`;
       extra += `<button onclick="resyncVectors()" class="mt-2 px-3 py-1.5 bg-gradient-to-r from-orange-500 to-red-500 text-white text-[10px] font-bold rounded-lg shadow-sm hover:shadow-md transition-all">🔧 立即修复（重新同步向量）</button>`;
     }
-    // PG 统计信息
+    const pgStats = node.input_data?.pg_chunk_stats;
     if (pgStats && pgStats.total_chunks_in_pg !== undefined) {
       extra += `<details class="mt-2 text-[10px]"><summary class="cursor-pointer text-gray-400 hover:text-gray-600 font-medium">▸ PG 切片状态</summary><pre class="mt-1 bg-gray-50 border border-gray-100 rounded-lg p-2 text-gray-700 font-mono whitespace-pre-wrap text-[9px]">${esc(JSON.stringify(pgStats, null, 2))}</pre></details>`;
     }
     return extra;
+  }
+  // 过滤降级
+  if (node.name_en === 'filter_fallback') {
+    return `<div class="mt-1 text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5">⚠️ 原始过滤条件无结果，已自动去掉过滤重试</div>`;
   }
   return '';
 }
