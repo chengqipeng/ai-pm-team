@@ -46,6 +46,45 @@ logger = logging.getLogger(__name__)
 # Prompt 模板
 # ═══════════════════════════════════════════════════════════
 
+QUERY_REWRITE_PROMPT = """你是一个专业的检索查询优化器。请根据用户的原始问题和对话历史，生成优化后的检索查询。
+
+## 任务
+将用户的口语化/简短/模糊问题改写为更适合知识库检索的形式，同时提取核心关键词。
+
+## 改写规则
+1. 补全指代：如果对话历史中有上下文，将"它"、"这个"等指代词替换为具体实体
+2. 扩展缩写：将缩写/简称展开为全称（如"3051" → "罗斯蒙特3051压力变送器"）
+3. 语义增强：添加同义词或相关术语提升召回率（如"参数" → "技术参数 规格 性能指标"）
+4. 去除噪音：去掉"请问"、"帮我"、"我想知道"等无检索价值的词
+5. 保持核心意图：不要改变用户的原始查询意图
+
+## 关键词提取规则
+1. 提取 3-8 个核心关键词，按重要性排序
+2. 包含：产品名称、型号、技术术语、核心概念
+3. 排除：停用词、语气词、连接词
+
+## 对话历史
+{conversation_history}
+
+## 用户当前问题
+{query}
+
+## 输出要求
+严格以 JSON 格式输出（不要任何其他说明文字）：
+{{
+  "rewritten_query": "改写后的检索查询（一句话，适合语义检索）",
+  "keywords": ["关键词1", "关键词2", "关键词3"],
+  "intent": "用户意图的一句话描述",
+  "expansion_terms": ["扩展词1", "扩展词2"]
+}}
+
+示例：
+- 用户问"3051参数" → {{"rewritten_query": "罗斯蒙特3051压力变送器技术参数规格", "keywords": ["罗斯蒙特", "3051", "压力变送器", "参数", "规格"], "intent": "查询3051压力变送器的技术参数", "expansion_terms": ["技术规格", "性能指标", "量程"]}}
+- 用户问"怎么安装" + 历史提到3051 → {{"rewritten_query": "罗斯蒙特3051压力变送器安装方法步骤", "keywords": ["3051", "安装", "方法", "步骤"], "intent": "查询3051的安装方法", "expansion_terms": ["安装指南", "接线", "调试"]}}
+- 用户问"价格多少" → {{"rewritten_query": "产品价格报价", "keywords": ["价格", "报价"], "intent": "查询产品价格", "expansion_terms": ["选型", "订购"]}}
+"""
+
+
 SELF_QUERY_PROMPT = """你是一个查询分析器。根据用户的自然语言查询，判断是否需要元数据过滤。
 
 ## 可用的过滤字段
@@ -57,18 +96,27 @@ SELF_QUERY_PROMPT = """你是一个查询分析器。根据用户的自然语言
 ## 输出要求
 以 JSON 格式输出（不要任何其他说明文字）：
 {{
-  "semantic_query": "用于语义检索的核心查询（去除过滤条件后的问题）",
+  "semantic_query": "用于语义检索的核心查询（保留用户原始问题的核心词汇）",
   "filters": {{
     "字段名": "值"
   }}
 }}
 
-如果没有明确过滤意图，filters 返回空对象 {{}}。
-字段值必须从 Schema 枚举值中选择，不要自创。
+## 关键规则（必须严格遵守）
+1. **宁可不过滤，也不要错误过滤**。过滤条件只在用户明确表达了分类意图时才添加。
+2. 如果用户查询是产品名称、型号、品牌名、技术术语，**不要**添加任何过滤条件，直接返回空 filters。
+3. 只有当用户明确说出了分类词（如"成功案例"、"制造业"、"售前阶段"）时，才添加对应的 filter。
+4. **不要**从产品名称推断 productService 过滤 — 产品名称应该通过语义检索匹配，不是通过 filter 精确匹配。
+5. **不要**从文档类型推断 docCategory 过滤 — 除非用户明确说"我要看产品手册"、"给我成功案例"。
+6. semantic_query 应保留用户原始查询的核心词汇，不要过度改写。
+7. filters 返回空对象 {{}} 是最安全的默认选择。
 
-示例：
+## 示例
+- "罗斯蒙特" → {{"semantic_query": "罗斯蒙特", "filters": {{}}}}
+- "3051压力变送器参数" → {{"semantic_query": "3051压力变送器参数", "filters": {{}}}}
 - "制造业的成功案例" → {{"semantic_query": "成功案例", "filters": {{"docCategory": "成功案例", "industryVertical": "制造业"}}}}
 - "怎么配置审批流" → {{"semantic_query": "怎么配置审批流", "filters": {{}}}}
+- "给我看售前阶段的培训材料" → {{"semantic_query": "培训材料", "filters": {{"docCategory": "培训材料", "businessStage": "售前咨询"}}}}
 """
 
 
@@ -155,8 +203,18 @@ class KnowledgeRetriever:
 
         effective_threshold = await self._resolve_threshold(threshold, knowledge_base_id)
 
-        # Step 1: 查询改写（预留）
+        # Step 1: 查询改写 + 关键词提取
         rewritten_query = query
+        extracted_keywords: list[str] = []
+        if self._llm and conversation_history:
+            ts = time.time()
+            try:
+                rw = await self._rewrite_query(query, conversation_history)
+                rewritten_query = rw.get("rewritten_query", query)
+                extracted_keywords = rw.get("keywords", [])
+            except Exception as exc:
+                logger.warning("Query rewrite failed: %s", exc)
+            timings["rewrite_ms"] = int((time.time() - ts) * 1000)
 
         # Step 2: Self-Querying
         semantic_query = rewritten_query
@@ -200,6 +258,30 @@ class KnowledgeRetriever:
         if isinstance(doc_meta_hybrid, Exception):
             logger.debug("Doc metadata hybrid recall failed: %s", doc_meta_hybrid)
             doc_meta_hybrid = []
+
+        # 安全机制：如果 Self-Querying 生成了过滤条件但召回为 0，去掉过滤重试
+        if not chunk_results and effective_filters and query_vec:
+            logger.info(
+                "Recall empty with filters=%s, retrying without filters",
+                effective_filters,
+            )
+            fallback_filter = self._build_chunk_filter(knowledge_base_id, {})
+            fallback_doc_filter = self._build_doc_filter(knowledge_base_id, {})
+            chunk_results_fb, doc_meta_fb = await asyncio.gather(
+                self._recall_chunks(
+                    tenant_id, query_vec, semantic_query, fallback_filter, chunk_limit,
+                ),
+                self._recall_doc_metadata_hybrid(
+                    tenant_id, query_vec, semantic_query, fallback_doc_filter, doc_limit,
+                ),
+                return_exceptions=True,
+            )
+            if not isinstance(chunk_results_fb, Exception) and chunk_results_fb:
+                chunk_results = chunk_results_fb
+                effective_filters = {}  # 清空过滤条件标记
+                logger.info("Fallback recall success: chunks=%d", len(chunk_results))
+            if not isinstance(doc_meta_fb, Exception) and doc_meta_fb:
+                doc_meta_hybrid = doc_meta_fb
 
         # B1+B2 合并后按融合分排序的 doc_id 列表（用于 β 维度单路 RRF）
         doc_meta_rank: list[str] = [r.get("id", "") for r in doc_meta_hybrid if r.get("id")]
@@ -470,8 +552,76 @@ class KnowledgeRetriever:
         return self._DEFAULT_THRESHOLD
 
     # ══════════════════════════════════════════════════════
-    # Self-Querying / Embedding
+    # Query Rewrite / Self-Querying / Embedding
     # ══════════════════════════════════════════════════════
+
+    async def _rewrite_query(
+        self, query: str, conversation_history: list | None,
+    ) -> dict:
+        """查询改写 + 关键词提取
+
+        返回:
+            {
+                "rewritten_query": "改写后的查询",
+                "keywords": ["关键词1", "关键词2"],
+                "intent": "用户意图",
+                "expansion_terms": ["扩展词1"]
+            }
+        """
+        if not self._llm:
+            return {"rewritten_query": query, "keywords": self._local_keywords(query)}
+
+        # 构建对话历史文本
+        history_text = "无对话历史"
+        if conversation_history:
+            parts = []
+            for msg in conversation_history[-6:]:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")[:200]
+                parts.append(f"[{role}]: {content}")
+            history_text = "\n".join(parts) if parts else "无对话历史"
+
+        prompt = QUERY_REWRITE_PROMPT.format(
+            conversation_history=history_text,
+            query=query,
+        )
+
+        try:
+            resp = await self._llm.ainvoke(prompt)
+            text = getattr(resp, "content", None) or str(resp)
+        except Exception as exc:
+            logger.warning("Query rewrite LLM call failed: %s", exc)
+            return {"rewritten_query": query, "keywords": self._local_keywords(query)}
+
+        from .ingestion import _extract_json_object
+        parsed = _extract_json_object(text)
+        if parsed is None:
+            logger.warning("Query rewrite response not valid JSON: %s", text[:200])
+            return {"rewritten_query": query, "keywords": self._local_keywords(query)}
+
+        result = {
+            "rewritten_query": parsed.get("rewritten_query") or query,
+            "keywords": parsed.get("keywords") or [],
+            "intent": parsed.get("intent") or "",
+            "expansion_terms": parsed.get("expansion_terms") or [],
+        }
+        # 确保 keywords 是列表
+        if not isinstance(result["keywords"], list):
+            result["keywords"] = [str(result["keywords"])]
+
+        return result
+
+    def _local_keywords(self, text: str) -> list[str]:
+        """本地关键词提取（jieba TF-IDF，不依赖 LLM）"""
+        if not text:
+            return []
+        try:
+            import jieba.analyse
+            keywords = jieba.analyse.extract_tags(text, topK=8, withWeight=False)
+            return keywords
+        except Exception:
+            # jieba 不可用时用简单分词
+            return self._tokenize(text)[:8]
 
     async def _self_query(
         self, query: str, tenant_id: int, kb_id: int | None,

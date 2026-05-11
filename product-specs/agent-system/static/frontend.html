@@ -357,7 +357,7 @@ body { margin: 0; }
         <!-- 面板内容 -->
         <div class="flex-1 overflow-y-auto px-6 py-4 custom-scrollbar">
           <!-- 推理链路 Tab -->
-          <div id="panelRealtime" class="space-y-1">
+          <div id="panelRealtime" class="space-y-0">
             <div id="traceContent">
               <div class="text-center text-gray-400 text-xs py-10">等待对话开始...</div>
             </div>
@@ -761,110 +761,123 @@ function renderTraceNode(span, idx) {
   const isActive = span.status === 'active';
   const isPending = span.status === 'pending';
 
-  const iconColor = isComplete ? 'bg-blue-600 border-blue-600 text-white' :
-                    isActive ? 'bg-white border-blue-600 text-blue-600 shadow-[0_0_12px_rgba(37,99,235,0.15)]' :
-                    'bg-white border-gray-200 text-gray-300';
+  // 步骤编号
+  const stepNum = span.step || (idx + 1);
+  const stepName = span.step_name || span.title || '';
+  const stepNameEn = span.step_name_en || span.type || '';
+  const durationText = span.duration_ms ? `${Math.round(span.duration_ms)}ms` : '';
+  const detail = span.detail || span.desc || '';
 
-  const titleColor = isActive ? 'text-blue-600' : isComplete ? 'text-gray-900' : 'text-gray-400';
-  const descColor = isActive ? 'text-gray-700 font-medium' : 'text-gray-400';
+  // ── 根据步骤类型选择样式 ──
+  const typeStyles = {
+    'content_review': { icon: '🛡️', color: 'purple', gradient: 'from-purple-500 to-violet-500' },
+    'query_rewrite': { icon: '✏️', color: 'amber', gradient: 'from-amber-500 to-orange-500' },
+    'user_input': { icon: '💬', color: 'blue', gradient: 'from-blue-500 to-cyan-500' },
+    'context_build': { icon: '🧱', color: 'slate', gradient: 'from-slate-500 to-gray-500' },
+    'memory_retrieval': { icon: '🧠', color: 'pink', gradient: 'from-pink-500 to-rose-500' },
+    'intent_analysis': { icon: '🎯', color: 'indigo', gradient: 'from-indigo-500 to-blue-500' },
+    'llm_input': { icon: '📥', color: 'sky', gradient: 'from-sky-500 to-blue-500' },
+    'llm_call': { icon: '⚡', color: 'violet', gradient: 'from-violet-500 to-purple-500' },
+    'tool_call': { icon: '🔧', color: 'emerald', gradient: 'from-emerald-500 to-teal-500' },
+    'hierarchical_search': { icon: '🔍', color: 'cyan', gradient: 'from-cyan-500 to-blue-500' },
+    'memory_extract': { icon: '💾', color: 'rose', gradient: 'from-rose-500 to-pink-500' },
+    'semantic_parse': { icon: '🧩', color: 'orange', gradient: 'from-orange-500 to-amber-500' },
+    'response_complete': { icon: '✅', color: 'green', gradient: 'from-green-500 to-emerald-500' },
+    'error': { icon: '❌', color: 'red', gradient: 'from-red-500 to-rose-500' },
+  };
+  const style = typeStyles[stepNameEn] || typeStyles[span.step_name_en] || { icon: '📌', color: 'gray', gradient: 'from-gray-500 to-slate-500' };
 
-  const checkIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
+  // 状态指示
+  const statusDot = isActive
+    ? `<span class="w-2 h-2 bg-blue-500 rounded-full animate-pulse-slow ring-4 ring-blue-100"></span>`
+    : isComplete
+    ? `<span class="w-2 h-2 bg-green-500 rounded-full ring-2 ring-green-100"></span>`
+    : `<span class="w-2 h-2 bg-gray-300 rounded-full"></span>`;
 
+  // 输入/输出
+  const hasInputData = span.input_data && Object.keys(span.input_data).length > 0;
+  const hasOutputData = span.output_data && Object.keys(span.output_data).length > 0;
+  const hasLegacyInput = !hasInputData && span.input != null && span.input !== '';
+  const hasLegacyOutput = !hasOutputData && span.output != null && span.output !== '';
+
+  // 子节点
   let childrenHtml = '';
   if (span.children && span.children.length) {
-    childrenHtml = '<div class="mt-3 space-y-2 pb-1">';
+    childrenHtml = '<div class="mt-2 space-y-1">';
     span.children.forEach(ch => {
-      const dotColor = ch.status === 'complete' ? 'bg-blue-500' : ch.status === 'active' ? 'bg-blue-400 animate-pulse' : 'bg-gray-200';
-      const labelColor = ch.status === 'active' ? 'text-blue-600' : 'text-gray-500';
+      const dotColor = ch.status === 'complete' ? 'bg-green-400' : ch.status === 'active' ? 'bg-blue-400 animate-pulse' : 'bg-gray-300';
       childrenHtml += `
-        <div class="flex items-center gap-3 pl-1">
-          <div class="w-3 h-3 border-l-2 border-b-2 border-blue-50/50 rounded-bl-lg shrink-0"></div>
-          <div class="flex items-center gap-2 flex-1 py-1 px-2 rounded-lg bg-gray-50/30">
-            <div class="w-1.5 h-1.5 rounded-full ${dotColor}"></div>
-            <span class="text-[10px] font-bold ${labelColor}">${esc(ch.label)}</span>
-          </div>
+        <div class="flex items-center gap-2 text-[10px] px-2 py-1 bg-gray-50/50 rounded-md">
+          <div class="w-1.5 h-1.5 rounded-full ${dotColor} shrink-0"></div>
+          <span class="text-gray-600 truncate">${esc(ch.label)}</span>
+          ${ch.duration_ms ? '<span class="text-gray-400 ml-auto shrink-0">' + ch.duration_ms + 'ms</span>' : ''}
         </div>`;
     });
     childrenHtml += '</div>';
   }
 
-  // ── 展开/折叠：详细输入输出 ──
-  const hasInput = span.input != null && span.input !== '' && !(Array.isArray(span.input) && !span.input.length);
-  const hasOutput = span.output != null && span.output !== '' && !(Array.isArray(span.output) && !span.output.length);
-  const hasMeta = span.metadata && Object.keys(span.metadata).length > 0;
-  const hasDetail = hasInput || hasOutput || hasMeta;
-  const isExpanded = !!span.expanded;
-  const chevron = hasDetail ? `
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-         stroke-linecap="round" stroke-linejoin="round"
-         class="ml-1 text-gray-400 shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}">
-      <polyline points="9 18 15 12 9 6"/>
-    </svg>` : '';
-
-  let detailHtml = '';
-  if (hasDetail && isExpanded) {
-    const sections = [];
-    if (hasInput) {
-      sections.push(`
-        <div class="mb-2">
-          <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-1">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/></svg>
-            输入
-          </div>
-          <pre class="text-[10.5px] leading-relaxed text-gray-700 bg-white/70 border border-gray-100 rounded-lg p-2 max-h-56 overflow-auto whitespace-pre-wrap break-words custom-scrollbar">${esc(formatDetailValue(span.input))}</pre>
-        </div>`);
-    }
-    if (hasOutput) {
-      sections.push(`
-        <div class="mb-2">
-          <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-1">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>
-            输出
-          </div>
-          <pre class="text-[10.5px] leading-relaxed text-gray-700 bg-white/70 border border-gray-100 rounded-lg p-2 max-h-56 overflow-auto whitespace-pre-wrap break-words custom-scrollbar">${esc(formatDetailValue(span.output))}</pre>
-        </div>`);
-    }
-    if (hasMeta) {
-      sections.push(`
-        <div class="mb-1">
-          <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-1">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-            元信息
-          </div>
-          <pre class="text-[10.5px] leading-relaxed text-gray-700 bg-white/70 border border-gray-100 rounded-lg p-2 max-h-40 overflow-auto whitespace-pre-wrap break-words custom-scrollbar">${esc(JSON.stringify(span.metadata, null, 2))}</pre>
-        </div>`);
-    }
-    detailHtml = `<div class="mt-2 ml-0 rounded-xl bg-gradient-to-br from-blue-50/40 to-indigo-50/30 border border-blue-100/50 p-2.5 animate-fade-in">${sections.join('')}</div>`;
+  // 输入参数
+  let inputHtml = '';
+  const inputVal = hasInputData ? span.input_data : (hasLegacyInput ? span.input : null);
+  if (inputVal) {
+    inputHtml = `
+      <details class="text-[10px] mt-1.5">
+        <summary class="cursor-pointer text-gray-400 hover:text-blue-600 font-medium flex items-center gap-1 transition-colors">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="group-open:rotate-90 transition-transform"><polyline points="9 18 15 12 9 6"/></svg>
+          输入参数
+        </summary>
+        <pre class="mt-1 bg-slate-50 border border-slate-100 rounded-lg p-2.5 overflow-x-auto text-slate-700 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto text-[10px] custom-scrollbar leading-relaxed">${esc(formatDetailValue(inputVal))}</pre>
+      </details>`;
   }
 
-  const clickable = hasDetail ? `onclick="toggleSpanExpand(${idx})"` : '';
-  const hoverCls = hasDetail ? 'cursor-pointer hover:bg-blue-50/30 -mx-2 px-2 rounded-lg' : '';
+  // 输出结果
+  let outputHtml = '';
+  const outputVal = hasOutputData ? span.output_data : (hasLegacyOutput ? span.output : null);
+  if (outputVal) {
+    outputHtml = `
+      <details class="text-[10px] mt-1.5">
+        <summary class="cursor-pointer text-gray-400 hover:text-green-600 font-medium flex items-center gap-1 transition-colors">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          输出结果
+        </summary>
+        <pre class="mt-1 bg-green-50/50 border border-green-100 rounded-lg p-2.5 overflow-x-auto text-slate-700 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto text-[10px] custom-scrollbar leading-relaxed">${esc(formatDetailValue(outputVal))}</pre>
+      </details>`;
+  }
 
   return `
-    <div class="relative mb-4 last:mb-0">
-      <div class="absolute left-[15px] top-8 bottom-0 w-[1px] bg-blue-100"></div>
-      <div class="flex gap-4 relative z-10 transition-all duration-300 ${isActive ? 'scale-[1.01] origin-left' : ''}">
-        <div class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border-2 transition-all ${iconColor}">
-          ${isComplete ? checkIcon : (span.icon || '')}
+    <details class="mb-1.5 group trace-node" ${isActive ? 'open' : ''}>
+      <summary class="cursor-pointer rounded-xl px-3 py-2.5 flex items-center gap-3 transition-all list-none
+        ${isActive ? 'bg-blue-50/80 border border-blue-200 shadow-sm' : 'bg-white/80 border border-gray-100 hover:border-gray-200 hover:shadow-sm'}">
+        <!-- 左侧：序号徽章 -->
+        <div class="w-7 h-7 bg-gradient-to-br ${style.gradient} rounded-lg flex items-center justify-center text-white text-[10px] font-bold shadow-sm shrink-0">
+          ${stepNum}
         </div>
-        <div class="flex-1 min-w-0 pt-1">
-          <div class="flex items-start py-0.5 transition-colors ${hoverCls}" ${clickable}>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between mb-0.5">
-                <h4 class="text-xs font-extrabold tracking-tight ${titleColor} flex items-center min-w-0 flex-1">
-                  <span class="truncate">${esc(span.title)}</span>
-                  ${chevron}
-                </h4>
-                ${span.time ? `<span class="text-[9px] text-gray-400 font-mono shrink-0 ml-2">${esc(span.time)}</span>` : ''}
-              </div>
-              <p class="text-[11px] leading-none mb-2 ${descColor}">${esc(span.desc)}</p>
-            </div>
+        <!-- 中间：名称 + 状态 -->
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="text-[12px] font-semibold text-gray-800">${esc(stepName)}</span>
+            ${statusDot}
           </div>
-          ${childrenHtml}
-          ${detailHtml}
+          <div class="flex items-center gap-2 mt-0.5">
+            <span class="text-[9px] text-gray-400 font-mono">${esc(stepNameEn)}</span>
+            ${durationText ? `<span class="text-[9px] text-gray-400">· ${durationText}</span>` : ''}
+          </div>
         </div>
+        <!-- 右侧：时间 + 展开箭头 -->
+        <div class="flex items-center gap-2 shrink-0">
+          ${span.time ? `<span class="text-[9px] text-gray-400 font-mono">${esc(span.time)}</span>` : ''}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-gray-300 group-open:rotate-90 transition-transform duration-200"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+      </summary>
+      <!-- 展开内容 -->
+      <div class="ml-3.5 mt-1 border-l-2 border-${style.color}-100 pl-4 pb-2 space-y-1.5">
+        ${detail ? `<div class="text-[11px] text-gray-600 leading-relaxed py-1">${esc(detail)}</div>` : ''}
+        ${_renderToolCallInfo(span)}
+        ${childrenHtml}
+        ${inputHtml}
+        ${outputHtml}
       </div>
-    </div>`;
+    </details>`;
 }
 
 function formatDetailValue(val) {
@@ -881,15 +894,59 @@ function formatDetailValue(val) {
 }
 
 function toggleSpanExpand(idx) {
-  const sp = liveSpans[idx];
-  if (!sp) return;
-  sp.expanded = !sp.expanded;
-  refreshTrace();
+  // 不再需要手动管理展开状态，使用原生 <details> 元素
+  // 保留函数以兼容可能的外部调用
 }
 
 function addLiveSpan(span) {
   liveSpans.push(span);
   refreshTrace();
+}
+
+function _renderToolCallInfo(span) {
+  if (span.step_name_en !== 'tool_call' && !(span.step_name || '').includes('工具')) return '';
+  const md = span.metadata || {};
+  const toolName = md.display_name || md.tool_name || '';
+  if (!toolName) return '';
+
+  const isComplete = span.status === 'complete';
+  const statusBg = isComplete ? 'bg-emerald-50 border-emerald-200' : 'bg-blue-50 border-blue-200';
+
+  let html = `<div class="mt-2 border ${statusBg} rounded-xl p-3 text-[10px]">`;
+  // 工具名称头部
+  html += `<div class="flex items-center gap-2 mb-2">`;
+  html += `<div class="w-6 h-6 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-lg flex items-center justify-center shadow-sm"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>`;
+  html += `<span class="font-bold text-gray-800 text-[11px]">${esc(toolName)}</span>`;
+  if (isComplete) html += `<span class="ml-auto text-emerald-600 font-bold text-[9px] bg-emerald-100 px-1.5 py-0.5 rounded-full">✓ 完成</span>`;
+  else html += `<span class="ml-auto text-blue-600 font-bold text-[9px] bg-blue-100 px-1.5 py-0.5 rounded-full animate-pulse-slow">执行中</span>`;
+  if (span.duration_ms) html += `<span class="text-gray-400 text-[9px]">${Math.round(span.duration_ms)}ms</span>`;
+  html += `</div>`;
+
+  // 输入参数摘要
+  const input = md.input || (span.input_data && span.input_data.arguments) || '';
+  if (input) {
+    let inputPreview = '';
+    try {
+      const parsed = JSON.parse(input);
+      const entries = Object.entries(parsed).slice(0, 5);
+      inputPreview = entries.map(([k, v]) => {
+        const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        return `<span class="text-gray-400">${esc(k)}:</span> <span class="text-gray-700">${esc(truncStr(val, 40))}</span>`;
+      }).join('<span class="text-gray-300 mx-1">|</span>');
+    } catch(e) {
+      inputPreview = `<span class="text-gray-700">${esc(truncStr(String(input), 100))}</span>`;
+    }
+    html += `<div class="bg-white/60 rounded-lg px-2.5 py-1.5 border border-gray-100 mb-1.5"><span class="text-gray-400 mr-1">📥</span>${inputPreview}</div>`;
+  }
+
+  // 输出摘要
+  const output = md.output || (span.output_data && span.output_data.result) || '';
+  if (output && isComplete) {
+    html += `<div class="bg-white/60 rounded-lg px-2.5 py-1.5 border border-gray-100"><span class="text-gray-400 mr-1">📤</span><span class="text-gray-700">${esc(truncStr(String(output), 120))}</span></div>`;
+  }
+
+  html += `</div>`;
+  return html;
 }
 
 function refreshTrace() {
@@ -1097,13 +1154,20 @@ const SPAN_ICONS = {
 };
 
 const SPAN_LABELS = {
+  content_review: '内容审查',
+  query_rewrite: '查询改写',
+  user_input: '用户输入',
   context_build: '上下文构建',
   memory_retrieval: '记忆检索',
   intent_analysis: '意图分析',
-  llm_call: 'LLM 调用',
+  llm_input: 'LLM 输入准备',
+  llm_call: '模型推理',
   tool_call: '工具调用',
   hierarchical_search: '分层检索',
   memory_extract: '记忆提取',
+  semantic_parse: '语义解析',
+  response_complete: '回复完成',
+  error: '执行错误',
 };
 
 function getSpanIcon(type) { return SPAN_ICONS[type] || SPAN_ICONS['done']; }
@@ -1142,7 +1206,7 @@ async function send() {
 
   // 添加初始语义解析 span
   const nowTime = new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8);
-  addLiveSpan({ status: 'active', icon: getSpanIcon('intent_analysis'), title: '语义解析', desc: '正在分析用户意图...', time: nowTime, children: [] });
+  addLiveSpan({ status: 'active', icon: getSpanIcon('intent_analysis'), title: '语义解析', step: 0, step_name: '语义解析', step_name_en: 'semantic_parse', detail: '正在分析用户意图...', desc: '正在分析用户意图...', time: nowTime, children: [], input_data: { user_message: text }, output_data: {} });
   refreshTrace();
 
   // 创建步骤容器
@@ -1207,7 +1271,8 @@ async function send() {
               if (sp.children && sp.children.length) {
                 children = sp.children.map(ch => ({
                   label: ch.name || ch.type || '',
-                  status: 'complete'
+                  status: 'complete',
+                  duration_ms: ch.duration_ms || 0,
                 }));
               }
               if (meta.hit_count != null) {
@@ -1217,42 +1282,29 @@ async function send() {
                 children.push({ label: `任务类型: ${meta.task_type}`, status: 'complete' });
               }
 
-              // 提取输入输出（按 span 类型定制）
-              let spInput = '', spOutput = '';
-              if (spanType === 'query_rewrite') {
-                spInput = meta.original_query || '';
-                spOutput = meta.rewritten_query || '';
-              } else if (spanType === 'memory_retrieval') {
-                spInput = meta.query_used || '';
-                if (meta.items_preview && meta.items_preview.length) {
-                  spOutput = meta.items_preview;
-                }
-              } else if (spanType === 'intent_analysis') {
-                spInput = meta.raw_intent || '';
-                spOutput = {
-                  task_type: meta.task_type || '',
-                  matched_skills: meta.matched_skills || [],
-                  confidence: meta.confidence
-                };
-              } else if (spanType === 'llm_input') {
-                spInput = meta.messages_to_llm || '';
-              }
-
-              // 添加到右侧面板
+              // 添加到右侧面板（使用新的 PipelineNode 格式）
               addLiveSpan({
                 status: 'complete',
                 icon: getSpanIcon(spanType),
                 title: spanName,
-                desc: meta.query_used ? `查询: "${truncStr(meta.query_used, 30)}"` : (sp.description || ''),
+                // 新增：对齐检索链路详情的字段
+                step: sp.step || 0,
+                step_name: sp.step_name || getSpanLabel(spanType),
+                step_name_en: sp.step_name_en || spanType,
+                detail: sp.detail || (meta.query_used ? `查询: "${truncStr(meta.query_used, 50)}"` : (sp.description || '')),
+                input_data: sp.input_data || {},
+                output_data: sp.output_data || {},
+                duration_ms: sp.duration_ms || 0,
+                desc: sp.detail || (meta.query_used ? `查询: "${truncStr(meta.query_used, 30)}"` : (sp.description || '')),
                 time: nowTime,
                 children: children,
-                input: spInput,
-                output: spOutput,
+                input: sp.input_data || meta.input || '',
+                output: sp.output_data || meta.output || '',
                 metadata: meta,
               });
 
               // 添加到对话区步骤
-              const stepLabel = spanName + (meta.hit_count != null ? ` (${meta.hit_count} 条)` : '') + (sp.duration_ms ? ` ${Math.round(sp.duration_ms)}ms` : '');
+              const stepLabel = (sp.step_name || spanName) + (meta.hit_count != null ? ` (${meta.hit_count} 条)` : '') + (sp.duration_ms ? ` ${Math.round(sp.duration_ms)}ms` : '');
               addStep(stepLabel, 'done');
             }
 
@@ -1264,9 +1316,15 @@ async function send() {
                 status: 'active',
                 icon: getSpanIcon('llm_call'),
                 title: title,
+                step: 0,
+                step_name: `模型推理 (第${iterCount}轮)`,
+                step_name_en: 'llm_call',
+                detail: '模型推理中...',
                 desc: '模型推理中...',
                 time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
                 children: [],
+                input_data: evt.input ? { messages_preview: evt.input } : {},
+                output_data: {},
                 input: evt.input || '',
                 output: '',
               });
@@ -1280,12 +1338,20 @@ async function send() {
                 if (liveSpans[i].status === 'active' && liveSpans[i].title.includes('思考')) {
                   liveSpans[i].status = 'complete';
                   liveSpans[i].desc = `完成 (${evt.duration_ms || 0}ms)`;
+                  liveSpans[i].detail = `模型推理完成: ${evt.duration_ms || 0}ms`;
+                  liveSpans[i].duration_ms = evt.duration_ms || 0;
                   if (evt.output) {
                     liveSpans[i].output = evt.output;
                   }
                   if (evt.tokens) {
                     const tok = evt.tokens;
                     liveSpans[i].children.push({ label: `输出 ${tok.output_tokens || '?'} tokens`, status: 'complete' });
+                    liveSpans[i].output_data = {
+                      tokens: tok,
+                      tool_calls: evt.tool_calls || [],
+                      is_final: evt.is_final,
+                      duration_ms: evt.duration_ms,
+                    };
                     liveSpans[i].metadata = Object.assign({}, liveSpans[i].metadata || {}, {
                       tokens: tok,
                       tool_calls: evt.tool_calls || [],
@@ -1322,9 +1388,15 @@ async function send() {
                 status: 'active',
                 icon: getSpanIcon('tool_call'),
                 title: `工具: ${displayName}`,
+                step: 0,
+                step_name: `工具调用: ${displayName}`,
+                step_name_en: 'tool_call',
+                detail: evt.input ? `参数: ${truncStr(evt.input, 80)}` : '执行中...',
                 desc: evt.input ? truncStr(evt.input, 50) : '执行中...',
                 time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
                 children: [],
+                input_data: { tool_name: toolName, arguments: evt.input_full || evt.input || '' },
+                output_data: {},
                 input: evt.input_full || evt.input || '',
                 output: '',
                 metadata: { tool_name: toolName, display_name: displayName },
@@ -1339,10 +1411,16 @@ async function send() {
                 if (liveSpans[i].status === 'active' && liveSpans[i].title.includes(toolName)) {
                   liveSpans[i].status = 'complete';
                   liveSpans[i].desc = `完成 (${evt.duration_ms || 0}ms)`;
+                  liveSpans[i].detail = `工具 ${toolName} 执行完成: ${evt.duration_ms || 0}ms`;
+                  liveSpans[i].duration_ms = evt.duration_ms || 0;
                   if (evt.output) {
                     liveSpans[i].output = evt.output_full || evt.output;
                     liveSpans[i].children.push({ label: truncStr(evt.output, 60), status: 'complete' });
                   }
+                  liveSpans[i].output_data = {
+                    result: evt.output_full || evt.output || '',
+                    duration_ms: evt.duration_ms,
+                  };
                   liveSpans[i].metadata = Object.assign({}, liveSpans[i].metadata || {}, {
                     duration_ms: evt.duration_ms,
                   });
@@ -1414,9 +1492,15 @@ async function send() {
                 status: 'complete',
                 icon: getSpanIcon('error'),
                 title: '错误',
+                step: 0,
+                step_name: '执行错误',
+                step_name_en: 'error',
+                detail: evt.content || '未知错误',
                 desc: evt.content || '未知错误',
                 time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
-                children: []
+                children: [],
+                input_data: {},
+                output_data: { error: evt.content || '未知错误' },
               });
               addStep('错误: ' + truncStr(evt.content || '', 40), 'err');
             }
@@ -1463,15 +1547,22 @@ async function send() {
 
       // 处理 trace spans
       if (data.trace && data.trace.spans) {
-        liveSpans = data.trace.spans.map(s => ({
+        liveSpans = data.trace.spans.map((s, idx) => ({
           status: 'complete',
           title: s.name || getSpanLabel(s.type),
-          desc: s.description || '',
+          step: s.step || (idx + 1),
+          step_name: s.step_name || getSpanLabel(s.type),
+          step_name_en: s.step_name_en || s.type || '',
+          detail: s.detail || s.description || '',
+          desc: s.detail || s.description || '',
+          duration_ms: s.duration_ms || 0,
           time: '',
           icon: getSpanIcon(s.type),
           children: [],
-          input: (s.input_data && (s.input_data.input || s.input_data.messages_preview)) || '',
-          output: (s.output_data && s.output_data.output) || (s.metadata && s.metadata.output_preview) || '',
+          input_data: s.input_data || {},
+          output_data: s.output_data || {},
+          input: '',
+          output: '',
           metadata: s.metadata || {},
         }));
         refreshTrace();
@@ -1485,9 +1576,15 @@ async function send() {
       status: 'complete',
       icon: getSpanIcon('done'),
       title: '回复完成',
+      step: 99,
+      step_name: '回复完成',
+      step_name_en: 'response_complete',
+      detail: '已生成最终回复',
       desc: '已生成最终回复',
       time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
-      children: []
+      children: [],
+      input_data: {},
+      output_data: {},
     });
     refreshTrace();
     updatePanelStatus(false);
@@ -1559,36 +1656,18 @@ async function loadChat(chatId) {
 
 // 将历史 trace spans 渲染到推理链路面板
 function renderHistoricalTrace(spans) {
-  liveSpans = spans.map(s => {
+  liveSpans = spans.map((s, idx) => {
     const md = s.metadata || {};
-    const inD = s.input || {};
-    const outD = s.output || {};
-    // 输入推导
-    let spInput = '';
-    if (s.type === 'query_rewrite') spInput = md.original_query || '';
-    else if (s.type === 'memory_retrieval') spInput = md.query_used || '';
-    else if (s.type === 'intent_analysis') spInput = md.raw_intent || '';
-    else if (s.type === 'llm_input') spInput = md.messages_to_llm || '';
-    else if (s.type === 'tool_call') spInput = inD.input || md.input || '';
-    else if (s.type === 'llm_call') spInput = inD.messages_preview || md.messages_to_llm || '';
-    else spInput = inD.input || '';
-    // 输出推导
-    let spOutput = '';
-    if (s.type === 'query_rewrite') spOutput = md.rewritten_query || '';
-    else if (s.type === 'memory_retrieval') spOutput = md.items_preview || '';
-    else if (s.type === 'intent_analysis') {
-      spOutput = { task_type: md.task_type || '', matched_skills: md.matched_skills || [], confidence: md.confidence };
-    }
-    else if (s.type === 'tool_call') spOutput = outD.output || md.output || '';
-    else if (s.type === 'llm_call') spOutput = md.output_preview || '';
-    else spOutput = outD.output || '';
+    const inD = s.input_data || s.input || {};
+    const outD = s.output_data || s.output || {};
+
     // 子节点（trace 详情的 children 可能是子 span_id 列表，真实子节点信息在 metadata.children）
     const children = [];
     if (Array.isArray(md.children)) {
       md.children.forEach(ch => {
         const name = ch.name || ch.type || '';
         const dur = ch.duration_ms ? ` ${Math.round(ch.duration_ms)}ms` : '';
-        children.push({ label: name + dur, status: 'complete' });
+        children.push({ label: name + dur, status: 'complete', duration_ms: ch.duration_ms || 0 });
       });
     }
     if (md.hit_count != null) children.push({ label: `命中 ${md.hit_count} 条结果`, status: 'complete' });
@@ -1601,22 +1680,58 @@ function renderHistoricalTrace(spans) {
     }
 
     const startTime = s.start_time ? new Date(s.start_time * 1000).toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8) : '';
-    const durMs = s.duration_ms ? ` (${Math.round(s.duration_ms)}ms)` : '';
-    let desc = '';
-    if (s.type === 'memory_retrieval' && md.query_used) desc = `查询: "${truncStr(md.query_used, 30)}"`;
-    else if (s.type === 'tool_call') desc = `完成${durMs}`.trim();
-    else if (s.type === 'llm_call') desc = `完成${durMs}`.trim();
-    else if (s.duration_ms) desc = `完成${durMs}`.trim();
+
+    // 使用后端传来的结构化字段（新格式），兼容旧格式
+    let stepName = s.step_name || getSpanLabel(s.type);
+    const stepNameEn = s.step_name_en || s.type || '';
+    const detail = s.detail || (md.query_used ? `查询: "${truncStr(md.query_used, 50)}"` : (s.duration_ms ? `完成 (${Math.round(s.duration_ms)}ms)` : ''));
+
+    // 对 tool_call 类型，补充具体工具名称
+    if (s.type === 'tool_call') {
+      const toolDisplayName = md.display_name || md.tool_name || (s.name ? s.name.replace(/^tool:/, '') : '');
+      if (toolDisplayName && !stepName.includes(toolDisplayName)) {
+        stepName = `工具调用: ${toolDisplayName}`;
+      }
+    }
+
+    // input_data / output_data（优先用结构化字段）
+    let inputData = {};
+    let outputData = {};
+    if (typeof inD === 'object' && !Array.isArray(inD) && Object.keys(inD).length > 0) {
+      inputData = inD;
+    } else {
+      // 旧格式兼容
+      if (s.type === 'query_rewrite') inputData = { original_query: md.original_query || '' };
+      else if (s.type === 'memory_retrieval') inputData = { query: md.query_used || '' };
+      else if (s.type === 'intent_analysis') inputData = { raw_intent: md.raw_intent || '' };
+      else if (s.type === 'tool_call') inputData = { tool_name: md.tool_name || '', arguments: md.input || '' };
+      else if (s.type === 'llm_input') inputData = { messages_to_llm: md.messages_to_llm || '' };
+    }
+    if (typeof outD === 'object' && !Array.isArray(outD) && Object.keys(outD).length > 0) {
+      outputData = outD;
+    } else {
+      if (s.type === 'query_rewrite') outputData = { rewritten_query: md.rewritten_query || '', changed: md.changed };
+      else if (s.type === 'memory_retrieval') outputData = { hit_count: md.hit_count || 0, items_preview: md.items_preview || [] };
+      else if (s.type === 'intent_analysis') outputData = { task_type: md.task_type || '', matched_skills: md.matched_skills || [], confidence: md.confidence };
+      else if (s.type === 'tool_call') outputData = { result: md.output || '', status: md.status || 'success' };
+    }
 
     return {
       status: 'complete',
       icon: getSpanIcon(s.type),
       title: s.name || getSpanLabel(s.type),
-      desc: desc,
+      step: s.step || (idx + 1),
+      step_name: stepName,
+      step_name_en: stepNameEn,
+      detail: detail,
+      desc: detail,
+      duration_ms: s.duration_ms || 0,
       time: startTime,
       children: children,
-      input: spInput,
-      output: spOutput,
+      input_data: inputData,
+      output_data: outputData,
+      input: '',
+      output: '',
       metadata: md,
     };
   });

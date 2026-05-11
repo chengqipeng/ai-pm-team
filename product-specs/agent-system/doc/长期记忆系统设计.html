@@ -1,0 +1,2253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VikingMemoryEngine — 长期记忆系统设计文档</title>
+    <style>
+        :root { --bg-color: #ffffff; --text-color: #1a1a2e; --heading-color: #16213e; --code-bg: #f4f4f8; --code-border: #e0e0e8; --table-border: #d0d0d8; --table-header-bg: #f0f0f5; --blockquote-border: #4a90d9; --blockquote-bg: #f0f7ff; --link-color: #2563eb; --hr-color: #e0e0e8; --shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; line-height: 1.8; color: var(--text-color); background: var(--bg-color); padding: 2rem; max-width: 960px; margin: 0 auto; font-size: 15px; }
+        h1 { font-size: 2rem; color: var(--heading-color); border-bottom: 3px solid var(--blockquote-border); padding-bottom: 0.5rem; margin: 2rem 0 1rem; }
+        h2 { font-size: 1.5rem; color: var(--heading-color); border-bottom: 1px solid var(--hr-color); padding-bottom: 0.3rem; margin: 2.5rem 0 1rem; }
+        h3 { font-size: 1.25rem; color: var(--heading-color); margin: 1.8rem 0 0.8rem; }
+        h4 { font-size: 1.1rem; color: var(--heading-color); margin: 1.5rem 0 0.6rem; }
+        p { margin: 0.8rem 0; }
+        a { color: var(--link-color); text-decoration: none; } a:hover { text-decoration: underline; }
+        code { font-family: "SF Mono", "Fira Code", "JetBrains Mono", Menlo, Consolas, monospace; font-size: 0.88em; background: var(--code-bg); border: 1px solid var(--code-border); border-radius: 4px; padding: 0.15em 0.4em; }
+        pre { background: var(--code-bg); border: 1px solid var(--code-border); border-radius: 8px; padding: 1.2rem; overflow-x: auto; margin: 1rem 0; box-shadow: var(--shadow); }
+        pre code { background: none; border: none; padding: 0; font-size: 0.85em; line-height: 1.6; }
+        blockquote { border-left: 4px solid var(--blockquote-border); background: var(--blockquote-bg); padding: 0.8rem 1.2rem; margin: 1rem 0; border-radius: 0 8px 8px 0; }
+        blockquote p { margin: 0.3rem 0; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.9em; box-shadow: var(--shadow); border-radius: 8px; overflow: hidden; }
+        thead { background: var(--table-header-bg); }
+        th, td { border: 1px solid var(--table-border); padding: 0.6rem 0.8rem; text-align: left; }
+        th { font-weight: 600; white-space: nowrap; }
+        tr:nth-child(even) { background: #fafafa; }
+        ul, ol { margin: 0.5rem 0 0.5rem 1.5rem; } li { margin: 0.3rem 0; }
+        hr { border: none; border-top: 2px solid var(--hr-color); margin: 2.5rem 0; }
+        strong { color: var(--heading-color); }
+        svg { display: block; margin: 1.5rem auto; border-radius: 12px; }
+        @media (max-width: 768px) { body { padding: 1rem; font-size: 14px; } h1 { font-size: 1.5rem; } h2 { font-size: 1.3rem; } pre { padding: 0.8rem; } table { font-size: 0.8em; } th, td { padding: 0.4rem 0.5rem; } }
+        @media print { body { max-width: 100%; padding: 0; } pre { white-space: pre-wrap; word-wrap: break-word; } }
+    </style>
+</head>
+<body>
+<h1 id="vikingmemoryengine">VikingMemoryEngine — 长期记忆系统设计文档</h1>
+<blockquote>
+<p>基于 OpenViking 范式设计，直连腾讯向量库（tcvectordb SDK），不依赖 mem0。<br>
+对齐 apps-agent（OpenViking）的核心能力，针对 CRM toB 场景做领域适配。</p>
+</blockquote>
+<hr>
+<h2 id="_1">整体架构设计图</h2>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 720" style="width:100%;max-width:880px;">
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#94a3b8"/></marker>
+    <filter id="shadow1" x="-2%" y="-2%" width="104%" height="108%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.08"/></filter>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#eff6ff"/><stop offset="100%" stop-color="#dbeafe"/></linearGradient>
+    <linearGradient id="g2" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#fffbeb"/><stop offset="100%" stop-color="#fef3c7"/></linearGradient>
+    <linearGradient id="g3" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#ecfdf5"/><stop offset="100%" stop-color="#d1fae5"/></linearGradient>
+    <linearGradient id="g4" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#f5f3ff"/><stop offset="100%" stop-color="#ede9fe"/></linearGradient>
+  </defs>
+
+  <!-- ═══ Layer 1: 对话层 ═══ -->
+  <rect x="20" y="15" width="840" height="120" rx="12" fill="url(#g1)" stroke="#93c5fd" stroke-width="1" filter="url(#shadow1)"/>
+  <rect x="28" y="15" width="4" height="120" rx="2" fill="#3b82f6"/>
+  <text x="450" y="36" text-anchor="middle" font-size="13" font-weight="700" fill="#1e40af" letter-spacing="0.5">对话层 — MemoryMiddleware</text>
+
+  <rect x="45" y="48" width="370" height="76" rx="8" fill="#ffffff" stroke="#bfdbfe" stroke-width="0.8"/>
+  <text x="230" y="65" text-anchor="middle" font-size="10.5" font-weight="600" fill="#2563eb">abefore_agent() · 读取路径</text>
+  <text x="58" y="81" font-size="9" fill="#475569">① 从 PG 获取 agent_rules → 注入 SystemMessage</text>
+  <text x="58" y="95" font-size="9" fill="#475569">② 查询改写（多轮代词解析）</text>
+  <text x="58" y="109" font-size="9" fill="#475569">③ hybrid_search → 目录递归 → 返回 L0 → 注入上下文</text>
+
+  <rect x="465" y="48" width="370" height="76" rx="8" fill="#ffffff" stroke="#bfdbfe" stroke-width="0.8"/>
+  <text x="650" y="65" text-anchor="middle" font-size="10.5" font-weight="600" fill="#2563eb">aafter_agent() · 写入路径</text>
+  <text x="478" y="81" font-size="9" fill="#475569">① 预过滤（寒暄/短消息/工具全失败 → 跳过）</text>
+  <text x="478" y="95" font-size="9" fill="#475569">② 四路并行 LLM 提取（profile/preferences/agent_rules/entities）</text>
+  <text x="478" y="109" font-size="9" fill="#475569">③ 语义去重 + 分类合并 → 写入存储 → 异步反思</text>
+
+  <!-- Arrows L1→L2 -->
+  <line x1="230" y1="135" x2="230" y2="162" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="4,2" marker-end="url(#ah)"/>
+  <line x1="650" y1="135" x2="650" y2="162" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="4,2" marker-end="url(#ah)"/>
+  <text x="240" y="153" font-size="8" fill="#64748b" font-style="italic">读取</text>
+  <text x="660" y="153" font-size="8" fill="#64748b" font-style="italic">写入</text>
+
+  <!-- ═══ Layer 2: 核心引擎 ═══ -->
+  <rect x="20" y="167" width="840" height="170" rx="12" fill="url(#g2)" stroke="#fbbf24" stroke-width="1" filter="url(#shadow1)"/>
+  <rect x="28" y="167" width="4" height="170" rx="2" fill="#f59e0b"/>
+  <text x="450" y="188" text-anchor="middle" font-size="13" font-weight="700" fill="#92400e" letter-spacing="0.5">核心引擎 — VikingMemoryEngine</text>
+
+  <!-- Module 1: 记忆混合检索 -->
+  <rect x="35" y="198" width="155" height="125" rx="8" fill="#ffffff" stroke="#fcd34d" stroke-width="0.8"/>
+  <rect x="35" y="198" width="155" height="22" rx="8" fill="#fef3c7"/>
+  <rect x="35" y="210" width="155" height="10" fill="#fef3c7"/>
+  <text x="113" y="213" text-anchor="middle" font-size="9.5" font-weight="700" fill="#92400e">记忆混合检索</text>
+  <text x="44" y="232" font-size="8" fill="#475569">• hybrid_search（向量+BM25）</text>
+  <text x="44" y="245" font-size="8" fill="#475569">• 目录递归展开（α=0.5）</text>
+  <text x="44" y="258" font-size="8" fill="#475569">• 收敛检测（3轮不变停止）</text>
+  <text x="44" y="271" font-size="8" fill="#475569">• 分层加载 L0→L1→L2</text>
+  <text x="44" y="284" font-size="8" fill="#475569">• stale降权 / archived过滤</text>
+  <text x="44" y="300" font-size="8" font-weight="600" fill="#dc2626">⚡ 0.7×BM25 + 0.3×cosine</text>
+
+  <!-- Module 2: 记忆提取 -->
+  <rect x="200" y="198" width="145" height="125" rx="8" fill="#ffffff" stroke="#fcd34d" stroke-width="0.8"/>
+  <rect x="200" y="198" width="145" height="22" rx="8" fill="#fef3c7"/>
+  <rect x="200" y="210" width="145" height="10" fill="#fef3c7"/>
+  <text x="273" y="213" text-anchor="middle" font-size="9.5" font-weight="700" fill="#92400e">记忆提取</text>
+  <text x="209" y="232" font-size="8" fill="#475569">4路并行 LLM 提取:</text>
+  <text x="217" y="246" font-size="8" fill="#2563eb">• profile（用户身份）</text>
+  <text x="217" y="259" font-size="8" fill="#2563eb">• preferences（偏好）</text>
+  <text x="217" y="272" font-size="8" fill="#2563eb">• agent_rules（准则）</text>
+  <text x="217" y="285" font-size="8" fill="#2563eb">• entities（第三方）</text>
+  <text x="209" y="300" font-size="8" fill="#64748b">已有状态注入避免重复</text>
+
+  <!-- Module 3: 记忆合并 -->
+  <rect x="355" y="198" width="155" height="125" rx="8" fill="#ffffff" stroke="#fcd34d" stroke-width="0.8"/>
+  <rect x="355" y="198" width="155" height="22" rx="8" fill="#fef3c7"/>
+  <rect x="355" y="210" width="155" height="10" fill="#fef3c7"/>
+  <text x="433" y="213" text-anchor="middle" font-size="9.5" font-weight="700" fill="#92400e">记忆合并</text>
+  <text x="364" y="232" font-size="8" fill="#475569">profile/agent_rules:</text>
+  <text x="372" y="245" font-size="8" fill="#64748b">→ LLM合并（单条覆盖）</text>
+  <text x="364" y="260" font-size="8" fill="#475569">preferences/entities:</text>
+  <text x="372" y="273" font-size="8" fill="#64748b">→ merge_by_key（&gt;0.8）</text>
+  <text x="364" y="288" font-size="8" fill="#475569">entities（无key）:</text>
+  <text x="372" y="301" font-size="8" fill="#64748b">→ dedup_create（&gt;0.9）</text>
+
+  <!-- Module 4: 记忆遗忘 -->
+  <rect x="520" y="198" width="155" height="125" rx="8" fill="#ffffff" stroke="#fcd34d" stroke-width="0.8"/>
+  <rect x="520" y="198" width="155" height="22" rx="8" fill="#fef3c7"/>
+  <rect x="520" y="210" width="155" height="10" fill="#fef3c7"/>
+  <text x="598" y="213" text-anchor="middle" font-size="9.5" font-weight="700" fill="#92400e">记忆遗忘</text>
+  <text x="529" y="232" font-size="8" fill="#475569">触发: 每日定时任务</text>
+  <text x="529" y="246" font-size="8" fill="#64748b">entities 180天淡化:</text>
+  <text x="529" y="259" font-size="8" fill="#64748b">active → stale →</text>
+  <text x="529" y="272" font-size="8" fill="#64748b">archived → deleted</text>
+  <text x="529" y="288" font-size="8" fill="#475569">豁免: active_count ≥ 3</text>
+  <text x="529" y="301" font-size="8" fill="#475569">全量清理: 租户/用户删除</text>
+
+  <!-- Module 5: 记忆反思 -->
+  <rect x="685" y="198" width="155" height="125" rx="8" fill="#ffffff" stroke="#fcd34d" stroke-width="0.8"/>
+  <rect x="685" y="198" width="155" height="22" rx="8" fill="#fef3c7"/>
+  <rect x="685" y="210" width="155" height="10" fill="#fef3c7"/>
+  <text x="763" y="213" text-anchor="middle" font-size="9.5" font-weight="700" fill="#92400e">记忆反思</text>
+  <text x="694" y="232" font-size="8" fill="#475569">触发: aafter_agent 异步</text>
+  <text x="694" y="248" font-size="8" fill="#64748b">• 会话结束反思</text>
+  <text x="700" y="261" font-size="8" fill="#64748b">（冲突检测+解决）</text>
+  <text x="694" y="276" font-size="8" fill="#64748b">• 失败驱动反思</text>
+  <text x="700" y="289" font-size="8" fill="#64748b">（错误记忆删除）</text>
+  <text x="694" y="304" font-size="8" fill="#64748b">• 用户纠正反思</text>
+
+  <!-- Arrows L2→L3 -->
+  <line x1="320" y1="337" x2="320" y2="365" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="4,2" marker-end="url(#ah)"/>
+  <line x1="560" y1="337" x2="560" y2="365" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="4,2" marker-end="url(#ah)"/>
+
+  <!-- ═══ Layer 3: 存储层 ═══ -->
+  <rect x="20" y="370" width="840" height="155" rx="12" fill="url(#g3)" stroke="#6ee7b7" stroke-width="1" filter="url(#shadow1)"/>
+  <rect x="28" y="370" width="4" height="155" rx="2" fill="#10b981"/>
+  <text x="450" y="391" text-anchor="middle" font-size="13" font-weight="700" fill="#065f46" letter-spacing="0.5">存储层 — 双存储架构</text>
+
+  <rect x="40" y="402" width="400" height="112" rx="8" fill="#ffffff" stroke="#a7f3d0" stroke-width="0.8"/>
+  <rect x="40" y="402" width="400" height="22" rx="8" fill="#d1fae5"/>
+  <rect x="40" y="414" width="400" height="10" fill="#d1fae5"/>
+  <text x="240" y="417" text-anchor="middle" font-size="10" font-weight="700" fill="#065f46">腾讯向量库 tcvectordb</text>
+  <text x="52" y="436" font-size="9" fill="#475569">存储类别: preferences / entities（叶子+目录节点）</text>
+  <text x="52" y="451" font-size="9" fill="#475569">稠密向量: embed(abstract) → 2560维 cosine similarity</text>
+  <text x="52" y="466" font-size="9" fill="#475569">稀疏向量: BM25(abstract) → 关键词精确匹配</text>
+  <text x="52" y="481" font-size="9" fill="#475569">filter: tenant_id + user_id + status + category</text>
+  <text x="52" y="496" font-size="9" fill="#475569">节点: 叶子(is_leaf=true) + 目录(is_leaf=false)</text>
+  <text x="52" y="509" font-size="8.5" font-weight="600" fill="#dc2626">✓ 参与检索打分（仅 abstract 向量化参与匹配）</text>
+
+  <rect x="460" y="402" width="380" height="112" rx="8" fill="#ffffff" stroke="#a7f3d0" stroke-width="0.8"/>
+  <rect x="460" y="402" width="380" height="22" rx="8" fill="#d1fae5"/>
+  <rect x="460" y="414" width="380" height="10" fill="#d1fae5"/>
+  <text x="650" y="417" text-anchor="middle" font-size="10" font-weight="700" fill="#065f46">PostgreSQL</text>
+  <text x="472" y="436" font-size="9" fill="#475569">权威存储: profile / agent_rules（每用户各1条）</text>
+  <text x="472" y="451" font-size="9" fill="#475569">全量同步: ai_agent_memory 表（前端展示）</text>
+  <text x="472" y="466" font-size="9" fill="#475569">生命周期: status / last_accessed_at / active_count</text>
+  <text x="472" y="481" font-size="9" fill="#475569">遗忘驱动: 定时任务读取 → 批量状态转换</text>
+  <text x="472" y="496" font-size="9" fill="#475569">全量清理: 租户注销 / 用户离职 → 物理删除</text>
+  <text x="472" y="509" font-size="8.5" font-weight="600" fill="#64748b">✗ 不参与检索打分</text>
+
+  <!-- Arrow L3→L4 -->
+  <line x1="440" y1="525" x2="440" y2="553" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="4,2" marker-end="url(#ah)"/>
+
+  <!-- ═══ Layer 4: VikingFS ═══ -->
+  <rect x="20" y="558" width="840" height="150" rx="12" fill="url(#g4)" stroke="#c4b5fd" stroke-width="1" filter="url(#shadow1)"/>
+  <rect x="28" y="558" width="4" height="150" rx="2" fill="#8b5cf6"/>
+  <text x="450" y="579" text-anchor="middle" font-size="13" font-weight="700" fill="#5b21b6" letter-spacing="0.5">组织层 — VikingFS 虚拟文件系统</text>
+
+  <text x="50" y="600" font-size="10.5" fill="#374151" font-family="'SF Mono',Menlo,monospace">viking://user/memories/</text>
+  <text x="70" y="618" font-size="9.5" fill="#2563eb" font-family="'SF Mono',Menlo,monospace">├── profile</text>
+  <text x="290" y="618" font-size="8.5" fill="#64748b">PG 单条，不参与检索</text>
+  <text x="70" y="635" font-size="9.5" fill="#2563eb" font-family="'SF Mono',Menlo,monospace">├── agent_rules</text>
+  <text x="290" y="635" font-size="8.5" fill="#64748b">PG 单条，每轮注入 SystemMessage</text>
+  <text x="70" y="652" font-size="9.5" fill="#2563eb" font-family="'SF Mono',Menlo,monospace">├── preferences/</text>
+  <text x="290" y="652" font-size="8.5" fill="#64748b">向量库叶子节点，按维度独立</text>
+  <text x="70" y="669" font-size="9.5" fill="#f59e0b" font-family="'SF Mono',Menlo,monospace">└── entities/</text>
+  <text x="290" y="669" font-size="8.5" fill="#64748b">向量库叶子 + 目录节点</text>
+  <text x="100" y="686" font-size="9.5" fill="#10b981" font-family="'SF Mono',Menlo,monospace">├── 华为科技/</text>
+  <text x="290" y="686" font-size="8.5" fill="#64748b">目录节点: L0/L1 聚合，参与检索</text>
+  <text x="130" y="700" font-size="9.5" fill="#475569" font-family="'SF Mono',Menlo,monospace">├── 张伟</text>
+  <text x="290" y="700" font-size="8.5" fill="#64748b">叶子节点: L0参与检索，L1/L2按需加载</text>
+</svg>
+
+<p><strong>数据流概览：</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">阶段</th>
+<th style="text-align: left;">流向</th>
+<th style="text-align: left;">关键操作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">写入</td>
+<td style="text-align: left;">对话 → 提取 → 合并 → 存储</td>
+<td style="text-align: left;">4路并行LLM提取 → 语义去重 → PG/向量库写入 → 目录聚合 → 异步反思</td>
+</tr>
+<tr>
+<td style="text-align: left;">读取</td>
+<td style="text-align: left;">查询 → 检索 → 注入 → Agent</td>
+<td style="text-align: left;">查询改写 → hybrid_search → 目录递归展开 → 返回L0摘要 → Agent按需加载L1/L2</td>
+</tr>
+<tr>
+<td style="text-align: left;">遗忘</td>
+<td style="text-align: left;">定时任务 → 状态转换 → 清理</td>
+<td style="text-align: left;">每日检测过期 → 三阶段淡化（stale→archived→deleted）→ 高热度豁免</td>
+</tr>
+<tr>
+<td style="text-align: left;">反思</td>
+<td style="text-align: left;">信号检测 → 冲突判断 → 修正</td>
+<td style="text-align: left;">失败/纠正/会话结束 → 检索相关记忆 → LLM判断关系 → 归档/合并/删除</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="_2">一、设计背景与技术选型</h2>
+<h3 id="11-openviking">1.1 基于 OpenViking 范式的设计</h3>
+<p>本系统以 OpenViking 的文件系统范式为架构基础，完整实现了其核心设计理念：</p>
+<p><strong>继承的 OpenViking 核心能力：</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">能力</th>
+<th style="text-align: left;">OpenViking 原始设计</th>
+<th style="text-align: left;">本系统实现</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">虚拟文件系统</td>
+<td style="text-align: left;">VikingFS（URI 路径 + 目录树）</td>
+<td style="text-align: left;">✅ 完整实现 <code>viking_fs.py</code>，支持 ls/tree/read/find/rm</td>
+</tr>
+<tr>
+<td style="text-align: left;">L0/L1/L2 三层信息模型</td>
+<td style="text-align: left;">目录聚合 L0/L1 + 叶子 L2</td>
+<td style="text-align: left;">✅ 完整实现，目录节点 LLM 聚合 + 叶子节点按需加载</td>
+</tr>
+<tr>
+<td style="text-align: left;">目录递归检索</td>
+<td style="text-align: left;">优先队列 + 分数传播 + 收敛检测</td>
+<td style="text-align: left;">✅ 完整实现，α=0.5 分数传播 + Top-K 连续 3 轮不变停止</td>
+</tr>
+<tr>
+<td style="text-align: left;">语义去重 + LLM 合并</td>
+<td style="text-align: left;">向量预筛 + LLM 精判（skip/create/merge/delete）</td>
+<td style="text-align: left;">✅ 完整实现 <code>_dedup_create()</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">分层加载</td>
+<td style="text-align: left;">检索返回 L0 摘要，Agent 按需加载 L1/L2</td>
+<td style="text-align: left;">✅ 完整实现 <code>memory_read</code> 工具</td>
+</tr>
+<tr>
+<td style="text-align: left;">会话结束反思</td>
+<td style="text-align: left;">post_session_reflection</td>
+<td style="text-align: left;">✅ 完整实现 <code>reflect_on_session()</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">定期全局反思</td>
+<td style="text-align: left;">weekly_global_reflection</td>
+<td style="text-align: left;">✅ 完整实现 <code>reflect_global()</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">记忆遗忘</td>
+<td style="text-align: left;">TTL + 热度驱动</td>
+<td style="text-align: left;">✅ 完整实现三阶段淡化 + 复活机制</td>
+</tr>
+</tbody>
+</table>
+<p><strong>针对 CRM toB 场景的领域适配：</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">维度</th>
+<th style="text-align: left;">OpenViking 通用设计</th>
+<th style="text-align: left;">本系统 CRM 适配</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">分类体系</td>
+<td style="text-align: left;">9 类通用分类</td>
+<td style="text-align: left;">精简为 4 类（profile/preferences/agent_rules/entities），聚焦 CRM 核心场景</td>
+</tr>
+<tr>
+<td style="text-align: left;">提取架构</td>
+<td style="text-align: left;">单路 LLM 提取 + 后分类</td>
+<td style="text-align: left;">4 路并行 LLM 提取，每路独立提示词 + 边界规则</td>
+</tr>
+<tr>
+<td style="text-align: left;">存储后端</td>
+<td style="text-align: left;">通用向量库</td>
+<td style="text-align: left;">腾讯向量库 tcvectordb（支持 BM25 稀疏向量 + filter index）+ PG 双存储</td>
+</tr>
+<tr>
+<td style="text-align: left;">检索策略</td>
+<td style="text-align: left;">纯向量语义检索</td>
+<td style="text-align: left;">BM25 0.7 + 向量 0.3 混合检索（CRM 场景客户名精确匹配优先）</td>
+</tr>
+<tr>
+<td style="text-align: left;">系统数据一致性</td>
+<td style="text-align: left;">无（通用场景无此问题）</td>
+<td style="text-align: left;">提取时排除 CRM 系统已有字段 + biz_id 锚定 + source_type 标记</td>
+</tr>
+<tr>
+<td style="text-align: left;">预过滤</td>
+<td style="text-align: left;">无</td>
+<td style="text-align: left;">规则预过滤（寒暄/确认/工具失败跳过），节省 ~30% LLM 调用</td>
+</tr>
+</tbody>
+</table>
+<p><strong>不直接使用 OpenViking SDK 的原因：</strong></p>
+<p>OpenViking SDK 面向通用场景，我们需要在其范式基础上做深度定制：<br>
+1. 存储层需要直连腾讯向量库（tcvectordb SDK），利用其原生 BM25 稀疏向量和 filter index 能力<br>
+2. 提取层需要 CRM 领域专用的 4 路并行提取架构，而非通用的单路提取<br>
+3. 检索层需要 BM25 高权重混合检索，确保客户名/联系人名精确匹配优先<br>
+4. 需要与 CRM 系统数据的一致性机制（biz_id 锚定、source_type 区分、系统数据排除）</p>
+<h3 id="12">1.2 最终选型</h3>
+<pre><code>架构范式: OpenViking（VikingFS 虚拟文件系统 + L0/L1/L2 三层 + 目录递归检索 + 反思修正）
+提取层:   4 路并行 LLM 提取 + 规则预过滤（CRM 领域适配）
+存储层:   腾讯向量库（tcvectordb SDK 直连，BM25 稀疏向量 + filter index）
+          + PG（profile/agent_rules 权威存储 + 全量记忆生命周期管理）
+检索层:   BM25 混合检索（0.7 关键词 + 0.3 向量）+ 目录递归展开 + 分层加载
+组织层:   VikingFS 虚拟文件系统（viking:// URI + ls/tree/read/find/rm）
+</code></pre>
+<hr>
+<h2 id="_3">二、记忆分类体系</h2>
+<h3 id="21-4">2.1 4 类分类体系</h3>
+<p>代码实现：<code>src/memory/viking_engine.py</code> → <code>MemoryCategory</code> 枚举</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">类别</th>
+<th style="text-align: center;">存储位置</th>
+<th style="text-align: left;">说明</th>
+<th style="text-align: left;">合并策略</th>
+<th style="text-align: left;">CRM 场景示例</th>
+<th style="text-align: left;">存储格式示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">profile</td>
+<td style="text-align: center;">PG</td>
+<td style="text-align: left;">用户对"我/我们团队/我们公司"的<strong>稳定属性描述</strong>：职位、履历、所在区域、团队规模、所属组织的业务与文化、使用的工具。判别标准：该信息在下一个新会话里对 Agent 理解"这个用户是谁"是否仍有帮助。</td>
+<td style="text-align: left;">每用户 1 条，LLM 合并</td>
+<td style="text-align: left;">① "我是华东区销售总监，管理15人团队"<br>② "我们公司用的是纷享销客CRM"</td>
+<td style="text-align: left;"><code>merge_key: "profile"</code><br><code>content: "华东区销售总监，管理15人团队，负责互联网大客户。公司使用纷享销客CRM。"</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">preferences</td>
+<td style="text-align: center;">向量库</td>
+<td style="text-align: left;">描述"用户本人是什么样的人"的<strong>可复用偏好信息</strong>：个人喜好与厌恶、稳定的行为习惯（频率/条件/时间模式）、个人品质标准。判别标准：该信息脱离当前上下文后，在下一个新会话里对理解"这个用户"是否仍有价值。</td>
+<td style="text-align: left;">同维度合并覆盖，不同维度独立</td>
+<td style="text-align: left;">① "数据展示用表格，金额用万为单位"<br>② "Pipeline按阶段分组，不要按负责人"</td>
+<td style="text-align: left;"><code>merge_key: "preferences/data_display"</code><br><code>abstract: "数据展示偏好: 表格格式，金额万为单位"</code><br><code>content: "用户偏好表格展示，金额用万为单位不要小数。"</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">agent_rules</td>
+<td style="text-align: center;">PG</td>
+<td style="text-align: left;">对 Agent 未来行为的<strong>持久约束</strong>，需同时满足两个条件：①行为指向 Agent 的输出/沟通/流程/角色/禁止事项；②持久性，可复用到未来同类场景。包含角色定义、输出格式、沟通规则等。判别标准：该规则在下一次类似请求中 Agent 是否应继续遵守。</td>
+<td style="text-align: left;">每用户 1 条，LLM 融合</td>
+<td style="text-align: left;">① "你是我的数据分析助理，回复不超过100字"<br>② "跟华为沟通用正式语气，报告要含同比"</td>
+<td style="text-align: left;"><code>merge_key: "agent_rules"</code><br><code>content: "角色为数据分析助理。回复不超过100字。跟华为沟通用正式语气。报告含同比数据。"</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">entities</td>
+<td style="text-align: center;">向量库</td>
+<td style="text-align: left;">关于<strong>第三方</strong>的可复用客观事实：角色关系、业务与规模、偏好与风格、对用户方的反馈/评价/承诺、竞争情报、时效性信息。第三方指非用户本人、非用户组织、非 Agent 的对象（客户、联系人、竞品等）。只记录增量认知，不记录 CRM 系统已有的结构化字段值。</td>
+<td style="text-align: left;">按 merge_key 合并（相似度&gt;0.8）</td>
+<td style="text-align: left;">① "华为/张伟: 说话直接，汇报用PPT"<br>② "华为/ERP: 内部有分歧，审批至少3周"</td>
+<td style="text-align: left;"><code>merge_key: "华为科技/张伟"</code><br><code>parent_entity: "华为科技"</code><br><code>abstract: "华为科技/张伟: 说话直接，汇报用PPT"</code><br><code>content: "张伟说话直接，汇报用PPT带数据，开会控制30分钟。"</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>注：早期设计参考 OpenViking 的 9 类分类（soul/profile/preferences/entities/events/cases/patterns/tools/skills），<br>
+实际实现精简为 4 类。原 soul 类合并到 agent_rules；events/cases/patterns/tools/skills 未实现独立提取，<br>
+相关信息视语义归入 entities 或不提取。</p>
+</blockquote>
+<h3 id="22">2.2 分类决策逻辑（四路并行提取）</h3>
+<p>代码实现：<code>src/memory/extraction/prompts.py</code> + <code>src/memory/extraction/extractor.py</code></p>
+<p>当前实现为 <strong>4 路并行 LLM 提取</strong>，每路独立判断、互不依赖：</p>
+<pre><code>用户发言 → 4 路并行 LLM 调用:
+  ├── Profile:      用户是谁？（稳定身份属性）
+  ├── Preferences:  用户偏好什么？（个人喜好/习惯/标准）
+  ├── Agent Rules:  Agent 应该怎么做？（持久行为约束）
+  └── Entities:     第三方有什么事实？（客户/联系人/竞品）
+</code></pre>
+<p>各路核心判别原则：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">类别</th>
+<th style="text-align: left;">核心问题</th>
+<th style="text-align: left;">判别标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">profile</td>
+<td style="text-align: left;">用户是谁？</td>
+<td style="text-align: left;">该信息在下一个新会话里对 Agent 理解"这个用户是谁"是否仍有帮助</td>
+</tr>
+<tr>
+<td style="text-align: left;">preferences</td>
+<td style="text-align: left;">用户偏好什么？</td>
+<td style="text-align: left;">该信息脱离当前上下文后，在下一个新会话里对理解"这个用户"是否仍有价值</td>
+</tr>
+<tr>
+<td style="text-align: left;">agent_rules</td>
+<td style="text-align: left;">Agent 应该怎么做？</td>
+<td style="text-align: left;">该规则在下一次类似请求中 Agent 是否应继续遵守</td>
+</tr>
+<tr>
+<td style="text-align: left;">entities</td>
+<td style="text-align: left;">第三方有什么事实？</td>
+<td style="text-align: left;">关于第三方的可复用事实（角色关系/业务/偏好/竞争情报）</td>
+</tr>
+</tbody>
+</table>
+<p>跨维度边界规则（每路提示词中明确定义）：</p>
+<pre><code>Profile 不属于:
+  - 我的喜好/习惯/厌恶 → preferences
+  - 对 Agent 的持久指令 → agent_rules
+  - 第三方事实 → entities
+  - 单次操作、孤立数值 → 不提取
+
+Preferences 不属于:
+  - 纯指向 Agent 行为的规则式指令 → agent_rules
+  - 描述身份或组织 → profile
+  - 描述第三方偏好/事实 → entities
+  - 单次反馈/操作 → 不提取
+
+Agent Rules 不属于:
+  - 描述用户本人（个人习惯、性格、喜好）→ preferences
+  - 纯身份或组织描述 → profile
+  - 对第三方事实的纯陈述 → entities
+  - 单次调整、评价、感叹 → 不提取
+
+Entities 不属于:
+  - 用户履历、团队或公司特征 → profile
+  - 用户自己的偏好 → preferences
+  - 命令 Agent 的持久指令 → agent_rules
+  - 疑问句/纯查询/操作指令 → 不提取
+</code></pre>
+<p>多维度混合处理：同句含多维度时，各路独立判断、各自提取属于自己的部分。</p>
+<h3 id="23">2.3 各类别存储形式详解</h3>
+<p>每个类别的 abstract（L0）、overview（L1）、content（L2）的存储位置、是否参与检索和打分各不相同：</p>
+<h4 id="profile">profile — 用户身份</h4>
+<p><strong>存储与检索特性：</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">层级</th>
+<th style="text-align: left;">字段</th>
+<th style="text-align: center;">存储位置</th>
+<th style="text-align: center;">参与检索</th>
+<th style="text-align: center;">参与打分</th>
+<th style="text-align: left;">用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">—</td>
+<td style="text-align: left;">content</td>
+<td style="text-align: center;">PG</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: left;">LLM 合并后的完整画像，注入提取提示词</td>
+</tr>
+<tr>
+<td style="text-align: left;">—</td>
+<td style="text-align: left;">abstract</td>
+<td style="text-align: center;">PG</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: left;">前端展示用摘要</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>profile 不存储在向量库，不参与语义检索。通过 <code>get_profile()</code> 从 PG 读取，注入提取提示词的 <code>{existing_profile}</code> 避免重复提取。</p>
+</blockquote>
+<p><strong>场景示例：</strong></p>
+<pre><code>━━━ 对话场景 ━━━
+[用户] 我是华东区的销售总监，管着15个人，主要跑互联网行业大客户。我们公司刚从Salesforce迁到纷享销客。
+
+━━━ 提取 &amp; 存储 ━━━
+category:  profile
+merge_key: &quot;profile&quot;
+
+PG 存储:
+{
+  &quot;category&quot;: &quot;profile&quot;,
+  &quot;merge_key&quot;: &quot;profile&quot;,
+  &quot;abstract&quot;: &quot;用户身份: 华东区销售总监，管理15人团队，负责互联网大客户，使用纷享销客&quot;,
+  &quot;content&quot;: &quot;用户是华东区销售总监，管理15人团队，主要负责互联网行业大客户。公司近期从Salesforce迁移到纷享销客CRM。&quot;,
+  &quot;status&quot;: &quot;active&quot;
+}
+
+━━━ 使用方式（不参与检索） ━━━
+注入到 PROFILE_EXTRACT_PROMPT 的 {existing_profile} 占位符，避免重复提取。
+不写入向量库，不参与 hybrid_search，不参与打分。
+</code></pre>
+<h4 id="preferences">preferences — 用户偏好</h4>
+<p><strong>存储与检索特性：</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">层级</th>
+<th style="text-align: left;">字段</th>
+<th style="text-align: center;">存储位置</th>
+<th style="text-align: center;">参与检索</th>
+<th style="text-align: center;">参与打分</th>
+<th style="text-align: left;">用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">L0</td>
+<td style="text-align: left;">abstract</td>
+<td style="text-align: center;">向量库</td>
+<td style="text-align: center;">✅ embed → cosine + BM25</td>
+<td style="text-align: center;">✅ 0.7×BM25 + 0.3×cosine</td>
+<td style="text-align: left;">检索匹配 + 注入 Agent 上下文</td>
+</tr>
+<tr>
+<td style="text-align: left;">L1</td>
+<td style="text-align: left;">overview</td>
+<td style="text-align: center;">向量库</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: left;">Agent 调用 memory_read(level="L1") 按需加载</td>
+</tr>
+<tr>
+<td style="text-align: left;">L2</td>
+<td style="text-align: left;">content</td>
+<td style="text-align: center;">向量库</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: left;">Agent 调用 memory_read(level="L2") 按需加载</td>
+</tr>
+</tbody>
+</table>
+<p><strong>场景示例：</strong></p>
+<pre><code>━━━ 对话场景 ━━━
+[用户] 以后数据展示都用表格，金额用万为单位不要小数点
+
+━━━ 提取 &amp; 存储 ━━━
+category:      preferences
+slug:          &quot;data_display&quot;
+merge_key:     &quot;preferences/data_display&quot;
+
+向量库存储（叶子节点）:
+{
+  &quot;id&quot;: &quot;mem_d4e5f6a7&quot;,
+  &quot;vector&quot;: embed(&quot;数据展示偏好: 表格格式，金额万为单位，不要小数&quot;),       ← L0 向量化，参与检索
+  &quot;sparse_vector&quot;: BM25(&quot;数据展示偏好: 表格格式，金额万为单位，不要小数&quot;), ← L0 稀疏向量，参与检索
+  &quot;abstract&quot;: &quot;数据展示偏好: 表格格式，金额万为单位，不要小数&quot;,            ← L0（返回给 Agent）
+  &quot;overview&quot;: &quot;## 偏好\n- 表格格式\n- 金额万为单位\n- 不要小数&quot;,           ← L1（按需加载）
+  &quot;content&quot;: &quot;用户偏好表格展示数据，金额统一用万为单位且不要小数点。&quot;,      ← L2（按需加载）
+  &quot;category&quot;: &quot;preferences&quot;,
+  &quot;merge_key&quot;: &quot;preferences/data_display&quot;,
+  &quot;is_leaf&quot;: &quot;true&quot;,
+  &quot;status&quot;: &quot;active&quot;
+}
+
+━━━ 检索时打分示例 ━━━
+用户问 &quot;用什么格式展示数据&quot; →
+  BM25(&quot;数据&quot;&quot;展示&quot;精确命中 abstract) → bm25_score = 0.75
+  cosine(查询向量 vs abstract向量)    → cosine_score = 0.82
+  final_score = 0.7 × 0.75 + 0.3 × 0.82 = 0.771 → 命中，返回 L0 摘要
+  Agent 按需调用 memory_read(level=&quot;L2&quot;) 获取完整偏好
+</code></pre>
+<h4 id="agent_rules-agent">agent_rules — Agent 行为准则</h4>
+<p><strong>存储与检索特性：</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">层级</th>
+<th style="text-align: left;">字段</th>
+<th style="text-align: center;">存储位置</th>
+<th style="text-align: center;">参与检索</th>
+<th style="text-align: center;">参与打分</th>
+<th style="text-align: left;">用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">—</td>
+<td style="text-align: left;">content</td>
+<td style="text-align: center;">PG</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: left;">每轮对话前作为 SystemMessage 全量注入</td>
+</tr>
+<tr>
+<td style="text-align: left;">—</td>
+<td style="text-align: left;">abstract</td>
+<td style="text-align: center;">PG</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: left;">前端展示用摘要</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>agent_rules 不存储在向量库，不参与语义检索。每轮对话开始时通过 <code>get_agent_rules_text()</code> 从 PG/缓存读取，作为 SystemMessage 注入，Agent 从第一轮就遵守。</p>
+</blockquote>
+<p><strong>场景示例：</strong></p>
+<pre><code>━━━ 对话场景（多轮累积） ━━━
+第 1 次: [用户] 你是我的数据分析助理，回复不要太长
+第 12 次: [用户] 跟华为那边沟通的邮件要用正式语气
+第 20 次: [用户] 回复100字以内就行（与&quot;回复不要太长&quot;矛盾，以新为准）
+
+━━━ LLM 融合后存储 ━━━
+category:  agent_rules
+merge_key: &quot;agent_rules&quot;
+
+PG 存储:
+{
+  &quot;category&quot;: &quot;agent_rules&quot;,
+  &quot;merge_key&quot;: &quot;agent_rules&quot;,
+  &quot;abstract&quot;: &quot;Agent行为准则: 数据分析助理，回复≤100字，华为沟通用正式语气&quot;,
+  &quot;content&quot;: &quot;角色为用户的数据分析助理。回复不超过100字。跟华为沟通的邮件使用正式语气。&quot;,
+  &quot;status&quot;: &quot;active&quot;
+}
+
+━━━ 使用方式（不参与检索，全量注入） ━━━
+每轮对话开始时注入 system prompt:
+  ┌─────────────────────────────────┐
+  │ CRM_SYSTEM_PROMPT（通用规范）     │
+  ├─────────────────────────────────┤
+  │ &lt;agent_rules&gt;                    │  ← 全量注入
+  │   角色为用户的数据分析助理...      │
+  │ &lt;/agent_rules&gt;                   │
+  ├─────────────────────────────────┤
+  │ &lt;memory_context&gt;                 │  ← 本轮检索记忆
+  │   ...                            │
+  │ &lt;/memory_context&gt;                │
+  └─────────────────────────────────┘
+不参与 hybrid_search，不参与打分。
+</code></pre>
+<h4 id="entities">entities — 第三方事实</h4>
+<p><strong>存储与检索特性：</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">层级</th>
+<th style="text-align: left;">字段</th>
+<th style="text-align: center;">存储位置</th>
+<th style="text-align: center;">参与检索</th>
+<th style="text-align: center;">参与打分</th>
+<th style="text-align: left;">用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">L0</td>
+<td style="text-align: left;">abstract</td>
+<td style="text-align: center;">向量库</td>
+<td style="text-align: center;">✅ embed → cosine + BM25</td>
+<td style="text-align: center;">✅ 0.7×BM25 + 0.3×cosine</td>
+<td style="text-align: left;">检索匹配 + 注入 Agent 上下文</td>
+</tr>
+<tr>
+<td style="text-align: left;">L1</td>
+<td style="text-align: left;">overview</td>
+<td style="text-align: center;">向量库</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: left;">Agent 调用 memory_read(level="L1") 按需加载</td>
+</tr>
+<tr>
+<td style="text-align: left;">L2</td>
+<td style="text-align: left;">content</td>
+<td style="text-align: center;">向量库</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: left;">Agent 调用 memory_read(level="L2") 按需加载</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>entities 同时存在叶子节点和目录节点。目录节点的 L0/L1 由系统 LLM 从子叶子聚合生成，也参与检索打分。</p>
+</blockquote>
+<p><strong>场景示例：</strong></p>
+<pre><code>━━━ 对话场景 ━━━
+[用户] 查一下华为的联系人
+[工具:query_data] {&quot;records&quot;:[{&quot;name&quot;:&quot;张伟&quot;,&quot;title&quot;:&quot;CTO&quot;,&quot;phone&quot;:&quot;139-0001-0001&quot;}]}
+[助手] 华为联系人张伟，CTO，电话139-0001-0001。
+[用户] 张伟这个人说话很直接，开会不要绕弯子，每次控制在30分钟内。汇报用PPT带数据。
+
+━━━ 提取 &amp; 存储 ━━━
+category:      entities
+merge_key:     &quot;华为科技/张伟&quot;
+parent_entity: &quot;华为科技&quot;
+
+✅ 提取（增量认知）: &quot;说话直接，开会控制30分钟，汇报用PPT带数据&quot;
+❌ 不提取（系统数据）: &quot;CTO，电话139-0001-0001&quot;
+
+向量库存储 — 叶子节点（is_leaf=true）:
+{
+  &quot;id&quot;: &quot;mem_e8f9a0b1&quot;,
+  &quot;vector&quot;: embed(&quot;华为科技/张伟: 说话直接，汇报用PPT，开会控制30分钟&quot;),       ← L0 向量化，参与检索
+  &quot;sparse_vector&quot;: BM25(&quot;华为科技/张伟: 说话直接，汇报用PPT，开会控制30分钟&quot;), ← L0 稀疏向量，参与检索
+  &quot;abstract&quot;: &quot;华为科技/张伟: 说话直接，汇报用PPT，开会控制30分钟&quot;,            ← L0（返回给 Agent）
+  &quot;overview&quot;: &quot;## 沟通风格\n- 直接不绕弯子\n- 汇报用PPT\n## 会议\n- 控制30分钟&quot;, ← L1（按需加载）
+  &quot;content&quot;: &quot;张伟说话直接不绕弯子，汇报用PPT带数据，开会控制30分钟。&quot;,         ← L2（按需加载）
+  &quot;category&quot;: &quot;entities&quot;,
+  &quot;merge_key&quot;: &quot;华为科技/张伟&quot;,
+  &quot;parent_entity&quot;: &quot;华为科技&quot;,
+  &quot;uri&quot;: &quot;viking://user/memories/entities/华为科技/张伟&quot;,
+  &quot;is_leaf&quot;: &quot;true&quot;,
+  &quot;status&quot;: &quot;active&quot;
+}
+
+向量库存储 — 目录节点（is_leaf=false，系统 LLM 聚合生成）:
+{
+  &quot;id&quot;: &quot;dir_华为科技&quot;,
+  &quot;vector&quot;: embed(&quot;华为科技: 张伟直接喜欢PPT，ERP有分歧，审批3周&quot;),       ← 目录 L0 向量化，参与检索
+  &quot;sparse_vector&quot;: BM25(&quot;华为科技: 张伟直接喜欢PPT，ERP有分歧，审批3周&quot;), ← 参与检索
+  &quot;abstract&quot;: &quot;华为科技: 张伟直接喜欢PPT，ERP有分歧，审批3周&quot;,            ← 目录 L0（聚合摘要）
+  &quot;overview&quot;: &quot;## 联系人\n- 张伟: 直接，PPT\n## 商机\n- ERP: 有分歧&quot;,     ← 目录 L1（聚合导航）
+  &quot;content&quot;: &quot;&quot;,                                                          ← 目录无 L2
+  &quot;category&quot;: &quot;entities&quot;,
+  &quot;merge_key&quot;: &quot;华为科技&quot;,
+  &quot;parent_entity&quot;: &quot;&quot;,
+  &quot;uri&quot;: &quot;viking://user/memories/entities/华为科技/&quot;,
+  &quot;is_leaf&quot;: &quot;false&quot;,
+  &quot;status&quot;: &quot;active&quot;
+}
+
+━━━ 检索时打分示例 ━━━
+用户问 &quot;华为那边张伟是什么风格&quot; →
+  叶子: BM25=0.91(&quot;华为&quot;&quot;张伟&quot;命中) cosine=0.89 → final = 0.7×0.91 + 0.3×0.89 = 0.904
+  目录: BM25=0.85(&quot;华为&quot;命中)       cosine=0.78 → final = 0.7×0.85 + 0.3×0.78 = 0.829
+
+返回给 Agent:
+  &lt;memory_context&gt;
+  - [DIR:dir_华为科技] [entities] 华为科技: 张伟直接喜欢PPT，ERP有分歧，审批3周
+  - [ID:mem_e8f9a0b1] [entities] 华为科技/张伟: 说话直接，汇报用PPT，开会控制30分钟
+  &lt;/memory_context&gt;
+
+Agent 按需加载:
+  memory_read(id=&quot;mem_e8f9a0b1&quot;, level=&quot;L2&quot;) → &quot;张伟说话直接不绕弯子，汇报用PPT带数据，开会控制30分钟。&quot;
+</code></pre>
+<h3 id="25">2.5 各类别存储形式汇总</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">类别</th>
+<th style="text-align: left;">merge_key 含义</th>
+<th style="text-align: left;">parent_entity 含义</th>
+<th style="text-align: center;">存储位置</th>
+<th style="text-align: left;">合并行为</th>
+<th style="text-align: left;">记忆数量</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">profile</td>
+<td style="text-align: left;">固定 "profile"</td>
+<td style="text-align: left;">空</td>
+<td style="text-align: center;">PG</td>
+<td style="text-align: left;">LLM 合并，全局 1 条</td>
+<td style="text-align: left;">每用户 1 条</td>
+</tr>
+<tr>
+<td style="text-align: left;">preferences</td>
+<td style="text-align: left;">slug（如 "data_display"）</td>
+<td style="text-align: left;">空</td>
+<td style="text-align: center;">向量库</td>
+<td style="text-align: left;">同 slug 合并覆盖</td>
+<td style="text-align: left;">每用户 5-15 条</td>
+</tr>
+<tr>
+<td style="text-align: left;">agent_rules</td>
+<td style="text-align: left;">固定 "agent_rules"</td>
+<td style="text-align: left;">空</td>
+<td style="text-align: center;">PG</td>
+<td style="text-align: left;">LLM 融合，全局 1 条</td>
+<td style="text-align: left;">每用户 1 条</td>
+</tr>
+<tr>
+<td style="text-align: left;">entities</td>
+<td style="text-align: left;">实体路径（如"华为科技/张伟"）</td>
+<td style="text-align: left;">父实体名（如"华为科技"）</td>
+<td style="text-align: center;">向量库</td>
+<td style="text-align: left;">同 key 合并覆盖</td>
+<td style="text-align: left;">每客户 3-10 条</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="l0l1l2">三、L0/L1/L2 三层信息模型</h2>
+<blockquote>
+<p>对齐 apps-agent（OpenViking）：L0/L1 属于目录，L2 属于叶子。</p>
+</blockquote>
+<h3 id="31-apps-agent">3.1 三层定义（对齐 apps-agent）</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">层级</th>
+<th style="text-align: left;">归属</th>
+<th style="text-align: left;">生成方式</th>
+<th style="text-align: left;">Token 量</th>
+<th style="text-align: left;">用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">L0</td>
+<td style="text-align: left;">目录节点</td>
+<td style="text-align: left;">系统 LLM 聚合（从所有叶子 content 压缩为一句话）</td>
+<td style="text-align: left;">~30-100</td>
+<td style="text-align: left;">向量检索匹配 + 注入 Agent 上下文</td>
+</tr>
+<tr>
+<td style="text-align: left;">L1</td>
+<td style="text-align: left;">目录节点</td>
+<td style="text-align: left;">系统 LLM 聚合（从所有叶子 content 生成结构化 Markdown）</td>
+<td style="text-align: left;">~200-500</td>
+<td style="text-align: left;">Agent 按需加载（了解目录结构）</td>
+</tr>
+<tr>
+<td style="text-align: left;">L2</td>
+<td style="text-align: left;">叶子节点</td>
+<td style="text-align: left;">LLM 提取时直接输出</td>
+<td style="text-align: left;">无限制</td>
+<td style="text-align: left;">Agent 按需加载（获取完整记忆内容）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="32-vs">3.2 目录节点 vs 叶子节点</h3>
+<pre><code>向量库中的文档分两种：
+
+1. 目录节点（is_leaf=false）
+   abstract:  L0 聚合摘要（系统 LLM 生成）
+   overview:  L1 结构化导航（系统 LLM 生成）
+   content:   空
+   vector:    embed(L0)
+   示例:
+     abstract = &quot;华为科技: 张伟说话直接喜欢PPT，ERP项目内部有分歧需分别沟通，审批流程复杂至少3-4周&quot;
+     overview = &quot;## 联系人洞察\n- 张伟: 说话直接，汇报用PPT\n## 商机洞察\n- ERP项目: 内部有分歧\n## 内部流程\n- 审批: 至少3-4周&quot;
+
+2. 叶子节点（is_leaf=true）
+   abstract:  叶子的一句话摘要（LLM 提取时输出）
+   overview:  空（不需要，由目录 L1 替代）
+   content:   完整记忆内容（LLM 提取时输出）
+   vector:    embed(abstract)
+   示例:
+     abstract = &quot;华为科技/张伟: 说话直接，汇报用PPT，开会控制30分钟&quot;
+     content  = &quot;张伟说话直接不绕弯子，汇报用PPT带数据，开会控制30分钟。建议和他沟通时直接说重点。&quot;
+</code></pre>
+<h3 id="33-l0l1">3.3 目录 L0/L1 的生成逻辑</h3>
+<p><strong>触发时机</strong>：每次叶子节点写入或更新后，异步触发该叶子所属目录的重新聚合。</p>
+<pre><code>LLM 提取叶子 → 写入向量库 → 看到 parent_entity=&quot;华为科技&quot;
+  → asyncio.create_task(_ensure_directory_node(&quot;entities&quot;, &quot;华为科技&quot;, user_id))
+  → 收集华为科技下所有叶子的 content
+  → LLM 生成 L1（结构化 Markdown）
+  → LLM 从 L1 压缩生成 L0（一句话摘要）
+  → 写入/更新目录节点（abstract=L0, overview=L1）
+</code></pre>
+<p><strong>LLM 不提取目录</strong>。目录的存在完全由叶子的 <code>parent_entity</code> 字段驱动。</p>
+<p><strong>L0 生成 prompt</strong>：</p>
+<pre><code>将以下结构化目录压缩为一句话摘要（不超过100字）。
+目录路径: entities/华为科技
+目录内容: {L1 内容}
+直接输出一句话摘要。
+</code></pre>
+<p><strong>L1 生成 prompt</strong>：</p>
+<pre><code>将以下多条记忆聚合为一个结构化 Markdown 目录。
+目录路径: entities/华为科技
+记忆条目:
+- 张伟说话直接不绕弯子，汇报用PPT带数据，开会控制30分钟
+- ERP项目张伟和李娜意见有分歧，建议分别沟通
+- 华为内部审批流程复杂，IT部门后还需采购委员会，至少3-4周
+用 ## 标题分组，- 列表列出具体信息。
+</code></pre>
+<h3 id="34">3.4 检索时的分层加载</h3>
+<pre><code>检索流程:
+  1. 用户查询 → embedding → hybrid_search（匹配目录 L0 向量 + 叶子 abstract 向量）
+  2. 返回 Top-K 结果，区分目录节点和叶子节点
+  3. 注入 Agent 上下文:
+     - 目录节点 → 注入 L0 摘要，标记 [DIR:xxx]
+     - 叶子节点 → 注入 abstract（L0 摘要），标记 [ID:xxx]
+  4. Agent 按需加载:
+     - 需要目录结构 → memory_read(id=目录ID, level=&quot;L1&quot;) → 返回 overview
+     - 需要叶子详情 → memory_read(id=叶子ID, level=&quot;L2&quot;) → 返回 content
+
+注入格式:
+  &lt;memory_context&gt;
+  - [DIR:dir_001] [entities] 华为科技: 张伟直接，审批3周，ERP有分歧
+  - [ID:mem_001] [entities] 华为/张伟: 说话直接，汇报用PPT，开会控制30分钟
+  - [ID:mem_002] [entities] 华为/ERP项目: 张伟和李娜有分歧，建议分别沟通
+  &lt;/memory_context&gt;
+</code></pre>
+<hr>
+<h2 id="_4">四、记忆写入流水线</h2>
+<h3 id="41">4.1 存储路由</h3>
+<pre><code>LLM 提取出一条记忆
+  │
+  ├── category = profile / agent_rules
+  │   → PG 存储（_merge_single_record）
+  │   → 每用户各一条，LLM 合并
+  │   → 不写入向量库（不需要语义检索）
+  │
+  └── category = preferences / entities
+      → 向量库存储（_merge_by_key 或 _dedup_create）
+      → 同时异步写 PG（_sync_to_pg，前端展示 + 生命周期管理）
+      → 写入后异步触发目录聚合（_ensure_directory_node）
+</code></pre>
+<h3 id="42">4.2 完整流程</h3>
+<pre><code>对话消息
+  │
+  ▼
+第一层: 预过滤 _should_extract()（代码规则，0 LLM 成本）
+  ├── 跳过: 寒暄/确认/感谢
+  ├── 跳过: AI 回复太短
+  ├── 跳过: 工具全部失败
+  └── 通过: 有实质内容的对话
+  │
+  ▼
+第二层: LLM 结构化提取（注入已有 profile/agent_rules/preferences 状态避免重复）
+  ├── 输入: EXTRACTION_PROMPT + 已有状态上下文 + 对话文本
+  ├── 输出: JSON {&quot;memories&quot;: [{category, abstract, content, merge_key, parent_entity}]}
+  ├── 注意: LLM 只输出 abstract + content，不输出 overview（由目录聚合生成）
+  └── profile/agent_rules 的 merge_key 固定为 &quot;profile&quot;/&quot;agent_rules&quot;
+  │
+  ▼
+第三层: 语义去重 + 分类合并 _dedup_and_store()
+  │
+  ├── profile / agent_rules → _merge_single_record()
+  │     读 PG 已有 → LLM 合并 → 写回 PG 一条
+  │     超长自动精炼（profile≤200字，agent_rules≤300字）
+  │
+  ├── preferences / entities → _merge_by_key()
+  │     向量搜索同 merge_key → 同 key 且相似度&gt;0.8 → LLM 合并覆盖
+  │     不同 key → 独立存储
+  │
+  └── 无 merge_key 的 entities → _dedup_create()
+        向量预筛（相似度&gt;0.9）→ LLM 精判（skip/create/merge/delete）
+  │
+  ▼
+第四层: 写入向量库（叶子节点）
+  │
+  ▼
+第五层: 异步触发目录聚合 _ensure_directory_node()
+  ├── 条件: parent_entity 非空
+  ├── 收集该目录下所有叶子的 content
+  ├── LLM 生成 L1（结构化 Markdown 导航）
+  ├── LLM 从 L1 压缩生成 L0（一句话摘要）
+  └── 写入/更新目录节点（abstract=L0, overview=L1, is_leaf=false）
+  │
+  ▼
+第六层: 异步同步 PG（ai_agent_memory 表，前端展示 + 生命周期管理）
+  │
+  ▼
+第七层: 异步触发会话反思（只对 entities 类别）
+</code></pre>
+<h3 id="43">4.3 向量库存储内容</h3>
+<p><strong>叶子节点</strong>（is_leaf=true）：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>来源</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>UUID</td>
+<td>"mem_a1b2c3"</td>
+</tr>
+<tr>
+<td>vector</td>
+<td>embed(abstract)</td>
+<td>2560 维向量</td>
+</tr>
+<tr>
+<td>sparse_vector</td>
+<td>BM25(abstract)</td>
+<td>稀疏向量</td>
+</tr>
+<tr>
+<td>abstract</td>
+<td>LLM 提取时输出</td>
+<td>"华为科技/张伟: 说话直接，汇报用PPT"</td>
+</tr>
+<tr>
+<td>content</td>
+<td>LLM 提取时输出</td>
+<td>"张伟说话直接不绕弯子，汇报用PPT带数据..."</td>
+</tr>
+<tr>
+<td>overview</td>
+<td>空（由目录 L1 替代）</td>
+<td>""</td>
+</tr>
+<tr>
+<td>category</td>
+<td>LLM 提取时输出</td>
+<td>"entities"</td>
+</tr>
+<tr>
+<td>merge_key</td>
+<td>LLM 提取时输出</td>
+<td>"华为科技/张伟"</td>
+</tr>
+<tr>
+<td>parent_entity</td>
+<td>LLM 提取时输出</td>
+<td>"华为科技"</td>
+</tr>
+<tr>
+<td>is_leaf</td>
+<td>固定</td>
+<td>"true"</td>
+</tr>
+<tr>
+<td>status</td>
+<td>固定</td>
+<td>"active"</td>
+</tr>
+</tbody>
+</table>
+<p><strong>目录节点</strong>（is_leaf=false）：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>来源</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>确定性 hash</td>
+<td>"dir_abc123"</td>
+</tr>
+<tr>
+<td>vector</td>
+<td>embed(L0)</td>
+<td>2560 维向量</td>
+</tr>
+<tr>
+<td>abstract</td>
+<td>系统 LLM 聚合生成（L0）</td>
+<td>"华为科技: 张伟直接喜欢PPT，ERP有分歧，审批3周"</td>
+</tr>
+<tr>
+<td>overview</td>
+<td>系统 LLM 聚合生成（L1）</td>
+<td>"## 联系人\n- 张伟: 直接\n## 商机\n- ERP: 有分歧"</td>
+</tr>
+<tr>
+<td>content</td>
+<td>空</td>
+<td>""</td>
+</tr>
+<tr>
+<td>merge_key</td>
+<td>目录名</td>
+<td>"华为科技"</td>
+</tr>
+<tr>
+<td>parent_entity</td>
+<td>空</td>
+<td>""</td>
+</tr>
+<tr>
+<td>is_leaf</td>
+<td>固定</td>
+<td>"false"</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="_5">五、记忆检索流水线</h2>
+<h3 id="51">5.1 完整流程</h3>
+<pre><code>用户查询
+  │
+  ▼
+Step 0: 查询改写（多轮对话时 LLM 解析代词）
+  &quot;那个项目怎么样&quot; → &quot;华为ERP项目的状态&quot;
+  │
+  ▼
+Step 1: 全局 hybrid_search
+  │
+  ├── 检索范围: 向量库中该租户该用户的所有文档（目录节点 + 叶子节点）
+  ├── 过滤条件: tenant_id = &quot;{tenant_id}&quot; AND user_id = &quot;{uid}&quot; AND status != &quot;archived&quot;
+  │
+  ├── 稠密向量路（cosine similarity）:
+  │     检索字段: vector（= embed(abstract)，即 L0 摘要的向量化结果）
+  │     匹配方式: 查询向量 vs 每条记忆 abstract 的向量 → cosine 相似度
+  │
+  ├── 稀疏向量路（BM25 关键词匹配）:
+  │     检索字段: sparse_vector（= BM25(abstract)，即 L0 摘要的 BM25 稀疏向量）
+  │     匹配方式: 查询的 BM25 稀疏向量 vs 每条记忆 abstract 的稀疏向量 → 关键词精确匹配
+  │
+  ├── 融合打分: final_score = 0.7 × BM25_score + 0.3 × cosine_score
+  │
+  └── 返回 Top-10 结果（目录节点和叶子节点混合）
+  │
+  ▼
+Step 2: 分离目录节点和叶子节点
+  │
+  ├── 判断依据: is_leaf 字段
+  │     is_leaf = &quot;true&quot;  → 叶子节点 → 直接收集到结果集，score 作为 _final_score
+  │     is_leaf = &quot;false&quot; → 目录节点 → 入优先队列（按 -score 排序），等待递归展开
+  │
+  └── 目录节点本身不直接返回给 Agent，而是通过递归展开找到其下的叶子节点
+  │
+  ▼
+Step 3: 递归展开目录（优先队列 + 分数传播 + 收敛检测）
+  │
+  ├── 循环: 从优先队列中取出分数最高的目录
+  │     │
+  │     ├── 搜索子节点:
+  │     │     过滤条件: user_id = &quot;{uid}&quot; AND parent_uri = &quot;{当前目录URI}&quot;
+  │     │     检索方式: 纯向量搜索（query_vec vs 子节点的 vector 字段）
+  │     │     返回: 该目录下的直接子节点（可能是叶子，也可能是子目录）
+  │     │
+  │     ├── 分数传播（α = 0.5）:
+  │     │     child_final_score = 0.5 × child_own_score + 0.5 × parent_dir_score
+  │     │     含义: 子节点的最终分数 = 自身与查询的相关度 + 父目录的相关度加成
+  │     │     效果: 高分目录下的子节点即使自身分数一般，也能获得父目录的分数加成
+  │     │
+  │     ├── 子节点分流:
+  │     │     子目录（is_leaf=false）且 final_score &gt; 0.3 → 入优先队列继续递归
+  │     │     叶子节点（is_leaf=true）→ 收集到结果集
+  │     │
+  │     └── 收敛检测:
+  │           每轮递归后检查当前 Top-K 结果是否变化
+  │           连续 3 轮 Top-K 不变 → 停止递归（结果已收敛）
+  │
+  └── 递归终止条件: 优先队列为空 OR 连续 3 轮收敛
+  │
+  ▼
+Step 4: 后处理 &amp; 构建返回结果
+  │
+  ├── 按 _final_score 降序排列所有收集到的叶子节点
+  ├── 取 Top-K（默认 5 条）
+  ├── stale 状态记忆: 分数 ×0.5，标注 [可能过时]
+  ├── archived 状态: 已在 Step 1 的 filter 中排除
+  └── 返回每条记忆的 abstract（L0 摘要），标记节点类型:
+        目录节点 → [DIR:xxx]（有 L1 可加载）
+        叶子节点 → [ID:xxx]（有 L2 可加载）
+  │
+  ▼
+Step 5: 注入 Agent 上下文
+  &lt;memory_context&gt;
+  - [DIR:dir_001] [entities] 华为科技: 张伟直接，审批3周，ERP有分歧
+  - [ID:mem_001] [entities] 华为/张伟: 说话直接，汇报用PPT
+  - [ID:mem_002] [entities] 华为/ERP项目: 张伟和李娜有分歧
+  &lt;/memory_context&gt;
+  │
+  ▼
+Step 6: Agent 按需加载（memory_read 工具）
+  memory_read(id=目录ID, level=&quot;L1&quot;) → 返回目录 overview（结构化导航）
+  memory_read(id=叶子ID, level=&quot;L2&quot;) → 返回叶子 content（完整记忆）
+  │
+  ▼
+Step 7: 异步更新 PG（不阻塞检索）
+  UPDATE ai_agent_memory SET last_accessed_at=now, active_count+=1
+  stale/archived 被命中 → 复活为 active
+</code></pre>
+<h3 id="52">5.2 检索字段详解</h3>
+<p><strong>核心规则：只有 abstract（L0）的向量化结果参与检索匹配，其他字段只是存储。</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">向量库字段</th>
+<th style="text-align: left;">来源</th>
+<th style="text-align: center;">参与检索</th>
+<th style="text-align: left;">匹配方式</th>
+<th style="text-align: left;">说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">vector</td>
+<td style="text-align: left;">embed(abstract)</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: left;">cosine similarity（稠密向量）</td>
+<td style="text-align: left;">L0 摘要的语义向量，捕获同义词和隐含关系</td>
+</tr>
+<tr>
+<td style="text-align: left;">sparse_vector</td>
+<td style="text-align: left;">BM25(abstract)</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: left;">关键词精确匹配（稀疏向量）</td>
+<td style="text-align: left;">L0 摘要的 BM25 向量，确保客户名/人名精确命中</td>
+</tr>
+<tr>
+<td style="text-align: left;">abstract（L0）</td>
+<td style="text-align: left;">LLM 提取 / 系统聚合</td>
+<td style="text-align: center;">❌（是向量化源文本）</td>
+<td style="text-align: left;">—</td>
+<td style="text-align: left;">检索命中后返回给 Agent 的摘要</td>
+</tr>
+<tr>
+<td style="text-align: left;">overview（L1）</td>
+<td style="text-align: left;">系统 LLM 聚合（目录）</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: left;">—</td>
+<td style="text-align: left;">Agent 调用 memory_read(level="L1") 按需加载</td>
+</tr>
+<tr>
+<td style="text-align: left;">content（L2）</td>
+<td style="text-align: left;">LLM 提取（叶子）</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: left;">—</td>
+<td style="text-align: left;">Agent 调用 memory_read(level="L2") 按需加载</td>
+</tr>
+</tbody>
+</table>
+<h3 id="53">5.3 目录递归展开详解</h3>
+<p><strong>为什么需要递归展开：</strong></p>
+<p>向量库中的记忆按目录树组织。用户问"华为的情况"时，全局检索可能命中"华为科技"目录节点（L0 聚合摘要与查询相关），但目录本身只是摘要，真正有价值的是其下的叶子节点。递归展开就是从命中的目录出发，逐层下钻找到具体的叶子记忆。</p>
+<p><strong>递归展开示例：</strong></p>
+<pre><code>向量库中的目录结构:
+  viking://user/memories/entities/华为科技/          ← 目录节点（is_leaf=false）
+    ├── viking://user/memories/entities/华为科技/张伟  ← 叶子（is_leaf=true）
+    ├── viking://user/memories/entities/华为科技/ERP升级 ← 叶子（is_leaf=true）
+    └── viking://user/memories/entities/华为科技/审批流程 ← 叶子（is_leaf=true）
+
+用户查询: &quot;华为那边的情况&quot;
+
+Step 1 全局检索命中:
+  - 目录 &quot;华为科技: 张伟直接，ERP有分歧，审批3周&quot; → score=0.88 → 入优先队列
+  - 叶子 &quot;华为科技/张伟: 说话直接，汇报用PPT&quot;    → score=0.72 → 直接收集
+
+Step 3 递归展开目录 &quot;华为科技/&quot;:
+  搜索 parent_uri=&quot;viking://user/memories/entities/华为科技/&quot; 的子节点:
+    - 华为科技/ERP升级 → own_score=0.65
+      final_score = 0.5 × 0.65 + 0.5 × 0.88 = 0.765 → 收集
+    - 华为科技/审批流程 → own_score=0.45
+      final_score = 0.5 × 0.45 + 0.5 × 0.88 = 0.665 → 收集
+    - 华为科技/张伟 → 已在 seen_ids 中，跳过
+
+最终 Top-K（按 final_score 排序）:
+  1. [DIR] 华为科技 → 0.88（目录本身也可返回）
+  2. [ID]  华为科技/ERP升级 → 0.765（递归展开发现）
+  3. [ID]  华为科技/张伟 → 0.72（全局直接命中）
+  4. [ID]  华为科技/审批流程 → 0.665（递归展开发现）
+</code></pre>
+<p><strong>分数传播的意义：</strong></p>
+<pre><code>不用分数传播时:
+  华为科技/审批流程 own_score=0.45（与&quot;华为那边的情况&quot;语义关联弱）→ 可能被过滤
+
+用分数传播后:
+  华为科技/审批流程 final_score = 0.5×0.45 + 0.5×0.88 = 0.665
+  → 因为父目录&quot;华为科技&quot;高度相关，子节点获得加成，不会被遗漏
+  → 效果：问&quot;华为的情况&quot;时，华为下的所有子记忆都能被召回
+</code></pre>
+<pre><code>两路检索各自返回 Top-K 结果后，通过 WeightedRerank 融合：
+
+  final_score = sparse_weight × BM25_score + dense_weight × vector_score
+              = 0.7 × BM25_score + 0.3 × vector_score
+
+权重设计原因：
+  BM25 权重 0.7（高）：CRM 场景中客户名、联系人名是精确匹配需求
+    &quot;华为科技&quot; 必须精确命中包含&quot;华为科技&quot;的记忆，不能被语义相近的&quot;中兴通讯&quot;替代
+  向量权重 0.3（低）：语义补充，捕获同义词和隐含关系
+    &quot;商机情况&quot; 可以匹配到&quot;ERP项目有分歧&quot;（语义相关但无关键词重叠）
+</code></pre>
+<h3 id="54">5.4 融合打分公式与排序示例</h3>
+<pre><code>查询: &quot;华为科技的商机情况&quot;
+
+候选记忆                              BM25_score  vector_score  final_score
+─────────────────────────────────────────────────────────────────────────
+[DIR] 华为科技: 张伟直接，ERP有分歧     0.95        0.88         0.7×0.95 + 0.3×0.88 = 0.929
+[ID]  华为科技/ERP项目: 有分歧          0.90        0.82         0.7×0.90 + 0.3×0.82 = 0.876
+[ID]  华为科技/张伟: 说话直接            0.85        0.75         0.7×0.85 + 0.3×0.75 = 0.820
+[ID]  腾讯/云项目: 方案阶段             0.20        0.70         0.7×0.20 + 0.3×0.70 = 0.350
+─────────────────────────────────────────────────────────────────────────
+
+结果：华为相关记忆排在前面（BM25 精确匹配&quot;华为科技&quot;），腾讯被压到最后（BM25 不匹配）。
+即使腾讯的 vector_score 较高（语义上&quot;商机&quot;相关），BM25 的高权重确保了客户名精确匹配优先。
+</code></pre>
+<h3 id="55-vs">5.5 检索匹配字段 vs 存储字段</h3>
+<p>向量库中每个文档有多个字段，但<strong>只有 abstract 的向量化结果参与检索匹配</strong>，其他字段只是存储：</p>
+<pre><code>向量库中有 3 个文档：
+
+1. 目录节点（华为科技/）
+   vector = embed(&quot;华为科技: 张伟直接，ERP有分歧，审批3周&quot;)  ← 参与检索（cosine）
+   sparse_vector = BM25(&quot;华为科技: 张伟直接，ERP有分歧...&quot;)  ← 参与检索（关键词）
+   abstract = &quot;华为科技: 张伟直接，ERP有分歧，审批3周&quot;       ← 向量化的源文本
+   overview = &quot;## 联系人\n- 张伟...\n## 商机\n- ERP...&quot;     ← 不参与检索（按需加载）
+   content = &quot;&quot;                                             ← 目录没有 content
+
+2. 叶子节点（华为科技/ERP项目）
+   vector = embed(&quot;华为科技/ERP项目: 张伟和李娜有分歧&quot;)      ← 参与检索
+   sparse_vector = BM25(&quot;华为科技/ERP项目: 张伟和李娜...&quot;)   ← 参与检索
+   abstract = &quot;华为科技/ERP项目: 张伟和李娜有分歧&quot;           ← 向量化的源文本
+   content = &quot;ERP项目张伟和李娜意见有分歧，建议分别沟通...&quot;   ← 不参与检索（按需加载）
+
+3. 叶子节点（华为科技/张伟）
+   vector = embed(&quot;华为科技/张伟: 说话直接，汇报用PPT&quot;)      ← 参与检索
+   sparse_vector = BM25(&quot;华为科技/张伟: 说话直接...&quot;)        ← 参与检索
+   abstract = &quot;华为科技/张伟: 说话直接，汇报用PPT&quot;           ← 向量化的源文本
+   content = &quot;张伟说话直接不绕弯子，汇报用PPT带数据...&quot;       ← 不参与检索（按需加载）
+</code></pre>
+<p><strong>总结</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th style="text-align: center;">是否参与检索匹配</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>vector（embed(abstract)）</td>
+<td style="text-align: center;">✅</td>
+<td>cosine similarity 语义匹配</td>
+</tr>
+<tr>
+<td>sparse_vector（BM25(abstract)）</td>
+<td style="text-align: center;">✅</td>
+<td>关键词精确匹配</td>
+</tr>
+<tr>
+<td>abstract</td>
+<td style="text-align: center;">❌（是向量化的源文本）</td>
+<td>检索返回给 Agent 的 L0 摘要</td>
+</tr>
+<tr>
+<td>overview（L1）</td>
+<td style="text-align: center;">❌</td>
+<td>Agent 调用 memory_read(level="L1") 时返回</td>
+</tr>
+<tr>
+<td>content（L2）</td>
+<td style="text-align: center;">❌</td>
+<td>Agent 调用 memory_read(level="L2") 时返回</td>
+</tr>
+</tbody>
+</table>
+<h3 id="56">5.6 分层加载</h3>
+<pre><code>检索默认返回 L0 摘要（~30 tokens/条），Agent 按需加载 L1/L2：
+
+  L0 够用 → Agent 直接回答（不调用 memory_read）
+  需要目录结构 → memory_read(id=DIR_ID, level=&quot;L1&quot;) → 返回结构化 Markdown
+  需要叶子详情 → memory_read(id=LEAF_ID, level=&quot;L2&quot;) → 返回完整记忆内容
+
+Token 开销对比：
+  5 条 L0 注入: 5 × 30 = 150 tokens
+  按需加载 2 条 L2: 2 × 200 = 400 tokens
+  总计: 550 tokens（vs 直接返回 5 条 L2 = 1000 tokens）
+</code></pre>
+<hr>
+<h2 id="_6">六、记忆合并策略</h2>
+<h3 id="61">6.1 按类别差异化</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">类别</th>
+<th style="text-align: left;">合并方式</th>
+<th style="text-align: left;">触发条件</th>
+<th style="text-align: left;">实现方法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">profile</td>
+<td style="text-align: left;">始终合并（追加）</td>
+<td style="text-align: left;">每次 profile 记忆写入</td>
+<td style="text-align: left;"><code>_merge_profile()</code>: 搜索已有 → 内容追加 → 删旧写新</td>
+</tr>
+<tr>
+<td style="text-align: left;">preferences</td>
+<td style="text-align: left;">同 aspect 替换</td>
+<td style="text-align: left;">merge_key 相同且相似度 &gt; 0.8</td>
+<td style="text-align: left;"><code>_merge_by_key()</code>: 按 merge_key 搜索 → 替换（向量库）</td>
+</tr>
+<tr>
+<td style="text-align: left;">entities</td>
+<td style="text-align: left;">同实体替换</td>
+<td style="text-align: left;">merge_key 相同且相似度 &gt; 0.8</td>
+<td style="text-align: left;"><code>_merge_by_key()</code>: 按 merge_key 搜索 → 替换</td>
+</tr>
+<tr>
+<td style="text-align: left;">events</td>
+<td style="text-align: left;">不合并</td>
+<td style="text-align: left;">相似度 &gt; 0.9 时 LLM 判断</td>
+<td style="text-align: left;"><code>_dedup_create()</code>: 向量预筛 + LLM 精判</td>
+</tr>
+<tr>
+<td style="text-align: left;">cases</td>
+<td style="text-align: left;">不合并</td>
+<td style="text-align: left;">相似度 &gt; 0.9 时 LLM 判断</td>
+<td style="text-align: left;"><code>_dedup_create()</code>: 向量预筛 + LLM 精判</td>
+</tr>
+<tr>
+<td style="text-align: left;">patterns</td>
+<td style="text-align: left;">同流程合并</td>
+<td style="text-align: left;">merge_key 相同</td>
+<td style="text-align: left;"><code>_merge_by_key()</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">tools</td>
+<td style="text-align: left;">同工具合并</td>
+<td style="text-align: left;">merge_key = 工具名</td>
+<td style="text-align: left;"><code>_merge_by_key()</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">skills</td>
+<td style="text-align: left;">同技能合并</td>
+<td style="text-align: left;">merge_key = 技能名</td>
+<td style="text-align: left;"><code>_merge_by_key()</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="62-entities-merge_key">6.2 语义去重流程（entities 无 merge_key 时）</h3>
+<p>当 entities 类记忆没有明确的 merge_key 时（LLM 未能生成结构化的实体路径），通过语义去重避免重复存储：</p>
+<pre><code>候选记忆（无 merge_key 的 entities）
+  │
+  ▼
+向量预筛: 搜索已有同类别记忆，取 Top-3
+  │
+  ├── 最高相似度 &lt; 0.9 → 直接 create（新信息，独立存储）
+  │
+  └── 最高相似度 &gt;= 0.9 → 调 LLM 精判（DEDUP_PROMPT）
+        │
+        ├── skip:   候选与已有记忆重复/改写 → 不存储，不修改已有
+        ├── create:  虽然相似但确实是新信息 → 独立存储
+        ├── merge:  同主题的信息更新 → LLM 生成合并内容，替换旧记忆
+        └── delete: 已有记忆完全失效 → 删除旧记忆，存储新记忆（极少使用）
+</code></pre>
+<p><strong>场景示例：</strong></p>
+<pre><code>━━━ 场景 1: skip（重复信息，不存储）━━━
+
+已有记忆:
+  abstract: &quot;华为科技/ERP项目: 内部张伟和李娜有分歧，建议分别沟通&quot;
+
+新提取候选:
+  abstract: &quot;华为ERP项目张伟和李娜意见不一致，需要分开沟通&quot;
+
+向量预筛: 相似度 = 0.94（&gt; 0.9）→ 调 LLM 精判
+LLM 判断: skip（语义重复，只是换了说法）
+结果: 不存储候选，已有记忆不变
+
+
+━━━ 场景 2: merge（信息演进，合并更新）━━━
+
+已有记忆:
+  abstract: &quot;华为科技/ERP项目: 内部张伟和李娜有分歧，建议分别沟通&quot;
+  content:  &quot;华为ERP项目内部张伟和李娜有分歧，建议分别沟通。&quot;
+
+新提取候选:
+  abstract: &quot;华为科技/ERP项目: 分歧已解决，张伟方案获批&quot;
+  content:  &quot;华为ERP项目内部分歧已解决，最终采用张伟的方案，李娜也同意了。&quot;
+
+向量预筛: 相似度 = 0.91（&gt; 0.9）→ 调 LLM 精判
+LLM 判断: merge（同主题信息更新，旧信息部分过时）
+LLM 生成合并内容: &quot;华为ERP项目此前张伟和李娜有分歧，现已解决，最终采用张伟方案。&quot;
+结果: 删除旧记忆 → 写入合并后的新记忆
+
+
+━━━ 场景 3: create（相似但不同主题）━━━
+
+已有记忆:
+  abstract: &quot;华为科技/张伟: 说话直接，汇报用PPT，开会控制30分钟&quot;
+
+新提取候选:
+  abstract: &quot;华为科技/张伟: 下周出差两周，期间找李娜对接&quot;
+
+向量预筛: 相似度 = 0.92（&gt; 0.9，因为都是&quot;华为科技/张伟&quot;）→ 调 LLM 精判
+LLM 判断: create（虽然主体相同，但是全新的时效性信息，不是对旧信息的更新）
+结果: 独立存储为新记忆
+
+注: 如果该候选有 merge_key=&quot;华为科技/张伟&quot;，则走 _merge_by_key 逻辑直接合并，
+    不会进入语义去重流程。语义去重只处理无 merge_key 的情况。
+</code></pre>
+<hr>
+<h2 id="_7">七、记忆遗忘策略</h2>
+<h3 id="71">7.1 各类别遗忘策略</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">类别</th>
+<th style="text-align: center;">保留天数</th>
+<th style="text-align: left;">遗忘策略</th>
+<th style="text-align: left;">设计逻辑</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">profile</td>
+<td style="text-align: center;">永不遗忘</td>
+<td style="text-align: left;">不进入淡化流程</td>
+<td style="text-align: left;">用户身份是 Agent 个性化的基础锚点。"华东区销售总监"这类信息不会因时间推移而失效，且每用户只有 1 条，存储成本可忽略。即使用户调岗，新信息会通过 LLM 合并覆盖旧内容，而非删除。</td>
+</tr>
+<tr>
+<td style="text-align: left;">preferences</td>
+<td style="text-align: center;">永不遗忘</td>
+<td style="text-align: left;">不进入淡化流程</td>
+<td style="text-align: left;">用户偏好是 Agent 输出质量的关键。"表格展示""金额用万"等偏好一旦建立就长期有效，用户不会每次重复说明。偏好变更时通过同维度合并覆盖（新值替换旧值），不需要遗忘机制。</td>
+</tr>
+<tr>
+<td style="text-align: left;">agent_rules</td>
+<td style="text-align: center;">永不遗忘</td>
+<td style="text-align: left;">不进入淡化流程</td>
+<td style="text-align: left;">Agent 行为准则是用户对 Agent 的持久约束，每轮对话都需要注入。"回复不超过100字"这类规则除非用户主动修改，否则永远生效。矛盾时通过 LLM 融合以新为准，不需要遗忘。</td>
+</tr>
+<tr>
+<td style="text-align: left;">entities</td>
+<td style="text-align: center;">180 天</td>
+<td style="text-align: left;">三阶段淡化（active → stale → archived → deleted）</td>
+<td style="text-align: left;">第三方事实有时效性。"张伟下周出差"半年后已无意义；"华为ERP项目谈判阶段"可能早已签约或丢单。180 天是 CRM 销售周期的经验值（大客户商机平均 3-6 个月关闭）。但高热度记忆（active_count ≥ 3）即使过期也保留——频繁被检索说明仍有价值。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="72">7.2 遗忘条件</h3>
+<pre><code>遗忘判断（仅 entities 类别，每日凌晨定时任务执行）:
+
+过期 AND 低热度:
+  age_days &gt; 180 AND active_count &lt; 3
+  → 进入三阶段淡化
+
+过期 BUT 高热度:
+  age_days &gt; 180 AND active_count &gt;= 3
+  → 保留为 active（频繁被检索到的记忆即使过期也有价值）
+  → 示例: &quot;华为科技/张伟: 说话直接&quot; 虽然是半年前提取的，但每次问华为相关问题都命中，说明仍有参考价值
+
+profile / preferences / agent_rules:
+  → 永不进入遗忘流程，不受 age_days 影响
+</code></pre>
+<h3 id="73">7.3 全量清理策略</h3>
+<p>不受 <code>_RETENTION_DAYS</code> 限制，直接物理删除：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">触发场景</th>
+<th style="text-align: left;">清理范围</th>
+<th style="text-align: left;">触发方式</th>
+<th style="text-align: left;">操作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">租户过期/注销</td>
+<td style="text-align: left;">该 tenant_id 下所有用户的全部记忆</td>
+<td style="text-align: left;">平台管理接口 / 定时任务检测租户状态</td>
+<td style="text-align: left;">PG 物理删除 + 向量库按 tenant_id filter 批量删除</td>
+</tr>
+<tr>
+<td style="text-align: left;">用户离职/停用</td>
+<td style="text-align: left;">该 user_id 下的全部记忆（所有类别）</td>
+<td style="text-align: left;">HR 系统 Webhook / 管理后台手动触发</td>
+<td style="text-align: left;">PG 物理删除 + 向量库按 user_id filter 批量删除</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="_8">八、反思修正机制</h2>
+<h3 id="81-reflect_on_failure">8.1 失败驱动反思 <code>reflect_on_failure()</code></h3>
+<pre><code>触发: Agent 任务失败后
+流程:
+  1. 检索本轮对话中被使用的记忆
+  2. LLM 分析失败原因是否与某条记忆有关
+  3. 如果有 → 删除错误记忆
+</code></pre>
+<h3 id="82-reflect_on_correction">8.2 用户反馈反思 <code>reflect_on_correction()</code></h3>
+<pre><code>触发: 用户说&quot;不对&quot;/&quot;错了&quot;/&quot;改一下&quot;
+流程:
+  1. 检索与纠正内容相关的记忆
+  2. LLM 判断哪些记忆需要修正或删除
+  3. 执行修正
+</code></pre>
+<h3 id="83-reflect_on_session">8.3 会话结束反思 <code>reflect_on_session()</code></h3>
+<p>参考 OpenViking 的 <code>post_session_reflection</code> 设计。在每次 <code>extract_and_update</code> 完成后异步调用。</p>
+<pre><code>触发: extract_and_update 完成后（异步，不阻塞主流程）
+输入: 本次提取的新记忆列表 + user_id
+
+流程:
+  1. 对每条新记忆，检索已有的相似记忆（排除本次写入的）
+  2. 过滤高相似度候选（score &gt; 0.7）
+  3. LLM 判断关系类型:
+     - no_conflict: 无矛盾，信息互补 → 不处理
+     - contradiction: 直接矛盾（偏好改变、事实更正）→ 需要解决
+     - evolution: 信息演进（旧信息过时但不矛盾）→ 需要解决
+     - duplicate: 重复信息 → 需要解决
+  4. 对每个冲突，LLM 决定解决方案:
+     - update_old: 用合并内容更新旧记忆
+     - archive_old: 归档旧记忆，保留新记忆
+     - keep_both: 两者都保留
+     - discard_new: 丢弃新记忆
+
+返回: {&quot;checked&quot;: N, &quot;conflicts&quot;: N, &quot;resolved&quot;: N, &quot;actions&quot;: [...]}
+
+示例:
+  新记忆: &quot;华为ERP项目金额800万，谈判阶段&quot;
+  已有记忆: &quot;华为ERP项目金额500万，谈判阶段&quot;
+  → 关系: evolution（金额从500万调整为800万）
+  → 解决: update_old（用800万更新旧记忆）
+</code></pre>
+<h3 id="84-reflect_global">8.4 定期全局反思 <code>reflect_global()</code></h3>
+<p>参考 OpenViking 的 <code>weekly_global_reflection</code> 设计。建议每天或每周执行一次。</p>
+<pre><code>触发: 定时任务（每天/每周）或手动调用
+
+Step 1: 碎片化检测与合并
+  ├── 遍历向量库中所有类别（entities/events/cases/patterns）
+  ├── 按 merge_key 分组
+  ├── 同 merge_key 超过 1 条 → LLM 合并为 1 条
+  └── 删除旧碎片，写入合并后的新条目
+
+Step 2: 一致性检查（profile vs preferences）
+  ├── 从 PG 获取 profile 和 preferences
+  ├── LLM 检查两者是否矛盾
+  └── 记录不一致项（不自动修复，留给人工确认）
+
+Step 3: 过时检测
+  └── 调用 cleanup_expired() 清理过期 + 低热度记忆
+
+返回: {&quot;merged&quot;: N, &quot;inconsistencies&quot;: N, &quot;stale_marked&quot;: N}
+</code></pre>
+<hr>
+<h2 id="-bvikingfs">八-B、VikingFS 虚拟文件系统</h2>
+<h3 id="9b1">9B.1 设计目标</h3>
+<p>参考 OpenViking 的文件系统范式，用 PG + 向量库模拟目录树结构。不是真正的文件系统，而是基于 URI 路径的记忆组织层，提供统一的记忆浏览和导航能力。</p>
+<h3 id="9b2-uri">9B.2 URI 格式</h3>
+<pre><code>viking://{space}/memories/{category}/{parent}/{name}
+
+  space:    &quot;user&quot;（profile/preferences/entities/events）
+            &quot;agent&quot;（cases/patterns/tools/skills）
+  category: 8 类之一
+  parent:   父实体（可选，如 &quot;华为科技&quot;）
+  name:     记忆名（可选，如 &quot;ERP升级项目&quot;）
+</code></pre>
+<h3 id="9b3">9B.3 目录结构示例</h3>
+<pre><code>viking://user/memories/
+├── profile: 华东区销售总监，管理15人团队
+├── preferences/
+│   ├── 数据展示偏好: 表格格式
+│   └── 回复风格偏好: 简洁，给结论
+├── entities/
+│   ├── 华为科技/ (5 条)
+│   │   ├── ERP升级项目: 金额500万，谈判阶段
+│   │   ├── 云迁移项目: 金额200万，方案阶段
+│   │   └── 张总: CTO，139-xxxx
+│   └── 腾讯/ (3 条)
+└── events/
+    └── 2026-04-28_华为ERP评审通过
+
+viking://agent/memories/
+├── cases/
+│   └── 查询报错_字段名拼写
+├── patterns/
+│   └── 客户360分析流程
+├── tools/
+│   └── query_data: 调用42次，成功率95%
+└── skills/
+    └── Pipeline报告
+</code></pre>
+<h3 id="9b4">9B.4 操作接口</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">操作</th>
+<th style="text-align: left;">方法</th>
+<th style="text-align: left;">说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">ls</td>
+<td style="text-align: left;"><code>VikingFS.ls(uri)</code></td>
+<td style="text-align: left;">列出目录下的直接子条目</td>
+</tr>
+<tr>
+<td style="text-align: left;">tree</td>
+<td style="text-align: left;"><code>VikingFS.tree(uri, max_depth)</code></td>
+<td style="text-align: left;">递归展示目录树（文本格式）</td>
+</tr>
+<tr>
+<td style="text-align: left;">read</td>
+<td style="text-align: left;"><code>VikingFS.read(uri, level)</code></td>
+<td style="text-align: left;">读取指定 URI 的记忆（L0/L1/L2）</td>
+</tr>
+<tr>
+<td style="text-align: left;">find</td>
+<td style="text-align: left;"><code>VikingFS.find(pattern)</code></td>
+<td style="text-align: left;">按关键词搜索所有记忆</td>
+</tr>
+<tr>
+<td style="text-align: left;">rm</td>
+<td style="text-align: left;"><code>VikingFS.rm(uri)</code></td>
+<td style="text-align: left;">删除指定 URI 的记忆</td>
+</tr>
+</tbody>
+</table>
+<h3 id="9b5">9B.5 存储路由</h3>
+<pre><code>VikingFS 在 PG 和向量库之上提供统一视图:
+
+  PG 类别（精确查询）:
+    profile / soul / tools / skills
+    → MemoryDAO.get_by_user_category() 查询
+
+  向量库类别（语义检索）:
+    entities / events / cases / patterns / preferences
+    → VectorStore.query_by_filter() 查询
+</code></pre>
+<h3 id="9b6-vikingmemoryengine">9B.6 与 VikingMemoryEngine 的集成</h3>
+<pre><code class="language-python"># 获取 FS 实例
+fs = engine.get_fs(user_id=&quot;u1&quot;)
+
+# 展示目录树
+print(engine.tree(user_id=&quot;u1&quot;))
+
+# 通过 URI 读取记忆
+node = engine.read_uri(&quot;u1&quot;, &quot;viking://user/memories/entities/华为科技/ERP升级项目&quot;)
+
+# 关键词搜索
+results = engine.find_by_keyword(&quot;u1&quot;, &quot;华为&quot;)
+</code></pre>
+<hr>
+<h2 id="-c">八-C、记忆与系统数据一致性</h2>
+<h3 id="9c1">9C.1 问题分析</h3>
+<p>当前 entities 类记忆用<strong>客户名称</strong>做 merge_key 和 parent_entity，存在两个根本性问题：</p>
+<p><strong>问题 1：系统数据变更 → 记忆过时</strong></p>
+<pre><code>时间线:
+  T1: 对话中提取记忆 → &quot;华为科技/ERP升级: 金额500万，谈判阶段&quot;
+  T2: 销售在 CRM 系统中修改了商机金额 → 800万
+  T3: 用户问 &quot;华为ERP项目多少钱&quot; → Agent 检索到记忆 → 回答 &quot;500万&quot;（错误！）
+
+根因: 记忆存的是对话时刻的数据快照，不是系统数据的引用
+</code></pre>
+<p><strong>问题 2：实体重命名 → 记忆孤儿</strong></p>
+<pre><code>时间线:
+  T1: 记忆中有 5 条 parent_entity=&quot;华为科技&quot; 的记忆
+  T2: 管理员在 CRM 中把客户名改为 &quot;深圳华为科技&quot;
+  T3: 用户问 &quot;深圳华为科技的商机&quot; → 向量库 filter parent_entity=&quot;深圳华为科技&quot; → 0 条命中
+      用户问 &quot;华为科技的商机&quot; → 命中 5 条，但客户名已经不对了
+
+根因: merge_key 和 parent_entity 用的是名称字符串，不是系统 ID
+</code></pre>
+<h3 id="9c2-vs">9C.2 记忆应该记什么 vs 不应该记什么</h3>
+<p>这是核心设计决策。entities 类记忆不应该做系统数据的镜像，而应该记录<strong>对话中产生的增量认知</strong>：</p>
+<pre><code>❌ 不应该记的（系统已有的结构化数据）:
+  &quot;华为科技/ERP升级: 金额500万，谈判阶段&quot;
+  → 这些数据在 CRM 系统中已经存在，Agent 可以实时查询
+  → 存成记忆 = 存了一份会过时的快照
+
+✅ 应该记的（对话中产生的、系统中没有的增量认知）:
+  &quot;华为科技/ERP升级: 张总倾向选方案B，对价格敏感，建议不要主动提折扣&quot;
+  &quot;华为科技/张总: 喜欢先看数据再讨论，不喜欢PPT，每次会议控制在30分钟内&quot;
+  &quot;华为科技: 内部审批流程复杂，至少需要3周，建议提前准备材料&quot;
+  → 这些是销售在对话中透露的主观判断、沟通技巧、隐性知识
+  → CRM 系统中没有这些字段，只有记忆系统能存
+</code></pre>
+<h3 id="9c3">9C.3 解决方案：双锚点 + 分层存储</h3>
+<pre><code>方案核心:
+  1. entities 记忆绑定系统 record_id（不依赖名称字符串）
+  2. 区分&quot;系统数据摘要&quot;和&quot;增量认知&quot;两种记忆类型
+  3. 系统数据变更时通过 Webhook 级联更新记忆
+</code></pre>
+<h4 id="arecord_id">方案 A：record_id 锚定（推荐）</h4>
+<p>在 entities 记忆中增加 <code>biz_id</code> 字段，绑定 CRM 系统的 record_id：</p>
+<pre><code>当前存储:
+  merge_key:     &quot;华为科技/ERP升级&quot;      ← 名称字符串，会过时
+  parent_entity: &quot;华为科技&quot;              ← 名称字符串，会过时
+
+改进后存储:
+  merge_key:     &quot;华为科技/ERP升级&quot;      ← 仍然保留（用于人类可读的目录展示）
+  parent_entity: &quot;华为科技&quot;              ← 仍然保留（用于目录展示）
+  biz_id:        &quot;opp_12345&quot;            ← 新增：CRM 系统的 record_id（不变的锚点）
+  biz_parent_id: &quot;acc_67890&quot;            ← 新增：父实体的 record_id
+  biz_type:      &quot;opportunity&quot;          ← 新增：业务实体类型
+
+检索时:
+  优先用 biz_id filter（精确匹配，不受改名影响）
+  fallback 到 merge_key / parent_entity（兼容无 biz_id 的旧记忆）
+</code></pre>
+<h4 id="b-vs">方案 B：增量认知 vs 数据摘要分离</h4>
+<pre><code>entities 记忆拆成两个子类型:
+
+  entities_summary（数据摘要）:
+    来源: 工具返回的结构化数据
+    特点: 会过时，需要定期刷新或标记 TTL
+    示例: &quot;华为科技/ERP升级: 金额500万，谈判阶段&quot;
+    TTL:  24小时（过期后下次检索时实时查询系统数据替代）
+
+  entities_insight（增量认知）:
+    来源: 对话中的主观判断、隐性知识
+    特点: 不会因系统数据变更而失效
+    示例: &quot;华为科技/ERP升级: 张总倾向方案B，对价格敏感&quot;
+    TTL:  180天（正常遗忘策略）
+
+检索时:
+  entities_summary → 检查 TTL，过期则标记为 stale，提示 Agent 实时查询
+  entities_insight → 正常返回，不受系统数据变更影响
+</code></pre>
+<h4 id="c">方案 C：实体重命名级联更新</h4>
+<pre><code>CRM 系统 Webhook → 记忆系统:
+
+  事件: 客户名称变更（华为科技 → 深圳华为科技）
+  │
+  ▼
+  记忆系统收到 rename 事件:
+    1. 查询所有 biz_parent_id = &quot;acc_67890&quot; 的记忆
+    2. 批量更新:
+       parent_entity: &quot;华为科技&quot; → &quot;深圳华为科技&quot;
+       merge_key: &quot;华为科技/ERP升级&quot; → &quot;深圳华为科技/ERP升级&quot;
+       abstract: 替换文本中的 &quot;华为科技&quot; → &quot;深圳华为科技&quot;
+       重新 embed(abstract) → 更新 vector
+    3. 记录一条 events 记忆:
+       &quot;2026-04-28 客户华为科技更名为深圳华为科技&quot;
+</code></pre>
+<h3 id="9c4">9C.4 推荐实施路径</h3>
+<pre><code>Phase 1（短期，改提取逻辑）:
+  ├── 修改 EXTRACTION_PROMPT，要求 LLM 区分&quot;数据摘要&quot;和&quot;增量认知&quot;
+  ├── 数据摘要类记忆标记 source_type=&quot;system_data&quot;，设置短 TTL
+  ├── 增量认知类记忆标记 source_type=&quot;insight&quot;，正常 TTL
+  └── 检索时对 stale 的数据摘要标记 [可能已过时]
+
+Phase 2（中期，加 biz_id 锚定）:
+  ├── 提取时从 ToolMessage 中解析 record_id
+  │   （工具返回的数据通常包含 id 字段）
+  ├── 存储时写入 biz_id / biz_parent_id / biz_type
+  ├── 检索时优先用 biz_id filter
+  └── 向量库 collection 增加 biz_id filter index
+
+Phase 3（长期，Webhook 级联）:
+  ├── CRM 系统数据变更时发送 Webhook
+  ├── 记忆系统接收 Webhook，级联更新相关记忆
+  ├── 实体重命名时批量更新 merge_key / parent_entity / abstract
+  └── 重新 embed 更新后的 abstract
+</code></pre>
+<h3 id="9c5">9C.5 提取提示词改进</h3>
+<pre><code>当前 EXTRACTION_PROMPT 的问题:
+  LLM 会把工具返回的结构化数据（金额、阶段、电话）原样提取为记忆
+  这些数据在 CRM 系统中已经存在，存成记忆是冗余且会过时的
+
+改进方向:
+  1. 明确告诉 LLM: 不要提取系统中已有的结构化字段值
+  2. 重点提取: 用户的主观判断、沟通策略、隐性知识、关系洞察
+  3. 对于必须提取的数据摘要，标记 source_type
+
+改进后的提取规则（增加到 EXTRACTION_PROMPT）:
+
+  ## 提取优先级
+  - 高优先级（必须提取）:
+    用户的主观判断: &quot;张总对价格很敏感&quot;
+    沟通策略: &quot;建议先展示ROI再谈价格&quot;
+    关系洞察: &quot;张总和李经理有分歧，需要分别沟通&quot;
+    隐性知识: &quot;华为内部审批至少3周&quot;
+    用户偏好: &quot;喜欢表格展示&quot;
+
+  - 低优先级（可选提取，标记 source_type=&quot;system_data&quot;）:
+    实体属性快照: &quot;ERP项目金额500万&quot;
+    联系人信息: &quot;张总电话139-xxxx&quot;
+    → 这些数据系统中已有，提取时标记为数据摘要
+
+  - 不提取:
+    工具返回的原始数据（&quot;查到5条记录...&quot;）
+    操作描述（&quot;用户请求查询...&quot;）
+    通用知识
+</code></pre>
+<h3 id="9c6">9C.6 各场景处理方式</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">场景</th>
+<th style="text-align: left;">当前行为</th>
+<th style="text-align: left;">改进后行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">商机金额变更</td>
+<td style="text-align: left;">记忆过时，Agent 回答旧数据</td>
+<td style="text-align: left;">数据摘要 TTL 过期 → Agent 实时查询系统</td>
+</tr>
+<tr>
+<td style="text-align: left;">客户名称变更</td>
+<td style="text-align: left;">记忆孤儿，检索不到</td>
+<td style="text-align: left;">biz_id 锚定 → 不受改名影响；Webhook 级联更新名称</td>
+</tr>
+<tr>
+<td style="text-align: left;">联系人离职</td>
+<td style="text-align: left;">记忆中仍有旧联系人</td>
+<td style="text-align: left;">数据摘要 TTL 过期 → 不再返回；insight 类记忆保留（"张总喜欢先看数据"仍有参考价值）</td>
+</tr>
+<tr>
+<td style="text-align: left;">商机关闭</td>
+<td style="text-align: left;">记忆中仍显示"谈判阶段"</td>
+<td style="text-align: left;">数据摘要 TTL 过期；events 记忆记录"商机已关闭"</td>
+</tr>
+<tr>
+<td style="text-align: left;">新增商机</td>
+<td style="text-align: left;">需要对话才能产生记忆</td>
+<td style="text-align: left;">数据摘要可选同步；insight 仍需对话产生</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="_9">九、存储架构</h2>
+<h3 id="101-collection-schema">10.1 向量库 Collection Schema</h3>
+<pre><code>Collection: agent_memories
+  Fields:
+    id:             String (PRIMARY_KEY)
+    vector:         Vector (2560维, HNSW, COSINE)
+    sparse_vector:  SparseVector (BM25, SPARSE_INVERTED, IP)
+    abstract:       String          ← 叶子: LLM 提取的 L0 摘要 / 目录: 系统聚合的 L0
+    overview:       String          ← 叶子: 空 / 目录: 系统聚合的 L1 结构化导航
+    content:        String          ← 叶子: 完整记忆内容 / 目录: 空
+    category:       String (FILTER) ← entities / preferences
+    merge_key:      String          ← 合并键
+    parent_entity:  String (FILTER) ← 父实体（叶子有，目录为空）
+    parent_uri:     String (FILTER) ← 父目录 URI
+    uri:            String          ← 自身 URI
+    is_leaf:        String (FILTER) ← &quot;true&quot; / &quot;false&quot;
+    status:         String (FILTER) ← active / stale / archived
+    user_id:        String (FILTER) ← 用户隔离
+    source_type:    String          ← insight / system_data
+    thread_id:      String          ← 来源会话
+    created_at:     String          ← 创建时间
+    updated_at:     String          ← 更新时间
+</code></pre>
+<h3 id="102-pg">10.2 PG 存储</h3>
+<p><strong>agent_memory 表</strong>（profile / agent_rules 权威存储，每用户各一条）：</p>
+<pre><code>表: agent_memory
+  user_id         VARCHAR(64)
+  category        VARCHAR(32)   ← &quot;profile&quot; / &quot;agent_rules&quot;
+  merge_key       VARCHAR(256)  ← 固定 &quot;profile&quot; / &quot;agent_rules&quot;
+  abstract        TEXT          ← 自动生成的摘要
+  content         TEXT          ← LLM 合并后的完整内容
+  唯一约束: (user_id, category, merge_key)
+</code></pre>
+<p><strong>ai_agent_memory 表</strong>（全量记忆，前端展示 + 生命周期管理）：</p>
+<pre><code>表: ai_agent_memory
+  memory_id       VARCHAR(64)   ← 和向量库 id 一致
+  tenant_id       BIGINT
+  user_id         VARCHAR(64)
+  category        VARCHAR(32)   ← 所有类别都写入
+  abstract        TEXT          ← L0 摘要
+  content         TEXT          ← 完整内容
+  merge_key       VARCHAR(512)
+  parent_entity   VARCHAR(256)
+  status          VARCHAR(20)   ← active / stale / archived / deleted
+  last_accessed_at BIGINT       ← 最后被检索命中的时间（驱动遗忘）
+  active_count    INT           ← 累计命中次数
+  user_query      TEXT          ← 产生这条记忆的用户问题
+  agent_reply     TEXT          ← 产生这条记忆的 AI 回复
+  vector_id       VARCHAR(64)   ← 向量库中的文档 ID
+</code></pre>
+<h3 id="103">10.3 数据流全景</h3>
+<pre><code>┌─────────────────────────────────────────────────────────────┐
+│                        对话层                                 │
+│  用户输入 → Agent 回复 → middleware aafter_agent              │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+                    ┌────────▼────────┐
+                    │   LLM 提取       │
+                    │ (abstract+content│
+                    │  +merge_key      │
+                    │  +parent_entity) │
+                    └────────┬────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              │              │              │
+     ┌────────▼───┐  ┌──────▼──────┐  ┌───▼────────────┐
+     │ PG 存储     │  │ 向量库存储   │  │ 目录聚合        │
+     │ (profile/   │  │ (叶子节点)   │  │ (_ensure_dir)  │
+     │  agent_rules│  │ abstract    │  │ 收集叶子content │
+     │  单条合并)   │  │ content     │  │ → LLM 生成 L0  │
+     └─────────────┘  │ vector      │  │ → LLM 生成 L1  │
+                      │ merge_key   │  │ → 写入目录节点  │
+                      └──────┬──────┘  └────────────────┘
+                             │
+                    ┌────────▼────────┐
+                    │ ai_agent_memory  │
+                    │ (全量同步，      │
+                    │  前端展示+       │
+                    │  生命周期管理)    │
+                    └─────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────┐
+│                        检索层                                 │
+│  用户查询 → hybrid_search → 命中目录+叶子 → 返回 L0 摘要      │
+│  → Agent 按需 memory_read(L1/L2) → 返回详情                  │
+│  → 异步更新 PG（last_accessed_at + active_count）            │
+└─────────────────────────────────────────────────────────────┘
+</code></pre>
+<hr>
+<h2 id="apps-agentopenviking">十、与 apps-agent（OpenViking）的对比</h2>
+<h3 id="111">11.1 已对齐的能力</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">能力</th>
+<th style="text-align: left;">apps-agent</th>
+<th style="text-align: left;">VikingMemoryEngine</th>
+<th style="text-align: left;">状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">9 类分类</td>
+<td style="text-align: left;">✅ (8类)</td>
+<td style="text-align: left;">✅ (9类，新增 soul)</td>
+<td style="text-align: left;">已对齐 + 扩展</td>
+</tr>
+<tr>
+<td style="text-align: left;">L0/L1/L2 三层</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">已对齐（L1 由 LLM 生成）</td>
+</tr>
+<tr>
+<td style="text-align: left;">语义去重 + LLM 合并</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">已对齐</td>
+</tr>
+<tr>
+<td style="text-align: left;">profile 增量合并</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">已对齐</td>
+</tr>
+<tr>
+<td style="text-align: left;">preferences 按 aspect 合并</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">已对齐</td>
+</tr>
+<tr>
+<td style="text-align: left;">tools/skills 统计</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">已对齐（Python 统计）</td>
+</tr>
+<tr>
+<td style="text-align: left;">filter index</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">已对齐（user_id + category + parent_entity）</td>
+</tr>
+<tr>
+<td style="text-align: left;">BM25 混合检索</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">已对齐（tcvectordb hybrid_search）</td>
+</tr>
+<tr>
+<td style="text-align: left;">记忆遗忘</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">已对齐（TTL + 热度）</td>
+</tr>
+<tr>
+<td style="text-align: left;">反思修正</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">已对齐（失败驱动 + 用户反馈 + 会话结束 + 全局）</td>
+</tr>
+<tr>
+<td style="text-align: left;">虚拟文件系统</td>
+<td style="text-align: left;">✅ VikingFS</td>
+<td style="text-align: left;">✅ VikingFS</td>
+<td style="text-align: left;">已对齐（viking:// URI + ls/tree/read/find/rm）</td>
+</tr>
+<tr>
+<td style="text-align: left;">会话结束反思</td>
+<td style="text-align: left;">✅ post_session_reflection</td>
+<td style="text-align: left;">✅ reflect_on_session</td>
+<td style="text-align: left;">已对齐</td>
+</tr>
+<tr>
+<td style="text-align: left;">定期全局反思</td>
+<td style="text-align: left;">✅ weekly_global_reflection</td>
+<td style="text-align: left;">✅ reflect_global</td>
+<td style="text-align: left;">已对齐</td>
+</tr>
+</tbody>
+</table>
+<h3 id="112">11.2 我们独有的能力</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">能力</th>
+<th style="text-align: left;">说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">预过滤</td>
+<td style="text-align: left;">寒暄/确认/工具失败跳过，节省 ~30% LLM 调用</td>
+</tr>
+<tr>
+<td style="text-align: left;">SOUL 蒸馏</td>
+<td style="text-align: left;">从所有记忆中定期生成结构化用户画像</td>
+</tr>
+<tr>
+<td style="text-align: left;">CRM 领域适配</td>
+<td style="text-align: left;">提取指令针对客户/商机/联系人/合同做了专门优化</td>
+</tr>
+<tr>
+<td style="text-align: left;">BM25 混合检索</td>
+<td style="text-align: left;">关键词 0.7 + 向量 0.3，CRM 场景客户名精确匹配</td>
+</tr>
+<tr>
+<td style="text-align: left;">分层加载</td>
+<td style="text-align: left;">检索返回 L0 摘要，Agent 按需加载 L1/L2</td>
+</tr>
+</tbody>
+</table>
+<h3 id="113">11.3 未实现的能力</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">能力</th>
+<th style="text-align: left;">apps-agent</th>
+<th style="text-align: left;">原因</th>
+<th style="text-align: left;">影响</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">active_count 持久化</td>
+<td style="text-align: left;">向量库 filter index</td>
+<td style="text-align: left;">tcvectordb Int64 字段兼容性问题</td>
+<td style="text-align: left;">热度统计暂存内存，重启丢失</td>
+</tr>
+<tr>
+<td style="text-align: left;">entities 合并用 LLM 生成</td>
+<td style="text-align: left;">LLM 生成合并内容</td>
+<td style="text-align: left;">当前是直接替换</td>
+<td style="text-align: left;">合并质量可进一步提升</td>
+</tr>
+<tr>
+<td style="text-align: left;">tools 统计含耗时和 token</td>
+<td style="text-align: left;">包含 latency 和 token 消耗</td>
+<td style="text-align: left;">当前只统计调用次数和成功率</td>
+<td style="text-align: left;">可后续补充</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="_10">十一、成本估算</h2>
+<pre><code>单次对话的记忆成本:
+
+  预过滤: 0（纯代码规则）
+  LLM 提取: ~800 tokens input + ~300 tokens output = ~$0.0002
+  工具统计: 0（纯 Python）
+  语义去重: ~500 tokens（仅 events/cases 触发）= ~$0.0001
+  Embedding: ~100 tokens × 3 条 = ~$0.00003
+  向量库写入: 免费（腾讯向量库按存储计费）
+
+  单次对话总成本: ~$0.0003
+
+月均成本（100 个销售用户，每人每天 30 次对话）:
+  100 × 30 × 30 × $0.0003 = $27/月
+
+SOUL 蒸馏（额外）:
+  100 × 30 × $0.0003 = $0.9/月
+
+总计: ~$28/月（可忽略）
+</code></pre>
+<hr>
+<h2 id="_11">十二、实现文件清单</h2>
+<pre><code>src/memory/
+  ├── viking_engine.py      ← 主引擎（~1500行）
+  │     ├── MemoryCategory      9 类分类枚举（含 soul）
+  │     ├── MemoryRecord        记忆数据结构
+  │     ├── EXTRACTION_PROMPT   提取提示词
+  │     ├── DEDUP_PROMPT        去重提示词
+  │     ├── INTENT_PROMPT       意图分析提示词
+  │     ├── SOUL_PROMPT         SOUL 蒸馏提示词
+  │     ├── VectorStore         腾讯向量库操作封装
+  │     └── VikingMemoryEngine  主引擎类
+  │           ├── extract_and_update()      写入（预过滤 + LLM 提取 + 去重合并 + 会话反思）
+  │           ├── retrieve()                检索（意图分析 + BM25 混合 + 热度更新）
+  │           ├── rewrite_query()           查询改写
+  │           ├── get_soul()                获取 SOUL 画像
+  │           ├── cleanup_expired()         记忆遗忘
+  │           ├── reflect_on_failure()      失败驱动反思
+  │           ├── reflect_on_correction()   用户反馈反思
+  │           ├── reflect_on_session()      会话结束反思（冲突检测 + 解决）
+  │           ├── reflect_global()          定期全局反思（碎片合并 + 一致性 + 过时）
+  │           ├── get_fs()                  获取 VikingFS 实例
+  │           ├── tree()                    展示记忆目录树
+  │           ├── read_uri()               通过 URI 读取记忆
+  │           └── find_by_keyword()         关键词搜索
+  │
+  ├── viking_fs.py          ← 虚拟文件系统（~400行）
+  │     ├── VikingURI           URI 解析结果
+  │     ├── parse_uri()         解析 viking:// URI
+  │     ├── build_uri()         从记忆字段构建 URI
+  │     ├── FSNode              文件系统节点
+  │     └── VikingFS            虚拟文件系统操作
+  │           ├── ls()          列出目录下的直接子条目
+  │           ├── tree()        递归展示目录树
+  │           ├── read()        读取指定路径的记忆
+  │           ├── find()        路径前缀搜索
+  │           └── rm()          删除
+  │
+  ├── fts_engine.py         ← 降级引擎（已有，~600行）
+  ├── mem0_engine.py        ← Mem0 适配器（已有，可逐步废弃）
+  ├── storage.py            ← SQLite FTS5 存储（已有）
+  └── __init__.py           ← 导出 VikingMemoryEngine
+
+src/store/
+  ├── memory_dao.py         ← PG 记忆存储（profile/soul/tools/skills）
+  │     ├── MemoryRow           PG 记忆行数据模型
+  │     └── MemoryDAO           CRUD 操作
+  │           ├── upsert()              写入/更新（profile 追加合并，其他按 merge_key 替换）
+  │           ├── get_by_user_category() 按用户+类别查询
+  │           ├── get_profile()          获取用户 profile
+  │           ├── get_soul()             获取用户 SOUL
+  │           ├── get_all_for_soul()     获取所有 PG 记忆（SOUL 蒸馏用）
+  │           └── count_by_user()        按类别统计
+  └── pg_pool.py            ← PG 连接池
+
+tests/
+  ├── test_viking_full.py           ← 完整测试（14 功能点 × 5+ 用例）
+  └── test_viking_directory_search.py ← 目录递归检索 Demo
+</code></pre>
+<hr>
+<blockquote>
+<p>参考来源:<br>
+- Wiki: <a href="https://wiki.ingageapp.com/pages/viewpage.action?pageId=152089637">会话管理&amp;记忆管理</a>（apps-agent OpenViking 设计）<br>
+- Wiki: <a href="https://wiki.ingageapp.com/pages/viewpage.action?pageId=152099787">Agent记忆应用设计</a><br>
+- 项目: <code>src/memory/viking_engine.py</code>（实现代码）<br>
+- 项目: <code>product-specs/long-term-memory/长期记忆技术实现方案.md</code>（早期设计）<br>
+- 项目: <code>product-specs/long-term-memory/Mem0-OpenViking-FTSMemoryEngine-源码级深度对比.md</code>（框架对比）</p>
+</blockquote>
+</body>
+</html>

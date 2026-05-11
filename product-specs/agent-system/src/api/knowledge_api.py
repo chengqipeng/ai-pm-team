@@ -253,6 +253,79 @@ async def list_document_chunks(
     }
 
 
+@router.get("/documents/{doc_id}/vector-status")
+async def check_document_vector_status(
+    doc_id: str,
+    request: Request,
+    tenant_id: int = Query(..., gt=0),
+):
+    """验证文档切片在 VDB 中的实际同步状态
+
+    对比 PG 中的 vector_synced 标记与 VDB 中的实际数据，
+    返回精确的同步状态统计。
+    """
+    provider = _get_provider(request)
+    vdb = provider._vdb
+
+    # 从 PG 查切片
+    rows = KnowledgeChunkDAO.list_by_doc(doc_id)
+    if not rows:
+        return {"doc_id": doc_id, "status": "no_chunks", "pg_total": 0}
+
+    pg_synced = sum(1 for r in rows if r.vector_synced == 1)
+    pg_pending = sum(1 for r in rows if r.vector_synced == 0)
+    pg_retry = sum(1 for r in rows if r.vector_synced == 2)
+    pg_dead = sum(1 for r in rows if r.vector_synced == 3)
+
+    # 验证 VDB 中实际存在的切片数
+    vdb_count = 0
+    vdb_error = ""
+    try:
+        from tcvectordb.model.document import Filter
+        vdb._ensure_collections()
+        vdb_filter = f'tenant_id = "{tenant_id}" and doc_id = "{doc_id}" and status = "active"'
+        result = vdb._chunk_coll.query(
+            filter=Filter(vdb_filter),
+            output_fields=["id"],
+            limit=min(len(rows) + 10, 1000),
+        )
+        if isinstance(result, list):
+            vdb_count = len(result)
+        else:
+            vdb_count = len(vdb._parse_results(result))
+    except Exception as exc:
+        vdb_error = f"{type(exc).__name__}: {exc}"
+
+    # 判断整体状态
+    if vdb_error:
+        overall = "vdb_error"
+    elif vdb_count == len(rows):
+        overall = "fully_synced"
+    elif vdb_count > 0:
+        overall = "partially_synced"
+    else:
+        overall = "not_in_vdb"
+
+    return {
+        "doc_id": doc_id,
+        "status": overall,
+        "pg_total": len(rows),
+        "pg_synced": pg_synced,
+        "pg_pending": pg_pending,
+        "pg_retry": pg_retry,
+        "pg_dead": pg_dead,
+        "vdb_actual_count": vdb_count,
+        "vdb_error": vdb_error,
+        "match": vdb_count == pg_synced,
+        "message": {
+            "fully_synced": f"✅ 全部 {vdb_count} 个切片已同步到向量库",
+            "partially_synced": f"⚠️ 部分同步：VDB 中有 {vdb_count}/{len(rows)} 个切片",
+            "not_in_vdb": f"❌ 向量库中无数据（PG 标记已同步 {pg_synced} 个）",
+            "vdb_error": f"⚠️ 向量库连接异常: {vdb_error}",
+        }.get(overall, ""),
+    }
+
+
 @router.get("/documents/{doc_id}")
 async def get_document(doc_id: str):
     """文档详情（直接走 DAO，不依赖 provider）"""
@@ -288,6 +361,99 @@ async def get_document(doc_id: str):
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
+
+
+@router.get("/documents/{doc_id}/preview")
+async def preview_document(
+    doc_id: str,
+    request: Request,
+    tenant_id: int = Query(..., gt=0),
+    expires: int = Query(3600, ge=300, le=86400, description="预签名 URL 有效期（秒），默认 1 小时"),
+):
+    """获取原文档预览 URL
+
+    返回一个带签名的 COS 临时访问 URL，前端可直接用于：
+    - PDF: 嵌入 <iframe> 或 PDF.js 渲染
+    - 图片: 直接 <img src="...">
+    - Office 文档: 可配合在线预览服务（如腾讯文档预览）
+
+    签名 URL 有时效性（默认 1 小时），过期后需重新请求。
+    """
+    row = KnowledgeDocumentDAO.get_by_doc_id(doc_id)
+    if row is None:
+        raise HTTPException(404, "文档不存在")
+    if row.tenant_id != tenant_id:
+        raise HTTPException(403, "无权访问该文档")
+
+    raw_url = row.raw_url
+    if not raw_url:
+        raise HTTPException(404, "文档原文件 URL 不存在（可能上传时未保存）")
+
+    # 判断是否为 COS URL（以 https:// 开头且包含 .cos. 域名）
+    is_cos_url = raw_url.startswith("https://") and ".cos." in raw_url
+
+    if is_cos_url:
+        # 从 app.state 获取 COS 客户端生成预签名 URL
+        provider = getattr(request.app.state, "knowledge_provider", None)
+        cos_client = getattr(provider, "_cos", None) if provider else None
+
+        if cos_client is None:
+            # COS 客户端未配置，直接返回原始 URL（适用于公开桶）
+            logger.warning(
+                "Preview: COS client not available, returning raw URL: doc=%s",
+                doc_id,
+            )
+            return {
+                "doc_id": doc_id,
+                "file_name": row.file_name,
+                "file_type": row.file_type,
+                "file_size": row.file_size,
+                "preview_url": raw_url,
+                "url_type": "direct",
+                "expires_in": None,
+            }
+
+        try:
+            preview_url = cos_client.get_presigned_url_from_raw(raw_url, expires=expires)
+        except ValueError as exc:
+            logger.error(
+                "Preview: failed to generate presigned URL: doc=%s raw_url=%s: %s",
+                doc_id, raw_url[:80], exc,
+            )
+            raise HTTPException(
+                500, f"生成预览 URL 失败: {exc}"
+            )
+
+        return {
+            "doc_id": doc_id,
+            "file_name": row.file_name,
+            "file_type": row.file_type,
+            "file_size": row.file_size,
+            "preview_url": preview_url,
+            "url_type": "presigned",
+            "expires_in": expires,
+        }
+    else:
+        # 本地路径 — 通过 StreamingResponse 直接返回文件内容
+        from fastapi.responses import FileResponse
+
+        if not os.path.exists(raw_url):
+            raise HTTPException(404, "原文件已被删除或不可访问")
+
+        # 推断 Content-Type
+        import mimetypes
+        content_type, _ = mimetypes.guess_type(row.file_name)
+        if not content_type:
+            content_type = "application/octet-stream"
+
+        return FileResponse(
+            path=raw_url,
+            filename=row.file_name,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{row.file_name}"',
+            },
+        )
 
 
 @router.delete("/documents/{doc_id}")
@@ -614,6 +780,237 @@ async def run_schedule_now(name: str, request: Request):
     next_run = int(time.time() * 1000) + task["interval_ms"]
     ScheduleDAO.mark_run(name, "success", json.dumps(result, ensure_ascii=False), next_run)
     return {"name": name, "status": "success", "result": result}
+
+
+# ═══════════════════════════════════════════════════════════
+# 7. 向量补偿（/maintenance/resync-vectors）
+# ═══════════════════════════════════════════════════════════
+
+@router.post("/maintenance/resync-vectors")
+async def resync_vectors(
+    request: Request,
+    tenant_id: int = Query(..., gt=0),
+    knowledge_base_id: int = Query(..., gt=0),
+):
+    """向量补偿 — 对 PG 中已有切片但 VDB 中缺失的文档重新执行 Phase 4（向量化+写入VDB）
+
+    适用场景：
+    - 文档显示"已入库"但检索不到
+    - VDB 被清空/重建后需要重新同步
+    - Phase 4 曾经失败（vector_synced=0/2/3）
+
+    流程：
+    1. 查 PG 中该 KB 下所有文档
+    2. 对每个文档的 chunks 检查 vector_synced 状态
+    3. 对未同步的 chunks 重新 embedding + 写入 VDB
+    4. 重建 doc_metadata（摘要向量 + BM25 文本）
+    """
+    provider = _get_provider(request)
+    vdb = provider._vdb
+
+    # 获取 embedding 函数
+    retriever = provider._retriever
+    embedding_fn = retriever._embedding_fn
+    lkeap = retriever._lkeap
+
+    async def embed_texts(texts: list[str]) -> list[list[float]]:
+        """批量 embedding"""
+        import asyncio
+        if embedding_fn:
+            if asyncio.iscoroutinefunction(embedding_fn):
+                results = []
+                for t in texts:
+                    results.append(await embedding_fn(t))
+                return results
+            else:
+                results = []
+                for t in texts:
+                    results.append(await asyncio.to_thread(embedding_fn, t))
+                return results
+        elif lkeap:
+            return await asyncio.to_thread(lkeap.get_embedding, texts)
+        else:
+            raise HTTPException(503, "Embedding 服务未配置（embedding_fn 和 lkeap 均为 None）")
+
+    import asyncio
+
+    # 1. 查该 KB 下的所有文档
+    docs = KnowledgeDocumentDAO.list_by_kb(tenant_id, knowledge_base_id, limit=200, offset=0)
+    if not docs:
+        return {"status": "no_docs", "message": "该知识库无文档", "synced": 0}
+
+    total_chunks_synced = 0
+    total_docs_processed = 0
+    errors: list[str] = []
+
+    for doc in docs:
+        doc_id = doc.doc_id
+        # 2. 查该文档的所有 chunks
+        chunks = KnowledgeChunkDAO.list_by_doc(doc_id)
+        if not chunks:
+            continue
+
+        # 3. 筛选需要同步的 chunks（vector_synced != 1，或者强制全量重建）
+        pending_chunks = [c for c in chunks if c.vector_synced != 1]
+        # 如果所有 chunks 都已同步，检查 VDB 中是否真的有数据
+        if not pending_chunks:
+            # 验证 VDB 中是否存在
+            try:
+                from tcvectordb.model.document import Filter
+                vdb._ensure_collections()
+                check_filter = (
+                    f'tenant_id = "{tenant_id}" and doc_id = "{doc_id}" and status = "active"'
+                )
+                check_result = vdb._chunk_coll.query(
+                    filter=Filter(check_filter),
+                    output_fields=["id"],
+                    limit=1,
+                )
+                vdb_has_data = bool(check_result) and (
+                    len(check_result) > 0 if isinstance(check_result, list)
+                    else len(vdb._parse_results(check_result)) > 0
+                )
+            except Exception:
+                vdb_has_data = False
+
+            if vdb_has_data:
+                continue  # VDB 中确实有数据，跳过
+            else:
+                # VDB 中没有但 PG 标记已同步 → 需要全量重建
+                pending_chunks = chunks
+
+        # 4. 对 pending_chunks 执行 embedding + 写入 VDB
+        try:
+            texts = [c.content[:2000] for c in pending_chunks]
+            vectors = await embed_texts(texts)
+
+            chunk_records: list[dict] = []
+            synced_ids: list[str] = []
+            for c, vec in zip(pending_chunks, vectors):
+                if not vec:
+                    continue
+                chunk_records.append({
+                    "id": c.chunk_id,
+                    "vector": vec,
+                    "tenant_id": str(c.tenant_id),
+                    "knowledge_base_id": str(c.knowledge_base_id),
+                    "dataset_id": str(c.dataset_id),
+                    "doc_id": c.doc_id,
+                    "chunk_type": c.chunk_type,
+                    "doc_category": c.doc_category or "",
+                    "industry": c.industry or "",
+                    "business_stage": c.business_stage or "",
+                    "target_audience": c.target_audience or "",
+                    "product_service": c.product_service or "",
+                    "status": "active",
+                    "date_published": c.date_published or 0,
+                    "content": c.content[:8000],
+                    "section_title": c.section_title or "",
+                    "chunk_index": c.chunk_index,
+                })
+                synced_ids.append(c.chunk_id)
+
+            if chunk_records:
+                await asyncio.to_thread(vdb.upsert_chunks, chunk_records)
+                # 更新 PG 中的 vector_synced 状态
+                dim = len(vectors[0]) if vectors and vectors[0] else 0
+                await asyncio.to_thread(
+                    KnowledgeChunkDAO.mark_vector_synced,
+                    synced_ids, "resync/manual", dim,
+                )
+                total_chunks_synced += len(synced_ids)
+
+            # 5. 重建 doc_metadata（摘要向量）
+            summary = doc.summary or ""
+            if summary:
+                summary_vecs = await embed_texts([summary])
+                summary_vec = summary_vecs[0] if summary_vecs else None
+            else:
+                # 无摘要时用文档前 500 字作为替代
+                fallback_text = pending_chunks[0].content[:500] if pending_chunks else ""
+                if fallback_text:
+                    summary_vecs = await embed_texts([fallback_text])
+                    summary_vec = summary_vecs[0] if summary_vecs else None
+                else:
+                    summary_vec = None
+
+            if summary_vec:
+                # 构建 doc_metadata 记录
+                keywords_str = doc.keywords or ""
+                candidate_str = doc.candidate_keywords or ""
+                try:
+                    keywords_list = json.loads(keywords_str) if keywords_str else []
+                except (json.JSONDecodeError, TypeError):
+                    keywords_list = []
+                try:
+                    candidates_list = json.loads(candidate_str) if candidate_str else []
+                except (json.JSONDecodeError, TypeError):
+                    candidates_list = []
+
+                # 构建 toc（从 chunks 的 section_title 聚合）
+                toc_parts = []
+                seen_sections = set()
+                for c in chunks:
+                    if c.section_title and c.section_title not in seen_sections:
+                        toc_parts.append(c.section_title)
+                        seen_sections.add(c.section_title)
+                toc = " > ".join(toc_parts) if toc_parts else ""
+
+                doc_meta_record = {
+                    "id": doc_id,
+                    "vector": summary_vec,
+                    "tenant_id": str(tenant_id),
+                    "knowledge_base_id": str(knowledge_base_id),
+                    "dataset_id": str(doc.dataset_id) if hasattr(doc, 'dataset_id') else "0",
+                    "title": doc.title or doc.file_name or "",
+                    "summary": summary[:2000],
+                    "keywords": ", ".join(keywords_list) if keywords_list else "",
+                    "candidate_keywords": ", ".join(candidates_list[:20]) if candidates_list else "",
+                    "toc": toc[:2000],
+                    "doc_category": "",
+                    "industry": "",
+                    "business_stage": "",
+                    "target_audience": "",
+                    "product_service": "",
+                    "status": "active",
+                    "quality_score_x10k": int((doc.quality_score or 0.5) * 10000),
+                    "date_published": doc.created_at or 0,
+                    "created_at": doc.created_at or 0,
+                    "search_hit_count": 0,
+                }
+
+                # 从 metadata JSON 中提取 Schema 字段
+                try:
+                    md = json.loads(doc.metadata) if doc.metadata else {}
+                    doc_meta_record["doc_category"] = md.get("docCategory", "")
+                    doc_meta_record["industry"] = md.get("industryVertical", "")
+                    doc_meta_record["business_stage"] = md.get("businessStage", "")
+                    doc_meta_record["target_audience"] = md.get("targetAudience", "")
+                    doc_meta_record["product_service"] = md.get("productService", "")
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+                await asyncio.to_thread(vdb.upsert_doc_metadata, [doc_meta_record])
+
+            total_docs_processed += 1
+
+        except Exception as exc:
+            err_msg = f"doc={doc_id} ({doc.title}): {type(exc).__name__}: {exc}"
+            errors.append(err_msg)
+            logger.warning("resync-vectors failed for %s: %s", doc_id, exc)
+
+    result = {
+        "status": "success" if not errors else "partial",
+        "total_docs": len(docs),
+        "docs_processed": total_docs_processed,
+        "chunks_synced": total_chunks_synced,
+        "errors": errors[:10],  # 最多返回 10 条错误
+    }
+    logger.info(
+        "resync-vectors done: tenant=%s kb=%s docs=%d chunks=%d errors=%d",
+        tenant_id, knowledge_base_id, total_docs_processed, total_chunks_synced, len(errors),
+    )
+    return result
 
 
 @router.delete("/{kb_id}")

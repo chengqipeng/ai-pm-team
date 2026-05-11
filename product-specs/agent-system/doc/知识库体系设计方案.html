@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent System 知识库体系设计方案</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-bg: #eff6ff;
+      --success: #059669;
+      --success-bg: #ecfdf5;
+      --warn: #d97706;
+      --warn-bg: #fffbeb;
+      --danger: #dc2626;
+      --danger-bg: #fef2f2;
+      --purple: #7c3aed;
+      --purple-bg: #f5f3ff;
+      --text: #1e293b;
+      --text-secondary: #64748b;
+      --border: #e2e8f0;
+      --bg: #f8fafc;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.8;
+      padding: 3rem 2rem;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1 { font-size: 2rem; text-align: center; margin-bottom: 0.3rem; }
+    .subtitle { text-align: center; color: var(--text-secondary); margin-bottom: 3rem; font-size: 0.9rem; }
+    section { background: #fff; border-radius: 12px; padding: 2rem; margin-bottom: 2rem; border: 1px solid var(--border); overflow-x: auto; }
+    h2 { font-size: 1.4rem; margin-bottom: 1rem; color: var(--text); border-bottom: 2px solid var(--primary); padding-bottom: 0.5rem; }
+    h3 { font-size: 1.1rem; margin: 1.5rem 0 0.8rem; color: #334155; }
+    h4 { font-size: 0.95rem; margin: 1.2rem 0 0.5rem; color: #475569; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.85rem; }
+    th, td { padding: 0.6rem 0.8rem; border: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: break-word; word-wrap: break-word; }
+    th { background: #f1f5f9; font-weight: 600; white-space: nowrap; }
+    td { min-width: 60px; }
+    tr:hover td { background: #fafbfc; }
+    .diagram { background: #1e293b; color: #e2e8f0; padding: 1.5rem; border-radius: 8px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.75rem; overflow-x: auto; white-space: pre; line-height: 1.6; margin: 1rem 0; max-width: 100%; }
+    .box { padding: 1rem 1.2rem; border-radius: 8px; margin: 1rem 0; font-size: 0.9rem; }
+    .box-info { background: var(--primary-bg); border-left: 4px solid var(--primary); }
+    .box-success { background: var(--success-bg); border-left: 4px solid var(--success); }
+    .box-warn { background: var(--warn-bg); border-left: 4px solid var(--warn); }
+    .box-danger { background: var(--danger-bg); border-left: 4px solid var(--danger); }
+    .box-purple { background: var(--purple-bg); border-left: 4px solid var(--purple); }
+    ul, ol { padding-left: 1.5rem; margin: 0.5rem 0; }
+    li { margin: 0.3rem 0; font-size: 0.9rem; }
+    code { background: #f1f5f9; padding: 2px 6px; border-radius: 3px; font-size: 0.82rem; font-family: 'JetBrains Mono', monospace; }
+    .code-block { background: #1e293b; color: #e2e8f0; padding: 1.2rem; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; overflow-x: auto; white-space: pre; line-height: 1.5; margin: 1rem 0; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    .b-done { background: var(--success-bg); color: var(--success); }
+    .b-pending { background: var(--warn-bg); color: var(--warn); }
+    .b-new { background: var(--purple-bg); color: var(--purple); }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin: 1rem 0; }
+    .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+    p { margin: 0.5rem 0; font-size: 0.9rem; }
+    strong { color: #1e293b; }
+    .toc { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem 2rem; margin-bottom: 2rem; }
+    .toc h3 { margin-top: 0; color: var(--primary); }
+    .toc ul { list-style: none; padding-left: 0; }
+    .toc li { margin: 0.3rem 0; }
+    .toc a { color: var(--primary); text-decoration: none; font-size: 0.88rem; }
+    .toc a:hover { text-decoration: underline; }
+    .toc .indent { padding-left: 1.2rem; }
+    .formula { background: #f8fafc; border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem 1.2rem; margin: 0.8rem 0; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; text-align: center; overflow-x: auto; }
+    @media (max-width: 900px) { .two-col, .three-col { grid-template-columns: 1fr; } body { padding: 1.5rem 1rem; } section { padding: 1.5rem; } }
+  </style>
+</head>
+<body>
+<div class="container">
+
+<h1>Agent System 知识库体系设计方案</h1>
+<p class="subtitle">基于腾讯云 LKEAP 文档解析 + AI 知识库产品设计 + agent-system 架构 | 2026-05</p>
+
+<!-- 目录 -->
+<div class="toc">
+  <h3>目录</h3>
+  <ul>
+    <li><a href="#arch">整体架构设计图</a></li>
+    <li><a href="#sec1">一、设计背景与目标</a></li>
+    <li><a href="#sec2">二、腾讯云 LKEAP 文档解析接入</a></li>
+    <li><a href="#sec3">三、知识库架构设计</a></li>
+    <li><a href="#sec4">四、文档入库流水线</a></li>
+    <li><a href="#sec4b">四·补、存储层设计（PG + 向量库 + 对象存储）</a></li>
+    <li><a href="#sec5">五、知识检索引擎</a></li>
+    <li><a href="#sec6">六、knowledge_search Tool 设计</a></li>
+    <li><a href="#sec7">七、与记忆系统的边界</a></li>
+    <li><a href="#sec8">八、配置与部署</a></li>
+    <li><a href="#sec9">九、实施计划</a></li>
+  </ul>
+</div>
+
+<!-- ===== 整体架构设计图 ===== -->
+<section id="arch">
+  <h2>整体架构设计图</h2>
+  <p>知识库体系的全局视图：从用户上传文档到 Agent 检索使用的完整数据流。</p>
+
+  <div style="background:#f8fafc; border:1px solid var(--border); border-radius:12px; padding:2rem; margin:1rem 0;">
+    <!-- 顶层：接入层 -->
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
+      <div style="background:#fff; border:2px solid var(--primary); border-radius:8px; padding:1rem; text-align:center;">
+        <div style="font-size:1.5rem; margin-bottom:0.3rem;">🤖</div>
+        <div style="font-weight:600; color:var(--primary); font-size:0.85rem;">Agent</div>
+        <div style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.3rem;">knowledge_search Tool<br>langgraph config 注入</div>
+      </div>
+      <div style="background:#fff; border:2px solid var(--success); border-radius:8px; padding:1rem; text-align:center;">
+        <div style="font-size:1.5rem; margin-bottom:0.3rem;">🌐</div>
+        <div style="font-weight:600; color:var(--success); font-size:0.85rem;">HTTP API</div>
+        <div style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.3rem;">/api/knowledge/*<br>前端管理后台</div>
+      </div>
+      <div style="background:#fff; border:2px solid var(--purple); border-radius:8px; padding:1rem; text-align:center;">
+        <div style="font-size:1.5rem; margin-bottom:0.3rem;">☁️</div>
+        <div style="font-weight:600; color:var(--purple); font-size:0.85rem;">NeoAgent 平台</div>
+        <div style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.3rem;">searchByApp API<br>知识库管理 CRUD</div>
+      </div>
+    </div>
+
+    <!-- 箭头 -->
+    <div style="text-align:center; color:var(--text-secondary); font-size:0.8rem; margin-bottom:1rem;">
+      ▼ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ▼ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ▼
+    </div>
+
+    <!-- 核心层：Provider -->
+    <div style="background:var(--primary-bg); border:2px solid var(--primary); border-radius:10px; padding:1.2rem; margin-bottom:1.5rem;">
+      <div style="text-align:center; font-weight:700; color:var(--primary); font-size:1rem; margin-bottom:0.8rem;">
+        StandaloneKnowledgeProvider
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:0.8rem;">
+        <div style="background:#fff; border-radius:6px; padding:0.7rem; text-align:center; border:1px solid var(--border);">
+          <div style="font-weight:600; font-size:0.8rem; color:var(--text);">🔍 Retriever</div>
+          <div style="font-size:0.7rem; color:var(--text-secondary); margin-top:0.3rem;">Self-Querying<br>两路并行召回<br>三维度加权</div>
+        </div>
+        <div style="background:#fff; border-radius:6px; padding:0.7rem; text-align:center; border:1px solid var(--border);">
+          <div style="font-weight:600; font-size:0.8rem; color:var(--text);">📥 Pipeline</div>
+          <div style="font-size:0.7rem; color:var(--text-secondary); margin-top:0.3rem;">解析→清洗→打标<br>→切分→索引<br>7 阶段流水线</div>
+        </div>
+        <div style="background:#fff; border-radius:6px; padding:0.7rem; text-align:center; border:1px solid var(--border);">
+          <div style="font-weight:600; font-size:0.8rem; color:var(--text);">⚙️ Worker</div>
+          <div style="font-size:0.7rem; color:var(--text-secondary); margin-top:0.3rem;">协程池 N=4<br>PG SKIP LOCKED<br>指数退避重试</div>
+        </div>
+        <div style="background:#fff; border-radius:6px; padding:0.7rem; text-align:center; border:1px solid var(--border);">
+          <div style="font-weight:600; font-size:0.8rem; color:var(--text);">🛡️ Guard</div>
+          <div style="font-size:0.7rem; color:var(--text-secondary); margin-top:0.3rem;">file_hash 去重<br>Semaphore 限流<br>崩溃恢复</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 箭头 -->
+    <div style="text-align:center; color:var(--text-secondary); font-size:0.8rem; margin-bottom:1rem;">
+      ▼ 检索 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ▼ 入库 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ▼ 解析
+    </div>
+
+    <!-- 外部服务层 -->
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
+      <div style="background:var(--warn-bg); border:1px solid var(--warn); border-radius:8px; padding:0.8rem; text-align:center;">
+        <div style="font-weight:600; font-size:0.85rem; color:var(--warn);">🧠 LLM 服务</div>
+        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.3rem;">Self-Querying 过滤识别 · 自动打标分类<br>摘要生成 · 关键词提取</div>
+      </div>
+      <div style="background:var(--purple-bg); border:1px solid var(--purple); border-radius:8px; padding:0.8rem; text-align:center;">
+        <div style="font-weight:600; font-size:0.85rem; color:var(--purple);">📄 腾讯云 LKEAP</div>
+        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.3rem;">文档解析（PDF/DOCX→MD） · Embedding<br>Rerank · QueryRewrite</div>
+      </div>
+    </div>
+
+    <!-- 箭头 -->
+    <div style="text-align:center; color:var(--text-secondary); font-size:0.8rem; margin-bottom:1rem;">
+      ▼ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ▼
+    </div>
+
+    <!-- 存储层 -->
+    <div style="background:#1e293b; border-radius:10px; padding:1.2rem;">
+      <div style="text-align:center; font-weight:700; color:#e2e8f0; font-size:0.9rem; margin-bottom:0.8rem;">
+        三层存储架构
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.8rem;">
+        <div style="background:#334155; border-radius:6px; padding:0.8rem; text-align:center;">
+          <div style="font-weight:600; font-size:0.8rem; color:#60a5fa;">🐘 PostgreSQL</div>
+          <div style="font-size:0.7rem; color:#94a3b8; margin-top:0.3rem;">权威数据源<br>9 张 ai_knowledge_* 表<br>任务队列 · 审计日志</div>
+        </div>
+        <div style="background:#334155; border-radius:6px; padding:0.8rem; text-align:center;">
+          <div style="font-weight:600; font-size:0.8rem; color:#a78bfa;">🔮 向量数据库</div>
+          <div style="font-size:0.7rem; color:#94a3b8; margin-top:0.3rem;">检索加速层<br>kb_chunks (Dense+BM25)<br>kb_doc_metadata (γ属性)</div>
+        </div>
+        <div style="background:#334155; border-radius:6px; padding:0.8rem; text-align:center;">
+          <div style="font-weight:600; font-size:0.8rem; color:#34d399;">📦 COS 对象存储</div>
+          <div style="font-size:0.7rem; color:#94a3b8; margin-top:0.3rem;">原始留档<br>raw/ · parsed/<br>knowledge-{tenant_id}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 数据流说明 -->
+  <h3>核心数据流</h3>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
+    <div class="box box-info">
+      <strong>📥 入库流（写路径）</strong>
+      <div style="font-size:0.82rem; margin-top:0.5rem; line-height:2;">
+        <span style="background:#dbeafe; padding:2px 6px; border-radius:3px;">上传文件</span>
+        →
+        <span style="background:#dbeafe; padding:2px 6px; border-radius:3px;">LKEAP 解析</span>
+        →
+        <span style="background:#dbeafe; padding:2px 6px; border-radius:3px;">文本清洗</span>
+        →
+        <span style="background:#dbeafe; padding:2px 6px; border-radius:3px;">LLM 打标</span>
+        →
+        <span style="background:#dbeafe; padding:2px 6px; border-radius:3px;">两级切分</span>
+        →
+        <span style="background:#dbeafe; padding:2px 6px; border-radius:3px;">向量索引</span>
+      </div>
+      <div style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.5rem;">
+        异步入队 → Worker 协程池处理 → PG 先写 → VDB 后写 → 补偿同步
+      </div>
+    </div>
+    <div class="box box-purple">
+      <strong>🔍 检索流（读路径）</strong>
+      <div style="font-size:0.82rem; margin-top:0.5rem; line-height:2;">
+        <span style="background:#ede9fe; padding:2px 6px; border-radius:3px;">Query</span>
+        →
+        <span style="background:#ede9fe; padding:2px 6px; border-radius:3px;">Self-Querying</span>
+        →
+        <span style="background:#ede9fe; padding:2px 6px; border-radius:3px;">两路召回</span>
+        →
+        <span style="background:#ede9fe; padding:2px 6px; border-radius:3px;">三维度加权</span>
+        →
+        <span style="background:#ede9fe; padding:2px 6px; border-radius:3px;">threshold</span>
+        →
+        <span style="background:#ede9fe; padding:2px 6px; border-radius:3px;">返回结果</span>
+      </div>
+      <div style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.5rem;">
+        全 VDB 架构 → 不回 PG → α(0.7)+β(0.1)+γ(0.2) → Parent-Child 扩展
+      </div>
+    </div>
+  </div>
+
+  <!-- 关键指标 -->
+  <h3>关键设计指标</h3>
+  <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:0.8rem; margin-top:0.8rem;">
+    <div style="background:#fff; border:1px solid var(--border); border-radius:8px; padding:0.8rem; text-align:center;">
+      <div style="font-size:1.3rem; font-weight:700; color:var(--primary);">7</div>
+      <div style="font-size:0.72rem; color:var(--text-secondary);">入库阶段</div>
+    </div>
+    <div style="background:#fff; border:1px solid var(--border); border-radius:8px; padding:0.8rem; text-align:center;">
+      <div style="font-size:1.3rem; font-weight:700; color:var(--primary);">3</div>
+      <div style="font-size:0.72rem; color:var(--text-secondary);">检索维度 α/β/γ</div>
+    </div>
+    <div style="background:#fff; border:1px solid var(--border); border-radius:8px; padding:0.8rem; text-align:center;">
+      <div style="font-size:1.3rem; font-weight:700; color:var(--primary);">9</div>
+      <div style="font-size:0.72rem; color:var(--text-secondary);">PG 表</div>
+    </div>
+    <div style="background:#fff; border:1px solid var(--border); border-radius:8px; padding:0.8rem; text-align:center;">
+      <div style="font-size:1.3rem; font-weight:700; color:var(--primary);">19</div>
+      <div style="font-size:0.72rem; color:var(--text-secondary);">Schema 字段</div>
+    </div>
+    <div style="background:#fff; border:1px solid var(--border); border-radius:8px; padding:0.8rem; text-align:center;">
+      <div style="font-size:1.3rem; font-weight:700; color:var(--primary);">30~60s</div>
+      <div style="font-size:0.72rem; color:var(--text-secondary);">20页 PDF 入库</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 第一节：设计背景与目标 ===== -->
+<section id="sec1">
+  <h2>一、设计背景与目标</h2>
+
+  <h3>1.1 现状（2026-05）</h3>
+  <p><strong>知识库系统当前能力：</strong></p>
+  <table>
+    <tr><th>层面</th><th>现状</th><th>代码位置</th></tr>
+    <tr><td>文档解析</td><td>腾讯云 LKEAP 多模态解析（PDF/DOCX/PPTX/XLSX/图片→Markdown）</td><td><code>src/knowledge/lkeap_client.py</code></td></tr>
+    <tr><td>文本清洗</td><td>4 阶段流水线（编码→格式噪声→内容噪声→双层输出）</td><td><code>src/knowledge/cleaning.py</code></td></tr>
+    <tr><td>文档切分</td><td>两级切分（Segment 章节聚合 + Chunk 句子级累加，对齐 data-process）</td><td><code>src/knowledge/ingestion.py</code></td></tr>
+    <tr><td>向量存储</td><td>腾讯云向量数据库 <code>kb_chunks</code>（dense+sparse）+ <code>kb_doc_metadata</code>（摘要+BM25+γ属性）</td><td><code>src/knowledge/vdb_writer.py</code></td></tr>
+    <tr><td>检索引擎</td><td>全 VDB 两路并行召回 + 三维度归一化加权（α/β/γ）</td><td><code>src/knowledge/retriever.py</code></td></tr>
+    <tr><td>任务队列</td><td>PG <code>SKIP LOCKED</code> 队列 + 向量同步补偿 + 入库进度追踪</td><td><code>src/knowledge/worker.py</code></td></tr>
+    <tr><td>Agent 工具</td><td><code>knowledge_search</code> Tool 已实现，Agent 可通过自然语言检索</td><td><code>src/tools/knowledge_tool.py</code></td></tr>
+    <tr><td>质量评分</td><td>4 维度加权（完整度/结构度/密度/清洗分），低于 0.4 标记警告</td><td><code>src/knowledge/quality.py</code></td></tr>
+    <tr><td>审计日志</td><td>每次检索写 <code>ai_knowledge_search_log</code>，支持效果分析和反馈</td><td><code>src/store/knowledge_dao.py</code></td></tr>
+  </table>
+
+  <div class="box box-info">
+    <strong>与记忆系统的边界</strong>：知识库和记忆系统是独立的两套体系，不共享存储：
+    <ul>
+      <li><strong>记忆系统</strong>：PG <code>ai_agent_memory</code> + tcvectordb <code>memories</code> 集合，短文本片段，按用户维度</li>
+      <li><strong>知识库</strong>：PG <code>ai_knowledge_*</code> 9 张表 + tcvectordb <code>kb_chunks</code> / <code>kb_doc_metadata</code> 集合，长文档切片，按租户+知识库维度</li>
+    </ul>
+  </div>
+
+  <h3>1.2 设计目标</h3>
+  <ol>
+    <li><strong>接入腾讯云 LKEAP 文档解析</strong>：替代本地 pypdf 等低质量解析，支持表格/公式/图片等复杂元素</li>
+    <li><strong>构建知识库 Plugin</strong>：作为 agent-system 的可插拔基础设施，提供文档入库 + 检索能力</li>
+    <li><strong>实现 knowledge_search Tool</strong>：让 Agent 能通过自然语言检索知识库</li>
+    <li><strong>与现有 Agentic RAG 方案对齐</strong>：元数据 Schema、Self-Querying、层级索引等设计复用产品侧方案</li>
+  </ol>
+
+  <h3>1.3 与现有系统的关系</h3>
+  <div class="diagram">NeoAgent 平台侧（Java）                    agent-system 侧（Python）
+┌─────────────────────┐                   ┌─────────────────────────┐
+│ AI 知识库管理        │                   │ knowledge-plugin        │
+│ ├─ 知识库 CRUD      │                   │ ├─ DocumentParser       │
+│ ├─ 数据集管理       │  ──REST API──→    │ │   (腾讯云 LKEAP)      │
+│ ├─ 文档元数据管理   │                   │ ├─ ChunkIndexer         │
+│ └─ 入库流水线配置   │                   │ │   (向量+BM25)         │
+│                     │                   │ ├─ KnowledgeRetriever   │
+│ searchByApp API     │  ←──调用──        │ │   (Self-Querying)     │
+│ (扩展 filters)      │                   │ └─ MetadataManager      │
+└─────────────────────┘                   │     (Schema 同步)       │
+                                          └─────────────────────────┘
+                                                    │
+                                                    ▼
+                                          ┌─────────────────────────┐
+                                          │ knowledge_search Tool   │
+                                          │ (Agent 直接调用)        │
+                                          └─────────────────────────┘</div>
+
+  <div class="two-col">
+    <div class="box box-success">
+      <strong>模式 A（推荐）</strong><br>
+      agent-system 通过 REST API 调用 NeoAgent 平台的 searchByApp 接口，复用平台侧的知识库管理和检索能力
+    </div>
+    <div class="box box-purple">
+      <strong>模式 B（独立）</strong><br>
+      agent-system 内置完整的知识库流水线，独立于 NeoAgent 平台运行（适用于独立部署场景）
+    </div>
+  </div>
+</section>
+
+<!-- ===== 第二节：LKEAP 接入 ===== -->
+<section id="sec2">
+  <h2>二、腾讯云 LKEAP 文档解析接入</h2>
+
+  <h3>2.1 LKEAP 能力概览</h3>
+  <p>腾讯云知识引擎原子能力（LKEAP）提供 RAG 流水线中的解耦能力：</p>
+  <table>
+    <tr><th>API</th><th>功能</th><th>模式</th><th>适用场景</th></tr>
+    <tr><td><code>ReconstructDocumentSSE</code></td><td>文档解析（同步/SSE）</td><td>准实时</td><td>实时文档问答，小文件（≤100M）</td></tr>
+    <tr><td><code>CreateReconstructDocumentFlow</code></td><td>文档解析（异步）</td><td>异步轮询</td><td>知识库入库，大文件（≤300M）</td></tr>
+    <tr><td><code>CreateSplitDocumentFlow</code></td><td>文档切分</td><td>异步</td><td>多级语义切分，提升召回完整性 20%</td></tr>
+    <tr><td><code>GetEmbedding</code></td><td>文本向量化</td><td>同步</td><td>文本转向量</td></tr>
+    <tr><td><code>RunRerank</code></td><td>重排序</td><td>同步</td><td>检索结果精排</td></tr>
+    <tr><td><code>QueryRewrite</code></td><td>多轮改写</td><td>同步</td><td>指代消解、省略补全</td></tr>
+  </table>
+
+  <div class="box box-info">
+    <strong>支持的文件格式：</strong>PDF、DOC/DOCX、PPT/PPTX、XLS/XLSX、WPS、MD、TXT、CSV、HTML、EPUB + 图片格式（PNG/JPG/BMP/GIF/WEBP 等）<br>
+    <strong>解析能力：</strong>表格、公式、图片、标题、段落、页眉、页脚 → 智能转换为 Markdown 阅读顺序
+  </div>
+
+  <h3>2.2 接入架构</h3>
+  <p><strong>TencentLKEAPClient</strong> 封装腾讯云 LKEAP 的所有 API 调用：</p>
+  <table>
+    <tr><th>方法</th><th>模式</th><th>用途</th><th>适用场景</th></tr>
+    <tr><td><code>parse_document_async</code></td><td>异步轮询</td><td>文档解析 → Markdown</td><td>知识库入库，大文件 ≤300M</td></tr>
+    <tr><td><code>parse_document_sse</code></td><td>SSE 流式</td><td>实时解析 + 进度回调</td><td>用户上传后实时问答，≤100M</td></tr>
+    <tr><td><code>split_document_async</code></td><td>异步轮询</td><td>多级语义切分</td><td>替代本地切分（当前未启用）</td></tr>
+    <tr><td><code>get_embedding</code></td><td>同步</td><td>文本 → 向量</td><td>切片/摘要向量化</td></tr>
+    <tr><td><code>rerank</code></td><td>同步</td><td>重排序</td><td>检索结果精排（可选）</td></tr>
+  </table>
+
+  <h3>2.3 与现有 UploadManager 的整合</h3>
+  <div class="diagram">文件上传 → UploadManager.save()
+  ├── 图片文件 → 直接存储（不解析）
+  ├── 纯文本文件 → 直接读取（.txt/.md/.csv）
+  └── 文档文件 → 路由到解析引擎
+        ├── LKEAP 可用？ → TencentLKEAPClient.parse_document_sse()
+        │                   （高质量：表格/公式/图片描述）
+        └── LKEAP 不可用？ → 本地 pypdf/python-docx（降级兜底）</div>
+</section>
+
+<!-- ===== 第三节：知识库架构设计 ===== -->
+<section id="sec3">
+  <h2>三、知识库架构设计</h2>
+
+  <h3>3.1 整体架构</h3>
+  <p>知识库是 agent-system 的独立子系统，采用 <strong>Provider + Factory</strong> 模式。对外通过两个入口暴露能力：</p>
+  <ul>
+    <li><strong>Agent 侧</strong>：<code>knowledge_search</code> Tool → 从 langgraph config 获取 Provider</li>
+    <li><strong>HTTP 侧</strong>：<code>/api/knowledge/*</code> REST API → 从 <code>app.state</code> 获取 Provider</li>
+  </ul>
+
+  <div class="diagram">┌─────────────────────────────────────────────────────────────────┐
+│  Agent                          HTTP Client (前端/管理后台)       │
+│    │                                │                           │
+│    ▼                                ▼                           │
+│  knowledge_search Tool         /api/knowledge/* Router          │
+│  (langgraph config 注入)       (app.state 注入)                  │
+│    │                                │                           │
+│    └────────────┬───────────────────┘                           │
+│                 ▼                                               │
+│       StandaloneKnowledgeProvider                               │
+│       (src/knowledge/standalone_provider.py)                    │
+│                 │                                               │
+│    ┌────────────┼────────────────────────┐                      │
+│    │            │                        │                      │
+│    ▼            ▼                        ▼                      │
+│  Retriever   Queue+Worker            Guard                     │
+│  (检索)      (异步入库)              (去重+限流)                 │
+│    │            │                                               │
+│    ▼            ▼                                               │
+│  ┌──────────────────────────────────────────┐                   │
+│  │  VDB (kb_chunks + kb_doc_metadata)       │ ← 检索加速层      │
+│  │  PG  (ai_knowledge_* 9 张表)             │ ← 权威数据源      │
+│  │  COS (原始文件 + 解析产物)               │ ← 对象存储        │
+│  └──────────────────────────────────────────┘                   │
+└─────────────────────────────────────────────────────────────────┘</div>
+
+  <h3>3.2 KnowledgeProvider 协议</h3>
+  <p><code>KnowledgeProvider</code> 是 <code>@runtime_checkable</code> 的 Protocol，定义知识库的全部对外能力：</p>
+
+  <h4>入库方法</h4>
+  <table>
+    <tr><th>方法</th><th>用途</th><th>行为</th></tr>
+    <tr><td><code>ingest_document(tenant_id, kb_id, file_path, ...)</code></td><td>提交入库任务</td><td>异步入队，立即返回 task_id；Worker 后台处理</td></tr>
+    <tr><td><code>get_ingest_status(task_id)</code></td><td>查询入库进度</td><td>返回 phase/status/progress（供前端轮询）</td></tr>
+  </table>
+
+  <h4>检索方法</h4>
+  <table>
+    <tr><th>方法</th><th>用途</th><th>行为</th></tr>
+    <tr><td><code>search(tenant_id, query, kb_id, filters, top_k, threshold, ...)</code></td><td>知识检索</td><td>Self-Querying → 两路召回 → 三维度加权 → threshold 过滤</td></tr>
+  </table>
+
+  <h4>管理方法</h4>
+  <table>
+    <tr><th>方法</th><th>用途</th></tr>
+    <tr><td><code>list_knowledge_bases(tenant_id)</code></td><td>列出租户的知识库</td></tr>
+    <tr><td><code>get_document_info(doc_id)</code></td><td>获取文档详情（元数据/状态/质量分）</td></tr>
+    <tr><td><code>delete_document(tenant_id, doc_id)</code></td><td>删除文档（级联 PG 切片 + VDB 向量）</td></tr>
+  </table>
+
+  <h3>3.3 HTTP API 层</h3>
+  <p>路由前缀 <code>/api/knowledge</code>，通过 <code>app.state.knowledge_provider</code> 获取 Provider：</p>
+  <table>
+    <tr><th>分组</th><th>路由</th><th>用途</th></tr>
+    <tr><td>文档</td><td><code>POST /documents/upload</code></td><td>上传文件 → 入队 → 返回 task_id</td></tr>
+    <tr><td></td><td><code>GET /documents</code></td><td>按知识库列出文档</td></tr>
+    <tr><td></td><td><code>GET /documents/{doc_id}</code></td><td>文档详情</td></tr>
+    <tr><td></td><td><code>DELETE /documents/{doc_id}</code></td><td>删除文档</td></tr>
+    <tr><td>知识库</td><td><code>POST /</code></td><td>创建知识库</td></tr>
+    <tr><td></td><td><code>GET /</code></td><td>列出知识库</td></tr>
+    <tr><td></td><td><code>GET /{kb_id}</code></td><td>知识库详情</td></tr>
+    <tr><td>数据集</td><td><code>POST /datasets</code></td><td>创建数据集</td></tr>
+    <tr><td>Schema</td><td><code>GET /schemas/for-kb/{kb_id}</code></td><td>获取 KB 的 Schema（含回退链）</td></tr>
+    <tr><td>任务</td><td><code>GET /tasks/{task_id}</code></td><td>查询入库进度</td></tr>
+    <tr><td>审计</td><td><code>POST /search-logs/feedback</code></td><td>提交检索反馈</td></tr>
+    <tr><td>运维</td><td><code>POST /maintenance/decay-hit-counts</code></td><td>手动触发热度衰减</td></tr>
+  </table>
+
+  <h3>3.4 knowledge_search Tool</h3>
+  <p><code>KnowledgeSearchTool</code>（<code>src/tools/builtins/knowledge_tool.py</code>）是 Agent 调用知识库的唯一入口。</p>
+  <p><strong>输入参数</strong>：</p>
+  <ul>
+    <li><code>query</code>：自然语言检索问题</li>
+    <li><code>knowledge_base_id</code>：知识库 ID（可选）</li>
+    <li><code>top_k</code>：最大返回数量（1~20，默认 5）</li>
+    <li><code>doc_category</code> / <code>industry</code> / <code>business_stage</code> / <code>target_audience</code>：Schema 字段过滤（可选）</li>
+  </ul>
+
+  <h3>3.5 异步入库架构</h3>
+  <div class="diagram">API 调用 ingest_document()
+    │
+    ├─ 1. 计算 file_hash → 去重检查（IngestionGuard）
+    ├─ 2. 复制文件到 upload_dir → 上传 COS（可选）
+    ├─ 3. 写 PG document 行（parse_status=pending）
+    ├─ 4. 写 PG ingest_log 行（phase=upload）
+    ├─ 5. 创建 IngestTask → 入队 ai_knowledge_ingest_queue
+    └─ 6. 立即返回 IngestResult(task_id, status="pending")
+
+后台 Worker（IngestSupervisor 管理 N 个协程）：
+    │
+    ├─ dequeue（FOR UPDATE SKIP LOCKED，多 Worker 安全）
+    ├─ pipeline.run(task)  ← DocumentIngestionPipeline 四阶段
+    ├─ 成功 → ack(task_id)
+    └─ 失败 → nack(task_id, error)
+         ├─ retry_count &lt; max_retry → 指数退避重试（2^n × 60s）
+         └─ retry_count &gt;= max_retry → 标记死信（status=dead）
+
+Reclaimer（每 30s 扫描一次）：
+    └─ 找 status=running 且超过 visibility_timeout 的任务 → 重置为 pending</div>
+
+  <div class="box box-info">
+    <strong>关键组件</strong>：
+    <ul>
+      <li><code>PgIngestQueue</code>（queue.py）：基于 PG SKIP LOCKED 的任务队列，无 Redis 依赖</li>
+      <li><code>IngestionGuard</code>（guard.py）：file_hash 去重 + asyncio.Semaphore LKEAP 并发限流</li>
+      <li><code>IngestSupervisor</code>（worker.py）：管理 N 个 Worker 协程 + 1 个 Reclaimer 协程</li>
+      <li><code>DocumentIngestionPipeline</code>（ingestion.py）：实现四阶段流水线</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ===== 第四节：文档入库流水线 ===== -->
+<section id="sec4">
+  <h2>四、文档入库流水线</h2>
+
+  <h3>4.1 流水线总览</h3>
+  <p>入库流水线分为 <strong>7 个阶段</strong>，由 <code>DocumentIngestionPipeline.run(task)</code> 驱动：</p>
+  <table>
+    <tr><th>阶段</th><th>名称</th><th>做什么</th><th>产出</th><th>耗时</th></tr>
+    <tr><td>Phase 1</td><td>文档解析</td><td>LKEAP 把 PDF/DOCX 转成 Markdown</td><td>结构化文本 + 页数 + 字符数</td><td>5~30s</td></tr>
+    <tr><td>Phase 1.5</td><td>文本清洗</td><td>去噪（页码/水印/乱码/多余空行）</td><td>干净的 display_content + content</td><td>&lt;1s</td></tr>
+    <tr><td>Phase 2a</td><td>LLM 打标</td><td>自动分类 + 生成摘要 + 提取关键词</td><td>metadata JSON + summary + keywords</td><td>3~10s</td></tr>
+    <tr><td>Phase 2b</td><td>质量评分</td><td>评估文档完整度/结构/密度</td><td>quality_score (0~1)</td><td>&lt;1s</td></tr>
+    <tr><td>Phase 3</td><td>两级切分</td><td>Segment 章节聚合 → Chunk 句子级切片</td><td>N 个 chunk（每个 300~500 字符）</td><td>&lt;2s</td></tr>
+    <tr><td>Phase 4a</td><td>向量索引</td><td>Embedding + BM25 编码 → 写入 VDB</td><td>kb_chunks 集合记录</td><td>5~20s</td></tr>
+    <tr><td>Phase 4b</td><td>文档元数据索引</td><td>摘要向量 + 加权 BM25 → 写入 VDB</td><td>kb_doc_metadata 集合记录</td><td>2~5s</td></tr>
+  </table>
+  <p><strong>典型耗时</strong>：一份 20 页 PDF 约 30~60 秒完成全部阶段。</p>
+
+  <h3>4.2 Phase 1：文档解析</h3>
+  <p>调用腾讯云 LKEAP <code>CreateReconstructDocumentFlow</code> API，异步解析文档：</p>
+  <ul>
+    <li>表格 → Markdown 表格格式</li>
+    <li>数学公式 → LaTeX</li>
+    <li>图片 → 图片描述文本（Vision LLM 生成）</li>
+    <li>标题/段落 → 保持层级结构</li>
+    <li>页眉/页脚 → 标注（后续清洗阶段移除）</li>
+  </ul>
+
+  <h3>4.3 Phase 1.5：文本清洗</h3>
+  <table>
+    <tr><th>Stage</th><th>处理内容</th><th>典型噪声</th></tr>
+    <tr><td>1. 编码清洗</td><td>BOM/零宽字符/控制字符移除 + NFC 归一化</td><td><code>\uFEFF</code>、<code>\u200B</code></td></tr>
+    <tr><td>2. 格式噪声</td><td>页码/页眉页脚/水印关键词移除</td><td>"第 3 页"、"机密"</td></tr>
+    <tr><td>3. 内容噪声</td><td>连续空行合并 + 多余空格压缩 + 乱码检测</td><td>3+ 空行、OCR 乱码行</td></tr>
+    <tr><td>4. 双层输出</td><td>分离展示层和检索层</td><td>—</td></tr>
+  </table>
+  <div class="box box-info">
+    <strong>双层输出</strong>：
+    <ul>
+      <li><code>display_content</code>：保留表格 HTML、图片占位符（前端展示用）</li>
+      <li><code>content</code>：纯文本（喂 Embedding 和 BM25）</li>
+    </ul>
+  </div>
+
+  <h3>4.4 Phase 2：LLM 打标 + 质量评分</h3>
+  <h4>自动打标</h4>
+  <p>输入文档前 4000 tokens + 租户的元数据 Schema，LLM 输出：</p>
+  <ul>
+    <li><strong>元数据分类</strong>：docCategory、industryVertical、businessStage、targetAudience、productService、datePublished</li>
+    <li><strong>文档摘要</strong>：200~300 字</li>
+    <li><strong>关键词</strong>：LLM 提取最多 10 个 + jieba TF-IDF Top-20 候选词</li>
+  </ul>
+
+  <h4>质量评分</h4>
+  <div class="formula">quality_score = 0.3×完整度 + 0.3×结构度 + 0.2×内容密度 + 0.2×清洗分</div>
+  <p>低于 <strong>0.4</strong> 的文档标记 <code>quality_warning</code>，检索时可选过滤。</p>
+
+  <h3>4.5 Phase 3：两级切分</h3>
+  <h4>为什么是两级？</h4>
+  <p>直接按固定长度切会导致：切片跨越两个章节、句子被切断、上下文丢失。两级切分解决这些问题：</p>
+  <ol>
+    <li><strong>Segment（章节级）</strong>：先按标题结构切成大段，保证不跨章节</li>
+    <li><strong>Chunk（句子级）</strong>：在每个 Segment 内按句子累加切片，保证不切断句子</li>
+    <li><strong>Overlap（重叠）</strong>：相邻 Chunk 有 2 句重叠，避免"断章取义"</li>
+  </ol>
+
+  <h4>Segment 切分规则</h4>
+  <p><strong>参数</strong>：min=3000 / target=4000 / max=6000 字符</p>
+  <p>逐行扫描决策流程（按优先级）：</p>
+  <ol>
+    <li><strong>一级标题 → 强制分段</strong>（不管当前段多短）：Markdown <code># </code>、<code>第X章</code>、<code>一、</code>、<code>1. </code></li>
+    <li><strong>二级标题 → 当前段已 ≥ min(3000) 才分段</strong>：<code>## </code>/<code>### </code>、<code>第X节</code>、<code>(一)</code>、<code>1.1 </code></li>
+    <li><strong>空行 + 当前段已 &gt; 2000 字符 → 分段</strong></li>
+    <li><strong>当前段超过 max(6000) → 强制切</strong>（回溯找句子结束符）</li>
+  </ol>
+
+  <h4>Chunk 切分规则</h4>
+  <p><strong>参数</strong>：target=400 / min=100 / max=500 字符 / overlap=2 句</p>
+  <div class="diagram">对每个句子 s：
+  ├─ 单句超长（len(s) &gt; max=500）？
+  │   ├─ 当前 chunk 已 ≥ min → 先 flush 当前 chunk
+  │   └─ 对超长句子做内部硬切：每 max 字符切一次
+  │
+  ├─ 累加后会超 max？
+  │   └─ 是 → flush 当前 chunk
+  │
+  └─ 累加句子到 current_chunk
+      └─ current_len ≥ target(400) 且 ≥ min(100)？
+          └─ 是 → flush</div>
+
+  <h4>Overlap 效果示例</h4>
+  <div class="diagram">Chunk 1: [句子A, 句子B, 句子C, 句子D, 句子E]  ← 400字符
+                                    ↓ 保留最后 2 句
+Chunk 2: [句子D, 句子E, 句子F, 句子G, 句子H]  ← 420字符（含重叠）
+                                    ↓ 保留最后 2 句
+Chunk 3: [句子G, 句子H, 句子I, 句子J]          ← 380字符</div>
+
+  <h4>切分效果数值示例（20 页 PDF 产品手册，约 15000 字符）</h4>
+  <table>
+    <tr><th>指标</th><th>典型值</th></tr>
+    <tr><td>Segment 数量</td><td>4~6 个（按章节）</td></tr>
+    <tr><td>Chunk 总数</td><td>35~45 个</td></tr>
+    <tr><td>平均 Chunk 长度</td><td>380 字符</td></tr>
+    <tr><td>最短 Chunk</td><td>100 字符（min 兜底）</td></tr>
+    <tr><td>最长 Chunk</td><td>500 字符（max 限制）</td></tr>
+    <tr><td>Overlap 占比</td><td>~15%（2 句 ÷ 平均 13 句/chunk）</td></tr>
+    <tr><td>切分耗时</td><td>&lt; 500ms（纯 CPU，无网络）</td></tr>
+  </table>
+
+  <h3>4.6 Phase 4：混合索引</h3>
+  <div class="two-col">
+    <div class="box box-info">
+      <strong>切片级索引</strong>（VDB <code>kb_chunks</code>）：
+      <ul>
+        <li>Dense 向量：LKEAP GetEmbedding</li>
+        <li>Sparse 向量：BM25Encoder</li>
+        <li>元数据字段：tenant_id、kb_id、doc_id、Schema 字段</li>
+        <li>原文：content 字段直接存入 VDB</li>
+      </ul>
+    </div>
+    <div class="box box-purple">
+      <strong>文档级索引</strong>（VDB <code>kb_doc_metadata</code>）：
+      <ul>
+        <li>Dense 向量：文档摘要的 embedding</li>
+        <li>Sparse 向量：加权文本 BM25（title×3 + summary×2 + keywords×2 + candidate×1 + toc×1）</li>
+        <li>γ 属性：quality_score、search_hit_count、date_published</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>4.7 去重与容错</h3>
+  <ul>
+    <li><strong>文件去重</strong>：SHA256 hash + PG 唯一索引，相同文件直接复用已有 doc_id</li>
+    <li><strong>LKEAP 限流</strong>：asyncio.Semaphore(3) 控制并发</li>
+    <li><strong>崩溃恢复</strong>：Reclaimer 每 30s 扫描超时任务重置为 pending</li>
+    <li><strong>指数退避</strong>：失败任务按 2^n × 60s 延迟重试，最多 3 次</li>
+  </ul>
+</section>
+
+<!-- ===== 第四·补节：存储层设计 ===== -->
+<section id="sec4b">
+  <h2>四·补、存储层设计（PG + 向量库 + 对象存储）</h2>
+
+  <h3>4.补.1 三层存储架构</h3>
+  <div class="diagram">┌──────────────────────────────────────────────────────────────────────┐
+│                         PostgreSQL（权威数据源）                       │
+│                                                                      │
+│  ai_knowledge_base          ── 知识库定义（租户维度）                  │
+│  ai_knowledge_base_binding  ── 知识库与 Agent 绑定（授权）             │
+│  ai_knowledge_dataset       ── 数据集（知识库下的文档分组）            │
+│  ai_knowledge_document      ── 文档主表（解析/清洗/切分/打标/质量）    │
+│  ai_knowledge_chunk         ── 切片主表（PG 冷备 + 检索走 VDB）         │
+│  ai_knowledge_schema        ── 租户元数据 Schema（Self-Querying 依赖） │
+│  ai_knowledge_ingest_queue  ── 入库任务队列（SKIP LOCKED 替代 MQ）     │
+│  ai_knowledge_ingest_log    ── 入库任务日志（审计 + 重试）             │
+│  ai_knowledge_search_log    ── 检索审计日志（效果分析）                │
+└──────────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                    腾讯云向量数据库（检索加速层）                       │
+│                                                                      │
+│  Database: knowledge                   ← 全局共享（单库）              │
+│  ├─ Collection: kb_chunks              ← 所有切片（含 tenant_id 字段） │
+│  └─ Collection: kb_doc_metadata        ← 文档级 Summary + BM25 + γ    │
+│                                                                      │
+│  租户隔离：tenant_id FilterIndex，所有查询强制注入该过滤条件           │
+└──────────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                       对象存储 / 文件系统                              │
+│                                                                      │
+│  COS Bucket: knowledge-{tenant_id}                                   │
+│  ├─ raw/{doc_id}.{ext}            ← 原始上传文件                      │
+│  ├─ parsed/{doc_id}/content.md    ← LKEAP 解析后的 Markdown           │
+│  ├─ parsed/{doc_id}/structure.json ← LKEAP 返回的结构化 JSON          │
+│  └─ parsed/{doc_id}/images/*.png  ← 解析提取的图片资源                │
+└──────────────────────────────────────────────────────────────────────┘</div>
+
+  <h4>设计原则</h4>
+  <table>
+    <tr><th>层级</th><th>角色</th><th>存什么</th><th>不存什么</th></tr>
+    <tr><td>PG</td><td>权威数据源</td><td>所有元数据 + 切片全文 + 向量同步状态</td><td>向量本身</td></tr>
+    <tr><td>向量库</td><td>检索加速层</td><td>chunk_id + 向量 + 过滤字段 + content</td><td>—</td></tr>
+    <tr><td>对象存储</td><td>原始留档</td><td>原始文件 + 解析产物 + 图片</td><td>—</td></tr>
+  </table>
+
+  <h3>4.补.2 PostgreSQL 表结构</h3>
+  <p>沿用项目统一约定（<code>paas_ai</code> schema、BaseEntity 规范、雪花 BIGINT 主键、毫秒时间戳、<code>delete_flg</code> 软删）。</p>
+
+  <h4>核心表一览</h4>
+  <table>
+    <tr><th>表名</th><th>用途</th><th>关键字段</th></tr>
+    <tr><td><code>ai_knowledge_base</code></td><td>知识库定义</td><td>api_key, default_top_k, schema_id, document_count</td></tr>
+    <tr><td><code>ai_knowledge_base_binding</code></td><td>知识库与 Agent 绑定</td><td>agent_name, scope(read/write), override_filters</td></tr>
+    <tr><td><code>ai_knowledge_dataset</code></td><td>数据集（文档分组）</td><td>chunk_strategy, chunk_size, chunk_overlap</td></tr>
+    <tr><td><code>ai_knowledge_document</code></td><td>文档主表</td><td>parse_status, chunk_status, quality_score, metadata</td></tr>
+    <tr><td><code>ai_knowledge_chunk</code></td><td>切片主表（核心）</td><td>content, chunk_type, vector_synced, parent_segment_id</td></tr>
+    <tr><td><code>ai_knowledge_schema</code></td><td>元数据 Schema</td><td>fields(JSON), version</td></tr>
+    <tr><td><code>ai_knowledge_ingest_queue</code></td><td>入库任务队列</td><td>payload, status, retry_count, visibility_timeout</td></tr>
+    <tr><td><code>ai_knowledge_ingest_log</code></td><td>入库任务日志</td><td>phase, progress, duration_ms, quality_score</td></tr>
+    <tr><td><code>ai_knowledge_search_log</code></td><td>检索审计日志</td><td>raw_query, filters, hit_count, total_ms, feedback</td></tr>
+  </table>
+
+  <h4>表关系 ER 图</h4>
+  <div class="diagram">ai_knowledge_base ──1:N──→ ai_knowledge_base_binding (Agent 授权)
+ai_knowledge_base ──1:N──→ ai_knowledge_dataset (数据集)
+ai_knowledge_base ──1:N──→ ai_knowledge_document (文档)
+ai_knowledge_base ──1:1──→ ai_knowledge_schema (元数据 Schema)
+ai_knowledge_dataset ──1:N──→ ai_knowledge_document (归属)
+ai_knowledge_document ──1:N──→ ai_knowledge_chunk (切分)
+ai_knowledge_document ──1:N──→ ai_knowledge_ingest_log (入库任务)
+ai_knowledge_base ──1:N──→ ai_knowledge_search_log (检索日志)</div>
+
+  <h3>4.补.3 向量数据库设计</h3>
+  <p><strong>租户隔离策略</strong>：采用"单库共享 + FilterIndex 字段隔离"。</p>
+
+  <h4>Collection <code>kb_chunks</code> 字段设计</h4>
+  <table>
+    <tr><th>字段</th><th>类型</th><th>用途</th></tr>
+    <tr><td><code>id</code></td><td>String (PK)</td><td>== PG chunk_id</td></tr>
+    <tr><td><code>vector</code></td><td>1024 维 HNSW</td><td>Dense embedding (COSINE)</td></tr>
+    <tr><td><code>sparse_vector</code></td><td>SparseIndex</td><td>BM25 稀疏向量</td></tr>
+    <tr><td><code>tenant_id</code></td><td>FilterIndex</td><td>🔑 租户隔离（必填）</td></tr>
+    <tr><td><code>knowledge_base_id</code></td><td>FilterIndex</td><td>知识库过滤</td></tr>
+    <tr><td><code>doc_id</code></td><td>FilterIndex</td><td>文档过滤</td></tr>
+    <tr><td><code>chunk_type</code></td><td>FilterIndex</td><td>Text/Table/Image_Description</td></tr>
+    <tr><td><code>doc_category</code></td><td>FilterIndex</td><td>Schema 字段过滤</td></tr>
+    <tr><td><code>industry</code></td><td>FilterIndex</td><td>Schema 字段过滤</td></tr>
+    <tr><td><code>business_stage</code></td><td>FilterIndex</td><td>Schema 字段过滤</td></tr>
+    <tr><td><code>date_published</code></td><td>UInt64 FilterIndex</td><td>时效性过滤</td></tr>
+  </table>
+
+  <h4>Collection <code>kb_doc_metadata</code> 字段设计</h4>
+  <table>
+    <tr><th>字段</th><th>类型</th><th>用途</th></tr>
+    <tr><td><code>id</code></td><td>String (PK)</td><td>== PG doc_id</td></tr>
+    <tr><td><code>vector</code></td><td>1024 维 HNSW</td><td>Summary embedding</td></tr>
+    <tr><td><code>sparse_vector</code></td><td>SparseIndex</td><td>5 路加权 BM25</td></tr>
+    <tr><td><code>tenant_id</code></td><td>FilterIndex</td><td>🔑 租户隔离</td></tr>
+    <tr><td><code>quality_score_x10k</code></td><td>UInt64</td><td>γ 维度 C1</td></tr>
+    <tr><td><code>search_hit_count</code></td><td>UInt64</td><td>γ 维度 C3</td></tr>
+    <tr><td><code>date_published</code></td><td>UInt64</td><td>γ 维度 C2</td></tr>
+  </table>
+
+  <h4>隔离保证</h4>
+  <table>
+    <tr><th>层次</th><th>隔离方式</th><th>执行点</th></tr>
+    <tr><td>PG</td><td><code>tenant_id</code> 列 + 所有 SQL 带 WHERE</td><td>DAO 强制参数</td></tr>
+    <tr><td>VDB</td><td><code>tenant_id</code> FilterIndex + 查询强制拼接</td><td>KnowledgeVectorStore 封装</td></tr>
+    <tr><td>COS</td><td><code>knowledge-{tenant_id}</code> bucket 分离</td><td>上传 URL 构造</td></tr>
+    <tr><td>BM25</td><td>VDB SparseIndex 内 tenant_id 隔离</td><td>查询时强制拼接</td></tr>
+  </table>
+
+  <h3>4.补.4 容量估算（单租户 10 万份文档）</h3>
+  <table>
+    <tr><th>存储</th><th>条目数</th><th>单条大小</th><th>总量</th></tr>
+    <tr><td>PG <code>ai_knowledge_document</code></td><td>10 万</td><td>~2 KB</td><td>~200 MB</td></tr>
+    <tr><td>PG <code>ai_knowledge_chunk</code></td><td>200 万</td><td>~2 KB（含全文）</td><td>~4 GB</td></tr>
+    <tr><td>向量库 <code>kb_chunks</code></td><td>200 万</td><td>1024 维 × 4B + 元数据 ≈ 5 KB</td><td>~10 GB</td></tr>
+    <tr><td>向量库 <code>kb_doc_metadata</code></td><td>10 万</td><td>~5 KB</td><td>~500 MB</td></tr>
+    <tr><td>COS 原始文件</td><td>10 万</td><td>平均 5 MB</td><td>~500 GB</td></tr>
+    <tr><td>COS 解析产物</td><td>10 万</td><td>平均 200 KB</td><td>~20 GB</td></tr>
+  </table>
+</section>
+
+<!-- ===== 第五节：知识检索引擎 ===== -->
+<section id="sec5">
+  <h2>五、知识检索引擎</h2>
+
+  <div class="box box-warn">
+    <strong>架构更新（2026-05）</strong>：已切换到<strong>全 VDB 架构</strong>。B2 元数据文本召回从 PG ILIKE 迁移到 VDB 多路 BM25 hybrid_search；切片原文直接存入 VDB，命中后不再回 PG；文档级集合升级为 <code>kb_doc_metadata</code>，承载 summary 向量 + 5 路 BM25 稀疏 + γ 属性。
+  </div>
+
+  <h3>5.1 检索链路总览</h3>
+  <div class="diagram">┌─────────────────────────────────────────────────────────────┐
+│                         Query                               │
+│                           │                                 │
+│    ┌──── Step 1 ──────────┤                                 │
+│    │ 查询改写（多轮可选）  │ LKEAP 指代消解/省略补全          │
+│    └──────────────────────┤                                 │
+│                           │                                 │
+│    ┌──── Step 2 ──────────┤                                 │
+│    │ Self-Querying        │ LLM 从自然语言提取 metadata 过滤 │
+│    │ (LLM + Schema)       │                                 │
+│    └──────────────────────┤                                 │
+│                           │                                 │
+│    ┌──── Step 3 ──────────┼─── 两路并行召回（全 VDB）──┐      │
+│    │                      │                            │    │
+│    │  [A] kb_chunks       │ hybrid_search (dense+BM25) │    │
+│    │  [B] kb_doc_metadata │ hybrid_search              │    │
+│    │                      │ (summary ANN + 加权BM25)   │    │
+│    └──────────────────────┴────────────────────────────┘    │
+│                           │                                 │
+│    ┌──── Step 4 ──────────┤                                 │
+│    │ 切片→文档聚合        │ docRrf = seg[0]+Σseg[i]×0.2ⁱ     │
+│    └──────────────────────┤                                 │
+│                           │                                 │
+│    ┌──── Step 5 ──────────┤                                 │
+│    │ 三维度归一化加权      │ finalScore =                    │
+│    │                      │   α·normA + β·normB + γ·normC   │
+│    └──────────────────────┤                                 │
+│                           │                                 │
+│    ┌──── Step 6 ──────────┤                                 │
+│    │ threshold 过滤 + top_k│ finalScore &lt; threshold 丢弃     │
+│    └──────────────────────┤                                 │
+│                           │                                 │
+│    ┌──── Step 7 ──────────┤                                 │
+│    │ VDB 直接返回 content  │ Parent-Child 扩展              │
+│    │ + 热度+1 + 审计日志  │                                 │
+│    └──────────────────────┘                                 │
+│                           ▼                                 │
+│              List&lt;KnowledgeChunk&gt;                           │
+└─────────────────────────────────────────────────────────────┘</div>
+
+  <h3>5.2 Step 1 — 查询改写（可选）</h3>
+  <p>把多轮对话里的代词、省略句补全成独立可理解的 query。</p>
+  <div class="code-block">对话历史：
+  User: 审批流怎么配置？
+  Bot:  先创建节点，然后...
+  User: 那条件分支呢？  ← 当前 query，"那"指代不明
+改写后：审批流里的条件分支怎么配置？</div>
+
+  <h3>5.3 Step 2 — Self-Querying</h3>
+  <p>让用户说"制造业的成功案例"就能自动转成 <code>filter={industry:"制造业", docCategory:"成功案例"}</code>。</p>
+  <ol>
+    <li>读取当前 KB 的 Schema 定义</li>
+    <li>构造 prompt 发给 LLM，输出 JSON：<code>{"semantic_query":"...", "filters":{...}}</code></li>
+    <li>解析返回 — <code>semantic_query</code> 用于向量检索，<code>filters</code> 作为硬过滤</li>
+  </ol>
+
+  <h3>5.4 Step 3 — 两路并行召回（核心）</h3>
+  <div class="two-col">
+    <div class="box box-info">
+      <strong>路 A — 切片级混合检索（主力路）</strong><br><br>
+      tcvectordb <code>kb_chunks</code> 的 <code>hybrid_search</code>：<br>
+      <ul>
+        <li>Dense 向量（权重 0.3）：语义匹配</li>
+        <li>Sparse 向量（权重 0.7）：BM25 关键词匹配</li>
+      </ul>
+      <br>
+      权重偏向 BM25 的原因：中文场景下关键词精确匹配比语义相似度更可靠。<br><br>
+      召回数量：<code>max(top_k × 5, 30)</code>
+    </div>
+    <div class="box box-purple">
+      <strong>路 B — 文档级混合召回</strong><br><br>
+      <code>kb_doc_metadata</code> 的 <code>hybrid_search</code>：<br>
+      <ul>
+        <li>Dense：文档摘要 embedding（语义级）</li>
+        <li>Sparse：5 路加权 BM25（关键词级）</li>
+      </ul>
+      <br>
+      <strong>5 路加权文本</strong>：<br>
+      title×3 + summary×2 + keywords×2 + candidate×1 + toc×1<br><br>
+      召回数量：<code>max(top_k×5, 50)</code>
+    </div>
+  </div>
+
+  <h3>5.5 Step 4 — 切片→文档聚合（CHUNK_DECAY=0.2）</h3>
+  <p>同一文档的多个切片，按 RRF 贡献降序排列后做几何衰减聚合：</p>
+  <div class="formula">doc_rrf = seg[0] + seg[1]×0.2 + seg[2]×0.04 + seg[3]×0.008 + ...</div>
+  <p>第 1 个切片贡献 100%，第 2 个贡献 20%，第 3 个贡献 4%...前 3 个切片贡献 99%+。</p>
+
+  <table>
+    <tr><th>策略</th><th>公式</th><th>问题</th></tr>
+    <tr><td>取 max</td><td><code>doc = max(seg)</code></td><td>3 个中等命中 &lt; 1 个稍高命中，不公平</td></tr>
+    <tr><td>求和</td><td><code>doc = Σ seg</code></td><td>20 个低分切片 &gt; 1 个精准命中，被刷量</td></tr>
+    <tr><td>平均</td><td><code>doc = avg(seg)</code></td><td>1 高 + 一堆低 = 被拉低</td></tr>
+    <tr><td><strong>几何衰减 ✅</strong></td><td><code>seg[0] + Σ seg[i]×0.2^i</code></td><td>同时避免两极端</td></tr>
+  </table>
+
+  <h3>5.6 Step 5 — 三维度归一化加权</h3>
+  <div class="formula">finalScore = α × normA + β × normB + γ × normC = 0.7 × normA + 0.1 × normB + 0.2 × normC</div>
+
+  <h4>维度 A（α=0.7）— 文档级相关性</h4>
+  <p>对所有文档的 <code>doc_rrf</code> 值做 min-max 归一化，映射到 <code>[NORM_FLOOR=0.3, 1.0]</code>。</p>
+
+  <h4>维度 B（β=0.1）— 元数据 RRF 加分</h4>
+  <p>计算文档在 B 路中的 RRF 排名贡献 × METADATA_WEIGHT(0.15)，归一化到 [0, 1]。</p>
+
+  <h4>维度 C（γ=0.2）— 文档属性</h4>
+  <table>
+    <tr><th>子项</th><th>权重</th><th>来源</th><th>公式</th></tr>
+    <tr><td>C1 — 质量分</td><td>0.1</td><td>quality_score (0~1)</td><td><code>quality × 0.1</code></td></tr>
+    <tr><td>C2 — 时效性</td><td>0.05</td><td>date_published</td><td><code>0.5^(age/180天) × 0.05</code></td></tr>
+    <tr><td>C3 — 热度</td><td>0.05</td><td>search_hit_count</td><td><code>min(1, log10(hit+1)/3) × 0.05</code></td></tr>
+  </table>
+
+  <h4>finalScore 理论范围</h4>
+  <table>
+    <tr><th>场景</th><th>计算</th><th>结果</th></tr>
+    <tr><td>最低</td><td>0.7×0.3 + 0.1×0 + 0.2×0</td><td>0.21</td></tr>
+    <tr><td>典型</td><td>0.7×0.7 + 0.1×0.5 + 0.2×0.6</td><td>0.66</td></tr>
+    <tr><td>最高</td><td>0.7×1.0 + 0.1×1.0 + 0.2×1.0</td><td>1.00</td></tr>
+  </table>
+
+  <h3>5.7 Step 6 — threshold 过滤 + top_k</h3>
+  <p><strong>阈值解析优先级</strong>（高→低）：调用方显式传入 → KB 配置 min_score → 代码默认值 0.3</p>
+  <table>
+    <tr><th>threshold</th><th>行为</th><th>场景</th></tr>
+    <tr><td>0.0</td><td>关闭过滤</td><td>数据少、宽松模式</td></tr>
+    <tr><td>0.3（默认）</td><td>过滤明显无关</td><td>常规 RAG</td></tr>
+    <tr><td>0.5</td><td>中等严格</td><td>专业问答</td></tr>
+    <tr><td>0.7</td><td>宁缺毋滥</td><td>法律/医疗</td></tr>
+    <tr><td>0.9</td><td>极严格</td><td>不容任何幻觉</td></tr>
+  </table>
+
+  <h3>5.8 Step 7 — 后处理</h3>
+  <ul>
+    <li><strong>Hydrate</strong>：VDB 直接返回切片 content，不回 PG</li>
+    <li><strong>Parent-Child 扩展</strong>：走 VDB 按 chunk_index ± N 范围查询前后切片</li>
+    <li><strong>热度维护</strong>：异步 hit_count +1（PG），定期同步到 VDB</li>
+    <li><strong>审计日志</strong>：异步写 <code>ai_knowledge_search_log</code></li>
+  </ul>
+
+  <h3>5.9 关键参数一览</h3>
+  <div style="overflow-x:auto;">
+  <table style="min-width:700px;">
+    <tr><th style="width:90px;">分类</th><th style="width:220px;">参数</th><th style="width:100px;">值</th><th>说明</th></tr>
+    <tr><td><strong>主权重</strong></td><td>α / β / γ</td><td>0.7 / 0.1 / 0.2</td><td>切片相关性 / 文档元数据 / 文档属性</td></tr>
+    <tr><td><strong>子权重</strong></td><td>METADATA_WEIGHT</td><td>0.15</td><td>β 内缩放</td></tr>
+    <tr><td></td><td>QUALITY / RECENCY / HIT</td><td>0.1 / 0.05 / 0.05</td><td>γ 三子项</td></tr>
+    <tr><td><strong>RRF</strong></td><td>K_CHUNK / K_DOC</td><td>60</td><td>排名→分数转换</td></tr>
+    <tr><td><strong>聚合</strong></td><td>CHUNK_DECAY</td><td>0.2</td><td>多切片几何衰减</td></tr>
+    <tr><td><strong>归一化</strong></td><td>NORM_FLOOR</td><td>0.3</td><td>α 维度下限</td></tr>
+    <tr><td><strong>过滤</strong></td><td>DEFAULT_THRESHOLD</td><td>0.3</td><td>finalScore 下限</td></tr>
+    <tr><td><strong>时效</strong></td><td>RECENCY_HALFLIFE</td><td>180 天</td><td>半衰期</td></tr>
+    <tr><td><strong>路 A 融合</strong></td><td>dense / sparse</td><td>0.3 / 0.7</td><td>WeightedRerank 权重</td></tr>
+    <tr><td><strong>B 路字段权重</strong></td><td>title/summary/keywords/candidate/toc</td><td>×3/×2/×2/×1/×1</td><td>加权文本重复次数</td></tr>
+    <tr><td><strong>上下文扩展</strong></td><td>expand_context_n</td><td>1</td><td>前后各 1 个切片</td></tr>
+  </table>
+  </div>
+
+  <h3>5.10 完整打分示例</h3>
+  <p><strong>场景</strong>：Query <code>"制造业的审批流怎么配置"</code>，知识库有 3 份文档。</p>
+
+  <h4>Step 1-2: Self-Querying</h4>
+  <div class="code-block">rewritten_query = "制造业的审批流怎么配置"（未改写）
+Self-Querying: semantic_query="审批流怎么配置",
+               filters={industry:"制造业"}</div>
+
+  <h4>Step 3: 三路召回</h4>
+  <div class="code-block">A 路（切片混合）：
+  chunk_01 (docA)  score=0.92
+  chunk_12 (docA)  score=0.88
+  chunk_34 (docB)  score=0.81
+  chunk_07 (docC)  score=0.65
+  chunk_45 (docA)  score=0.60
+
+B 路（文档级 hybrid_search）：
+  rank 0: docA
+  rank 1: docC
+  rank 2: docB</div>
+
+  <h4>最终结果</h4>
+  <table>
+    <tr><th>文档</th><th>α(0.7)</th><th>β(0.1)</th><th>γ(0.2)</th><th>finalScore</th></tr>
+    <tr><td><strong>docA</strong></td><td>1.000</td><td>1.000</td><td>0.794</td><td><strong>0.959</strong></td></tr>
+    <tr><td>docB</td><td>0.338</td><td>0.968</td><td>0.481</td><td>0.382</td></tr>
+    <tr><td>docC</td><td>0.300</td><td>0.984</td><td>0.600</td><td>0.379</td></tr>
+  </table>
+</section>
+
+<!-- ===== 第六节：knowledge_search Tool ===== -->
+<section id="sec6">
+  <h2>六、knowledge_search Tool 设计</h2>
+
+  <h3>6.1 Tool 定义</h3>
+  <p>遵循 Tool 统一接口，<code>KnowledgeSearchTool</code> 是 Agent 调用知识库的唯一入口。</p>
+
+  <table>
+    <tr><th>属性</th><th>值</th></tr>
+    <tr><td>name</td><td><code>knowledge_search</code></td></tr>
+    <tr><td>tags</td><td><code>["read", "knowledge", "rag"]</code></td></tr>
+    <tr><td>is_read_only</td><td><code>True</code></td></tr>
+    <tr><td>should_defer</td><td><code>False</code>（常用工具，不延迟加载）</td></tr>
+  </table>
+
+  <h4>输入参数 Schema</h4>
+  <table>
+    <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+    <tr><td><code>query</code></td><td>string</td><td>✅</td><td>检索问题，用自然语言描述</td></tr>
+    <tr><td><code>knowledge_base_id</code></td><td>string</td><td>○</td><td>知识库 API 名称（不指定则搜索所有）</td></tr>
+    <tr><td><code>filters</code></td><td>object</td><td>○</td><td>元数据过滤条件（系统会自动从查询中提取）</td></tr>
+    <tr><td><code>top_k</code></td><td>integer</td><td>○</td><td>最大返回数量，默认 5（1~20）</td></tr>
+  </table>
+
+  <h3>6.2 动态 Schema 注入</h3>
+  <p>不同租户的知识库元数据 Schema 不同，Tool 的 <code>input_schema</code> 需要动态注入枚举值（5 分钟缓存），帮助 LLM 在查询中使用受控词汇，提升 Self-Querying 准确率。</p>
+
+  <h3>6.3 输出格式</h3>
+  <div class="code-block">### 结果 1: 三一重工数字化转型案例
+**章节**: 第三章 落地效果
+**类别**: 成功案例
+**相关度**: 0.96
+
+（切片内容...）
+
+---
+**扩展上下文**:
+（前后切片内容...）</div>
+
+  <h3>6.4 与上下文压缩的配合</h3>
+  <p>Layer 1 摘要模板（零 LLM 成本）：</p>
+  <div class="code-block">[knowledge_search] '制造业的审批流怎么配置' in all, 3 条结果 (2,450 chars)</div>
+</section>
+
+<!-- ===== 第七节：与记忆系统的边界 ===== -->
+<section id="sec7">
+  <h2>七、与记忆系统的边界</h2>
+
+  <h3>7.1 知识库 vs 记忆 — 本质区别</h3>
+  <table>
+    <tr><th>维度</th><th>知识库（knowledge-plugin）</th><th>记忆（memory-plugin）</th></tr>
+    <tr><td>数据来源</td><td>人工上传的文档（PDF/DOCX/...）</td><td>Agent 对话中自动提取</td></tr>
+    <tr><td>数据粒度</td><td>文档 → 切片（数百~数千 tokens）</td><td>短文本片段（数十~数百 tokens）</td></tr>
+    <tr><td>生命周期</td><td>持久化，手动管理（上传/删除）</td><td>自动衰减（艾宾浩斯遗忘曲线）</td></tr>
+    <tr><td>更新方式</td><td>上传新版本替换</td><td>自动提取 + 冲突检测 + 反思修正</td></tr>
+    <tr><td>检索方式</td><td>Self-Querying + 混合检索 + Rerank</td><td>意图检测 + 目录递归检索</td></tr>
+    <tr><td>隔离粒度</td><td>租户级（知识库属于租户）</td><td>用户级（记忆属于用户）</td></tr>
+    <tr><td>Agent 工具</td><td><code>knowledge_search</code></td><td><code>search_memories</code> / <code>save_memory</code></td></tr>
+  </table>
+
+  <h3>7.2 协作场景</h3>
+  <div class="code-block">用户: "帮我准备一份给华为的方案，参考之前的成功案例"
+
+Agent 规划:
+  Step 1: search_memories("华为 方案 偏好")
+    → 记忆系统返回: "华为客户偏好简洁报告，关注 ROI 数据"
+
+  Step 2: knowledge_search(query="成功案例", filters={industryVertical:"制造业"})
+    → 知识库返回: 3 篇制造业成功案例文档
+
+  Step 3: 综合记忆（客户偏好）+ 知识（案例内容）生成方案</div>
+
+  <h3>7.3 存储层复用</h3>
+  <div class="diagram">PostgreSQL (paas_ai schema)
+  ├── ai_agent_memory                 ← memory-plugin（记忆主表）
+  ├── ai_knowledge_base               ← knowledge-plugin（知识库定义）
+  ├── ai_knowledge_dataset            ← knowledge-plugin（数据集）
+  ├── ai_knowledge_document           ← knowledge-plugin（文档主表）
+  ├── ai_knowledge_chunk              ← knowledge-plugin（切片主表）
+  ├── ai_knowledge_schema             ← knowledge-plugin（元数据 Schema）
+  ├── ai_knowledge_ingest_log         ← knowledge-plugin（入库任务日志）
+  └── ai_knowledge_search_log         ← knowledge-plugin（检索审计日志）
+
+腾讯云向量数据库（tcvectordb，单库多租户）
+  ├── Database: viking_memory / mem0_db     ← memory-plugin 使用
+  └── Database: knowledge                   ← knowledge-plugin 使用
+       ├── Collection: kb_chunks            ← 切片向量 + BM25 sparse
+       └── Collection: kb_doc_metadata      ← 文档摘要向量 + 加权BM25 + γ属性
+
+对象存储（COS）
+  └── Bucket: knowledge-{tenant_id}         ← knowledge-plugin（按租户分桶）</div>
+</section>
+
+<!-- ===== 第八节：配置与部署 ===== -->
+<section id="sec8">
+  <h2>八、配置与部署</h2>
+
+  <h3>8.1 配置模型</h3>
+  <p><code>KnowledgeSettings</code> 完整存储配置：</p>
+  <div style="overflow-x:auto;">
+  <table style="min-width:650px;">
+    <tr><th style="width:70px;">分组</th><th style="width:180px;">配置项</th><th style="width:150px;">默认值</th><th>说明</th></tr>
+    <tr><td>基础</td><td><code>enabled</code></td><td>False</td><td>是否启用知识库</td></tr>
+    <tr><td></td><td><code>mode</code></td><td>"neoagent"</td><td>neoagent | standalone</td></tr>
+    <tr><td>LKEAP</td><td><code>lkeap_secret_id/key</code></td><td>—</td><td>腾讯云凭证</td></tr>
+    <tr><td></td><td><code>lkeap_region</code></td><td>"ap-guangzhou"</td><td>地域</td></tr>
+    <tr><td>Embedding</td><td><code>embedding_model</code></td><td>"lke-text-embedding-v1"</td><td>模型名</td></tr>
+    <tr><td></td><td><code>embedding_dim</code></td><td>1024</td><td>向量维度</td></tr>
+    <tr><td>向量库</td><td><code>vdb_url</code></td><td>"http://10.60.2.17"</td><td>VDB 地址</td></tr>
+    <tr><td></td><td><code>vdb_database</code></td><td>"knowledge"</td><td>全局共享 Database</td></tr>
+    <tr><td>COS</td><td><code>cos_bucket_prefix</code></td><td>"knowledge-"</td><td>最终为 knowledge-{tenant_id}</td></tr>
+    <tr><td>检索</td><td><code>default_top_k</code></td><td>5</td><td>默认返回数</td></tr>
+    <tr><td></td><td><code>rrf_k</code></td><td>60</td><td>RRF 融合常数</td></tr>
+    <tr><td></td><td><code>expand_context_n</code></td><td>1</td><td>Parent-Child 扩展切片数</td></tr>
+    <tr><td></td><td><code>enable_self_query</code></td><td>True</td><td>Self-Querying 开关</td></tr>
+    <tr><td></td><td><code>enable_rerank</code></td><td>True</td><td>Rerank 开关</td></tr>
+  </table>
+  </div>
+
+  <h3>8.2 启动与关闭</h3>
+  <div class="two-col">
+    <div class="box box-success">
+      <strong>启动流程</strong>（<code>@app.on_event("startup")</code>）：
+      <ol>
+        <li>创建 KnowledgeSettings</li>
+        <li>构建 LLM 实例（可选）</li>
+        <li>调用 <code>build_knowledge_provider()</code></li>
+        <li>注入 <code>app.state.knowledge_provider</code></li>
+        <li><code>supervisor.start()</code> 启动 Worker</li>
+        <li>启动 ScheduleRunner（定时任务）</li>
+        <li>自动写入默认 Schema（幂等）</li>
+      </ol>
+    </div>
+    <div class="box box-warn">
+      <strong>降级策略</strong>：
+      <ul>
+        <li>COS 上传失败 → 回退到本地文件路径</li>
+        <li>LLM 不可用 → Self-Querying 和 Auto-Tagging 跳过</li>
+        <li>Provider 未初始化 → API 返回 503</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 第九节：实施计划 ===== -->
+<section id="sec9">
+  <h2>九、实施计划</h2>
+
+  <h3>Phase 0: 存储层骨架 + PG 任务队列（1 周）</h3>
+  <table>
+    <tr><th>任务</th><th>说明</th><th>产出</th></tr>
+    <tr><td>PG 建表 DDL</td><td>9 张 ai_knowledge_* 表 + 索引</td><td><code>sql/init_knowledge_tables.sql</code></td></tr>
+    <tr><td>PG 数据模型</td><td>9 个 dataclass</td><td><code>src/store/knowledge_models.py</code></td></tr>
+    <tr><td>PG DAO 层</td><td>CRUD + 专用查询</td><td><code>src/store/knowledge_dao.py</code></td></tr>
+    <tr><td>PG 任务队列</td><td>基于 SKIP LOCKED</td><td><code>src/knowledge/queue.py</code></td></tr>
+    <tr><td>去重守卫</td><td>file_hash 查重 + Semaphore</td><td><code>src/knowledge/guard.py</code></td></tr>
+    <tr><td>入库 Worker</td><td>协程池 + Reclaimer</td><td><code>src/knowledge/worker.py</code></td></tr>
+    <tr><td>向量库封装</td><td>tenant_id 强制注入</td><td><code>src/knowledge/vdb_writer.py</code></td></tr>
+    <tr><td>配置扩展</td><td>KnowledgeSettings 完整配置</td><td><code>src/config/models.py</code></td></tr>
+  </table>
+
+  <h3>Phase 1: LKEAP 接入 + 基础检索（2 周）</h3>
+  <table>
+    <tr><th>任务</th><th>说明</th><th>产出</th></tr>
+    <tr><td>TencentLKEAPClient</td><td>封装文档解析/切分/Embedding/Rerank</td><td><code>src/knowledge/lkeap_client.py</code> <span class="badge b-done">✅ 已完成</span></td></tr>
+    <tr><td>KnowledgeProvider 协议</td><td>定义 Plugin 接口</td><td><code>src/knowledge/provider.py</code></td></tr>
+    <tr><td>NeoAgentProvider</td><td>代理模式实现</td><td><code>src/knowledge/neoagent_provider.py</code></td></tr>
+    <tr><td>knowledge_search Tool</td><td>基础版（query + top_k）</td><td><code>src/tools/knowledge_tool.py</code></td></tr>
+    <tr><td>中间件注册</td><td>按 knowledge_enabled 组装</td><td><code>src/middleware/builder.py</code></td></tr>
+  </table>
+
+  <h3>Phase 2: 入库流水线 + 检索引擎（2.5 周）</h3>
+  <table>
+    <tr><th>任务</th><th>说明</th><th>产出</th></tr>
+    <tr><td>DocumentCleaningService</td><td>四阶段文本清洗</td><td><code>src/knowledge/cleaning.py</code></td></tr>
+    <tr><td>DocumentQualityScorer</td><td>质量评分</td><td><code>src/knowledge/quality.py</code></td></tr>
+    <tr><td>DocumentIngestionPipeline</td><td>五阶段流水线</td><td><code>src/knowledge/ingestion.py</code></td></tr>
+    <tr><td>StandaloneProvider</td><td>独立模式实现</td><td><code>src/knowledge/standalone_provider.py</code></td></tr>
+    <tr><td>KnowledgeRetriever</td><td>Self-Querying + 混合检索 + RRF</td><td><code>src/knowledge/retriever.py</code></td></tr>
+    <tr><td>向量同步补偿</td><td>定期扫 vector_synced 重试</td><td><code>src/knowledge/sync_worker.py</code></td></tr>
+  </table>
+
+  <h3>Phase 3: 元数据治理 + 可观测 + 优化（1 周）</h3>
+  <table>
+    <tr><th>任务</th><th>说明</th><th>产出</th></tr>
+    <tr><td>Schema 动态注入</td><td>Tool input_schema 动态注入枚举值</td><td>Tool 修改</td></tr>
+    <tr><td>检索审计日志</td><td>每次检索写 search_log</td><td>Retriever 增强</td></tr>
+    <tr><td>命中热度回写</td><td>异步更新 hit_count</td><td>异步任务</td></tr>
+    <tr><td>管理后台接口</td><td>知识库 CRUD + 绑定 + 进度查询</td><td><code>src/api/knowledge_api.py</code></td></tr>
+    <tr><td>端到端测试</td><td>完整链路验证</td><td><code>tests/test_knowledge_e2e.py</code></td></tr>
+  </table>
+</section>
+
+<!-- ===== 元数据 Schema ===== -->
+<section>
+  <h2>附录：系统内置默认 Schema（19 字段）</h2>
+  <p>覆盖「核心分类 / 业务维度 / 访问控制 / 内容形态 / 时效 &amp; 生命周期 / 来源治理」6 大维度。</p>
+  <div style="overflow-x:auto;">
+  <table style="min-width:750px;">
+    <tr><th style="width:30px;">#</th><th style="width:70px;">分类</th><th style="width:140px;">字段</th><th style="width:70px;">类型</th><th style="width:40px;">必填</th><th>说明</th></tr>
+    <tr><td>01</td><td>核心分类</td><td><code>docCategory</code></td><td>enum(16)</td><td>✅</td><td>产品手册/技术白皮书/解决方案/成功案例/销售话术/培训材料/FAQ/...</td></tr>
+    <tr><td>02</td><td>业务维度</td><td><code>industryVertical</code></td><td>enum(15)</td><td>○</td><td>制造业/金融服务/互联网/医疗健康/教育培训/零售消费/...</td></tr>
+    <tr><td>03</td><td></td><td><code>businessStage</code></td><td>enum(14)</td><td>○</td><td>市场推广/线索获取/售前咨询/需求调研/方案设计/...</td></tr>
+    <tr><td>04</td><td></td><td><code>targetAudience</code></td><td>enum(15)</td><td>○</td><td>CEO/CTO/业务负责人/一线销售/技术人员/...</td></tr>
+    <tr><td>05</td><td></td><td><code>productService</code></td><td>string</td><td>○</td><td>涉及的产品/服务名称</td></tr>
+    <tr><td>06</td><td></td><td><code>businessFunction</code></td><td>enum(17)</td><td>○</td><td>销售/市场/售前/交付实施/客户成功/产品/研发/...</td></tr>
+    <tr><td>07</td><td></td><td><code>region</code></td><td>enum(9)</td><td>○</td><td>中国大陆/港澳台/北美/欧洲/亚太/...</td></tr>
+    <tr><td>08</td><td>访问控制</td><td><code>confidentiality</code></td><td>enum(4)</td><td>○</td><td>公开/内部/机密/绝密（对齐 TLP）</td></tr>
+    <tr><td>09</td><td></td><td><code>audience_scope</code></td><td>enum(8)</td><td>○</td><td>全公司/销售团队/售前团队/技术团队/管理层/...</td></tr>
+    <tr><td>10</td><td>内容形态</td><td><code>contentFormat</code></td><td>enum(8)</td><td>○</td><td>纯文本/图文混合/表格密集/流程图/代码示例/...</td></tr>
+    <tr><td>11</td><td></td><td><code>language</code></td><td>enum(4)</td><td>○</td><td>中文/英文/中英混合/其他</td></tr>
+    <tr><td>12</td><td>时效</td><td><code>datePublished</code></td><td>date</td><td>○</td><td>参与 γ 维度时效性衰减</td></tr>
+    <tr><td>13</td><td></td><td><code>dateExpires</code></td><td>date</td><td>○</td><td>过期文档做 filter 排除</td></tr>
+    <tr><td>14</td><td></td><td><code>version</code></td><td>string</td><td>○</td><td>文档版本号</td></tr>
+    <tr><td>15</td><td></td><td><code>documentStatus</code></td><td>enum(6)</td><td>○</td><td>草稿/审核中/已发布/已更新/已归档/已废弃</td></tr>
+    <tr><td>16</td><td></td><td><code>reviewCycle</code></td><td>enum(6)</td><td>○</td><td>无需复审/季度/半年/年度/两年/按需</td></tr>
+    <tr><td>17</td><td>来源治理</td><td><code>source</code></td><td>enum(9)</td><td>○</td><td>内部原创/客户提供/外部采购/AI 生成/...</td></tr>
+    <tr><td>18</td><td>自由文本</td><td><code>tags</code></td><td>string</td><td>○</td><td>自由标签，逗号分隔</td></tr>
+    <tr><td>19</td><td></td><td><code>author</code></td><td>string</td><td>○</td><td>作者/归属部门</td></tr>
+  </table>
+  </div>
+  <div class="box box-info">
+    <strong>打分规则</strong>：Schema 字段<strong>不直接参与 α/β/γ 打分</strong>（只做 filter 硬过滤）。<code>datePublished</code> 通过映射间接进入 γ 维度 C2 时效性；<code>documentStatus=已废弃</code> 会被检索前置过滤掉。
+  </div>
+</section>
+
+<!-- ===== 对齐状态 ===== -->
+<section>
+  <h2>附录：与 data-process 对齐状态（2026-05-09）</h2>
+
+  <h3>文档切割对齐</h3>
+  <div style="overflow-x:auto;">
+  <table style="min-width:700px;">
+    <tr><th style="width:180px;">项</th><th style="width:180px;">data-process (Java)</th><th style="width:180px;">agent-system (Python)</th><th style="width:100px;">状态</th></tr>
+    <tr><td>Segment min/target/max</td><td>3000/4000/6000</td><td>3000/4000/6000</td><td><span class="badge b-done">✅ 一致</span></td></tr>
+    <tr><td>Chunk target/min/max</td><td>400/100/500</td><td>400/100/500</td><td><span class="badge b-done">✅ 一致</span></td></tr>
+    <tr><td>Chunk overlap</td><td>保留最后 2 句</td><td>overlap_sentences=2</td><td><span class="badge b-done">✅ 一致</span></td></tr>
+    <tr><td>一级/二级标题识别</td><td>相同正则</td><td>相同正则</td><td><span class="badge b-done">✅ 一致</span></td></tr>
+    <tr><td>句子切分符</td><td>。！？；.!?;\n</td><td>完全相同</td><td><span class="badge b-done">✅ 一致</span></td></tr>
+    <tr><td>碎片合并</td><td>中间&lt;min/2 向下，尾部&lt;min/3 向上</td><td>完全相同</td><td><span class="badge b-done">✅ 一致</span></td></tr>
+    <tr><td>Segment 持久化</td><td>写入 PG 表</td><td>仅内存 dataclass</td><td><span class="badge b-pending">🟡 架构优化</span></td></tr>
+  </table>
+  </div>
+
+  <h3>检索策略对齐</h3>
+  <div style="overflow-x:auto;">
+  <table style="min-width:700px;">
+    <tr><th style="width:180px;">项</th><th style="width:180px;">data-process</th><th style="width:180px;">agent-system</th><th style="width:100px;">状态</th></tr>
+    <tr><td>α / β / γ 权重</td><td>0.7 / 0.1 / 0.2</td><td>同</td><td><span class="badge b-done">✅ 一致</span></td></tr>
+    <tr><td>CHUNK_DECAY</td><td>0.2</td><td>同</td><td><span class="badge b-done">✅ 一致</span></td></tr>
+    <tr><td>threshold 默认值</td><td>0.3</td><td>同</td><td><span class="badge b-done">✅ 一致</span></td></tr>
+    <tr><td>METADATA_WEIGHT</td><td>0.15</td><td>同</td><td><span class="badge b-done">✅ 一致</span></td></tr>
+    <tr><td>属性子权重</td><td>0.1/0.05/0.05</td><td>同</td><td><span class="badge b-done">✅ 一致</span></td></tr>
+    <tr><td>半衰期</td><td>180 天</td><td>同</td><td><span class="badge b-done">✅ 一致</span></td></tr>
+    <tr><td>B1+B2 召回方式</td><td>两次独立调用</td><td>合并为一次 hybrid_search</td><td><span class="badge b-pending">🟡 VDB API 约束</span></td></tr>
+    <tr><td>Parent-Child 扩展</td><td>回 PG 查 segment</td><td>走 VDB chunk_index 范围查</td><td><span class="badge b-pending">🟡 架构优化</span></td></tr>
+    <tr><td>Self-Querying LLM</td><td>无</td><td>✅ 有</td><td><span class="badge b-new">🟢 新方案独有</span></td></tr>
+    <tr><td>toc 增强</td><td>文件外部路径</td><td>外部路径 + 内部章节</td><td><span class="badge b-new">🟢 新方案加强</span></td></tr>
+  </table>
+  </div>
+
+  <div class="box box-success">
+    <strong>结论</strong>：切割逻辑 99% 对齐（参数/规则/边界处理完全一致），检索逻辑 95% 对齐（公式/参数一致，差异仅在 VDB API 调用方式和架构优化）。唯一有潜在效果差异的是 LKEAP 切分未启用。
+  </div>
+</section>
+
+<!-- ===== 定时调度 ===== -->
+<section>
+  <h2>附录：定时调度任务</h2>
+  <div style="overflow-x:auto;">
+  <table style="min-width:650px;">
+    <tr><th style="width:160px;">任务</th><th style="width:80px;">默认间隔</th><th>作用</th><th style="width:180px;">参数</th></tr>
+    <tr><td><code>hit_count_decay</code></td><td>30 天</td><td>按 decay_factor=0.7 衰减 PG 的 search_hit_count，同步到 VDB</td><td><code>{"decay_factor": 0.7}</code></td></tr>
+    <tr><td><code>vdb_hit_count_sync</code></td><td>15 分钟</td><td>增量同步 PG → VDB 的 search_hit_count</td><td><code>{"max_docs": 1000}</code></td></tr>
+  </table>
+  </div>
+  <div class="box box-info">
+    <strong>为什么要 hit_count 同步任务</strong>：检索热路径只写 PG（不阻塞于 VDB 写），VDB 的 search_hit_count 参与 γ 维度打分（C3 热度子项），需要定期同步。延迟最多 15 分钟，对 RAG 场景完全可接受。
+  </div>
+</section>
+
+<!-- Footer -->
+<section style="background: transparent; border: none; text-align: center; color: var(--text-secondary); font-size: 0.8rem; padding: 1rem;">
+  <p>Agent System 知识库体系设计方案 | 最后更新：2026-05-09</p>
+  <p>代码仓库：<code>product-specs/agent-system</code> | 对齐基准：<code>neo-ai-data-process-service</code></p>
+</section>
+
+</div>
+</body>
+</html>

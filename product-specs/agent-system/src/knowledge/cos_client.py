@@ -247,6 +247,108 @@ class TencentCOSClient:
             logger.error(error_msg)
             raise RuntimeError(error_msg)
 
+    def generate_presigned_url(
+        self,
+        object_key: str,
+        expires: int = 3600,
+    ) -> str:
+        """生成预签名下载 URL（GET 请求）
+
+        Args:
+            object_key: COS 对象 key（不含前缀，与 upload_file 时传入的一致）
+            expires: 签名有效期（秒），默认 1 小时
+
+        Returns:
+            带签名参数的 HTTPS URL，可直接在浏览器中访问/预览
+        """
+        full_key = f"{self._key_prefix}{object_key}"
+        now = int(time.time())
+        sign_time = f"{now - 60};{now + expires}"
+
+        # HttpString: method\nuri\nparams\nheaders\n
+        http_string = f"get\n/{full_key}\n\nhost={self._host}\n"
+
+        # StringToSign
+        sha1_http = hashlib.sha1(http_string.encode()).hexdigest()
+        string_to_sign = f"sha1\n{sign_time}\n{sha1_http}\n"
+
+        # SignKey
+        sign_key = hmac.new(
+            self._secret_key.encode(), sign_time.encode(), hashlib.sha1,
+        ).hexdigest()
+
+        # Signature
+        signature = hmac.new(
+            sign_key.encode(), string_to_sign.encode(), hashlib.sha1,
+        ).hexdigest()
+
+        # 拼接带签名参数的 URL
+        auth_params = (
+            f"q-sign-algorithm=sha1"
+            f"&q-ak={self._secret_id}"
+            f"&q-sign-time={sign_time}"
+            f"&q-key-time={sign_time}"
+            f"&q-header-list=host"
+            f"&q-url-param-list="
+            f"&q-signature={signature}"
+        )
+        url = f"https://{self._host}/{full_key}?{auth_params}"
+        logger.debug("COS presigned URL generated: key=%s expires=%ds", full_key, expires)
+        return url
+
+    def get_presigned_url_from_raw(
+        self,
+        raw_url: str,
+        expires: int = 3600,
+    ) -> str:
+        """从已存储的 raw_url 反推 object_key 并生成预签名 URL
+
+        Args:
+            raw_url: 存储在 PG 中的 COS URL（如 https://bucket.cos.region.myqcloud.com/knowledge/...）
+            expires: 签名有效期（秒）
+
+        Returns:
+            预签名下载 URL
+
+        Raises:
+            ValueError: raw_url 不是有效的 COS URL
+        """
+        prefix = f"https://{self._host}/"
+        if not raw_url.startswith(prefix):
+            raise ValueError(
+                f"raw_url 不是当前 COS 存储桶的 URL: {raw_url[:100]}"
+            )
+        # 提取完整 key（含 key_prefix）
+        full_key = raw_url[len(prefix):]
+
+        now = int(time.time())
+        sign_time = f"{now - 60};{now + expires}"
+
+        http_string = f"get\n/{full_key}\n\nhost={self._host}\n"
+        sha1_http = hashlib.sha1(http_string.encode()).hexdigest()
+        string_to_sign = f"sha1\n{sign_time}\n{sha1_http}\n"
+
+        sign_key = hmac.new(
+            self._secret_key.encode(), sign_time.encode(), hashlib.sha1,
+        ).hexdigest()
+
+        signature = hmac.new(
+            sign_key.encode(), string_to_sign.encode(), hashlib.sha1,
+        ).hexdigest()
+
+        auth_params = (
+            f"q-sign-algorithm=sha1"
+            f"&q-ak={self._secret_id}"
+            f"&q-sign-time={sign_time}"
+            f"&q-key-time={sign_time}"
+            f"&q-header-list=host"
+            f"&q-url-param-list="
+            f"&q-signature={signature}"
+        )
+        url = f"https://{self._host}/{full_key}?{auth_params}"
+        logger.debug("COS presigned URL from raw: raw=%s expires=%ds", raw_url[:60], expires)
+        return url
+
     def build_object_key(
         self,
         tenant_id: int,
