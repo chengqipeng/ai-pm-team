@@ -251,32 +251,10 @@
           </div>
         </div>
 
-        <!-- 资源点扣费层 -->
-        <div style="margin-top:0.8rem;border:1.5px solid #e11d48;border-radius:8px;padding:0.8rem;background:linear-gradient(135deg,#fff1f2 0%,#ffe4e6 100%);position:relative;">
+        <!-- 资源点扣费层（横跨大模型网关与基础原子能力平台） -->
+        <div style="margin-top:0.8rem;border:1.5px solid #e11d48;border-radius:8px;padding:0.6rem 1rem;background:linear-gradient(135deg,#fff1f2 0%,#ffe4e6 100%);position:relative;text-align:center;">
           <div style="position:absolute;top:-10px;left:12px;background:#e11d48;color:#fff;padding:1px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;">💰 资源点扣费层（Resource Credit Metering）</div>
-          <div style="font-size:0.7rem;color:#be123c;margin:0.3rem 0 0.5rem;text-align:center;font-weight:500;">统一计量 · 按量扣费 · 配额管控 · 用量可视</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:0.4rem;margin-top:0.3rem;">
-            <div style="background:#fff;border:1px solid #fda4af;border-radius:5px;padding:0.4rem;text-align:center;">
-              <div style="font-weight:600;font-size:0.72rem;color:#be123c;">📊 用量计量</div>
-              <div style="font-size:0.62rem;color:#64748b;">Token / 调用次数<br>文档页数 / 音频时长</div>
-            </div>
-            <div style="background:#fff;border:1px solid #fda4af;border-radius:5px;padding:0.4rem;text-align:center;">
-              <div style="font-weight:600;font-size:0.72rem;color:#be123c;">🎫 资源点兑换</div>
-              <div style="font-size:0.62rem;color:#64748b;">多能力统一折算<br>资源点单价映射</div>
-            </div>
-            <div style="background:#fff;border:1px solid #fda4af;border-radius:5px;padding:0.4rem;text-align:center;">
-              <div style="font-weight:600;font-size:0.72rem;color:#be123c;">🚦 配额管控</div>
-              <div style="font-size:0.62rem;color:#64748b;">租户/应用/用户<br>三级配额 · 预警</div>
-            </div>
-            <div style="background:#fff;border:1px solid #fda4af;border-radius:5px;padding:0.4rem;text-align:center;">
-              <div style="font-weight:600;font-size:0.72rem;color:#be123c;">📈 账单中心</div>
-              <div style="font-size:0.62rem;color:#64748b;">实时余额 / 明细<br>趋势分析 / 导出</div>
-            </div>
-            <div style="background:#fff;border:1px solid #fda4af;border-radius:5px;padding:0.4rem;text-align:center;">
-              <div style="font-weight:600;font-size:0.72rem;color:#be123c;">⚡ 扣费拦截</div>
-              <div style="font-size:0.62rem;color:#64748b;">余额不足拒绝<br>降级策略 · 通知</div>
-            </div>
-          </div>
+          <div style="font-size:0.78rem;color:#be123c;margin-top:0.3rem;font-weight:600;letter-spacing:0.05em;">统一接入 · 路由 · 限流 · 降级 · 计费</div>
         </div>
 
         <!-- 基础设施平台层 -->
@@ -800,7 +778,7 @@
   </div>
 
   <div class="box box-warn">
-    <strong>边界铁律：</strong>Agent 不直连 aPaaS 数据库；业务数据一律经 aPaaS API / XOQL；模型调用一律经大模型网关；原子能力（OCR/ASR/解析/向量）一律经基础原子能力平台；破坏性操作一律 HITL。
+    <strong>边界铁律：</strong>Agent 不直连 aPaaS 数据库；业务数据一律经 aPaaS API / XOQL；模型调用一律经大模型网关；原子能力（OCR/ASR/解析/向量）一律经基础原子能力平台；<strong>所有底层能力调用一律经资源点扣费层计量</strong>；破坏性操作一律 HITL。
   </div>
 </section>
 
