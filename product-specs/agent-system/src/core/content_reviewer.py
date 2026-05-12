@@ -84,7 +84,7 @@ class ContentReviewer:
 
         if self._service is None or not self._service.enabled:
             duration_ms = (time.monotonic() - start) * 1000
-            self._record_span("input", True, [], "", duration_ms, thread_id)
+            self._record_span("input", True, [], "", duration_ms, thread_id, user_input)
             return ReviewDecision(passed=True, duration_ms=duration_ms)
 
         try:
@@ -95,13 +95,13 @@ class ContentReviewer:
         except Exception as e:
             logger.error("[ContentReviewer] 审查异常，降级放行: %s", e)
             duration_ms = (time.monotonic() - start) * 1000
-            self._record_span("input", True, [], f"异常降级: {e}", duration_ms, thread_id)
+            self._record_span("input", True, [], f"异常降级: {e}", duration_ms, thread_id, user_input)
             return ReviewDecision(passed=True, duration_ms=duration_ms)
 
         duration_ms = (time.monotonic() - start) * 1000
         self._record_span(
             "input", result.passed, result.blocked_keywords,
-            result.blocked_reason, duration_ms, thread_id,
+            result.blocked_reason, duration_ms, thread_id, user_input,
         )
 
         if not result.passed:
@@ -119,10 +119,12 @@ class ContentReviewer:
     def _record_span(
         direction: str, passed: bool, blocked_keywords: list[str],
         blocked_reason: str, duration_ms: float, thread_id: str | None,
+        user_input: str = "",
     ) -> None:
         """记录 content_review span 到 TracingMiddleware"""
         try:
             from src.middleware.tracing import tracing_middleware
+            input_preview = (user_input[:200] + "...") if len(user_input) > 200 else user_input
             if thread_id:
                 tracing_middleware._add_to_thread(
                     thread_id, "content_review", f"content_review_{direction}",
@@ -132,6 +134,20 @@ class ContentReviewer:
                         "blocked_keywords": blocked_keywords,
                         "blocked_reason": blocked_reason[:200],
                     },
+                    input_data={
+                        "text": input_preview,
+                        "direction": direction,
+                        "review_type": "toxicity + keyword",
+                    },
+                    output_data={
+                        "passed": passed,
+                        "blocked_keywords": blocked_keywords,
+                        "blocked_reason": blocked_reason[:200] if not passed else "",
+                    },
+                    detail=(
+                        f"{'输入' if direction == 'input' else '输出'}审查 → "
+                        f"{'✅ 通过' if passed else '❌ 拦截: ' + (blocked_reason[:80] or '命中关键词')}"
+                    ),
                 )
             else:
                 tracing_middleware.record_content_review(
@@ -139,6 +155,7 @@ class ContentReviewer:
                     blocked_keywords=blocked_keywords,
                     blocked_reason=blocked_reason,
                     duration_ms=duration_ms,
+                    user_input=input_preview,
                 )
         except Exception as e:
             logger.debug("[ContentReviewer] 记录 span 失败（不影响功能）: %s", e)

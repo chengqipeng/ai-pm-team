@@ -452,6 +452,7 @@ class TencentLKEAPClient:
         """下载解析结果 zip 并提取 Markdown 内容
 
         LKEAP 返回的 zip 包含：.md 文件 + .json 结构化结果 + images/ 目录
+        优先级：.md > .json > .txt > .html
         """
         import urllib.request
         logger.info("Downloading parse result: %s", result_url[:80] + "...")
@@ -459,22 +460,62 @@ class TencentLKEAPClient:
         zip_bytes = resp.read()
 
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            # 查找 .md 文件
-            md_files = [n for n in zf.namelist() if n.endswith(".md")]
+            all_names = zf.namelist()
+            # 记录 zip 内容概况，便于排查
+            file_details = [
+                (n, zf.getinfo(n).file_size) for n in all_names
+                if not n.endswith("/")  # 排除目录条目
+            ]
+            logger.info(
+                "Zip contents (%d entries, %d files): %s",
+                len(all_names), len(file_details),
+                [(n, sz) for n, sz in file_details[:20]],
+            )
+
+            # 查找 .md 文件（不区分大小写）
+            md_files = [n for n in all_names if n.lower().endswith(".md")]
             if md_files:
+                # 优先选最大的 .md 文件（避免选到空的 README 等）
+                md_files.sort(key=lambda n: zf.getinfo(n).file_size, reverse=True)
                 md_content = zf.read(md_files[0]).decode("utf-8")
                 logger.info("Extracted markdown: %d chars from %s", len(md_content), md_files[0])
-                return md_content
+                if md_content.strip():
+                    return md_content
+                logger.warning("Found .md file but content is empty: %s", md_files[0])
 
             # 没有 .md，尝试 .json
-            json_files = [n for n in zf.namelist() if n.endswith(".json")]
+            json_files = [n for n in all_names if n.lower().endswith(".json")]
             if json_files:
+                json_files.sort(key=lambda n: zf.getinfo(n).file_size, reverse=True)
                 json_content = zf.read(json_files[0]).decode("utf-8")
                 logger.info("Extracted JSON: %d chars from %s", len(json_content), json_files[0])
-                return json_content
+                if json_content.strip():
+                    return json_content
+                logger.warning("Found .json file but content is empty: %s", json_files[0])
 
-            # 列出所有文件
-            logger.warning("No .md or .json found in zip. Files: %s", zf.namelist())
+            # 降级：尝试 .txt
+            txt_files = [n for n in all_names if n.lower().endswith(".txt")]
+            if txt_files:
+                txt_files.sort(key=lambda n: zf.getinfo(n).file_size, reverse=True)
+                txt_content = zf.read(txt_files[0]).decode("utf-8")
+                logger.info("Fallback extracted TXT: %d chars from %s", len(txt_content), txt_files[0])
+                if txt_content.strip():
+                    return txt_content
+
+            # 降级：尝试 .html
+            html_files = [n for n in all_names if n.lower().endswith((".html", ".htm"))]
+            if html_files:
+                html_files.sort(key=lambda n: zf.getinfo(n).file_size, reverse=True)
+                html_content = zf.read(html_files[0]).decode("utf-8")
+                logger.info("Fallback extracted HTML: %d chars from %s", len(html_content), html_files[0])
+                if html_content.strip():
+                    return html_content
+
+            # 所有尝试均失败
+            logger.error(
+                "No usable content found in zip. All files: %s",
+                file_details,
+            )
             return ""
 
     @classmethod

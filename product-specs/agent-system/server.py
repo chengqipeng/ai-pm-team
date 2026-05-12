@@ -592,15 +592,26 @@ async def chat_stream(req: ChatRequest):
     # 构建历史消息（不含当前消息，供 QueryRewriter 使用）
     history_messages = []
     for msg in req.history:
+        content = msg.get("content", "").strip()
+        # 跳过与当前消息完全相同的历史条目（前端可能误将当前消息包含在 history 中）
+        if msg.get("role") == "user" and content == req.message.strip():
+            continue
         if msg.get("role") == "user":
-            history_messages.append(HumanMessage(content=msg["content"]))
+            history_messages.append(HumanMessage(content=content))
         elif msg.get("role") == "assistant":
-            history_messages.append(AIMessage(content=msg["content"]))
+            history_messages.append(AIMessage(content=content))
+
+    logger.info("[/api/chat] thread=%s, history_count=%d (raw=%d), message=%s",
+                thread_id, len(history_messages), len(req.history), req.message[:50])
 
     # ══════════════════════════════════════════════════════════════
     # 入口层预处理流水线（在任何主 Agent 调用之前执行）
     #   顺序：毒性检测 → 查询改写 → 送入 Agent
     # ══════════════════════════════════════════════════════════════
+
+    # 清理上一轮可能残留的中间件 spans（防止异步 memory_extract 延迟写入导致串轮）
+    from src.middleware.tracing import tracing_middleware
+    tracing_middleware.clear(thread_id)
 
     # ── Step 1: 毒性检测（必须在改写之前，避免恶意输入进入任何 LLM 调用） ──
     from src.core.content_reviewer import get_content_reviewer
@@ -625,15 +636,29 @@ async def chat_stream(req: ChatRequest):
         return StreamingResponse(_blocked_response(), media_type="text/event-stream")
 
     # ── Step 2: 查询改写（多轮对话指代消解，独立 LLM 调用，callbacks=[] 隔离） ──
+    # 首次对话（无历史消息）直接跳过改写，节省 LLM 调用
     from src.core.query_rewriter import get_query_rewriter
-    rewriter = get_query_rewriter()
-    effective_query = await rewriter.rewrite(
-        history_messages, req.message, thread_id=thread_id,
-    )
+    if not history_messages:
+        effective_query = req.message
+        # 记录 skipped span
+        tracing_middleware._add_to_thread(
+            thread_id, "query_rewrite", "query_rewrite", 0,
+            {"original_query": req.message[:500], "rewritten_query": "", "changed": False, "source": "entry", "skipped": True},
+            input_data={"original_query": req.message[:500], "source": "entry"},
+            output_data={"rewritten_query": "", "changed": False, "skipped": True},
+            status="skipped",
+            detail="首轮对话，无需改写",
+        )
+    else:
+        rewriter = get_query_rewriter()
+        effective_query = await rewriter.rewrite(
+            history_messages, req.message, thread_id=thread_id,
+        )
 
-    # 组装送入 Agent 的完整消息列表（最后一条 HumanMessage 使用改写后的 query）
-    messages = list(history_messages)
-    messages.append(HumanMessage(content=effective_query))
+    # 组装送入 Agent 的消息列表
+    # 注意：使用 checkpointer 时，LangGraph 会自动从 Redis 恢复历史消息，
+    # 这里只需要传入当前轮的新消息，不要重复传入 history_messages。
+    messages = [HumanMessage(content=effective_query)]
 
     # 获取该 thread 的上传文件
     files = _uploaded_files.get(thread_id, [])
@@ -652,8 +677,9 @@ async def chat_stream(req: ChatRequest):
                 "files": files,
                 "parsed_files": files,  # FileProcessMiddleware 也从这里读
                 "extend_params": {},
+                "input_metadata": {"entry_review_passed": True},
             },
-            "recursion_limit": 100,
+            "recursion_limit": 150,
         }
         full_content = ""
         current_tool_span = None
@@ -922,6 +948,7 @@ async def chat_stream(req: ChatRequest):
                     trace_id,
                     mw_span.get("type", "unknown"),
                     mw_span.get("name", ""),
+                    input_data=mw_span.get("input_data", {}),
                     metadata=mw_span.get("metadata", {}),
                 )
                 # 使用中间件记录的原始时间戳，确保排序正确
@@ -929,6 +956,18 @@ async def chat_stream(req: ChatRequest):
                 span.duration_ms = mw_span.get("duration_ms", 0)
                 span.status = "success"
                 span.end_time = span.start_time + span.duration_ms / 1000
+                # 写入 output_data
+                span.output_data = mw_span.get("output_data", {})
+                # 写入 detail（供前端显示）
+                if mw_span.get("detail"):
+                    span.metadata["detail"] = mw_span["detail"]
+                # 写入 step_name / step_name_en / phase（供前端显示步骤名称和分组）
+                if mw_span.get("step_name"):
+                    span.metadata["step_name"] = mw_span["step_name"]
+                if mw_span.get("step_name_en"):
+                    span.metadata["step_name_en"] = mw_span["step_name_en"]
+                if mw_span.get("phase"):
+                    span.metadata["phase"] = mw_span["phase"]
                 if mw_span.get("children"):
                     span.metadata["children"] = mw_span["children"]
 

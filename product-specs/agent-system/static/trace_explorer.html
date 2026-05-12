@@ -180,6 +180,9 @@ function renderDetail(trace){
 
     // 构建 badges
     let badges='';
+    if(s.status==='skipped'){
+      badges+=`<span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 text-[9px] font-bold">SKIPPED</span>`;
+    }
     if(s.type==='llm_call'){
       if(m.iteration)badges+=`<span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-[9px] font-bold">第${m.iteration}轮</span>`;
       if(m.output_tokens)badges+=`<span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-[9px] font-bold">${fK(m.output_tokens)} tok</span>`;

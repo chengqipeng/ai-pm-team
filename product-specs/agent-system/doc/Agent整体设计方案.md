@@ -1,7 +1,6 @@
-# DeepAgent 整体设计方案
+# NeoAgent2.0 整体设计方案
 
 > 面向 2B CRM SaaS 的企业级 Agent 系统完整设计。
-> 融合 Claude Code + DeepAgents + OpenViking/Hermes 四大体系精华。
 > 本文档是系统全貌概览，各子系统详细设计见独立文档（记忆 / 上下文压缩 / 内容审查 / 协议 / 数据库表 等）。
 
 ---
@@ -10,7 +9,7 @@
 
 ### 1.1 产品定位
 
-DeepAgent 是面向 2B CRM SaaS 场景的智能 Agent 系统，在 aPaaS 元数据驱动平台上提供四大核心能力：
+NeoAgent2.0 是面向 2B CRM SaaS 场景的智能 Agent 系统，在 aPaaS 元数据驱动平台上提供四大核心能力：
 
 - **理解业务** — 基于元数据驱动的 aPaaS 平台，Agent 感知业务对象（客户 / 商机 / 联系人 / 合同 等）的完整 Schema、字段、关联关系与权限
 - **多模态理解** — 原生支持图片、文档（PDF / Word / Excel / PPT）、语音转写、AI 生图等多模态输入与输出

@@ -54,33 +54,65 @@ class TracingMiddleware(AgentMiddleware):
             logger.debug("TracingMiddleware get_config failed: %s", e)
             return "default"
 
+    def record_middleware_execution(
+        self, middleware_name: str, phase: str, duration_ms: float,
+        has_effect: bool = False, detail: str = "",
+    ) -> None:
+        """记录单个中间件的执行 — 由 MiddlewareTracingWrapper 调用
+
+        Args:
+            middleware_name: 中间件类名（如 "MemoryMiddleware"）
+            phase: 执行阶段 "before_agent" / "after_agent" / "before_model" / "after_model"
+            duration_ms: 执行耗时
+            has_effect: 是否产生了副作用（修改了 state）
+            detail: 额外描述
+        """
+        self._add("middleware", f"mw:{middleware_name}", duration_ms,
+            metadata={
+                "middleware_name": middleware_name,
+                "phase": phase,
+                "has_effect": has_effect,
+            },
+            input_data={
+                "middleware": middleware_name,
+                "phase": phase,
+            },
+            output_data={
+                "has_effect": has_effect,
+                "duration_ms": round(duration_ms, 1),
+            },
+            detail=detail or f"{middleware_name}.{phase} {'→ 已修改状态' if has_effect else '→ 无变更'}",
+            step_name_override=middleware_name,
+        )
+
     # ── 步骤定义：对齐检索链路详情的 PipelineNode 格式 ──
-    # 每个步骤有固定编号、中文名、英文名
+    # 每个步骤有阶段标识、中文名、英文名（编号由前端按到达顺序动态分配）
     STEP_DEFINITIONS: dict[str, dict] = {
-        "content_review":       {"step": 1, "name": "内容审查",       "name_en": "content_review_input"},
-        "query_rewrite":        {"step": 2, "name": "查询改写",       "name_en": "query_rewrite"},
-        "user_input":           {"step": 3, "name": "用户输入",       "name_en": "user_input"},
-        "context_build":        {"step": 4, "name": "上下文构建",     "name_en": "context_build"},
-        "memory_retrieval":     {"step": 5, "name": "记忆检索",       "name_en": "memory_retrieval"},
-        "intent_analysis":      {"step": 6, "name": "意图分析",       "name_en": "intent_analysis"},
-        "llm_input":            {"step": 7, "name": "LLM 输入准备",   "name_en": "llm_input"},
-        "llm_call":             {"step": 8, "name": "模型推理",       "name_en": "llm_call"},
-        "tool_call":            {"step": 9, "name": "工具调用",       "name_en": "tool_call"},
-        "hierarchical_search":  {"step": 10, "name": "分层检索",      "name_en": "hierarchical_search"},
-        "memory_extract":       {"step": 11, "name": "记忆提取",      "name_en": "memory_extract"},
+        "content_review":       {"phase": "entry",     "name": "内容审查",       "name_en": "content_review"},
+        "query_rewrite":        {"phase": "entry",     "name": "查询改写",       "name_en": "query_rewrite"},
+        "user_input":           {"phase": "context",   "name": "用户输入",       "name_en": "user_input"},
+        "context_build":        {"phase": "context",   "name": "上下文构建",     "name_en": "context_build"},
+        "middleware":           {"phase": "context",   "name": "中间件",         "name_en": "middleware"},
+        "memory_retrieval":     {"phase": "context",   "name": "记忆检索",       "name_en": "memory_retrieval"},
+        "intent_analysis":      {"phase": "reasoning", "name": "意图分析",       "name_en": "intent_analysis"},
+        "llm_input":            {"phase": "reasoning", "name": "LLM 输入准备",   "name_en": "llm_input"},
+        "llm_call":             {"phase": "reasoning", "name": "模型推理",       "name_en": "llm_call"},
+        "tool_call":            {"phase": "execution", "name": "工具调用",       "name_en": "tool_call"},
+        "hierarchical_search":  {"phase": "execution", "name": "分层检索",      "name_en": "hierarchical_search"},
+        "memory_extract":       {"phase": "post",      "name": "记忆提取",      "name_en": "memory_extract"},
     }
 
     def _add(self, span_type: str, name: str, duration_ms: float = 0,
              metadata: dict | None = None, children: list | None = None,
              input_data: dict | None = None, output_data: dict | None = None,
-             detail: str = "") -> None:
+             detail: str = "", step_name_override: str = "") -> None:
         tid = self._tid()
         step_def = self.STEP_DEFINITIONS.get(span_type, {})
         self._spans.setdefault(tid, []).append({
             "type": span_type,
             "name": name,
-            "step": step_def.get("step", 0),
-            "step_name": step_def.get("name", name),
+            "phase": step_def.get("phase", ""),
+            "step_name": step_name_override or step_def.get("name", name),
             "step_name_en": step_def.get("name_en", span_type),
             "timestamp": time.time(),
             "duration_ms": round(duration_ms, 1),
@@ -97,7 +129,7 @@ class TracingMiddleware(AgentMiddleware):
         duration_ms: float = 0, metadata: dict | None = None,
         children: list | None = None,
         input_data: dict | None = None, output_data: dict | None = None,
-        detail: str = "",
+        detail: str = "", status: str = "success",
     ) -> None:
         """显式指定 thread_id 写入 span
 
@@ -107,12 +139,12 @@ class TracingMiddleware(AgentMiddleware):
         self._spans.setdefault(thread_id, []).append({
             "type": span_type,
             "name": name,
-            "step": step_def.get("step", 0),
+            "phase": step_def.get("phase", ""),
             "step_name": step_def.get("name", name),
             "step_name_en": step_def.get("name_en", span_type),
             "timestamp": time.time(),
             "duration_ms": round(duration_ms, 1),
-            "status": "success",
+            "status": status,
             "input_data": input_data or {},
             "output_data": output_data or {},
             "detail": detail,
@@ -134,7 +166,7 @@ class TracingMiddleware(AgentMiddleware):
     def record_query_rewrite(
         self, original_query: str = "", rewritten_query: str = "",
         changed: bool = False, duration_ms: float = 0,
-        source: str = "entry",
+        source: str = "entry", skipped: bool = False,
     ) -> None:
         """记录 query_rewrite span — 由入口层 QueryRewriter 主动调用
 
@@ -147,32 +179,50 @@ class TracingMiddleware(AgentMiddleware):
             changed: 是否发生改写（单轮或无变化时为 False）
             duration_ms: 改写耗时
             source: 调用方标识（entry=入口层，fallback=中间件兜底）
+            skipped: 是否跳过（首轮对话无历史时为 True）
         """
-        self._add("query_rewrite", "query_rewrite", duration_ms,
-            metadata={
+        tid = self._tid()
+        step_def = self.STEP_DEFINITIONS.get("query_rewrite", {})
+        status = "skipped" if skipped else "success"
+        detail = "首轮对话，无需改写" if skipped else (
+            f"{'改写生效' if changed else '无需改写'}: "
+            f"「{original_query[:60]}」→「{rewritten_query[:60]}」"
+        ) if changed else f"单轮对话，无需改写: 「{original_query[:80]}」"
+
+        self._spans.setdefault(tid, []).append({
+            "type": "query_rewrite",
+            "name": "query_rewrite",
+            "phase": step_def.get("phase", ""),
+            "step_name": step_def.get("name", "查询改写"),
+            "step_name_en": step_def.get("name_en", "query_rewrite"),
+            "timestamp": time.time(),
+            "duration_ms": round(duration_ms, 1),
+            "status": status,
+            "input_data": {
                 "original_query": original_query[:500],
-                "rewritten_query": rewritten_query[:500],
-                "changed": changed,
                 "source": source,
             },
-            input_data={
-                "original_query": original_query[:500],
-                "source": source,
-            },
-            output_data={
-                "rewritten_query": rewritten_query[:500],
+            "output_data": {
+                "rewritten_query": rewritten_query[:500] if not skipped else "",
                 "changed": changed,
+                "skipped": skipped,
             },
-            detail=(
-                f"{'改写生效' if changed else '无需改写'}: "
-                f"「{original_query[:60]}」→「{rewritten_query[:60]}」"
-            ) if changed else f"单轮对话，无需改写: 「{original_query[:80]}」",
-        )
+            "detail": detail,
+            "metadata": {
+                "original_query": original_query[:500],
+                "rewritten_query": rewritten_query[:500] if not skipped else "",
+                "changed": changed,
+                "source": source,
+                "skipped": skipped,
+            },
+            "children": [],
+        })
 
     def record_content_review(
         self, direction: str, passed: bool,
         blocked_keywords: list[str] | None = None,
         blocked_reason: str = "", duration_ms: float = 0,
+        user_input: str = "",
     ) -> None:
         """记录 content_review span — 由入口层毒性检测调用
 
@@ -182,7 +232,9 @@ class TracingMiddleware(AgentMiddleware):
             blocked_keywords: 命中的关键词
             blocked_reason: 拦截原因
             duration_ms: 审查耗时
+            user_input: 被审查的文本内容
         """
+        input_preview = (user_input[:200] + "...") if len(user_input) > 200 else user_input
         self._add("content_review", f"content_review_{direction}", duration_ms,
             metadata={
                 "direction": direction,
@@ -191,6 +243,7 @@ class TracingMiddleware(AgentMiddleware):
                 "blocked_reason": blocked_reason[:200],
             },
             input_data={
+                "text": input_preview,
                 "direction": direction,
                 "review_type": "toxicity + keyword",
             },
@@ -349,6 +402,19 @@ class TracingMiddleware(AgentMiddleware):
                 preview = str(m_content)[:150]
             msg_summary.append({"index": len(messages) - 10 + i, "type": m_type, "preview": preview})
 
+        # 提取用户当前输入（最后一条 HumanMessage）
+        current_query = ""
+        history_count = 0
+        for m in reversed(messages):
+            m_type = getattr(m, "type", "")
+            if m_type == "human" and not current_query:
+                current_query = getattr(m, "content", "")
+                if not isinstance(current_query, str):
+                    current_query = str(current_query)
+                current_query = current_query[:200]
+            elif m_type in ("human", "ai"):
+                history_count += 1
+
         dur = (time.monotonic() - start) * 1000
         self._add("context_build", "context_build", dur,
             metadata={
@@ -357,12 +423,14 @@ class TracingMiddleware(AgentMiddleware):
                 "recent_messages": msg_summary,
             },
             input_data={
-                "message_count": msg_count,
-                "history_window": min(10, msg_count),
+                "current_query": current_query,
+                "history_turns": history_count,
+                "total_messages": msg_count,
             },
             output_data={
                 "estimated_tokens": token_est,
                 "message_types": list({getattr(m, "type", "unknown") for m in messages}),
+                "messages_preview": msg_summary[-5:],
             },
             detail=(
                 f"构建 LLM 上下文: {msg_count} 条消息, "
@@ -588,6 +656,139 @@ class TracingMiddleware(AgentMiddleware):
                 detail="记忆提取: 跳过（无需提取）",
             )
         return None
+
+
+class MiddlewareTracingWrapper(AgentMiddleware):
+    """中间件执行追踪包装器 — 记录被包装中间件的每次执行
+
+    包装任意 AgentMiddleware，在其 before_agent / after_agent 执行前后
+    记录耗时和效果到 TracingMiddleware。
+
+    不包装 TracingMiddleware 自身（避免递归）。
+    """
+
+    # 不需要追踪的中间件（TracingMiddleware 自身 + 纯日志类）
+    _SKIP_NAMES = {"TracingMiddleware", "AgentLoggingMiddleware"}
+
+    def __init__(self, inner: AgentMiddleware) -> None:
+        super().__init__()
+        self._inner = inner
+        self._name = type(inner).__name__
+
+    @property
+    def name(self) -> str:
+        """返回被包装中间件的名称，确保 langchain 去重检查不会误判"""
+        return self._name
+
+    @property
+    def inner(self) -> AgentMiddleware:
+        return self._inner
+
+    def _should_trace(self, phase: str) -> bool:
+        """判断是否需要追踪（跳过 TracingMiddleware 已经记录的中间件）"""
+        # MemoryMiddleware 已经通过 record_memory_retrieval 自行记录
+        # 但我们仍然记录它的执行，因为用户想看到所有中间件
+        return True
+
+    def before_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        start = time.monotonic()
+        result = self._inner.before_agent(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if dur > 0.5:
+            tracing_middleware.record_middleware_execution(
+                self._name, "before_agent", dur,
+                has_effect=result is not None,
+            )
+        return result
+
+    async def abefore_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        start = time.monotonic()
+        # 检查内部中间件是否有自定义的 abefore_agent
+        inner_cls = type(self._inner)
+        if hasattr(inner_cls, 'abefore_agent') and inner_cls.abefore_agent is not AgentMiddleware.abefore_agent:
+            result = await self._inner.abefore_agent(state, runtime)
+        else:
+            result = self._inner.before_agent(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if dur > 0.5:
+            tracing_middleware.record_middleware_execution(
+                self._name, "before_agent", dur,
+                has_effect=result is not None,
+            )
+        return result
+
+    def after_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        start = time.monotonic()
+        result = self._inner.after_agent(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if dur > 0.5:
+            tracing_middleware.record_middleware_execution(
+                self._name, "after_agent", dur,
+                has_effect=result is not None,
+            )
+        return result
+
+    async def aafter_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        start = time.monotonic()
+        inner_cls = type(self._inner)
+        if hasattr(inner_cls, 'aafter_agent') and inner_cls.aafter_agent is not AgentMiddleware.aafter_agent:
+            result = await self._inner.aafter_agent(state, runtime)
+        else:
+            result = self._inner.after_agent(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if dur > 0.5:
+            tracing_middleware.record_middleware_execution(
+                self._name, "after_agent", dur,
+                has_effect=result is not None,
+            )
+        return result
+
+    def before_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        return self._inner.before_model(state, runtime)
+
+    async def abefore_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        inner_cls = type(self._inner)
+        if hasattr(inner_cls, 'abefore_model') and inner_cls.abefore_model is not AgentMiddleware.abefore_model:
+            return await self._inner.abefore_model(state, runtime)
+        return self._inner.before_model(state, runtime)
+
+    def after_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        return self._inner.after_model(state, runtime)
+
+    async def aafter_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        inner_cls = type(self._inner)
+        if hasattr(inner_cls, 'aafter_model') and inner_cls.aafter_model is not AgentMiddleware.aafter_model:
+            return await self._inner.aafter_model(state, runtime)
+        return self._inner.after_model(state, runtime)
+
+    def wrap_tool_call(self, request: ToolCallRequest, handler):
+        inner_cls = type(self._inner)
+        if hasattr(inner_cls, 'wrap_tool_call') and inner_cls.wrap_tool_call is not AgentMiddleware.wrap_tool_call:
+            return self._inner.wrap_tool_call(request, handler)
+        return handler(request)
+
+    async def awrap_tool_call(self, request: ToolCallRequest, handler):
+        inner_cls = type(self._inner)
+        if hasattr(inner_cls, 'awrap_tool_call') and inner_cls.awrap_tool_call is not AgentMiddleware.awrap_tool_call:
+            return await self._inner.awrap_tool_call(request, handler)
+        # 内部中间件未实现 awrap_tool_call，直接透传
+        return await handler(request)
+
+
+def wrap_middlewares_with_tracing(middlewares: list[AgentMiddleware]) -> list[AgentMiddleware]:
+    """为中间件列表添加执行追踪包装
+
+    TracingMiddleware 自身不被包装（避免递归）。
+    AgentLoggingMiddleware 不被包装（纯日志，无需追踪）。
+    """
+    wrapped = []
+    for mw in middlewares:
+        name = type(mw).__name__
+        if name in MiddlewareTracingWrapper._SKIP_NAMES:
+            wrapped.append(mw)
+        else:
+            wrapped.append(MiddlewareTracingWrapper(mw))
+    return wrapped
 
 
 # 全局单例

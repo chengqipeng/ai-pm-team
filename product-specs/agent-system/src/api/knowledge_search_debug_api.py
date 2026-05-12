@@ -2,13 +2,14 @@
 
 提供类似对话框的检索调试界面后端支持，返回完整的检索链路节点：
     1. 用户问题（原始输入）
-    2. 查询改写（Query Rewrite）
+    2. 查询改写 + 关键词提取（Query Rewrite）
     3. Self-Querying 关键字/过滤条件提取
-    4. 多路召回详情（向量 + BM25 + 文档元数据）
-    5. 命中分片列表（含原始分数）
-    6. RRF 排序详情（三维度归一化加权）
-    7. 最终排序结果（命中文档 + 综合分数）
-    8. 回答生成建议（基于命中内容的上下文）
+    4. Phase 1 并行召回（切片 hybrid + 文档元数据 hybrid 同时执行）
+    5. Phase 2 定向召回（有 filter 时，用文档元数据命中的 Top-50 doc_id 定向搜切片）
+    6. 命中分片详情（Hydrate + 上下文扩展）
+    7. RRF 三维度加权排序（α切片RRF + β文档元数据 + γ文档属性）
+    8. 综合排序结果（threshold 过滤 + top_k）
+    9. 回答上下文（拼接 Top-N 分片供 LLM 回答）
 
 路由前缀：/api/knowledge/search-debug
 """
@@ -182,8 +183,21 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
     semantic_query = rewritten_query
     extracted_filters: dict = {}
     self_query_raw = ""
+    schema_fields_info = ""
 
     if req.enable_self_query and retriever._llm:
+        # 先获取 Schema 信息用于展示
+        try:
+            from src.store.knowledge_dao import KnowledgeSchemaDAO
+            schema = KnowledgeSchemaDAO.get_effective_schema(
+                req.tenant_id, req.knowledge_base_id,
+            )
+            if schema and schema.fields:
+                fields_data = json.loads(schema.fields) if isinstance(schema.fields, str) else schema.fields
+                schema_fields_info = json.dumps(fields_data, ensure_ascii=False, indent=2)
+        except Exception:
+            schema_fields_info = "Schema 加载失败"
+
         try:
             sq_result = await retriever._self_query(
                 rewritten_query, req.tenant_id, req.knowledge_base_id,
@@ -199,23 +213,45 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         sq_status = "skipped"
         self_query_raw = "LLM 未注入或 Self-Querying 未启用"
 
+    # 构建过滤条件提取的说明
+    filter_extraction_note = ""
+    if sq_status == "success" and not extracted_filters:
+        filter_extraction_note = (
+            "未提取到过滤条件。当前查询是纯语义查询（产品名/型号/技术术语），"
+            "不包含明确的分类意图。\n"
+            "如需触发元数据过滤，请在查询中包含分类词，例如：\n"
+            "  • \"制造业的产品手册\" → filters={docCategory:\"产品手册\", industryVertical:\"制造业\"}\n"
+            "  • \"售前阶段的成功案例\" → filters={docCategory:\"成功案例\", businessStage:\"售前咨询\"}\n"
+            "  • \"给技术人员的FAQ\" → filters={docCategory:\"FAQ\", targetAudience:\"技术人员\"}"
+        )
+    elif sq_status == "success" and extracted_filters:
+        filter_extraction_note = "成功提取过滤条件：" + json.dumps(extracted_filters, ensure_ascii=False)
+
     nodes.append(PipelineNode(
         step=3,
         name="关键字提取与过滤条件",
         name_en="self_querying",
         status=sq_status,
         duration_ms=int((time.time() - t0) * 1000),
-        input_data={"query": rewritten_query, "enable_self_query": req.enable_self_query},
+        input_data={
+            "query": rewritten_query,
+            "enable_self_query": req.enable_self_query,
+            "schema_fields": schema_fields_info if schema_fields_info else "未加载",
+        },
         output_data={
             "semantic_query": semantic_query,
             "extracted_filters": extracted_filters,
+            "filter_extraction_note": filter_extraction_note,
         },
-        detail=self_query_raw,
+        detail=(
+            (self_query_raw if len(self_query_raw) < 300 else self_query_raw[:300] + "...")
+            + ("\n\n" + filter_extraction_note if filter_extraction_note else "")
+        ),
     ))
 
-    # ── Node 4-1: Embedding + 切片级混合检索（dense + BM25） ──
+    # ── Node 4: Phase 1 — 并行召回（切片 hybrid + 文档元数据 hybrid 同时执行） ──
     t0 = time.time()
-    filter_expr = retriever._build_chunk_filter(req.knowledge_base_id, extracted_filters)
+    global_chunk_filter = retriever._build_chunk_filter(req.knowledge_base_id, {})  # 全局不带元数据 filter
     doc_filter = retriever._build_doc_filter(req.knowledge_base_id, extracted_filters)
     chunk_limit = max(req.top_k * 5, 30)
     doc_limit = max(req.top_k * 5, 50)
@@ -234,95 +270,308 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         logger.warning("Debug search embedding failed: %s", exc)
     embed_ms = int((time.time() - t_embed) * 1000)
 
-    # A 路：切片级 hybrid_search
-    chunk_results: list[dict] = []
+    # Phase 1: 两路并行 — A 路切片 hybrid + B 路文档元数据 hybrid
+    chunk_results_global: list[dict] = []
+    doc_meta_hybrid: list[dict] = []
     chunk_recall_error = ""
-    t_chunk = time.time()
+    doc_recall_error = ""
+
+    t_parallel = time.time()
     try:
-        chunk_results_raw = await retriever._recall_chunks(
-            req.tenant_id, query_vec, semantic_query, filter_expr, chunk_limit,
+        results = await asyncio.gather(
+            retriever._recall_chunks(
+                req.tenant_id, query_vec, semantic_query, global_chunk_filter, chunk_limit,
+            ),
+            retriever._recall_doc_metadata_hybrid(
+                req.tenant_id, query_vec, semantic_query, doc_filter, doc_limit,
+            ),
+            return_exceptions=True,
         )
-        if isinstance(chunk_results_raw, Exception):
-            chunk_recall_error = f"{type(chunk_results_raw).__name__}: {chunk_results_raw}"
+        # A 路结果
+        if isinstance(results[0], Exception):
+            chunk_recall_error = f"{type(results[0]).__name__}: {results[0]}"
         else:
-            chunk_results = chunk_results_raw
+            chunk_results_global = results[0] or []
+        # B 路结果
+        if isinstance(results[1], Exception):
+            doc_recall_error = f"{type(results[1]).__name__}: {results[1]}"
+        else:
+            doc_meta_hybrid = results[1] or []
     except Exception as exc:
-        chunk_recall_error = f"{type(exc).__name__}: {exc}"
-    chunk_recall_ms = int((time.time() - t_chunk) * 1000)
-    step4_1_ms = int((time.time() - t0) * 1000)
+        chunk_recall_error = f"gather failed: {exc}"
+        doc_recall_error = f"gather failed: {exc}"
+    parallel_ms = int((time.time() - t_parallel) * 1000)
+    phase1_ms = int((time.time() - t0) * 1000)
+
+    doc_meta_rank = [r.get("id", "") for r in doc_meta_hybrid if r.get("id")]
+
+    # 路B 降级：如果带 filter 的路B返回 0 结果，去掉 filter 重试（确保 β 维度有打分）
+    doc_meta_filter_fallback = False
+    doc_meta_actual_values: dict = {}  # 诊断用：VDB 中文档的实际字段值
+    if not doc_meta_rank and extracted_filters and query_vec:
+        # 诊断：查一下 VDB 中该知识库文档的实际 filter 字段值
+        try:
+            from tcvectordb.model.document import Filter as _DiagFilter
+            retriever._vdb._ensure_collections()
+            diag_filter_expr = (
+                f'tenant_id = "{req.tenant_id}" '
+                f'and knowledge_base_id = "{req.knowledge_base_id}" '
+                f'and status = "active"'
+            )
+            diag_results = retriever._vdb._doc_meta_coll.query(
+                filter=_DiagFilter(diag_filter_expr),
+                output_fields=["id", "doc_category", "industry", "business_stage",
+                               "target_audience", "product_service", "title"],
+                limit=20,
+            )
+            if isinstance(diag_results, list):
+                diag_docs = diag_results
+            else:
+                diag_docs = retriever._vdb._parse_results(diag_results)
+
+            # 汇总实际值
+            for field in ["doc_category", "industry", "business_stage", "target_audience", "product_service"]:
+                values = sorted({d.get(field, "") for d in diag_docs if d.get(field)})
+                doc_meta_actual_values[field] = values if values else ["(全部为空)"]
+            doc_meta_actual_values["_total_docs"] = len(diag_docs)
+            doc_meta_actual_values["_sample_docs"] = [
+                {"id": d.get("id", ""), "title": (d.get("title") or "")[:40],
+                 "doc_category": d.get("doc_category", ""), "industry": d.get("industry", "")}
+                for d in diag_docs[:5]
+            ]
+        except Exception as diag_exc:
+            doc_meta_actual_values = {"_error": str(diag_exc)}
+
+        fallback_doc_filter = retriever._build_doc_filter(req.knowledge_base_id, {})
+        try:
+            doc_meta_fb = await retriever._recall_doc_metadata_hybrid(
+                req.tenant_id, query_vec, semantic_query, fallback_doc_filter, doc_limit,
+            )
+            if not isinstance(doc_meta_fb, Exception) and doc_meta_fb:
+                doc_meta_hybrid = doc_meta_fb
+                doc_meta_rank = [r.get("id", "") for r in doc_meta_hybrid if r.get("id")]
+                doc_meta_filter_fallback = True
+        except Exception:
+            pass
+
+        if doc_meta_filter_fallback:
+            # 构建不匹配原因分析
+            mismatch_analysis = []
+            for filter_key, filter_val in extracted_filters.items():
+                # 映射 camelCase → VDB 字段名
+                field_map = {
+                    "docCategory": "doc_category",
+                    "industryVertical": "industry",
+                    "businessStage": "business_stage",
+                    "targetAudience": "target_audience",
+                    "productService": "product_service",
+                }
+                vdb_field = field_map.get(filter_key, filter_key)
+                actual = doc_meta_actual_values.get(vdb_field, [])
+                if actual == ["(全部为空)"]:
+                    mismatch_analysis.append(
+                        f"{filter_key}=\"{filter_val}\": VDB中该字段全部为空（文档未被打标）"
+                    )
+                elif filter_val not in actual:
+                    mismatch_analysis.append(
+                        f"{filter_key}=\"{filter_val}\": 不匹配。VDB中实际值={actual}"
+                    )
+
+            nodes.append(PipelineNode(
+                step=4,
+                name="路B降级：分类过滤无匹配，改为纯语义召回",
+                name_en="doc_meta_filter_fallback",
+                status="success",
+                duration_ms=0,
+                input_data={
+                    "第一次调用（带分类filter）": {
+                        "filter": doc_filter,
+                        "result": "0 个文档",
+                    },
+                    "降级调用（仅基础条件）": {
+                        "filter": fallback_doc_filter,
+                        "result": f"{len(doc_meta_rank)} 个文档",
+                    },
+                    "不匹配原因分析": mismatch_analysis,
+                    "VDB中文档实际字段值": doc_meta_actual_values,
+                },
+                output_data={
+                    "recovered_doc_count": len(doc_meta_rank),
+                    "top5_doc_ids": doc_meta_rank[:5],
+                    "用途": "恢复的文档用于β维度打分 + Phase 2定向召回范围",
+                },
+                detail=(
+                    "路B降级触发：带分类filter("
+                    + json.dumps(extracted_filters, ensure_ascii=False)
+                    + ")查询返回0文档 → 去掉分类条件后按纯语义召回 "
+                    + str(len(doc_meta_rank)) + " 个文档。"
+                    + (" 不匹配原因：" + "; ".join(mismatch_analysis) if mismatch_analysis else "")
+                ),
+            ))
 
     nodes.append(PipelineNode(
         step=4,
-        name="切片混合检索 (向量+BM25)",
-        name_en="chunk_hybrid_search",
-        status="success" if chunk_results else ("failed" if embed_status == "failed" or chunk_recall_error else "skipped"),
-        duration_ms=step4_1_ms,
+        name="Phase 1 并行召回 (切片hybrid + 文档元数据hybrid)",
+        name_en="phase1_parallel_recall",
+        status="success" if (chunk_results_global or doc_meta_hybrid) else (
+            "failed" if (embed_status == "failed" or chunk_recall_error or doc_recall_error) else "skipped"
+        ),
+        duration_ms=phase1_ms,
         input_data={
             "semantic_query": semantic_query,
-            "filter": filter_expr,
+            "execution_mode": "asyncio.gather (并行)",
             "embedding_dim": len(query_vec),
             "embedding_status": embed_status,
             "embedding_error": embed_error,
             "embedding_ms": embed_ms,
-            "chunk_limit": chunk_limit,
-            "dense_weight": 0.3,
-            "sparse_weight": 0.7,
+            "路A_切片hybrid": {
+                "filter": global_chunk_filter,
+                "chunk_limit": chunk_limit,
+                "dense_weight": 0.3,
+                "sparse_weight": 0.7,
+                "note": "全局不带元数据 filter",
+            },
+            "路B_文档元数据hybrid": {
+                "filter": doc_filter,
+                "doc_limit": doc_limit,
+                "dense_weight": 0.5,
+                "sparse_weight": 0.5,
+                "bm25_fields": "title×3 + summary×2 + keywords×2 + candidate×1 + toc×1",
+                "note": "一次 hybrid_search 融合 ANN + BM25",
+            },
         },
         output_data={
-            "hits": len(chunk_results),
-            "error": chunk_recall_error,
-            "recall_ms": chunk_recall_ms,
-            "top5_scores": [round(r.get("score", 0), 4) for r in chunk_results[:5]],
+            "路A_切片命中": len(chunk_results_global),
+            "路A_error": chunk_recall_error,
+            "路A_top5_scores": [round(r.get("score", 0), 4) for r in chunk_results_global[:5]],
+            "路B_文档命中": len(doc_meta_rank),
+            "路B_error": doc_recall_error,
+            "路B_top5_doc_ids": doc_meta_rank[:5],
+            "parallel_ms": parallel_ms,
         },
         detail=(
             f"Embedding {embed_ms}ms (dim={len(query_vec)}) → "
-            f"VDB hybrid_search {chunk_recall_ms}ms → 命中 {len(chunk_results)} 条切片"
-            + (f"\n❌ {chunk_recall_error}" if chunk_recall_error else "")
+            f"并行执行 {parallel_ms}ms: "
+            f"路A 切片hybrid命中 {len(chunk_results_global)} 条, "
+            f"路B 文档元数据hybrid命中 {len(doc_meta_rank)} 个文档"
+            + (f"\n❌ 路A: {chunk_recall_error}" if chunk_recall_error else "")
+            + (f"\n❌ 路B: {doc_recall_error}" if doc_recall_error else "")
         ),
     ))
 
-    # ── Node 4-2: 文档级元数据检索（摘要向量 ANN + 加权文本 BM25） ──
+    # ── Node 5: Phase 2 — 定向召回（有 filter 时触发） ──
     t0 = time.time()
-    doc_meta_hybrid: list[dict] = []
-    doc_recall_error = ""
-    try:
-        doc_meta_raw = await retriever._recall_doc_metadata_hybrid(
-            req.tenant_id, query_vec, semantic_query, doc_filter, doc_limit,
-        )
-        if isinstance(doc_meta_raw, Exception):
-            doc_recall_error = f"{type(doc_meta_raw).__name__}: {doc_meta_raw}"
-        else:
-            doc_meta_hybrid = doc_meta_raw
-    except Exception as exc:
-        doc_recall_error = f"{type(exc).__name__}: {exc}"
-    step4_2_ms = int((time.time() - t0) * 1000)
+    chunk_results_targeted: list[dict] = []
+    has_filters = bool(extracted_filters)
+    phase2_status = "skipped"
+    phase2_detail = ""
+    phase2_skip_reason = ""
+    target_doc_ids: list[str] = []
 
-    doc_meta_rank = [r.get("id", "") for r in doc_meta_hybrid if r.get("id")]
+    if has_filters and doc_meta_rank and query_vec:
+        target_doc_ids = doc_meta_rank[:50]
+        targeted_filter = retriever._build_chunk_filter_with_doc_ids(
+            req.knowledge_base_id, target_doc_ids,
+        )
+        targeted_limit = max(req.top_k * 3, 20)
+        try:
+            chunk_results_targeted = await retriever._recall_chunks(
+                req.tenant_id, query_vec, semantic_query, targeted_filter, targeted_limit,
+            )
+            phase2_status = "success" if chunk_results_targeted else "skipped"
+            phase2_detail = (
+                f"用路B命中的 Top-{len(target_doc_ids)} 文档ID定向搜切片 → "
+                f"命中 {len(chunk_results_targeted)} 条"
+            )
+        except Exception as exc:
+            phase2_status = "failed"
+            phase2_detail = f"定向召回失败: {exc}"
+    elif not has_filters:
+        phase2_skip_reason = "Self-Querying 未提取到元数据过滤条件（filters 为空）"
+        _nl = "\n"
+        phase2_detail = (
+            f"跳过 Phase 2 定向召回。{_nl}"
+            f"原因：{phase2_skip_reason}{_nl}"
+            f"说明：Phase 2 仅在用户查询包含明确的分类意图时触发，"
+            f"例如「制造业的成功案例」、「售前阶段的培训材料」等。{_nl}"
+            f"当前查询 \"{semantic_query}\" 是纯语义查询（产品名/型号/技术术语），"
+            f"由路A全局hybrid_search直接通过向量+BM25匹配，无需定向召回。{_nl}"
+            f"触发示例：试试 \"制造业的产品手册\"、\"金融行业成功案例\"、"
+            f"\"售前阶段培训材料\" 等包含分类词的查询。"
+        )
+    elif has_filters and not doc_meta_rank:
+        phase2_skip_reason = "有过滤条件但路B文档元数据召回无结果"
+        _nl = "\n"
+        phase2_detail = (
+            f"跳过 Phase 2 定向召回。{_nl}"
+            f"原因：{phase2_skip_reason}{_nl}"
+            f"过滤条件：{json.dumps(extracted_filters, ensure_ascii=False)}{_nl}"
+            f"可能原因：该知识库中没有匹配这些元数据标签的文档，"
+            f"或文档入库时未完成自动打标。"
+        )
+    elif has_filters and not query_vec:
+        phase2_skip_reason = "有过滤条件但 Embedding 失败"
+        _nl = "\n"
+        phase2_detail = (
+            f"跳过 Phase 2 定向召回。{_nl}"
+            f"原因：{phase2_skip_reason}{_nl}"
+            f"Embedding 错误：{embed_error}"
+        )
+
+    phase2_ms = int((time.time() - t0) * 1000)
+
+    # 构建触发条件说明
+    trigger_conditions = {
+        "condition_1_has_filters": {
+            "satisfied": has_filters,
+            "description": "Self-Querying 提取了元数据过滤条件",
+            "current_value": extracted_filters if extracted_filters else "{}（空）",
+            "how_to_satisfy": (
+                "在查询中包含明确的分类意图词，例如：\n"
+                "  • 行业分类：\"制造业的...\"、\"金融行业...\"、\"零售业...\"\n"
+                "  • 文档类型：\"产品手册\"、\"成功案例\"、\"FAQ\"、\"培训材料\"\n"
+                "  • 业务阶段：\"售前阶段...\"、\"实施阶段...\"、\"售后...\"\n"
+                "  • 目标受众：\"给技术人员的...\"、\"面向管理层的...\"\n"
+                "注意：产品名称（如\"罗斯蒙特\"）、型号（如\"3051\"）不会触发过滤，"
+                "它们通过语义+BM25检索匹配"
+            ),
+        },
+        "condition_2_doc_meta_rank": {
+            "satisfied": bool(doc_meta_rank),
+            "description": "路B文档元数据召回有结果",
+            "current_value": f"{len(doc_meta_rank)} 个文档",
+        },
+        "condition_3_query_vec": {
+            "satisfied": bool(query_vec),
+            "description": "Embedding 成功",
+            "current_value": (f"dim={len(query_vec)}" if query_vec else "失败"),
+        },
+    }
 
     nodes.append(PipelineNode(
         step=5,
-        name="文档元数据检索 (摘要ANN+BM25)",
-        name_en="doc_metadata_hybrid",
-        status="success" if doc_meta_hybrid else ("failed" if doc_recall_error else "skipped"),
-        duration_ms=step4_2_ms,
+        name="Phase 2 定向召回 (元数据命中文档内搜切片)",
+        name_en="phase2_targeted_recall",
+        status=phase2_status,
+        duration_ms=phase2_ms,
         input_data={
-            "semantic_query": semantic_query,
-            "filter": doc_filter,
-            "doc_limit": doc_limit,
-            "dense_weight": 0.5,
-            "sparse_weight": 0.5,
-            "bm25_fields": "title×3 + summary×2 + keywords×2 + candidate×1 + toc×1",
+            "trigger_conditions": trigger_conditions,
+            "has_filters": has_filters,
+            "effective_filters": extracted_filters,
+            "skip_reason": phase2_skip_reason,
+            "target_doc_count": len(target_doc_ids),
+            "target_doc_ids_sample": target_doc_ids[:5],
+            "targeted_limit": max(req.top_k * 3, 20) if has_filters else 0,
         },
         output_data={
-            "hits": len(doc_meta_rank),
-            "error": doc_recall_error,
-            "matched_doc_ids": doc_meta_rank[:5],
+            "targeted_chunk_hits": len(chunk_results_targeted),
+            "top5_scores": [round(r.get("score", 0), 4) for r in chunk_results_targeted[:5]],
         },
-        detail=(
-            f"文档级 hybrid_search → 命中 {len(doc_meta_rank)} 个文档"
-            + (f"\n❌ {doc_recall_error}" if doc_recall_error else "")
-        ),
+        detail=phase2_detail,
     ))
+
+    # Phase 3: 合并去重（全局 ∪ 定向）
+    chunk_results = retriever._merge_chunk_results(chunk_results_global, chunk_results_targeted)
 
     # 安全机制：如果有过滤条件但召回为 0，去掉过滤重试
     filter_fallback_used = False
@@ -355,7 +604,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                 name_en="filter_fallback",
                 status="success" if chunk_results else "failed",
                 duration_ms=0,
-                input_data={"reason": "原始过滤条件导致召回为空", "removed_filters": extracted_filters},
+                input_data={"reason": "合并后召回为空（全局+定向均无结果）", "removed_filters": extracted_filters},
                 output_data={"chunk_hits_after_fallback": len(chunk_results)},
                 detail=f"⚠️ 去掉过滤条件后重试，召回 {len(chunk_results)} 条切片",
             ))
@@ -513,24 +762,19 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                 agg += items[i][1] * math.pow(retriever._CHUNK_DECAY, i)
             doc_rrf[did] = agg
 
-        # 维度 A 归一化
-        floor = retriever._NORM_FLOOR
-        max_rrf = max(doc_rrf.values()) if doc_rrf else 0
-        min_rrf = min(doc_rrf.values()) if doc_rrf else 0
-        rrf_range = max_rrf - min_rrf
+        # 维度 A 归一化（理论锚点，对齐 data-process）
+        chunk_limit = len(chunks_sorted) if chunks_sorted else 30
+        theoretical_max_rrf = 1.0 / (retriever._K_CHUNK + 1)
+        theoretical_min_rrf = 1.0 / (retriever._K_CHUNK + chunk_limit + 1)
+        rrf_range = theoretical_max_rrf - theoretical_min_rrf
 
         doc_norm_a: dict[str, float] = {}
         for did, score in doc_rrf.items():
             if rrf_range > 0:
-                doc_norm_a[did] = (score - min_rrf) / rrf_range * (1.0 - floor) + floor
+                norm = (score - theoretical_min_rrf) / rrf_range
+                doc_norm_a[did] = max(0.0, min(1.0, norm))
             else:
-                items = doc_chunks.get(did, [])
-                if items:
-                    avg = sum(c.score for c, _ in items) / len(items)
-                    avg = max(0.0, min(1.0, avg))
-                    doc_norm_a[did] = avg * (1.0 - floor) + floor
-                else:
-                    doc_norm_a[did] = (1.0 + floor) / 2.0
+                doc_norm_a[did] = 0.5
 
         # 维度 B
         doc_norm_b: dict[str, float] = {}
@@ -579,6 +823,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
             doc_norm_c[did] = min(boost / retriever._MAX_ATTR_BOOST, 1.0)
 
         # 计算 finalScore 并构建详情
+        effective_threshold = await retriever._resolve_threshold(req.threshold, req.knowledge_base_id)
         doc_titles: dict[str, str] = {}
         for c in chunks:
             if c.document_id and c.document_title:
@@ -588,7 +833,8 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
             na = doc_norm_a.get(did, 0.0)
             nb = doc_norm_b.get(did, 0.0)
             nc = doc_norm_c.get(did, 0.0)
-            final = round(retriever._ALPHA * na + retriever._BETA * nb + retriever._GAMMA * nc, 4)
+            raw_score = retriever._ALPHA * na + retriever._BETA * nb + retriever._GAMMA * nc
+            final = round(raw_score * (1.0 - effective_threshold) + effective_threshold, 4)
 
             rrf_details.append(RRFDetail(
                 doc_id=did,
@@ -607,13 +853,13 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         rrf_details.sort(key=lambda x: x.final_score, reverse=True)
 
         # 更新 chunk_hits 的 final_score
-        effective_threshold = await retriever._resolve_threshold(req.threshold, req.knowledge_base_id)
         for ch in chunk_hits:
             did = ch.doc_id
             na = doc_norm_a.get(did, 0.0)
             nb = doc_norm_b.get(did, 0.0)
             nc = doc_norm_c.get(did, 0.0)
-            ch.final_score = round(retriever._ALPHA * na + retriever._BETA * nb + retriever._GAMMA * nc, 4)
+            raw_score = retriever._ALPHA * na + retriever._BETA * nb + retriever._GAMMA * nc
+            ch.final_score = round(raw_score * (1.0 - effective_threshold) + effective_threshold, 4)
 
         # 过滤 + 排序
         chunk_hits = [ch for ch in chunk_hits if ch.final_score >= effective_threshold]
@@ -638,7 +884,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
             "rrf_k_chunk": retriever._K_CHUNK,
             "rrf_k_summary": retriever._K_SUMMARY,
             "chunk_decay": retriever._CHUNK_DECAY,
-            "norm_floor": retriever._NORM_FLOOR,
+            "normalization": "theoretical_anchor",
         },
         output_data={
             "scored_docs": len(rrf_details),

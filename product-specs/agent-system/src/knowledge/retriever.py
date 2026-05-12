@@ -1,23 +1,37 @@
-"""知识检索引擎 — 多路召回 + RRF + 归一化多维度加权（全 VDB 版）
+"""知识检索引擎 — 多阶段召回 + RRF + 归一化多维度加权（全 VDB 版）
 
 对应 doc/知识库体系设计方案.md §五。
 
 检索链路：
     Query
-      ├── [A] VDB kb_chunks.hybrid_search   → 切片级 dense+sparse (BM25)
-      ├── [B1] VDB kb_doc_metadata ANN      → 文档级摘要向量召回（rank）
-      └── [B2] VDB kb_doc_metadata 多路 BM25 → 文档级 5 路稀疏召回（rank）
+      │
+      ├── Step 1: 查询改写 + 关键词提取（LLM / jieba）
+      ├── Step 2: Self-Querying（LLM 提取 metadata filter）
+      │
+      ├── Step 3 Phase 1: asyncio.gather 并行
+      │     ├── [A] VDB kb_chunks.hybrid_search (dense+BM25, 全局不带元数据filter)
+      │     └── [B] VDB kb_doc_metadata.hybrid_search (summary ANN + 加权BM25, 带filter)
+      │
+      ├── Step 3.5 Phase 2: 定向召回（仅当有 filter 且路B有结果时）
+      │     └── [A'] VDB kb_chunks.hybrid_search (doc_id IN 路B Top-50)
+      │
+      ├── Phase 3: 合并去重（全局 ∪ 定向，按 score 降序）
+      │
+      ├── Step 4: Hydrate + Parent-Child 上下文扩展
+      │
+      ├── Step 5: 三维度归一化加权
+      │     切片→文档聚合（docScore = seg[0] + Σ seg[i] × 0.2^i）
+      │     finalScore = α·normA + β·normB + γ·normC
+      │       α (0.7): 切片 RRF 聚合分 → 理论锚点归一化 [0, 1]
+      │       β (0.1): 路B融合排名 RRF × METADATA_WEIGHT → [0, 1]
+      │       γ (0.2): quality + recency + hit → [0, 1]（来自 VDB 文档属性）
+      │     映射: finalScore = rawScore × (1 - threshold) + threshold
+      │
+      ├── Step 6: threshold 过滤 + 排序 → top_k
+      │
+      └── Step 7: 热度+1 + 审计日志（异步）
       ▼
-    切片 → 文档聚合（docScore = seg[0] + Σ seg[i] × 0.2^i）
-      ▼
-    三维度归一化加权（finalScore = α·normA + β·normB + γ·normC）
-      α (0.7): 切片 RRF 聚合分 → [floor, 1]
-      β (0.1): B1+B2 两路 RRF → [0, 1]
-      γ (0.2): quality + recency + hit → [0, 1]（来自 VDB 文档属性）
-      ▼
-    threshold 过滤 + 排序 → top_k
-      ▼
-    Hydrate 扩展（VDB content 字段直接返回，不回 PG）
+    List<KnowledgeChunk>
 """
 from __future__ import annotations
 
@@ -128,7 +142,8 @@ class KnowledgeRetriever:
     """知识检索引擎 — 全 VDB 多路召回 + 归一化多维度加权"""
 
     # ── 融合参数（对齐 data-process DocumentSearchServiceImpl） ──
-    _K_CHUNK = 60.0
+    _K_CHUNK = 60.0       # 对齐 EMBEDDING_K
+    _K_ES = 40.0          # 对齐 ES_K（VDB sparse/BM25 路的 RRF K 值）
     _K_SUMMARY = 60.0
     _K_META_TEXT = 60.0
 
@@ -150,9 +165,6 @@ class KnowledgeRetriever:
     _HIT_WEIGHT = 0.05
     _MAX_ATTR_BOOST = _QUALITY_WEIGHT + _RECENCY_WEIGHT + _HIT_WEIGHT
     _RECENCY_HALFLIFE_MS = 180.0 * 24 * 60 * 60 * 1000
-
-    # 归一化下限（防 β/γ 喧宾夺主）
-    _NORM_FLOOR = 0.3
 
     # threshold 默认值
     _DEFAULT_THRESHOLD = 0.3
@@ -229,9 +241,10 @@ class KnowledgeRetriever:
                 logger.warning("Self-query failed: %s", exc)
             timings["self_query_ms"] = int((time.time() - ts) * 1000)
 
-        # Step 3: 三路并行召回
+        # Step 3: Phase 1 — 全局召回（不带元数据 filter 的切片 + 带 filter 的文档元数据）
+        # 对齐 data-process: ①② 全局切片 + ③④ 元数据召回
         ts = time.time()
-        filter_expr = self._build_chunk_filter(knowledge_base_id, effective_filters)
+        global_chunk_filter = self._build_chunk_filter(knowledge_base_id, {})  # 全局不带元数据 filter
         doc_filter = self._build_doc_filter(knowledge_base_id, effective_filters)
         chunk_limit = max(top_k * 5, 30)
         doc_limit = max(top_k * 5, 50)
@@ -242,9 +255,9 @@ class KnowledgeRetriever:
         except Exception as exc:
             logger.warning("Embedding failed: %s", exc)
 
-        chunk_results, doc_meta_hybrid = await asyncio.gather(
+        chunk_results_global, doc_meta_hybrid = await asyncio.gather(
             self._recall_chunks(
-                tenant_id, query_vec, semantic_query, filter_expr, chunk_limit,
+                tenant_id, query_vec, semantic_query, global_chunk_filter, chunk_limit,
             ),
             self._recall_doc_metadata_hybrid(
                 tenant_id, query_vec, semantic_query, doc_filter, doc_limit,
@@ -252,50 +265,108 @@ class KnowledgeRetriever:
             return_exceptions=True,
         )
 
-        if isinstance(chunk_results, Exception):
-            logger.warning("Chunk recall failed: %s", chunk_results)
-            chunk_results = []
+        if isinstance(chunk_results_global, Exception):
+            logger.warning("Chunk recall (global) failed: %s", chunk_results_global)
+            chunk_results_global = []
         if isinstance(doc_meta_hybrid, Exception):
             logger.debug("Doc metadata hybrid recall failed: %s", doc_meta_hybrid)
             doc_meta_hybrid = []
 
-        # 安全机制：如果 Self-Querying 生成了过滤条件但召回为 0，去掉过滤重试
-        if not chunk_results and effective_filters and query_vec:
-            logger.info(
-                "Recall empty with filters=%s, retrying without filters",
-                effective_filters,
-            )
-            fallback_filter = self._build_chunk_filter(knowledge_base_id, {})
-            fallback_doc_filter = self._build_doc_filter(knowledge_base_id, {})
-            chunk_results_fb, doc_meta_fb = await asyncio.gather(
-                self._recall_chunks(
-                    tenant_id, query_vec, semantic_query, fallback_filter, chunk_limit,
-                ),
-                self._recall_doc_metadata_hybrid(
-                    tenant_id, query_vec, semantic_query, fallback_doc_filter, doc_limit,
-                ),
-                return_exceptions=True,
-            )
-            if not isinstance(chunk_results_fb, Exception) and chunk_results_fb:
-                chunk_results = chunk_results_fb
-                effective_filters = {}  # 清空过滤条件标记
-                logger.info("Fallback recall success: chunks=%d", len(chunk_results))
-            if not isinstance(doc_meta_fb, Exception) and doc_meta_fb:
-                doc_meta_hybrid = doc_meta_fb
-
-        # B1+B2 合并后按融合分排序的 doc_id 列表（用于 β 维度单路 RRF）
+        # B1+B2 合并后按融合分排序的 doc_id 列表（用于 β 维度 + Phase 2 定向）
         doc_meta_rank: list[str] = [r.get("id", "") for r in doc_meta_hybrid if r.get("id")]
 
-        # 为保持 β 维度兼容（summary_rank + meta_text_rank），把同一个排名列表
-        # 作为两路的替身：每个 doc 的 β 贡献仍是"在单一融合排名里的位置 × 2"
-        # 这样 MAX_METADATA_BOOST 常量定义不变，行为与原版 RRF(summary + meta_text) 近似
+        # 路B 降级：如果带 filter 的路B返回 0 结果，去掉分类条件重试
+        # 场景：Self-Querying 提取了 {docCategory:"产品手册", industryVertical:"制造业"}
+        #       但知识库中文档未被打标为这些值 → 路B返回0
+        # 降级：去掉分类条件，仅按语义（摘要向量+BM25）召回文档
+        # 目的：确保 β 维度有打分数据 + Phase 2 有定向范围
+        doc_meta_filter_fallback = False
+        if not doc_meta_rank and effective_filters and query_vec:
+            logger.info(
+                "Doc metadata hybrid: 0 results with filters=%s. "
+                "Retrying without category filters (pure semantic) for β scoring + Phase 2.",
+                effective_filters,
+            )
+            fallback_doc_filter = self._build_doc_filter(knowledge_base_id, {})
+            try:
+                doc_meta_fb = await self._recall_doc_metadata_hybrid(
+                    tenant_id, query_vec, semantic_query, fallback_doc_filter, doc_limit,
+                )
+                if not isinstance(doc_meta_fb, Exception) and doc_meta_fb:
+                    doc_meta_hybrid = doc_meta_fb
+                    doc_meta_rank = [r.get("id", "") for r in doc_meta_hybrid if r.get("id")]
+                    doc_meta_filter_fallback = True
+                    logger.info(
+                        "Doc metadata fallback success: %d docs recovered (pure semantic, no category filter)",
+                        len(doc_meta_rank),
+                    )
+            except Exception as exc:
+                logger.debug("Doc metadata fallback failed: %s", exc)
+
+        timings["phase1_ms"] = int((time.time() - ts) * 1000)
+        logger.debug(
+            "Phase1 recall: global_chunks=%d doc_meta=%d",
+            len(chunk_results_global), len(doc_meta_rank),
+        )
+
+        # Step 3.5: Phase 2 — 定向召回（对齐 data-process Phase 2）
+        # 仅当有元数据过滤条件且文档元数据 RRF 有结果时触发
+        # 用元数据 RRF 命中的 Top-50 文档 ID 作为定向范围，在这些文档内精确搜切片
+        chunk_results_targeted: list[dict] = []
+        has_filters = bool(effective_filters)
+        if has_filters and doc_meta_rank and query_vec:
+            ts_p2 = time.time()
+            target_doc_ids = doc_meta_rank[:50]  # 上限 50，避免 filter 过长
+            targeted_filter = self._build_chunk_filter_with_doc_ids(
+                knowledge_base_id, target_doc_ids,
+            )
+            targeted_limit = max(top_k * 3, 20)
+            try:
+                chunk_results_targeted = await self._recall_chunks(
+                    tenant_id, query_vec, semantic_query, targeted_filter, targeted_limit,
+                )
+            except Exception as exc:
+                logger.warning("Phase2 targeted recall failed: %s", exc)
+                chunk_results_targeted = []
+            timings["phase2_ms"] = int((time.time() - ts_p2) * 1000)
+            logger.debug(
+                "Phase2 targeted recall: target_docs=%d chunks=%d",
+                len(target_doc_ids), len(chunk_results_targeted),
+            )
+
+        # Phase 3: 合并去重（全局 ∪ 定向），按 score 降序
+        chunk_results = self._merge_chunk_results(chunk_results_global, chunk_results_targeted)
+
+        # 安全机制：如果合并后仍为空且有 filter，去掉过滤重试文档元数据
+        if not chunk_results and effective_filters and query_vec:
+            logger.info(
+                "Recall empty with filters=%s, retrying doc_meta without filters",
+                effective_filters,
+            )
+            fallback_doc_filter = self._build_doc_filter(knowledge_base_id, {})
+            try:
+                doc_meta_fb = await self._recall_doc_metadata_hybrid(
+                    tenant_id, query_vec, semantic_query, fallback_doc_filter, doc_limit,
+                )
+                if doc_meta_fb:
+                    doc_meta_hybrid = doc_meta_fb
+                    doc_meta_rank = [r.get("id", "") for r in doc_meta_hybrid if r.get("id")]
+            except Exception:
+                pass
+            # 用全局无 filter 的切片结果（Phase 1 已经是全局的）
+            chunk_results = chunk_results_global
+            effective_filters = {}
+            if chunk_results:
+                logger.info("Fallback: using global chunks=%d", len(chunk_results))
+
         summary_doc_ids = doc_meta_rank
         meta_bm25_doc_ids = doc_meta_rank
 
         timings["vector_search_ms"] = int((time.time() - ts) * 1000)
         logger.debug(
-            "Multi-path recall: chunks=%d doc_meta_hybrid=%d",
-            len(chunk_results), len(doc_meta_rank),
+            "Multi-path recall final: chunks=%d (global=%d targeted=%d) doc_meta=%d",
+            len(chunk_results), len(chunk_results_global),
+            len(chunk_results_targeted), len(doc_meta_rank),
         )
 
         # Step 4: 把 VDB 切片结果包装成 KnowledgeChunk（Hydrate + 扩展）
@@ -399,17 +470,28 @@ class KnowledgeRetriever:
         threshold: float,
         top_k: int,
     ) -> list[KnowledgeChunk]:
+        """三维度归一化加权排序（对齐 data-process normalizeAndMerge）
+
+        与 data-process 的对齐点：
+        1. RRF 归一化使用理论锚点（theoreticalMax/Min），而非实际 min-max
+        2. finalScore = rawScore * (1 - threshold) + threshold 映射到 [threshold, 1]
+        3. 元数据/属性归一化方式一致
+        """
         if not chunks:
             return chunks
 
-        # ── 1. 切片 A 路 RRF 贡献 ──
+        # ── 1. 切片 A 路 RRF 贡献（对齐 computeSegmentRrf） ──
+        # VDB hybrid_search 返回的 score 已经是融合分，按 score 降序排名
         chunks_sorted = sorted(chunks, key=lambda c: c.score, reverse=True)
         chunk_rrf: dict[str, float] = {}
         for rank, c in enumerate(chunks_sorted):
             if c.chunk_id:
+                # 对齐 data-process: 向量路 1/(EMBEDDING_K + rank + 1)
+                # VDB hybrid_search 已融合 dense+sparse，视为等价于
+                # data-process 中 embedding + ES 两路 RRF 的合并结果
                 chunk_rrf[c.chunk_id] = 1.0 / (self._K_CHUNK + rank + 1)
 
-        # ── 2. 按 doc_id 分组聚合（几何衰减）──
+        # ── 2. 按 doc_id 分组聚合（几何衰减，对齐 aggregateToDocLevel） ──
         doc_chunks: dict[str, list[tuple[KnowledgeChunk, float]]] = {}
         for c in chunks:
             did = c.document_id
@@ -426,36 +508,23 @@ class KnowledgeRetriever:
                 agg += items[i][1] * math.pow(self._CHUNK_DECAY, i)
             doc_rrf[did] = agg
 
-        # ── 3. 维度 A 归一化到 [NORM_FLOOR, 1] ──
-        floor = self._NORM_FLOOR
-        if doc_rrf:
-            max_rrf = max(doc_rrf.values())
-            min_rrf = min(doc_rrf.values())
-            rrf_range = max_rrf - min_rrf
-        else:
-            max_rrf = min_rrf = 0.0
-            rrf_range = 0.0
+        # ── 3. 维度 A 归一化：理论锚点归一化 → [0, 1]（对齐 data-process） ──
+        # 理论最大 RRF = 排名第 1 时的单切片得分 = 1/(K+1)
+        # 理论最小 RRF = 排名最后时的得分 ≈ 1/(K + chunk_limit + 1)
+        chunk_limit = len(chunks_sorted)
+        theoretical_max_rrf = 1.0 / (self._K_CHUNK + 1)
+        theoretical_min_rrf = 1.0 / (self._K_CHUNK + chunk_limit + 1)
+        rrf_range = theoretical_max_rrf - theoretical_min_rrf
 
         doc_norm_a: dict[str, float] = {}
         for did, score in doc_rrf.items():
             if rrf_range > 0:
-                doc_norm_a[did] = (score - min_rrf) / rrf_range * (1.0 - floor) + floor
+                norm = (score - theoretical_min_rrf) / rrf_range
+                doc_norm_a[did] = max(0.0, min(1.0, norm))
             else:
-                # 单文档场景：min==max，用"该文档切片的平均原始分数"映射到 [floor, 1]
-                # 这样 query 相关性差时（切片原始分接近 0）normA 接近 floor，
-                # 避免完全无关的文档仍拿到接近 1 的 α 权重
-                items = doc_chunks.get(did, [])
-                if items:
-                    avg_chunk_score = sum(
-                        c.score for c, _ in items
-                    ) / len(items)
-                    # 切片 score 是 VDB 融合分，通常 [0, 1.5]，clip 到 [0, 1]
-                    avg_chunk_score = max(0.0, min(1.0, avg_chunk_score))
-                    doc_norm_a[did] = avg_chunk_score * (1.0 - floor) + floor
-                else:
-                    doc_norm_a[did] = (1.0 + floor) / 2.0
+                doc_norm_a[did] = 0.5
 
-        # ── 4. 维度 B：B1+B2 两路 RRF ──
+        # ── 4. 维度 B：元数据加权（对齐 computeMetadataBoost） ──
         doc_norm_b: dict[str, float] = {}
         doc_ids_all = set(doc_chunks.keys())
         for did in doc_ids_all:
@@ -476,7 +545,7 @@ class KnowledgeRetriever:
                 if self._MAX_METADATA_BOOST > 0 else 0.0
             )
 
-        # ── 5. 维度 C：文档属性（数据源：VDB kb_doc_metadata）──
+        # ── 5. 维度 C：文档属性（对齐 computeAttributeBoost） ──
         now_ms = int(time.time() * 1000)
         doc_norm_c: dict[str, float] = {}
         for did in doc_ids_all:
@@ -487,31 +556,36 @@ class KnowledgeRetriever:
             else:
                 quality = float(meta.get("quality_score") or 0.5)
             quality = max(0.0, min(1.0, quality)) if quality else 0.5
+
             recency = 0.5
             ref_ts = int(meta.get("date_published") or 0) or int(meta.get("created_at") or 0)
             if ref_ts and ref_ts > 0:
                 age_ms = max(0, now_ms - ref_ts)
                 recency = math.pow(0.5, age_ms / self._RECENCY_HALFLIFE_MS)
+
             hit_score = 0.0
             hit = int(meta.get("search_hit_count") or 0)
             if hit > 0:
                 hit_score = min(1.0, math.log10(hit + 1) / math.log10(1000))
-            boost = (
+
+            attribute_boost = (
                 quality * self._QUALITY_WEIGHT
                 + recency * self._RECENCY_WEIGHT
                 + hit_score * self._HIT_WEIGHT
             )
-            doc_norm_c[did] = min(boost / self._MAX_ATTR_BOOST, 1.0)
+            doc_norm_c[did] = min(attribute_boost / self._MAX_ATTR_BOOST, 1.0)
 
-        # ── 6. 计算 finalScore ──
+        # ── 6. 三维度加权合并 + 映射到 [threshold, 1]（对齐 data-process） ──
         for c in chunks:
             did = c.document_id or ""
             na = doc_norm_a.get(did, 0.0)
             nb = doc_norm_b.get(did, 0.0)
             nc = doc_norm_c.get(did, 0.0)
-            c.score = round(
-                self._ALPHA * na + self._BETA * nb + self._GAMMA * nc, 4,
-            )
+            # rawScore ∈ [0, 1]
+            raw_score = self._ALPHA * na + self._BETA * nb + self._GAMMA * nc
+            # 映射到 [threshold, 1.0]，与 data-process 对齐
+            final_score = raw_score * (1.0 - threshold) + threshold
+            c.score = round(final_score, 4)
 
         # ── 7. threshold 过滤 + 排序 + top_k ──
         if threshold > 0:
@@ -746,6 +820,55 @@ class KnowledgeRetriever:
             else:
                 parts.append(f'{col} = "{self._escape(val)}"')
         return " and ".join(parts)
+
+    def _build_chunk_filter_with_doc_ids(
+        self, knowledge_base_id: int | None, doc_ids: list[str],
+    ) -> str:
+        """构建定向召回的 filter：限定在指定文档 ID 范围内（对齐 data-process Phase 2）
+
+        不带元数据 filter（因为已经通过 doc_ids 间接过滤了），
+        只限定 kb_id + status + doc_id in [...]。
+        """
+        parts: list[str] = []
+        if knowledge_base_id:
+            parts.append(f'knowledge_base_id = "{knowledge_base_id}"')
+        parts.append('status = "active"')
+        if doc_ids:
+            ors = " or ".join(f'doc_id = "{self._escape(did)}"' for did in doc_ids)
+            parts.append(f"({ors})")
+        return " and ".join(parts)
+
+    @staticmethod
+    def _merge_chunk_results(
+        global_results: list[dict], targeted_results: list[dict],
+    ) -> list[dict]:
+        """合并去重全局召回和定向召回的切片结果（对齐 data-process mergeSegments）
+
+        去重策略：同一 chunk_id 保留 score 更高的那条。
+        合并后按 score 降序排列。
+        """
+        if not targeted_results:
+            return global_results
+        if not global_results:
+            return targeted_results
+
+        merged: dict[str, dict] = {}
+        for r in global_results:
+            cid = r.get("id", "")
+            if cid:
+                merged[cid] = r
+
+        for r in targeted_results:
+            cid = r.get("id", "")
+            if not cid:
+                continue
+            existing = merged.get(cid)
+            if existing is None or float(r.get("score", 0)) > float(existing.get("score", 0)):
+                merged[cid] = r
+
+        result = list(merged.values())
+        result.sort(key=lambda x: float(x.get("score", 0)), reverse=True)
+        return result
 
     @staticmethod
     def _escape(val) -> str:

@@ -164,7 +164,7 @@ class NeoAgentV2Adapter:
                 "extend_params": extend_params or {},
                 "parsed_files": [],
             },
-            "recursion_limit": 100,
+            "recursion_limit": 150,
         }
 
         async for sse_event in stream_agent_response(agent, {"messages": messages}, config):
@@ -310,15 +310,28 @@ async def _apply_query_rewrite(user_input: str, history: list[dict] | None = Non
     from src.core.query_rewriter import get_query_rewriter
     from langchain_core.messages import HumanMessage, AIMessage
 
+    # 首次对话（无历史）直接跳过，不浪费 LLM 调用
+    if not history:
+        if thread_id:
+            from src.middleware.tracing import tracing_middleware
+            tracing_middleware._add_to_thread(
+                thread_id, "query_rewrite", "query_rewrite", 0,
+                {"original_query": user_input[:500], "rewritten_query": "", "changed": False, "source": "entry", "skipped": True},
+                input_data={"original_query": user_input[:500], "source": "entry"},
+                output_data={"rewritten_query": "", "changed": False, "skipped": True},
+                status="skipped",
+                detail="首轮对话，无需改写",
+            )
+        return user_input
+
     history_msgs = []
-    if history:
-        for msg in history:
-            role = msg.get("role", "user")
-            content = msg.get("content", "")
-            if role == "user":
-                history_msgs.append(HumanMessage(content=content))
-            elif role == "assistant":
-                history_msgs.append(AIMessage(content=content))
+    for msg in history:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role == "user":
+            history_msgs.append(HumanMessage(content=content))
+        elif role == "assistant":
+            history_msgs.append(AIMessage(content=content))
 
     rewriter = get_query_rewriter()
     return await rewriter.rewrite(history_msgs, user_input, thread_id=thread_id)

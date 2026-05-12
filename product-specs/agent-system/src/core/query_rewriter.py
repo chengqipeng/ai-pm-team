@@ -108,7 +108,8 @@ class QueryRewriter:
 
         if not self._enabled or not self._llm or not current_query.strip():
             self._record_span(current_query, current_query, False,
-                              (time.monotonic() - start) * 1000, thread_id)
+                              (time.monotonic() - start) * 1000, thread_id,
+                              skipped=True)
             return current_query
 
         # 单轮对话不改写（无历史可参考）
@@ -119,7 +120,8 @@ class QueryRewriter:
         )
         if not has_history:
             self._record_span(current_query, current_query, False,
-                              (time.monotonic() - start) * 1000, thread_id)
+                              (time.monotonic() - start) * 1000, thread_id,
+                              skipped=True)
             return current_query
 
         try:
@@ -137,6 +139,7 @@ class QueryRewriter:
     def _record_span(
         original: str, rewritten: str, changed: bool,
         duration_ms: float, thread_id: str | None,
+        skipped: bool = False,
     ) -> None:
         """向 TracingMiddleware 记录改写 span（可选）
 
@@ -144,23 +147,35 @@ class QueryRewriter:
         """
         try:
             from src.middleware.tracing import tracing_middleware
-            # TracingMiddleware 用 contextvar 获取 thread_id，手动记录时需要伪造上下文
+            status = "skipped" if skipped else "success"
+            detail = "首轮对话，无需改写" if skipped else ""
             if thread_id:
-                from langgraph.config import get_config as _gc
-                # 最佳努力：优先用当前 runtime config；否则直接写入指定 thread_id
                 tracing_middleware._add_to_thread(
                     thread_id, "query_rewrite", "query_rewrite", duration_ms,
                     {
                         "original_query": original[:500],
-                        "rewritten_query": rewritten[:500],
+                        "rewritten_query": rewritten[:500] if not skipped else "",
                         "changed": changed,
                         "source": "entry",
+                        "skipped": skipped,
                     },
+                    input_data={
+                        "original_query": original[:500],
+                        "source": "entry",
+                    },
+                    output_data={
+                        "rewritten_query": rewritten[:500] if not skipped else "",
+                        "changed": changed,
+                        "skipped": skipped,
+                    },
+                    status=status,
+                    detail=detail,
                 )
             else:
                 tracing_middleware.record_query_rewrite(
                     original_query=original, rewritten_query=rewritten,
                     changed=changed, duration_ms=duration_ms,
+                    skipped=skipped,
                 )
         except Exception as e:
             logger.debug("[QueryRewriter] 记录 span 失败（不影响功能）: %s", e)

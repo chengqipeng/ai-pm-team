@@ -375,13 +375,22 @@ class MemoryMiddleware(AgentMiddleware):
             dur = (_time.monotonic() - start) * 1000
             if result.items:
                 logger.info("Extracted %d memory items", len(result.items))
-            # 向 TracingMiddleware 记录 memory_extract span
+            # 向 TracingMiddleware 记录 memory_extract span（使用显式 thread_id，避免异步上下文丢失）
             try:
                 from src.middleware.tracing import tracing_middleware
-                tracing_middleware.record_memory_extract(
-                    duration_ms=dur,
-                    extracted_count=len(result.items) if result else 0,
-                    dimensions=[it.dimension.value for it in result.items] if result else [],
+                tracing_middleware._add_to_thread(
+                    thread_id,
+                    "memory_extract", "memory_extract", dur,
+                    input_data={"source": "agent_response"},
+                    output_data={
+                        "extracted_count": len(result.items) if result else 0,
+                        "dimensions": [it.dimension.value for it in result.items] if result else [],
+                    },
+                    detail=(
+                        f"从 Agent 回复中提取记忆: "
+                        f"{len(result.items) if result else 0} 条 | "
+                        f"维度: {', '.join(it.dimension.value for it in result.items) if result and result.items else '无'}"
+                    ),
                 )
             except Exception as e:
                 logger.debug("Failed to record memory_extract span: %s", e)
@@ -390,6 +399,12 @@ class MemoryMiddleware(AgentMiddleware):
             logger.error("Memory extraction failed: %s", e, exc_info=True)
             try:
                 from src.middleware.tracing import tracing_middleware
-                tracing_middleware.record_memory_extract(duration_ms=dur)
+                tracing_middleware._add_to_thread(
+                    thread_id,
+                    "memory_extract", "memory_extract", dur,
+                    input_data={"source": "agent_response"},
+                    output_data={"extracted_count": 0, "error": str(e)[:200]},
+                    detail=f"记忆提取失败: {str(e)[:100]}",
+                )
             except Exception as e2:
                 logger.debug("Failed to record memory_extract error span: %s", e2)

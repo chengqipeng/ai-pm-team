@@ -161,12 +161,9 @@ class AgentFactory:
             middlewares = self._explicit_middlewares
         else:
             from src.middleware.builder import build_middleware
-            skill_names = [s.name for s in self._skill_registry.list_all()] if self._skill_registry else []
             middlewares = build_middleware(
                 features=self._features,
                 system_prompt=system_prompt,
-                skill_names=skill_names,
-                tool_names=[t.name for t in all_tools],
                 agent_name=agent_name,
                 memory_engine=self._memory_engine,
             )

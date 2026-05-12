@@ -618,6 +618,8 @@ function filterChatList(query) {
 
 // ═══ 新建对话 ═══
 function newChat() {
+  // 清理之前未使用的空对话（标题仍为"新对话"且不是当前对话的）
+  chatHistory = chatHistory.filter(c => c.id === tid || c.title !== '新对话');
   tid = genId();
   localStorage.setItem('deepagent_current_tid', tid);
   hist = [];
@@ -756,17 +758,26 @@ function updatePanelStatus(processing) {
   }
 }
 
-function renderTraceNode(span, idx) {
+function renderTraceNode(span, idx, seqNum) {
   const isComplete = span.status === 'complete';
   const isActive = span.status === 'active';
   const isPending = span.status === 'pending';
 
-  // 步骤编号
-  const stepNum = span.step || (idx + 1);
-  const stepName = span.step_name || span.title || '';
+  // 检测是否为最终回答节点（LLM 最后一轮，不再调用工具）
+  const md = span.metadata || {};
+  const isFinalResponse = (md.is_final === true) || (span.output_data && span.output_data.is_final === true);
+
+  // 步骤编号：使用传入的连续编号
+  const stepNum = seqNum || (idx + 1);
+  let stepName = span.step_name || span.title || '';
   const stepNameEn = span.step_name_en || span.type || '';
   const durationText = span.duration_ms ? `${Math.round(span.duration_ms)}ms` : '';
   const detail = span.detail || span.desc || '';
+
+  // 最终回答节点追加标记
+  if (isFinalResponse) {
+    stepName += ' → 生成回复';
+  }
 
   // ── 根据步骤类型选择样式 ──
   const typeStyles = {
@@ -774,6 +785,7 @@ function renderTraceNode(span, idx) {
     'query_rewrite': { icon: '✏️', color: 'amber', gradient: 'from-amber-500 to-orange-500' },
     'user_input': { icon: '💬', color: 'blue', gradient: 'from-blue-500 to-cyan-500' },
     'context_build': { icon: '🧱', color: 'slate', gradient: 'from-slate-500 to-gray-500' },
+    'middleware': { icon: '⚙️', color: 'gray', gradient: 'from-gray-400 to-slate-400' },
     'memory_retrieval': { icon: '🧠', color: 'pink', gradient: 'from-pink-500 to-rose-500' },
     'intent_analysis': { icon: '🎯', color: 'indigo', gradient: 'from-indigo-500 to-blue-500' },
     'llm_input': { icon: '📥', color: 'sky', gradient: 'from-sky-500 to-blue-500' },
@@ -781,14 +793,16 @@ function renderTraceNode(span, idx) {
     'tool_call': { icon: '🔧', color: 'emerald', gradient: 'from-emerald-500 to-teal-500' },
     'hierarchical_search': { icon: '🔍', color: 'cyan', gradient: 'from-cyan-500 to-blue-500' },
     'memory_extract': { icon: '💾', color: 'rose', gradient: 'from-rose-500 to-pink-500' },
-    'semantic_parse': { icon: '🧩', color: 'orange', gradient: 'from-orange-500 to-amber-500' },
     'response_complete': { icon: '✅', color: 'green', gradient: 'from-green-500 to-emerald-500' },
     'error': { icon: '❌', color: 'red', gradient: 'from-red-500 to-rose-500' },
   };
   const style = typeStyles[stepNameEn] || typeStyles[span.step_name_en] || { icon: '📌', color: 'gray', gradient: 'from-gray-500 to-slate-500' };
 
   // 状态指示
-  const statusDot = isActive
+  const isSkipped = span.status === 'skipped';
+  const statusDot = isSkipped
+    ? `<span class="w-2 h-2 bg-gray-400 rounded-full ring-2 ring-gray-200"></span>`
+    : isActive
     ? `<span class="w-2 h-2 bg-blue-500 rounded-full animate-pulse-slow ring-4 ring-blue-100"></span>`
     : isComplete
     ? `<span class="w-2 h-2 bg-green-500 rounded-full ring-2 ring-green-100"></span>`
@@ -799,6 +813,9 @@ function renderTraceNode(span, idx) {
   const hasOutputData = span.output_data && Object.keys(span.output_data).length > 0;
   const hasLegacyInput = !hasInputData && span.input != null && span.input !== '';
   const hasLegacyOutput = !hasOutputData && span.output != null && span.output !== '';
+  // 从 metadata 中提取输入输出（兜底）— md 已在函数顶部声明
+  const hasMetaInput = !hasInputData && !hasLegacyInput && (md.input || md.query_used || md.tool_name || md.original_query || md.messages_to_llm);
+  const hasMetaOutput = !hasOutputData && !hasLegacyOutput && (md.output || md.hit_count != null || md.task_type || md.rewritten_query || md.output_tokens);
 
   // 子节点
   let childrenHtml = '';
@@ -818,12 +835,21 @@ function renderTraceNode(span, idx) {
 
   // 输入参数
   let inputHtml = '';
-  const inputVal = hasInputData ? span.input_data : (hasLegacyInput ? span.input : null);
+  let inputVal = hasInputData ? span.input_data : (hasLegacyInput ? span.input : null);
+  if (!inputVal && hasMetaInput) {
+    // 从 metadata 构造输入数据
+    inputVal = {};
+    if (md.query_used) inputVal.query = md.query_used;
+    if (md.original_query) inputVal.original_query = md.original_query;
+    if (md.tool_name) inputVal.tool_name = md.tool_name;
+    if (md.input) inputVal.arguments = md.input;
+    if (md.messages_to_llm) inputVal.messages = md.messages_to_llm;
+  }
   if (inputVal) {
     inputHtml = `
       <details class="text-[10px] mt-1.5">
         <summary class="cursor-pointer text-gray-400 hover:text-blue-600 font-medium flex items-center gap-1 transition-colors">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="group-open:rotate-90 transition-transform"><polyline points="9 18 15 12 9 6"/></svg>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
           输入参数
         </summary>
         <pre class="mt-1 bg-slate-50 border border-slate-100 rounded-lg p-2.5 overflow-x-auto text-slate-700 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto text-[10px] custom-scrollbar leading-relaxed">${esc(formatDetailValue(inputVal))}</pre>
@@ -832,7 +858,18 @@ function renderTraceNode(span, idx) {
 
   // 输出结果
   let outputHtml = '';
-  const outputVal = hasOutputData ? span.output_data : (hasLegacyOutput ? span.output : null);
+  let outputVal = hasOutputData ? span.output_data : (hasLegacyOutput ? span.output : null);
+  if (!outputVal && hasMetaOutput) {
+    // 从 metadata 构造输出数据
+    outputVal = {};
+    if (md.output) outputVal.result = md.output;
+    if (md.hit_count != null) outputVal.hit_count = md.hit_count;
+    if (md.task_type) outputVal.task_type = md.task_type;
+    if (md.rewritten_query) outputVal.rewritten_query = md.rewritten_query;
+    if (md.output_tokens) outputVal.output_tokens = md.output_tokens;
+    if (md.tool_calls) outputVal.tool_calls = md.tool_calls;
+    if (md.matched_skills) outputVal.matched_skills = md.matched_skills;
+  }
   if (outputVal) {
     outputHtml = `
       <details class="text-[10px] mt-1.5">
@@ -844,10 +881,18 @@ function renderTraceNode(span, idx) {
       </details>`;
   }
 
+  // 最终回答节点的特殊样式
+  const finalBadge = isFinalResponse
+    ? '<span class="text-[8px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded-full ml-1">FINAL</span>'
+    : '';
+  const skippedBadge = isSkipped
+    ? '<span class="text-[8px] bg-gray-100 text-gray-500 font-bold px-1.5 py-0.5 rounded-full ml-1">SKIPPED</span>'
+    : '';
+
   return `
     <details class="mb-1.5 group trace-node" ${isActive ? 'open' : ''}>
       <summary class="cursor-pointer rounded-xl px-3 py-2.5 flex items-center gap-3 transition-all list-none
-        ${isActive ? 'bg-blue-50/80 border border-blue-200 shadow-sm' : 'bg-white/80 border border-gray-100 hover:border-gray-200 hover:shadow-sm'}">
+        ${isFinalResponse ? 'bg-green-50/80 border border-green-200 shadow-sm' : isActive ? 'bg-blue-50/80 border border-blue-200 shadow-sm' : 'bg-white/80 border border-gray-100 hover:border-gray-200 hover:shadow-sm'}">
         <!-- 左侧：序号徽章 -->
         <div class="w-7 h-7 bg-gradient-to-br ${style.gradient} rounded-lg flex items-center justify-center text-white text-[10px] font-bold shadow-sm shrink-0">
           ${stepNum}
@@ -856,6 +901,8 @@ function renderTraceNode(span, idx) {
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2">
             <span class="text-[12px] font-semibold text-gray-800">${esc(stepName)}</span>
+            ${finalBadge}
+            ${skippedBadge}
             ${statusDot}
           </div>
           <div class="flex items-center gap-2 mt-0.5">
@@ -951,7 +998,82 @@ function _renderToolCallInfo(span) {
 
 function refreshTrace() {
   const el = document.getElementById('traceContent');
-  el.innerHTML = liveSpans.map((s, i) => renderTraceNode(s, i)).join('');
+
+  // ── 阶段定义（用于在阶段切换时插入分隔标题） ──
+  const PHASE_MAP = {
+    'content_review': { id: 'entry', label: '入口预处理', labelEn: 'Preprocessing', icon: '🚀' },
+    'content_review_input': { id: 'entry', label: '入口预处理', labelEn: 'Preprocessing', icon: '🚀' },
+    'content_review_output': { id: 'entry', label: '入口预处理', labelEn: 'Preprocessing', icon: '🚀' },
+    'query_rewrite': { id: 'entry', label: '入口预处理', labelEn: 'Preprocessing', icon: '🚀' },
+    'context_build': { id: 'context', label: '上下文准备', labelEn: 'Context Build', icon: '📦' },
+    'memory_retrieval': { id: 'context', label: '上下文准备', labelEn: 'Context Build', icon: '📦' },
+    'user_input': { id: 'context', label: '上下文准备', labelEn: 'Context Build', icon: '📦' },
+    'middleware': { id: 'context', label: '上下文准备', labelEn: 'Context Build', icon: '📦' },
+    'intent_analysis': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
+    'llm_input': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
+    'llm_call': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
+    'tool_call': { id: 'execution', label: '执行阶段', labelEn: 'Tool Execution', icon: '🔧' },
+    'hierarchical_search': { id: 'execution', label: '执行阶段', labelEn: 'Tool Execution', icon: '🔧' },
+    'error': { id: 'execution', label: '执行阶段', labelEn: 'Tool Execution', icon: '🔧' },
+    'memory_extract': { id: 'post', label: '后处理', labelEn: 'Post Process', icon: '💾' },
+    'response_complete': { id: 'post', label: '后处理', labelEn: 'Post Process', icon: '💾' },
+  };
+
+  function getPhase(span) {
+    const typeKey = span.step_name_en || span.type || '';
+    const typeKey2 = span.type || '';
+    // 中间件 span 根据 metadata.phase 判断
+    if (typeKey === 'middleware' || typeKey2 === 'middleware') {
+      const mwPhase = (span.metadata && span.metadata.phase) || '';
+      if (mwPhase === 'after_agent') return { id: 'post', label: '后处理', labelEn: 'Post Process', icon: '💾' };
+      return PHASE_MAP['middleware'];
+    }
+    return PHASE_MAP[typeKey] || PHASE_MAP[typeKey2] || null;
+  }
+
+  // 严格按到达顺序渲染，在阶段切换时插入分隔标题
+  let html = '';
+  let seqNum = 0;
+  let currentPhaseId = null;
+
+  for (const s of liveSpans) {
+    const phase = getPhase(s);
+    const phaseId = phase ? phase.id : '__unknown__';
+
+    // 阶段切换时插入分隔标题
+    if (phaseId !== currentPhaseId) {
+      // 关闭上一个阶段的容器
+      if (currentPhaseId !== null) {
+        html += '</div></div>';
+      }
+      currentPhaseId = phaseId;
+
+      // 计算该阶段后续 spans 的状态
+      const phaseLabel = phase ? phase.label : '其他';
+      const phaseLabelEn = phase ? phase.labelEn : '';
+      const phaseIcon = phase ? phase.icon : '📌';
+
+      html += `
+        <div class="mb-3">
+          <div class="flex items-center gap-2 px-2 py-1.5 mb-1">
+            <span class="text-[11px]">${phaseIcon}</span>
+            <span class="text-[10px] font-bold text-gray-500 tracking-wider">${phaseLabel}</span>
+            <span class="text-[9px] text-gray-300 font-mono">${phaseLabelEn}</span>
+            <div class="flex-1 h-px bg-gray-100 ml-2"></div>
+          </div>
+          <div class="space-y-1 pl-1">`;
+    }
+
+    seqNum++;
+    html += renderTraceNode(s, seqNum - 1, seqNum);
+  }
+
+  // 关闭最后一个阶段容器
+  if (currentPhaseId !== null) {
+    html += '</div></div>';
+  }
+
+  el.innerHTML = html;
 }
 
 // ═══ 文件上下文渲染 ═══
@@ -1158,6 +1280,7 @@ const SPAN_LABELS = {
   query_rewrite: '查询改写',
   user_input: '用户输入',
   context_build: '上下文构建',
+  middleware: '中间件',
   memory_retrieval: '记忆检索',
   intent_analysis: '意图分析',
   llm_input: 'LLM 输入准备',
@@ -1165,7 +1288,6 @@ const SPAN_LABELS = {
   tool_call: '工具调用',
   hierarchical_search: '分层检索',
   memory_extract: '记忆提取',
-  semantic_parse: '语义解析',
   response_complete: '回复完成',
   error: '执行错误',
 };
@@ -1204,14 +1326,19 @@ async function send() {
   stepsContainer = null;
   updatePanelStatus(true);
 
-  // 添加初始语义解析 span
-  const nowTime = new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8);
-  addLiveSpan({ status: 'active', icon: getSpanIcon('intent_analysis'), title: '语义解析', step: 0, step_name: '语义解析', step_name_en: 'semantic_parse', detail: '正在分析用户意图...', desc: '正在分析用户意图...', time: nowTime, children: [], input_data: { user_message: text }, output_data: {} });
-  refreshTrace();
+  // 显示轻量处理中指示器（不占编号位，收到第一个 mw_span 后自动移除）
+  document.getElementById('traceContent').innerHTML = `
+    <div id="trace-loading-indicator" class="flex items-center gap-3 px-4 py-3 bg-blue-50/60 border border-blue-100 rounded-xl animate-fade-in">
+      <div class="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+      <div>
+        <div class="text-[11px] font-semibold text-blue-700">正在处理请求...</div>
+        <div class="text-[9px] text-blue-400 mt-0.5">内容审查 → 查询改写 → 上下文准备</div>
+      </div>
+    </div>`;
 
   // 创建步骤容器
   createStepsContainer();
-  const parseStepId = addStep('语义解析...', 'run');
+  const parseStepId = addStep('处理中...', 'run');
 
   // 跟踪当前 LLM/Tool 状态
   let currentLlmStepId = null;
@@ -1223,10 +1350,12 @@ async function send() {
 
   // 调用 API
   try {
+    const historyToSend = hist.slice(0, -1).slice(-10);
+    console.log('[send] tid=%s, hist.length=%d, historyToSend.length=%d', tid, hist.length, historyToSend.length);
     const r = await fetch(API + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, thread_id: tid, user_id: userId, history: hist.slice(-10) })
+      body: JSON.stringify({ message: text, thread_id: tid, user_id: userId, history: historyToSend })
     });
 
     if (!r.ok) throw new Error('API error: ' + r.status);
@@ -1259,10 +1388,10 @@ async function send() {
               const spanName = sp.name || getSpanLabel(spanType);
               const meta = sp.metadata || {};
 
-              // 完成语义解析 span（首次收到 mw_span 时）
-              if (liveSpans.length === 1 && liveSpans[0].status === 'active') {
-                liveSpans[0].status = 'complete';
-                liveSpans[0].desc = '意图识别完成';
+              // 首次收到 mw_span 时：移除 loading 指示器，更新左侧步骤
+              const loadingEl = document.getElementById('trace-loading-indicator');
+              if (loadingEl) {
+                loadingEl.remove();
                 updateStep(parseStepId, 'done');
               }
 
@@ -1284,19 +1413,19 @@ async function send() {
 
               // 添加到右侧面板（使用新的 PipelineNode 格式）
               addLiveSpan({
-                status: 'complete',
+                status: sp.status || 'complete',
+                type: spanType,
                 icon: getSpanIcon(spanType),
                 title: spanName,
-                // 新增：对齐检索链路详情的字段
-                step: sp.step || 0,
                 step_name: sp.step_name || getSpanLabel(spanType),
                 step_name_en: sp.step_name_en || spanType,
+                phase: sp.phase || '',
                 detail: sp.detail || (meta.query_used ? `查询: "${truncStr(meta.query_used, 50)}"` : (sp.description || '')),
                 input_data: sp.input_data || {},
                 output_data: sp.output_data || {},
                 duration_ms: sp.duration_ms || 0,
                 desc: sp.detail || (meta.query_used ? `查询: "${truncStr(meta.query_used, 30)}"` : (sp.description || '')),
-                time: nowTime,
+                time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
                 children: children,
                 input: sp.input_data || meta.input || '',
                 output: sp.output_data || meta.output || '',
@@ -1316,9 +1445,9 @@ async function send() {
                 status: 'active',
                 icon: getSpanIcon('llm_call'),
                 title: title,
-                step: 0,
                 step_name: `模型推理 (第${iterCount}轮)`,
                 step_name_en: 'llm_call',
+                phase: 'reasoning',
                 detail: '模型推理中...',
                 desc: '模型推理中...',
                 time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
@@ -1388,9 +1517,9 @@ async function send() {
                 status: 'active',
                 icon: getSpanIcon('tool_call'),
                 title: `工具: ${displayName}`,
-                step: 0,
                 step_name: `工具调用: ${displayName}`,
                 step_name_en: 'tool_call',
+                phase: 'execution',
                 detail: evt.input ? `参数: ${truncStr(evt.input, 80)}` : '执行中...',
                 desc: evt.input ? truncStr(evt.input, 50) : '执行中...',
                 time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
@@ -1492,9 +1621,9 @@ async function send() {
                 status: 'complete',
                 icon: getSpanIcon('error'),
                 title: '错误',
-                step: 0,
                 step_name: '执行错误',
                 step_name_en: 'error',
+                phase: 'execution',
                 detail: evt.content || '未知错误',
                 desc: evt.content || '未知错误',
                 time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
@@ -1550,9 +1679,9 @@ async function send() {
         liveSpans = data.trace.spans.map((s, idx) => ({
           status: 'complete',
           title: s.name || getSpanLabel(s.type),
-          step: s.step || (idx + 1),
           step_name: s.step_name || getSpanLabel(s.type),
           step_name_en: s.step_name_en || s.type || '',
+          phase: s.phase || '',
           detail: s.detail || s.description || '',
           desc: s.detail || s.description || '',
           duration_ms: s.duration_ms || 0,
@@ -1576,9 +1705,9 @@ async function send() {
       status: 'complete',
       icon: getSpanIcon('done'),
       title: '回复完成',
-      step: 99,
       step_name: '回复完成',
       step_name_en: 'response_complete',
+      phase: 'post',
       detail: '已生成最终回复',
       desc: '已生成最终回复',
       time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
@@ -1589,6 +1718,22 @@ async function send() {
     refreshTrace();
     updatePanelStatus(false);
     addStep('回复完成 ✓', 'done');
+
+    // 首次对话：延迟刷新标题（TitleMiddleware 异步生成）
+    if (hist.filter(h => h.role === 'user').length <= 1) {
+      setTimeout(async () => {
+        try {
+          const r = await (await fetch(API + '/api/conversations?limit=5')).json();
+          const conv = (r.conversations || []).find(c => c.thread_id === tid);
+          if (conv && conv.title && conv.title !== '新对话' && conv.title !== '对话') {
+            document.getElementById('headerTitle').textContent = conv.title;
+            const c = chatHistory.find(c => c.id === tid);
+            if (c) c.title = conv.title;
+            renderChatList();
+          }
+        } catch(e) {}
+      }, 3000);
+    }
 
   } catch(e) {
     addAIBubble('抱歉，请求出错了：' + e.message);
@@ -1682,9 +1827,9 @@ function renderHistoricalTrace(spans) {
     const startTime = s.start_time ? new Date(s.start_time * 1000).toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8) : '';
 
     // 使用后端传来的结构化字段（新格式），兼容旧格式
-    let stepName = s.step_name || getSpanLabel(s.type);
-    const stepNameEn = s.step_name_en || s.type || '';
-    const detail = s.detail || (md.query_used ? `查询: "${truncStr(md.query_used, 50)}"` : (s.duration_ms ? `完成 (${Math.round(s.duration_ms)}ms)` : ''));
+    let stepName = s.step_name || md.step_name || getSpanLabel(s.type);
+    const stepNameEn = s.step_name_en || md.step_name_en || s.type || '';
+    const detail = s.detail || md.detail || (md.query_used ? `查询: "${truncStr(md.query_used, 50)}"` : (s.duration_ms ? `完成 (${Math.round(s.duration_ms)}ms)` : ''));
 
     // 对 tool_call 类型，补充具体工具名称
     if (s.type === 'tool_call') {
@@ -1700,12 +1845,16 @@ function renderHistoricalTrace(spans) {
     if (typeof inD === 'object' && !Array.isArray(inD) && Object.keys(inD).length > 0) {
       inputData = inD;
     } else {
-      // 旧格式兼容
+      // 旧格式兼容：从 metadata 中提取
       if (s.type === 'query_rewrite') inputData = { original_query: md.original_query || '' };
-      else if (s.type === 'memory_retrieval') inputData = { query: md.query_used || '' };
+      else if (s.type === 'memory_retrieval') inputData = { query: md.query_used || '', dimensions: md.dimensions || [] };
       else if (s.type === 'intent_analysis') inputData = { raw_intent: md.raw_intent || '' };
       else if (s.type === 'tool_call') inputData = { tool_name: md.tool_name || '', arguments: md.input || '' };
       else if (s.type === 'llm_input') inputData = { messages_to_llm: md.messages_to_llm || '' };
+      else if (s.type === 'content_review') inputData = { direction: md.direction || 'input', review_type: 'toxicity + keyword' };
+      else if (s.type === 'memory_extract') inputData = { source: 'agent_response' };
+      else if (s.type === 'context_build') inputData = { message_count: md.message_count || 0 };
+      else if (s.type === 'hierarchical_search') inputData = { search_type: md.search_type || '' };
     }
     if (typeof outD === 'object' && !Array.isArray(outD) && Object.keys(outD).length > 0) {
       outputData = outD;
@@ -1714,15 +1863,19 @@ function renderHistoricalTrace(spans) {
       else if (s.type === 'memory_retrieval') outputData = { hit_count: md.hit_count || 0, items_preview: md.items_preview || [] };
       else if (s.type === 'intent_analysis') outputData = { task_type: md.task_type || '', matched_skills: md.matched_skills || [], confidence: md.confidence };
       else if (s.type === 'tool_call') outputData = { result: md.output || '', status: md.status || 'success' };
+      else if (s.type === 'content_review') outputData = { passed: md.passed, blocked_keywords: md.blocked_keywords || [], blocked_reason: md.blocked_reason || '' };
+      else if (s.type === 'memory_extract') outputData = { extracted_count: md.extracted_count || 0, dimensions: md.dimensions || [] };
+      else if (s.type === 'context_build') outputData = { estimated_tokens: md.estimated_tokens || 0, message_count: md.message_count || 0 };
+      else if (s.type === 'hierarchical_search') outputData = { hit_count: md.hit_count || 0 };
     }
 
     return {
       status: 'complete',
       icon: getSpanIcon(s.type),
       title: s.name || getSpanLabel(s.type),
-      step: s.step || (idx + 1),
       step_name: stepName,
       step_name_en: stepNameEn,
+      phase: s.phase || '',
       detail: detail,
       desc: detail,
       duration_ms: s.duration_ms || 0,

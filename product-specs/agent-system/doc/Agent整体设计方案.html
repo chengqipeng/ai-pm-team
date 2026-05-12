@@ -1,0 +1,3425 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NeoAgent2.0 整体设计方案</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --text: #1a1a2e;
+  --heading: #16213e;
+  --accent: #0f3460;
+  --border: #e0e0e0;
+  --code-bg: #f5f5f5;
+  --table-header: #f0f4f8;
+  --table-border: #d0d7de;
+  --link: #0969da;
+  --blockquote-bg: #f6f8fa;
+  --blockquote-border: #d0d7de;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  line-height: 1.75;
+  color: var(--text);
+  background: var(--bg);
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+  font-size: 15px;
+}
+
+h1 {
+  font-size: 2em;
+  color: var(--heading);
+  border-bottom: 3px solid var(--accent);
+  padding-bottom: 12px;
+  margin-top: 48px;
+}
+
+h2 {
+  font-size: 1.5em;
+  color: var(--heading);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+  margin-top: 48px;
+}
+
+h3 {
+  font-size: 1.25em;
+  color: var(--heading);
+  margin-top: 32px;
+}
+
+h4 {
+  font-size: 1.1em;
+  color: var(--heading);
+  margin-top: 24px;
+}
+
+h5, h6 {
+  font-size: 1em;
+  color: var(--heading);
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+p {
+  margin: 12px 0;
+}
+
+blockquote {
+  background: var(--blockquote-bg);
+  border-left: 4px solid var(--blockquote-border);
+  margin: 16px 0;
+  padding: 12px 20px;
+  color: #57606a;
+}
+
+blockquote p {
+  margin: 4px 0;
+}
+
+code {
+  font-family: "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  background: var(--code-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+pre {
+  background: #1e1e2e;
+  color: #cdd6f4;
+  padding: 20px;
+  border-radius: 8px;
+  overflow-x: auto;
+  line-height: 1.5;
+  margin: 16px 0;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.85em;
+  color: inherit;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 0.92em;
+}
+
+thead {
+  background: var(--table-header);
+}
+
+th, td {
+  border: 1px solid var(--table-border);
+  padding: 10px 14px;
+  text-align: left;
+}
+
+th {
+  font-weight: 600;
+  color: var(--heading);
+}
+
+tr:nth-child(even) {
+  background: #f9fafb;
+}
+
+ul, ol {
+  padding-left: 24px;
+  margin: 8px 0;
+}
+
+li {
+  margin: 4px 0;
+}
+
+hr {
+  border: none;
+  border-top: 2px solid var(--border);
+  margin: 40px 0;
+}
+
+strong {
+  color: var(--heading);
+}
+
+.headerlink {
+  font-size: 0.8em;
+  margin-left: 6px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+h1:hover .headerlink,
+h2:hover .headerlink,
+h3:hover .headerlink,
+h4:hover .headerlink {
+  opacity: 0.5;
+}
+
+.toc {
+  background: var(--blockquote-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px 24px;
+  margin: 24px 0;
+}
+
+.toc ul {
+  list-style: none;
+  padding-left: 16px;
+}
+
+.toc > ul {
+  padding-left: 0;
+}
+
+.toc li {
+  margin: 4px 0;
+}
+
+@media print {
+  body {
+    max-width: 100%;
+    padding: 20px;
+    font-size: 12px;
+  }
+  pre {
+    background: #f5f5f5 !important;
+    color: #333 !important;
+    border: 1px solid #ddd;
+  }
+  h1, h2, h3 {
+    page-break-after: avoid;
+  }
+  table {
+    page-break-inside: avoid;
+  }
+}
+
+@media (max-width: 768px) {
+  body {
+    padding: 20px 16px;
+    font-size: 14px;
+  }
+  table {
+    display: block;
+    overflow-x: auto;
+  }
+  pre {
+    padding: 12px;
+  }
+}
+</style>
+</head>
+<body>
+<h1 id="neoagent20">NeoAgent2.0 整体设计方案<a class="headerlink" href="#neoagent20" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>面向 2B CRM SaaS 的企业级 Agent 系统完整设计。<br />
+融合 Claude Code + NeoAgents + OpenViking/Hermes 四大体系精华。<br />
+本文档是系统全貌概览，各子系统详细设计见独立文档（记忆 / 上下文压缩 / 内容审查 / 协议 / 数据库表 等）。</p>
+</blockquote>
+<hr />
+<h2 id="_1">一、系统定位与设计目标<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
+<h3 id="11">1.1 产品定位<a class="headerlink" href="#11" title="Permanent link">&para;</a></h3>
+<p>NeoAgent2.0 是面向 2B CRM SaaS 场景的智能 Agent 系统，在 aPaaS 元数据驱动平台上提供四大核心能力：</p>
+<ul>
+<li><strong>理解业务</strong> — 基于元数据驱动的 aPaaS 平台，Agent 感知业务对象（客户 / 商机 / 联系人 / 合同 等）的完整 Schema、字段、关联关系与权限</li>
+<li><strong>多模态理解</strong> — 原生支持图片、文档（PDF / Word / Excel / PPT）、语音转写、AI 生图等多模态输入与输出</li>
+<li><strong>记住用户</strong> — 长期记忆系统按 <strong>4 类</strong>持续沉淀用户与业务洞察（均由 LLM 从用户对话中提取）：</li>
+<li><code>profile</code> — 用户身份、角色、背景</li>
+<li><code>preferences</code> — 用户偏好与习惯（按语义 slug 拆分）</li>
+<li><code>agent_rules</code> — 用户对 Agent 的角色定义与行为准则</li>
+<li><code>entities</code> — 客户 / 联系人 / 商机 / 合同等第三方实体的信息与洞察</li>
+<li><strong>执行任务</strong> — 通过 Tool + Skill + Plugin 三层能力体系完成查询、分析、修改、配置、通知等任务</li>
+<li><strong>开放协议</strong> — 通过 <strong>AG-UI</strong>（Agent ↔ UI 事件协议）和 <strong>A2UI</strong>（Agent-to-UI 动态组件协议）让前端实时感知 Agent 执行、按需渲染专用业务组件</li>
+<li><strong>持续进化</strong> — 反思 + 遗忘机制保证记忆质量；工具与技能的执行统计沉淀在独立的指标存储中（非记忆体系），通过 SkillTracker / SkillOptimizer 驱动技能迭代</li>
+</ul>
+<h3 id="12">1.2 设计目标<a class="headerlink" href="#12" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">目标维度</th>
+<th style="text-align: left;">具体指标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">多租户隔离</td>
+<td style="text-align: left;">租户间数据、记忆、配置、工具开关完全隔离</td>
+</tr>
+<tr>
+<td style="text-align: left;">多模态</td>
+<td style="text-align: left;">原生支持图片 / 文档 / 语音，使用多模态 LLM 理解视觉信息</td>
+</tr>
+<tr>
+<td style="text-align: left;">协议开放</td>
+<td style="text-align: left;">基于 AG-UI 标准事件流 + A2UI 动态组件协议，第三方前端可零代码对接</td>
+</tr>
+<tr>
+<td style="text-align: left;">上下文效率</td>
+<td style="text-align: left;">单轮对话上下文占用 &lt; 30% 窗口（64K–200K tokens）</td>
+</tr>
+<tr>
+<td style="text-align: left;">响应延迟</td>
+<td style="text-align: left;">首 token P95 &lt; 3s，完整回复 P95 &lt; 15s</td>
+</tr>
+<tr>
+<td style="text-align: left;">记忆精度</td>
+<td style="text-align: left;">记忆检索 Top-5 命中率 &gt; 80%</td>
+</tr>
+<tr>
+<td style="text-align: left;">可扩展性</td>
+<td style="text-align: left;">新增 Tool / Skill / Plugin 无需修改框架代码</td>
+</tr>
+<tr>
+<td style="text-align: left;">容错恢复</td>
+<td style="text-align: left;">支持检查点恢复，LLM/工具失败按级别分级处理（16 级错误体系）</td>
+</tr>
+<tr>
+<td style="text-align: left;">安全合规</td>
+<td style="text-align: left;">输入输出内容审查 + 危险操作 HITL 审批 + 完整审计日志</td>
+</tr>
+</tbody>
+</table>
+<h3 id="13">1.3 技术栈<a class="headerlink" href="#13" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">层级</th>
+<th style="text-align: left;">选型</th>
+<th style="text-align: left;">说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">语言</td>
+<td style="text-align: left;">Python 3.11+</td>
+<td style="text-align: left;">Agent 运行时</td>
+</tr>
+<tr>
+<td style="text-align: left;">LLM（多厂商）</td>
+<td style="text-align: left;">豆包（Doubao）/ DeepSeek / OpenAI / Anthropic Claude / 通义千问（Qwen）/ 月之暗面（Kimi）/ 智谱（GLM）/ 文心一言 / Gemini 等</td>
+<td style="text-align: left;">主模型 + 辅助模型路由（见下表）</td>
+</tr>
+<tr>
+<td style="text-align: left;">多模态模型</td>
+<td style="text-align: left;">字节跳动豆包 / OpenAI / Anthropic / Google / 阿里 通义千问 / 智谱 等视觉模型</td>
+<td style="text-align: left;">图片理解、视觉推理</td>
+</tr>
+<tr>
+<td style="text-align: left;">模型接入协议</td>
+<td style="text-align: left;">OpenAI 兼容 API（首选）+ Anthropic 原生 API + 自定义 Adapter</td>
+<td style="text-align: left;">多厂商统一接入</td>
+</tr>
+<tr>
+<td style="text-align: left;">向量库</td>
+<td style="text-align: left;">腾讯云向量数据库（tcvectordb）</td>
+<td style="text-align: left;">记忆检索索引，原生 filter + BM25 混合检索</td>
+</tr>
+<tr>
+<td style="text-align: left;">关系库</td>
+<td style="text-align: left;">PostgreSQL</td>
+<td style="text-align: left;">记忆权威数据源、审计日志、追踪、会话、配置</td>
+</tr>
+<tr>
+<td style="text-align: left;">图片存储</td>
+<td style="text-align: left;">对象存储（COS / OSS）</td>
+<td style="text-align: left;">图片、生成图、Artifact 二进制</td>
+</tr>
+<tr>
+<td style="text-align: left;">API 框架</td>
+<td style="text-align: left;">FastAPI + SSE</td>
+<td style="text-align: left;">流式对话接口（含多模态消息流）</td>
+</tr>
+<tr>
+<td style="text-align: left;">前端协议</td>
+<td style="text-align: left;">AG-UI（事件流）+ A2UI（动态组件）</td>
+<td style="text-align: left;">Agent ↔ 前端标准交互协议</td>
+</tr>
+<tr>
+<td style="text-align: left;">缓存 / 检查点</td>
+<td style="text-align: left;">Redis</td>
+<td style="text-align: left;">会话状态、检查点持久化、sessionSummary</td>
+</tr>
+</tbody>
+</table>
+<h4 id="131-llm">1.3.1 LLM 多厂商支持<a class="headerlink" href="#131-llm" title="Permanent link">&para;</a></h4>
+<p>Agent 通过 <code>llm-plugin</code> 统一接入多家 LLM 厂商，租户可按需配置主模型与辅助模型：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">厂商</th>
+<th style="text-align: left;">接入方式</th>
+<th style="text-align: left;">典型场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">字节跳动 豆包</td>
+<td style="text-align: left;">OpenAI 兼容（Volces Ark）</td>
+<td style="text-align: left;"><strong>默认主模型</strong>，覆盖主对话 / 辅助 / 多模态 / 代码 / 嵌入全档位</td>
+</tr>
+<tr>
+<td style="text-align: left;">DeepSeek</td>
+<td style="text-align: left;">OpenAI 兼容</td>
+<td style="text-align: left;">性价比主力、深度推理</td>
+</tr>
+<tr>
+<td style="text-align: left;">OpenAI</td>
+<td style="text-align: left;">原生 API</td>
+<td style="text-align: left;">旗舰主对话、多模态、深度推理</td>
+</tr>
+<tr>
+<td style="text-align: left;">Anthropic</td>
+<td style="text-align: left;">原生 API</td>
+<td style="text-align: left;">长上下文、代码生成、工具调用稳健</td>
+</tr>
+<tr>
+<td style="text-align: left;">阿里 通义千问</td>
+<td style="text-align: left;">OpenAI 兼容（DashScope）</td>
+<td style="text-align: left;">中文场景、多模态</td>
+</tr>
+<tr>
+<td style="text-align: left;">月之暗面 Kimi</td>
+<td style="text-align: left;">OpenAI 兼容</td>
+<td style="text-align: left;">超长上下文</td>
+</tr>
+<tr>
+<td style="text-align: left;">智谱</td>
+<td style="text-align: left;">OpenAI 兼容</td>
+<td style="text-align: left;">中文 + 多模态</td>
+</tr>
+<tr>
+<td style="text-align: left;">百度 文心</td>
+<td style="text-align: left;">OpenAI 兼容（千帆）</td>
+<td style="text-align: left;">中文场景</td>
+</tr>
+<tr>
+<td style="text-align: left;">Google</td>
+<td style="text-align: left;">原生 API</td>
+<td style="text-align: left;">多模态、超长上下文</td>
+</tr>
+<tr>
+<td style="text-align: left;">自部署（Llama / Qwen / DeepSeek 等）</td>
+<td style="text-align: left;">OpenAI 兼容（vLLM / Ollama）</td>
+<td style="text-align: left;">私有化部署、数据合规</td>
+</tr>
+</tbody>
+</table>
+<p><strong>多模型路由策略</strong>（ModelRouter）：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">任务类型</th>
+<th style="text-align: left;">推荐档位</th>
+<th style="text-align: left;">理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">主对话（规划 / 执行 / 推理）</td>
+<td style="text-align: left;">旗舰级主模型</td>
+<td style="text-align: left;">工具调用稳定、长上下文</td>
+</tr>
+<tr>
+<td style="text-align: left;">辅助（记忆提取 / 摘要 / 分类 / 标题生成）</td>
+<td style="text-align: left;">低成本小模型</td>
+<td style="text-align: left;">成本敏感，任务简单</td>
+</tr>
+<tr>
+<td style="text-align: left;">深度推理（复杂分析 / 反思）</td>
+<td style="text-align: left;">推理专用模型</td>
+<td style="text-align: left;">多步推理</td>
+</tr>
+<tr>
+<td style="text-align: left;">多模态（看图 / 读扫描件）</td>
+<td style="text-align: left;">视觉多模态模型（VLM）</td>
+<td style="text-align: left;">视觉理解</td>
+</tr>
+<tr>
+<td style="text-align: left;">代码生成</td>
+<td style="text-align: left;">代码专长模型</td>
+<td style="text-align: left;">代码质量</td>
+</tr>
+<tr>
+<td style="text-align: left;">嵌入（Embedding）</td>
+<td style="text-align: left;">嵌入模型</td>
+<td style="text-align: left;">向量检索</td>
+</tr>
+</tbody>
+</table>
+<p>租户级配置：可在 <code>llm-plugin</code> 配置中为每种 TaskType 指定厂商 + 具体模型，支持按租户 / 按会话覆盖。具体模型 ID 随厂商迭代演进，不在架构文档中固定。</p>
+<blockquote>
+<p>底层 Agent 编排基于开源 Agent 框架构建（通过 <code>create_agent</code> 接口与中间件栈集成），但本文档保持<strong>框架无关的设计语言</strong>，聚焦抽象层与业务约束。</p>
+</blockquote>
+<hr />
+<h2 id="_2">二、系统整体架构<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
+<h3 id="21">2.1 架构总览<a class="headerlink" href="#21" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>┌────────────────────────────────────────────────────────────┐
+│  入口层                                                     │
+│  ─ REST API (FastAPI + SSE)   ─ AG-UI 事件流                │
+│  ─ Python SDK                 ─ Chat UI / 工作台            │
+└──────────────────────────┬─────────────────────────────────┘
+                           │
+┌──────────────────────────▼─────────────────────────────────┐
+│  适配层                                                     │
+│  ─ NeoAgentV2Adapter（懒加载 + 消息转换 + 租户上下文）      │
+│  ─ AgentFactory（LRU 缓存 + 深度限制 + 唯一构建流程）       │
+└──────────────────────────┬─────────────────────────────────┘
+                           │
+┌──────────────────────────▼─────────────────────────────────┐
+│  编排层 — 状态机 Agent                                      │
+│  ─ Lead Agent（主 Agent 循环）                              │
+│  ─ Router（7 级路由决策）                                    │
+│  ─ Checkpointer（Redis 持久化 / 断线恢复 / HITL 暂停恢复）   │
+└──────────────────────────┬─────────────────────────────────┘
+                           │
+┌──────────────────────────▼─────────────────────────────────┐
+│  中间件栈（洋葱模型，20 个中间件）                           │
+│  Tracing │ AgentLogging │ DanglingToolCall │ FileProcess   │
+│  InputTransform（含 ContentReview + PII + Multimodal）     │
+│  Memory │ Summarization │ Todo │ SubagentLimit             │
+│  Guardrail │ LoopDetection │ ToolErrorHandling             │
+│  Clarification │ OutputValidation │ OutputRender │ Title   │
+└──────────────────────────┬─────────────────────────────────┘
+                           │
+┌──────────────────────────▼─────────────────────────────────┐
+│  能力层（三维度）                                            │
+│  ┌─────────────┐  ┌─────────────┐  ┌───────────────────┐   │
+│  │ ToolRegistry│  │SkillRegistry│  │  PluginRegistry   │   │
+│  │ 15 个 CRM   │  │ 12 个业务    │  │  9 个基础设施     │   │
+│  │ 原子工具    │  │ 技能         │  │  可插拔能力       │   │
+│  └─────────────┘  └─────────────┘  └───────────────────┘   │
+└──────────────────────────┬─────────────────────────────────┘
+                           │
+┌──────────────────────────▼─────────────────────────────────┐
+│  子 Agent 层                                                │
+│  ─ SubagentRegistry（7 个业务域子 Agent 配置）               │
+│  ─ SubagentExecutor（同步 delegate + 异步 start_async）      │
+│  ─ SubagentCache（实例缓存 + 深度限制 ≤ 3）                  │
+└──────────────────────────┬─────────────────────────────────┘
+                           │
+┌──────────────────────────▼─────────────────────────────────┐
+│  记忆层                                                     │
+│  记忆 — VikingMemoryEngine                                  │
+│    提取（4 类：profile/preferences/agent_rules/entities）   │
+│    → 存储（PG+向量库）→ 检索（BM25+向量）                    │
+│    → 反思（冲突检测+修正）→ 遗忘（三阶段淡化）              │
+└──────────────────────────┬─────────────────────────────────┘
+                           │
+┌──────────────────────────▼─────────────────────────────────┐
+│  协议层 — 与前端的开放交互                                   │
+│  AG-UI（事件流协议）                                         │
+│    RUN_STARTED / TEXT_MESSAGE_* / TOOL_CALL_* /             │
+│    STEP_* / REASONING_* / MESSAGES_SNAPSHOT / CUSTOM         │
+│  A2UI（Agent-to-UI 组件协议）                                │
+│    ComponentMatcher（skill_apikey → component_apikey）      │
+│    ProgressiveRenderer（loading → delta → complete）        │
+│    Tool.render_hint 驱动组件渲染                            │
+└──────────────────────────┬─────────────────────────────────┘
+                           │
+┌──────────────────────────▼─────────────────────────────────┐
+│  基础设施                                                   │
+│  LLM Gateway │ 向量数据库 │ PostgreSQL │ Redis │ 对象存储    │
+└────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<h3 id="22-agent">2.2 Agent 与传统软件的三个关键差异<a class="headerlink" href="#22-agent" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">差异</th>
+<th style="text-align: left;">带来的问题</th>
+<th style="text-align: left;">对应特性</th>
+<th style="text-align: left;">我们的实现</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">高延迟（LLM 秒级）</td>
+<td style="text-align: left;">用户等待体验差</td>
+<td style="text-align: left;">流式输出 + 可中断</td>
+<td style="text-align: left;">AgentCallbacks + interrupt_event + SSE</td>
+</tr>
+<tr>
+<td style="text-align: left;">低可靠性（长运行易失败）</td>
+<td style="text-align: left;">重试成本高</td>
+<td style="text-align: left;">检查点恢复</td>
+<td style="text-align: left;">Redis Checkpointer + 断线恢复</td>
+</tr>
+<tr>
+<td style="text-align: left;">非确定性（LLM 输出不可预测）</td>
+<td style="text-align: left;">需人工介入</td>
+<td style="text-align: left;">Human-in-the-Loop</td>
+<td style="text-align: left;">HITL 审批 + PAUSED / resume</td>
+</tr>
+</tbody>
+</table>
+<h3 id="23">2.3 设计决策：自研简化版状态机<a class="headerlink" href="#23" title="Permanent link">&para;</a></h3>
+<p>aPaaS 平台需要深度定制（租户隔离、审计日志、业务域子 Agent、动态工具开关），设计上保持框架无关的抽象：</p>
+<ul>
+<li><strong>Router</strong> 做路由决策</li>
+<li><strong>Node</strong> 做具体工作（Planning / Execution / Reflection）</li>
+<li><strong>Middleware</strong> 拦截横切关注点（洋葱模型）</li>
+<li><strong>Checkpointer</strong> 负责状态持久化</li>
+</ul>
+<p>这套抽象可以落到任意底层 Agent 框架上，不被框架绑定。</p>
+<hr />
+<h2 id="_3">三、编排层 — 状态机图<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
+<h3 id="31">3.1 状态机图<a class="headerlink" href="#31" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>                 ┌───────────────┐
+  用户输入 ────▶│  PlanningNode │  任务规划与分解
+                 └───────┬───────┘
+                         │ 生成 plan
+                         ▼
+                 ┌───────────────┐       工具/技能/子Agent
+      ┌────────▶│ ExecutionNode │─────────────┐
+      │          └───────┬───────┘             │
+      │                  │                     ▼
+      │                  │              ┌───────────────┐
+      │                  │              │  需要 HITL?   │
+      │                  │              └───────┬───────┘
+      │                  │                      │
+      │                  │         ┌────────────┼────────────┐
+      │                  │         │ approve    │ reject     │
+      │                  │         ▼            ▼            ▼
+      │                  │   继续执行      跳过步骤   ┌─────────────┐
+      │                  │                           │  PAUSED     │
+      │                  │                           │ 等待人工决策 │
+      │                  │                           └─────────────┘
+      │                  │
+      │          ┌───────▼───────┐       需重新规划
+      │          │ReflectionNode │────────┐
+      │          └───────┬───────┘         │
+      │                  │                 │
+      │                  │ 继续            ▼
+      └──────────────────┘       回到 PlanningNode
+                  │
+                  │ 任务完成
+                  ▼
+            ┌───────────────┐
+            │ MemoryCommit  │  提取记忆 + 持久化
+            └───────────────┘
+</code></pre></div>
+
+<h3 id="32-graphstate">3.2 GraphState 核心字段<a class="headerlink" href="#32-graphstate" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">GraphState</span><span class="p">:</span>
+    <span class="c1"># 身份与会话</span>
+    <span class="n">session_id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">thread_id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">tenant_id</span><span class="p">:</span> <span class="nb">str</span>                          <span class="c1"># 租户隔离边界</span>
+    <span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Message</span><span class="p">]</span>                 <span class="c1"># 完整对话历史（支持多模态 content: list[ContentPart]）</span>
+
+    <span class="c1"># 任务规划</span>
+    <span class="n">plan</span><span class="p">:</span> <span class="n">TaskPlan</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">current_step_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="c1"># 执行追踪</span>
+    <span class="n">current_node</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;router&quot;</span>
+    <span class="n">total_llm_calls</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">total_tool_calls</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">consecutive_errors</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">consecutive_same_tool</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">replan_count</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>                   <span class="c1"># 重规划次数（上限 3）</span>
+
+    <span class="c1"># 状态控制</span>
+    <span class="n">status</span><span class="p">:</span> <span class="n">AgentStatus</span> <span class="o">=</span> <span class="n">AgentStatus</span><span class="o">.</span><span class="n">RUNNING</span>  <span class="c1"># running/paused/completed/failed/max_turns/aborted</span>
+    <span class="n">pause_reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="c1"># 上下文</span>
+    <span class="n">memory_context</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>                <span class="c1"># 记忆召回注入</span>
+    <span class="n">system_prompt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">checkpoint_version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="c1"># 多模态扩展</span>
+    <span class="n">parsed_files</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ParsedFile</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>   <span class="c1"># 用户上传的图片/文档（FileProcessMiddleware 写入）</span>
+    <span class="n">artifacts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Artifact</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>         <span class="c1"># Agent 生成物（代码 / 报告 / 图表）</span>
+    <span class="n">images</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ImageData</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>           <span class="c1"># Agent 生成或引用的图片</span>
+
+    <span class="c1"># 压缩层协作</span>
+    <span class="n">file_list</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FileInfo</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>  <span class="c1"># 虚拟文件（Layer 0）</span>
+</code></pre></div>
+
+<h3 id="33-router-7">3.3 Router 路由决策（7 级优先级）<a class="headerlink" href="#33-router-7" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: center;">优先级</th>
+<th style="text-align: left;">条件</th>
+<th style="text-align: left;">路由目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;"><code>status != RUNNING</code></td>
+<td style="text-align: left;">终止</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td style="text-align: left;"><code>total_llm_calls &gt;= 200</code></td>
+<td style="text-align: left;">终止（MAX_TURNS）</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td style="text-align: left;"><code>consecutive_errors &gt;= 5</code> 或 <code>consecutive_same_tool &gt;= 4</code></td>
+<td style="text-align: left;">ReflectionNode（stuck 自救）</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td style="text-align: left;"><code>plan is None</code></td>
+<td style="text-align: left;">PlanningNode</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td style="text-align: left;">所有步骤 COMPLETED</td>
+<td style="text-align: left;">ReflectionNode（最终反思 + 记忆提取）</td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td style="text-align: left;">当前步骤 FAILED</td>
+<td style="text-align: left;">ReflectionNode（失败分析）</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td style="text-align: left;">当前步骤 PENDING/RUNNING</td>
+<td style="text-align: left;">ExecutionNode</td>
+</tr>
+</tbody>
+</table>
+<h3 id="34">3.4 主循环（框架无关伪代码）<a class="headerlink" href="#34" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>GraphEngine.run(state):
+  while True:
+    node = Router.next_node(state)                 # 路由决策
+    if node is None: break                          # 终止
+
+    for mw in middlewares:                          # 中间件前处理（注册顺序）
+      state = mw.before_step(state)
+
+    state = node.execute(state)                     # Node 执行
+
+    for mw in reversed(middlewares):                # 中间件后处理（逆序）
+      state = mw.after_step(state)
+
+    checkpoint_store.save(state)                    # 保存检查点到 Redis
+    yield state                                     # 流式输出给前端
+
+    if state.status == PAUSED: break                # HITL 暂停
+</code></pre></div>
+
+<h3 id="35-node">3.5 三个核心 Node<a class="headerlink" href="#35-node" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Node</th>
+<th style="text-align: left;">职责</th>
+<th style="text-align: left;">内部逻辑</th>
+<th style="text-align: left;">输出</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">PlanningNode</td>
+<td style="text-align: left;">任务分解</td>
+<td style="text-align: left;">判断复杂度 → 简单任务单步计划 / 复杂任务 LLM 生成多步计划（≤ 15 步）→ 注入历史经验</td>
+<td style="text-align: left;"><code>state.plan</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">ExecutionNode</td>
+<td style="text-align: left;">步骤执行</td>
+<td style="text-align: left;">内部 mini loop：LLM → 解析响应 → 有 tool_use？→ 并行执行工具 → 继续；纯文本？→ 步骤完成</td>
+<td style="text-align: left;">步骤 COMPLETED / FAILED</td>
+</tr>
+<tr>
+<td style="text-align: left;">ReflectionNode</td>
+<td style="text-align: left;">反思决策</td>
+<td style="text-align: left;">判断类型：最终反思（提取记忆）/ 失败分析（retry/skip/replan/escalate/abort）/ stuck 自救 / 用户纠正反思</td>
+<td style="text-align: left;">状态变更 / plan 清空</td>
+</tr>
+</tbody>
+</table>
+<h3 id="36-hitl">3.6 HITL 暂停与恢复<a class="headerlink" href="#36-hitl" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>暂停: HITLMiddleware.before_tool_call() 拦截危险操作
+  → state.status = PAUSED, pause_reason = &quot;...&quot;
+  → 保存检查点 → 退出主循环 → 前端展示审批界面
+
+恢复: GraphEngine.resume(session_id, decision)
+  ├─ approve → 继续执行被暂停的操作
+  ├─ reject  → 跳过当前步骤，继续 ReflectionNode
+  ├─ abort   → 终止任务
+  └─ 超时 1h → 自动 ABORTED
+</code></pre></div>
+
+<h3 id="37-16">3.7 错误处理分级（16 级）<a class="headerlink" href="#37-16" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: center;">级别</th>
+<th style="text-align: left;">场景</th>
+<th style="text-align: left;">处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">L1–L4</td>
+<td style="text-align: left;">工具级（校验 / 执行 / 超时 / 权限）</td>
+<td style="text-align: left;">返回错误 tool_result，LLM 自行修正</td>
+</tr>
+<tr>
+<td style="text-align: center;">L5–L7</td>
+<td style="text-align: left;">LLM 可重试（超时 / 限流 / 服务端）</td>
+<td style="text-align: left;">指数退避重试，最多 3 次</td>
+</tr>
+<tr>
+<td style="text-align: center;">L8</td>
+<td style="text-align: left;">LLM 不可重试（认证失败）</td>
+<td style="text-align: left;">直接 FAILED</td>
+</tr>
+<tr>
+<td style="text-align: center;">L9–L10</td>
+<td style="text-align: left;">轮次耗尽（步骤级 / 全局级）</td>
+<td style="text-align: left;">步骤级→反思分析；全局级→终止</td>
+</tr>
+<tr>
+<td style="text-align: center;">L11–L12</td>
+<td style="text-align: left;">连续错误 / 重复工具</td>
+<td style="text-align: left;">Router → ReflectionNode stuck 自救</td>
+</tr>
+<tr>
+<td style="text-align: center;">L13</td>
+<td style="text-align: left;">重新规划 ≥ 3 次</td>
+<td style="text-align: left;">FAILED</td>
+</tr>
+<tr>
+<td style="text-align: center;">L14</td>
+<td style="text-align: left;">HITL 超时（1h）</td>
+<td style="text-align: left;">ABORTED</td>
+</tr>
+<tr>
+<td style="text-align: center;">L15–L16</td>
+<td style="text-align: left;">中间件 / 检查点异常</td>
+<td style="text-align: left;">记录日志，降级不阻塞主流程</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_4">四、中间件栈<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
+<h3 id="41">4.1 中间件接口<a class="headerlink" href="#41" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Middleware</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">before_step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">GraphState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GraphState</span><span class="p">:</span> <span class="o">...</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">after_step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">GraphState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GraphState</span><span class="p">:</span> <span class="o">...</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">wrap_model_call</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">GraphState</span><span class="p">,</span> <span class="n">call_fn</span><span class="p">):</span> <span class="o">...</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">before_tool_call</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tool_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">input_data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">after_tool_call</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tool_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">result</span><span class="p">:</span> <span class="n">ToolResult</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ToolResult</span><span class="p">:</span> <span class="o">...</span>
+</code></pre></div>
+
+<h3 id="42-20">4.2 中间件清单（20 个，按执行顺序）<a class="headerlink" href="#42-20" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: center;">#</th>
+<th style="text-align: left;">中间件</th>
+<th style="text-align: left;">阶段</th>
+<th style="text-align: left;">职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;">TracingMiddleware</td>
+<td style="text-align: left;">before_agent / all hooks</td>
+<td style="text-align: left;">采集 span 写入 <code>ai_trace_span</code></td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td style="text-align: left;">AgentLoggingMiddleware</td>
+<td style="text-align: left;">before_agent / wrap_tool_call</td>
+<td style="text-align: left;">结构化日志</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td style="text-align: left;">DanglingToolCallMiddleware</td>
+<td style="text-align: left;">before_agent</td>
+<td style="text-align: left;">修复遗留的未闭合 tool_call</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td style="text-align: left;">FileProcessMiddleware</td>
+<td style="text-align: left;">before_agent</td>
+<td style="text-align: left;"><strong>多模态</strong>：解析上传文件 → <code>parsed_files</code>，识别 image / document</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td style="text-align: left;">InputTransformMiddleware</td>
+<td style="text-align: left;">before_agent</td>
+<td style="text-align: left;">输入预处理管线（见 4.3）</td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td style="text-align: left;">MemoryMiddleware</td>
+<td style="text-align: left;">before_agent / after_agent</td>
+<td style="text-align: left;">记忆召回 + 提取写入（Plugin 提供）</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td style="text-align: left;">SummarizationMiddleware</td>
+<td style="text-align: left;">before_model</td>
+<td style="text-align: left;">上下文压缩（四层架构，见第七章）</td>
+</tr>
+<tr>
+<td style="text-align: center;">8</td>
+<td style="text-align: left;">TodoMiddleware</td>
+<td style="text-align: left;">before_model</td>
+<td style="text-align: left;">任务清单管理</td>
+</tr>
+<tr>
+<td style="text-align: center;">9</td>
+<td style="text-align: left;">SubagentLimitMiddleware</td>
+<td style="text-align: left;">before_tool_call</td>
+<td style="text-align: left;">子 Agent 并发数限制</td>
+</tr>
+<tr>
+<td style="text-align: center;">10</td>
+<td style="text-align: left;">MultimodalInjectMiddleware</td>
+<td style="text-align: left;">before_model</td>
+<td style="text-align: left;"><strong>多模态</strong>：将图片 / 文档 URL 以 OpenAI 兼容格式注入到 HumanMessage</td>
+</tr>
+<tr>
+<td style="text-align: center;">11</td>
+<td style="text-align: left;">GuardrailMiddleware</td>
+<td style="text-align: left;">wrap_tool_call</td>
+<td style="text-align: left;">安全护栏 + 租户隔离</td>
+</tr>
+<tr>
+<td style="text-align: center;">12</td>
+<td style="text-align: left;">LoopDetectionMiddleware</td>
+<td style="text-align: left;">after_model</td>
+<td style="text-align: left;">循环检测（连续相同工具 / 错误）</td>
+</tr>
+<tr>
+<td style="text-align: center;">13</td>
+<td style="text-align: left;">ToolErrorHandlingMiddleware</td>
+<td style="text-align: left;">after_tool_call</td>
+<td style="text-align: left;">工具异常分级处理</td>
+</tr>
+<tr>
+<td style="text-align: center;">14</td>
+<td style="text-align: left;">HITLMiddleware</td>
+<td style="text-align: left;">before_tool_call</td>
+<td style="text-align: left;">危险操作人工审批</td>
+</tr>
+<tr>
+<td style="text-align: center;">15</td>
+<td style="text-align: left;">ClarificationMiddleware</td>
+<td style="text-align: left;">after_model</td>
+<td style="text-align: left;">澄清中断（需用户补充信息）</td>
+</tr>
+<tr>
+<td style="text-align: center;">16</td>
+<td style="text-align: left;">OutputValidationMiddleware</td>
+<td style="text-align: left;">after_model</td>
+<td style="text-align: left;">输出长度 + 内容审查</td>
+</tr>
+<tr>
+<td style="text-align: center;">17</td>
+<td style="text-align: left;">ContentReviewMiddleware</td>
+<td style="text-align: left;">嵌入 4.3 / 16</td>
+<td style="text-align: left;">敏感词拦截（输入 + 输出）</td>
+</tr>
+<tr>
+<td style="text-align: center;">18</td>
+<td style="text-align: left;">OutputRenderMiddleware</td>
+<td style="text-align: left;">after_model</td>
+<td style="text-align: left;">结构化输出渲染 + <strong>AG-UI 事件派发 / A2UI 组件触发</strong>（识别 ToolResult.render_hint → 发 CUSTOM 事件）</td>
+</tr>
+<tr>
+<td style="text-align: center;">19</td>
+<td style="text-align: left;">TitleMiddleware</td>
+<td style="text-align: left;">after_agent</td>
+<td style="text-align: left;">自动生成会话标题</td>
+</tr>
+<tr>
+<td style="text-align: center;">20</td>
+<td style="text-align: left;">TenantMiddleware</td>
+<td style="text-align: left;">before_step</td>
+<td style="text-align: left;">租户上下文注入 + 工具过滤</td>
+</tr>
+</tbody>
+</table>
+<h3 id="43-inputtransformmiddleware">4.3 InputTransformMiddleware 子管线<a class="headerlink" href="#43-inputtransformmiddleware" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>用户输入
+   │
+   ▼
+┌─────────────────────────┐
+│ ContentReviewTransformer│  敏感词拦截（优先级最高）
+└─────────────────────────┘
+   │
+   ▼
+┌─────────────────────────┐
+│ PIIRedactTransformer    │  PII 脱敏（身份证 / 手机号 / 邮箱）
+└─────────────────────────┘
+   │
+   ▼
+┌─────────────────────────┐
+│ MultimodalTransformer   │  多模态内容格式化
+└─────────────────────────┘
+   │
+   ▼
+  送入 Agent 循环
+</code></pre></div>
+
+<hr />
+<h2 id="_5">五、能力层（三维度）<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>核心原则：Tool 是 LLM 的手，Skill 是 Agent 的 SOP，Plugin 是系统的器官。三者单向依赖：Skill 编排 Tool → Tool 调用 Plugin 接口 → Plugin 不感知 Tool 存在。</p>
+</blockquote>
+<h3 id="51">5.1 边界定义<a class="headerlink" href="#51" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>┌─────────────────────────────────────────────────────────────┐
+│ Tool（工具）= LLM 的手                                       │
+│   一次原子操作，LLM 通过 function calling 直接调用。         │
+│   输入参数 → 执行 → 返回结果。无状态、单步、确定性。           │
+│   统一由 ToolRegistry 管理，不允许 Plugin 直接注册。          │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              │ 调用
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Plugin（插件）= 系统的器官                                   │
+│   可插拔基础设施能力：LLM / Memory / Search / Notification…  │
+│   有生命周期、有配置、有状态，影响 Agent 整体行为。            │
+│   通过 PluginContext 向 Tool / Middleware 提供能力。          │
+└─────────────────────────────────────────────────────────────┘
+                              ▲
+                              │ 编排
+                              │
+┌─────────────────────────────┴──────────────────────────────┐
+│ Skill（技能）= Agent 的 SOP                                 │
+│   多步业务流程 + 执行策略的 prompt 模板。                    │
+│   需要多次 Tool 调用才能完成，有判断、有分支、有经验沉淀。    │
+│   两种执行模式：inline（注入当前对话）/ fork（启动子 Agent）。│
+└────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<h3 id="52">5.2 判断三问<a class="headerlink" href="#52" title="Permanent link">&para;</a></h3>
+<p>对任一能力问三个问题就能定位：</p>
+<div class="highlight"><pre><span></span><code>Q1: LLM 能一次调用直接完成吗？   → 是 → Tool
+Q2: 需要多步推理、多次工具调用？ → 是 → Skill
+Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Plugin
+</code></pre></div>
+
+<hr />
+<h3 id="53-plugin-9">5.3 Plugin 维度（9 个基础设施插件）<a class="headerlink" href="#53-plugin-9" title="Permanent link">&para;</a></h3>
+<h4 id="531-plugin">5.3.1 Plugin 接口<a class="headerlink" href="#531-plugin" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Plugin</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>                              <span class="c1"># 插件唯一名称</span>
+    <span class="n">version</span><span class="p">:</span> <span class="nb">str</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">initialize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>   <span class="c1"># 生命周期：启动</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>                   <span class="c1"># 生命周期：关闭</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_healthy</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span> <span class="o">...</span>                       <span class="c1"># 健康检查</span>
+
+    <span class="c1"># 向 PluginContext 暴露的接口由各 Plugin 自行定义</span>
+    <span class="c1"># 如 memory_plugin.recall() / search_plugin.search() / llm_plugin.complete()</span>
+</code></pre></div>
+
+<h4 id="532-plugincontext-tool-plugin">5.3.2 PluginContext — Tool 访问 Plugin 的统一入口<a class="headerlink" href="#532-plugincontext-tool-plugin" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">PluginContext</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Tool 调用时传入的上下文，通过它访问所有已启用的 Plugin。</span>
+
+<span class="sd">    核心约束：Plugin 未启用时，context 对应字段为 None。</span>
+<span class="sd">    Tool 的 is_enabled() 据此判断是否在工具列表中暴露。</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">tenant_id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">session_id</span><span class="p">:</span> <span class="nb">str</span>
+
+    <span class="n">llm</span><span class="p">:</span> <span class="n">LLMPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">memory</span><span class="p">:</span> <span class="n">MemoryPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">search</span><span class="p">:</span> <span class="n">SearchPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">company</span><span class="p">:</span> <span class="n">CompanyDataPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">financial</span><span class="p">:</span> <span class="n">FinancialDataPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">notification</span><span class="p">:</span> <span class="n">NotificationPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">doc_parse</span><span class="p">:</span> <span class="n">DocumentParsePlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">image_gen</span><span class="p">:</span> <span class="n">ImageGenPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">audit</span><span class="p">:</span> <span class="n">AuditPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="n">tool_registry</span><span class="p">:</span> <span class="n">ToolRegistry</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">skill_registry</span><span class="p">:</span> <span class="n">SkillRegistry</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</code></pre></div>
+
+<h4 id="533-7-plugin">5.3.3 7 个核心 Plugin<a class="headerlink" href="#533-7-plugin" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Plugin</th>
+<th style="text-align: left;">职责</th>
+<th style="text-align: left;">向 Context 暴露</th>
+<th style="text-align: center;">替代性</th>
+<th style="text-align: left;">依赖的 Tool</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>llm-plugin</code></td>
+<td style="text-align: left;">LLM 网关（主模型 + 辅助模型路由）</td>
+<td style="text-align: left;"><code>context.llm</code></td>
+<td style="text-align: center;">✅ 可切换供应商</td>
+<td style="text-align: left;">所有（基础设施）</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>memory-plugin</code></td>
+<td style="text-align: left;">长期记忆引擎（VikingMemoryEngine）</td>
+<td style="text-align: left;"><code>context.memory</code></td>
+<td style="text-align: center;">✅ 可替换后端</td>
+<td style="text-align: left;">search_memories, save_memory</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>search-plugin</code></td>
+<td style="text-align: left;">网络搜索（可替换供应商）</td>
+<td style="text-align: left;"><code>context.search</code></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: left;">web_search</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>company-data-plugin</code></td>
+<td style="text-align: left;">企业工商数据</td>
+<td style="text-align: left;"><code>context.company</code></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: left;">company_info</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>financial-data-plugin</code></td>
+<td style="text-align: left;">上市公司财报</td>
+<td style="text-align: left;"><code>context.financial</code></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: left;">financial_report</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>notification-plugin</code></td>
+<td style="text-align: left;">推送通知（IM / 邮件 / 短信）</td>
+<td style="text-align: left;"><code>context.notification</code></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: left;">send_notification</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>document-parse-plugin</code></td>
+<td style="text-align: left;">多模态文档解析（LKEAP / Tika / Unstructured 等）</td>
+<td style="text-align: left;"><code>context.doc_parse</code></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: left;">load_file_content</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>image-gen-plugin</code></td>
+<td style="text-align: left;">AI 生图（OpenAI / 字节豆包 / 百度文心一格 等供应商可替换）</td>
+<td style="text-align: left;"><code>context.image_gen</code></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: left;">generate_image</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>audit-plugin</code></td>
+<td style="text-align: left;">审计日志（合规）</td>
+<td style="text-align: left;"><code>context.audit</code></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: left;">所有中间件</td>
+</tr>
+</tbody>
+</table>
+<h4 id="534-plugin">5.3.4 Plugin 生命周期<a class="headerlink" href="#534-plugin" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code>启动阶段（租户初始化时）:
+  PluginRegistry.load(tenant_config)
+    → 读取租户的 Plugin 启用列表
+    → 按依赖关系排序
+    → plugin.initialize(config)
+    → 注入 PluginContext
+
+运行阶段:
+  Tool.call(input_data, context)
+    → 通过 context.xxx 访问 Plugin
+    → Plugin 接口调用
+
+关闭阶段（租户卸载 / 服务关停）:
+  按启动逆序 plugin.shutdown()
+    → 释放连接、清理缓存
+</code></pre></div>
+
+<h4 id="535-plugin">5.3.5 Plugin 的权力边界<a class="headerlink" href="#535-plugin" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">能做</th>
+<th style="text-align: left;">不能做</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">提供基础设施接口（存储 / 检索 / 通知 …）</td>
+<td style="text-align: left;">直接注册 Tool（破坏 ToolRegistry 唯一真相源）</td>
+</tr>
+<tr>
+<td style="text-align: left;">注入 Middleware（如 memory-plugin 注入 MemoryMiddleware）</td>
+<td style="text-align: left;">修改其他 Plugin 的状态</td>
+</tr>
+<tr>
+<td style="text-align: left;">订阅 Agent 生命周期事件</td>
+<td style="text-align: left;">直接与 LLM 通信绕过 llm-plugin</td>
+</tr>
+<tr>
+<td style="text-align: left;">对外暴露管理 API（配额 / 开关 / 健康）</td>
+<td style="text-align: left;">跨租户共享状态</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="54-tool-15-crm">5.4 Tool 维度（15 个 CRM 业务工具）<a class="headerlink" href="#54-tool-15-crm" title="Permanent link">&para;</a></h3>
+<h4 id="541-tool">5.4.1 Tool 统一接口（四组字段）<a class="headerlink" href="#541-tool" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Tool</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+    <span class="c1"># ══ 核心（必须实现）══</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>                                              <span class="c1"># 唯一名称</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">input_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span> <span class="o">...</span>                    <span class="c1"># JSON Schema</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">call</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_data</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">on_progress</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ToolResult</span><span class="p">:</span> <span class="o">...</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_data</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span> <span class="o">...</span>    <span class="c1"># 动态描述</span>
+
+    <span class="c1"># ══ 注册与发现 ══</span>
+    <span class="n">aliases</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>                                     <span class="c1"># 别名</span>
+    <span class="n">search_hint</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>                                <span class="c1"># 延迟加载的搜索关键词</span>
+    <span class="n">should_defer</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>                             <span class="c1"># 是否延迟加载</span>
+    <span class="n">tags</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span> <span class="o">...</span>             <span class="c1"># 运行时开关（检查 Plugin）</span>
+
+    <span class="c1"># ══ 安全与权限 ══</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">validate_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_data</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ValidationResult</span><span class="p">:</span> <span class="o">...</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_permissions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_data</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PermissionDecision</span><span class="p">:</span> <span class="o">...</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_read_only</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_data</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span> <span class="o">...</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_destructive</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_data</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span> <span class="o">...</span>      <span class="c1"># 触发 HITL</span>
+
+    <span class="c1"># ══ 输出控制 &amp; 压缩协作 ══</span>
+    <span class="n">max_result_size_chars</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50_000</span>                    <span class="c1"># 每工具独立预算</span>
+    <span class="n">summary_threshold</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">500</span>                            <span class="c1"># Layer 1 摘要阈值</span>
+    <span class="n">summary_max_words</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">150</span>
+    <span class="n">render_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>                          <span class="c1"># 前端渲染组件</span>
+    <span class="n">code_extractable</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>                          <span class="c1"># 零 LLM 成本摘要</span>
+</code></pre></div>
+
+<h4 id="542-17-crm">5.4.2 17 个 CRM 工具清单<a class="headerlink" href="#542-17-crm" title="Permanent link">&para;</a></h4>
+<p>按用户业务场景组织（而非技术 API），底层通过 aPaaS 元数据驱动实现通用性：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">分类</th>
+<th style="text-align: left;">工具名</th>
+<th style="text-align: left;">典型用户表达</th>
+<th style="text-align: left;">依赖 Plugin</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>查系统数据</strong></td>
+<td style="text-align: left;">query_data</td>
+<td style="text-align: left;">"查一下上个月的客户"</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">modify_data</td>
+<td style="text-align: left;">"建一个新客户" / "删除测试数据"</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">analyze_data</td>
+<td style="text-align: left;">"各渠道转化率" / "月度趋势"</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>管系统配置</strong></td>
+<td style="text-align: left;">query_schema</td>
+<td style="text-align: left;">"客户有哪些字段"</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">modify_schema</td>
+<td style="text-align: left;">"加一个行业字段"</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">query_permission</td>
+<td style="text-align: left;">"谁能看这些数据"</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>查外部信息</strong></td>
+<td style="text-align: left;">web_search</td>
+<td style="text-align: left;">"搜一下行业动态"</td>
+<td style="text-align: left;">search-plugin</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">company_info</td>
+<td style="text-align: left;">"查公司背景"</td>
+<td style="text-align: left;">company-data-plugin</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">financial_report</td>
+<td style="text-align: left;">"看财务状况"</td>
+<td style="text-align: left;">financial-data-plugin</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>协作与记忆</strong></td>
+<td style="text-align: left;">ask_user</td>
+<td style="text-align: left;">"你想怎么分析？"</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">search_memories</td>
+<td style="text-align: left;">"之前怎么解决的"</td>
+<td style="text-align: left;">memory-plugin</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">save_memory</td>
+<td style="text-align: left;">"记住这个偏好"</td>
+<td style="text-align: left;">memory-plugin</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">send_notification</td>
+<td style="text-align: left;">"通知销售经理"</td>
+<td style="text-align: left;">notification-plugin</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>多模态</strong></td>
+<td style="text-align: left;">load_file_content</td>
+<td style="text-align: left;">"看看我刚上传的合同" / "这张截图里写的什么"</td>
+<td style="text-align: left;">document-parse-plugin（文档）/ 直接走 VLM（图片）</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">generate_image</td>
+<td style="text-align: left;">"画一个产品架构图"</td>
+<td style="text-align: left;">image-gen-plugin</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>任务编排</strong></td>
+<td style="text-align: left;">delegate_task</td>
+<td style="text-align: left;">"帮我校验配置"</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">start_async_task</td>
+<td style="text-align: left;">"后台调研竞品"</td>
+<td style="text-align: left;">—</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>工具总数：17 个。</p>
+</blockquote>
+<h4 id="543">5.4.3 工具权限矩阵（四层）<a class="headerlink" href="#543" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code>第一层 · 工具准入     → AgentFactory（enabled_tools/disabled_tools）
+第二层 · 租户隔离     → TenantMiddleware 自动注入 tenant_id
+第三层 · 业务数据权限 → 后端微服务 RBAC + 行级权限（透传 user_id）
+第四层 · 危险操作审批 → HITLMiddleware（is_destructive 判定）
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">工具</th>
+<th style="text-align: center;">只读</th>
+<th style="text-align: center;">HITL</th>
+<th style="text-align: center;">租户隔离</th>
+<th style="text-align: center;">数据权限</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">query_data</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">✅ 后端过滤</td>
+</tr>
+<tr>
+<td style="text-align: left;">modify_data (create/update)</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">可配置</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">✅</td>
+</tr>
+<tr>
+<td style="text-align: left;">modify_data (delete)</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅ 必须</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">✅</td>
+</tr>
+<tr>
+<td style="text-align: left;">analyze_data</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">✅</td>
+</tr>
+<tr>
+<td style="text-align: left;">query_schema</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+</tr>
+<tr>
+<td style="text-align: left;">modify_schema</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅ 必须</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+</tr>
+<tr>
+<td style="text-align: left;">query_permission</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+</tr>
+<tr>
+<td style="text-align: left;">web_search</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">❌</td>
+</tr>
+<tr>
+<td style="text-align: left;">company_info</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅ 配额</td>
+<td style="text-align: center;">❌</td>
+</tr>
+<tr>
+<td style="text-align: left;">financial_report</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅ 配额</td>
+<td style="text-align: center;">❌</td>
+</tr>
+<tr>
+<td style="text-align: left;">ask_user</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">❌</td>
+</tr>
+<tr>
+<td style="text-align: left;">search_memories</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅ 路径</td>
+<td style="text-align: center;">❌</td>
+</tr>
+<tr>
+<td style="text-align: left;">save_memory</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅ 路径</td>
+<td style="text-align: center;">❌</td>
+</tr>
+<tr>
+<td style="text-align: left;">send_notification</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+</tr>
+<tr>
+<td style="text-align: left;">delegate_task / start_async_task</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+</tr>
+</tbody>
+</table>
+<h4 id="544">5.4.4 延迟加载策略<a class="headerlink" href="#544" title="Permanent link">&para;</a></h4>
+<p>9 个常用工具初始激活，6 个低频工具进入延迟池（通过 <code>search_hint</code> 触发加载）：</p>
+<div class="highlight"><pre><span></span><code>常用（直接激活）:
+  query_data / query_schema / analyze_data / query_permission
+  ask_user / search_memories / save_memory
+  delegate_task / start_async_task
+
+延迟（搜索激活）:
+  web_search / company_info / financial_report
+  modify_data / modify_schema / send_notification
+
+收益: 初始 schema token -40%，大部分对话不加载延迟工具
+</code></pre></div>
+
+<h4 id="545-toolresult">5.4.5 ToolResult 扩展<a class="headerlink" href="#545-toolresult" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ToolResult</span><span class="p">:</span>
+    <span class="n">content</span><span class="p">:</span> <span class="nb">str</span>                        <span class="c1"># 返回给 LLM 的文本</span>
+    <span class="n">is_error</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">metadata</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="p">{}</span>                 <span class="c1"># 不给 LLM 的附加信息</span>
+    <span class="n">render_hint</span><span class="p">:</span> <span class="n">RenderHint</span> <span class="o">|</span> <span class="kc">None</span>      <span class="c1"># 前端渲染提示</span>
+    <span class="n">virtual_file</span><span class="p">:</span> <span class="n">FileInfo</span> <span class="o">|</span> <span class="kc">None</span>       <span class="c1"># 原文虚拟文件（Layer 0）</span>
+
+    <span class="c1"># 多模态扩展</span>
+    <span class="n">attachments</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Attachment</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># 工具产出的多模态附件（图片 / 文档 URL）</span>
+    <span class="n">artifacts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Artifact</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>      <span class="c1"># 工具生成的 artifact（图表 / 报告 / 代码）</span>
+
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Attachment</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;多模态附件 — 由 MultimodalInjectMiddleware 消费，注入下一轮 HumanMessage&quot;&quot;&quot;</span>
+    <span class="nb">type</span><span class="p">:</span> <span class="nb">str</span>                           <span class="c1"># &quot;input_image&quot; | &quot;input_file&quot;</span>
+    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>                            <span class="c1"># 图片或文档 URL</span>
+    <span class="n">file_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">mime_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+
+    <span class="c1"># 序列化为工具文本尾部的标记，供 MultimodalInjectMiddleware 识别：</span>
+    <span class="c1"># &lt;!--MULTIMODAL_ATTACHMENTS:[{&quot;type&quot;:&quot;input_image&quot;,&quot;image_url&quot;:&quot;...&quot;}]--&gt;</span>
+</code></pre></div>
+
+<hr />
+<h3 id="55-skill-12">5.5 Skill 维度（12 个业务技能）<a class="headerlink" href="#55-skill-12" title="Permanent link">&para;</a></h3>
+<h4 id="551-skilldefinition">5.5.1 SkillDefinition 数据结构<a class="headerlink" href="#551-skilldefinition" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SkillDefinition</span><span class="p">:</span>
+    <span class="c1"># 核心标识</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>                               <span class="c1"># 技能唯一名称</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>                        <span class="c1"># 一句话描述（必填，LLM 判断何时调用）</span>
+    <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>                        <span class="c1"># SOP 提示词（Markdown body）</span>
+
+    <span class="c1"># 发现与触发</span>
+    <span class="n">when_to_use</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>                   <span class="c1"># 触发关键词，| 分隔（如 &quot;诊断|排查|问题&quot;）</span>
+    <span class="n">arguments</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>               <span class="c1"># 命名参数列表（prompt 中用 {arg} 占位）</span>
+
+    <span class="c1"># 执行配置</span>
+    <span class="n">context</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;inline&quot;</span>                 <span class="c1"># &quot;inline&quot; | &quot;fork&quot;</span>
+    <span class="n">allowed_tools</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>           <span class="c1"># 额外允许的工具</span>
+    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>                         <span class="c1"># 指定模型（空=继承主模型）</span>
+    <span class="n">agent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>                         <span class="c1"># fork 模式下的子 Agent 类型（可选）</span>
+
+    <span class="c1"># 可选元数据（SKILL.md frontmatter 支持）</span>
+    <span class="c1"># risk_level:  &quot;read_only&quot; | &quot;write&quot; | &quot;destructive&quot;</span>
+    <span class="c1"># version:     语义化版本号</span>
+    <span class="c1"># owner:       所有者</span>
+    <span class="c1"># max_tool_calls: 最大工具调用数</span>
+    <span class="c1"># timeout_ms:  超时时间</span>
+</code></pre></div>
+
+<h4 id="552-12-skill">5.5.2 12 个内置 Skill<a class="headerlink" href="#552-12-skill" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Skill</th>
+<th style="text-align: left;">功能</th>
+<th style="text-align: center;">模式</th>
+<th style="text-align: left;">允许工具</th>
+<th style="text-align: left;">依赖 Plugin</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">verify_config</td>
+<td style="text-align: left;">元数据配置校验</td>
+<td style="text-align: center;">inline</td>
+<td style="text-align: left;">query_schema</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;">diagnose</td>
+<td style="text-align: left;">业务问题诊断</td>
+<td style="text-align: center;">fork</td>
+<td style="text-align: left;">query_schema, query_data, query_permission, search_memories</td>
+<td style="text-align: left;">memory-plugin</td>
+</tr>
+<tr>
+<td style="text-align: left;">config_entity</td>
+<td style="text-align: left;">业务对象配置向导</td>
+<td style="text-align: center;">fork</td>
+<td style="text-align: left;">query_schema, query_data, ask_user</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;">batch_data</td>
+<td style="text-align: left;">批量数据操作</td>
+<td style="text-align: center;">fork</td>
+<td style="text-align: left;">query_data, modify_data, ask_user</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;">data_analysis</td>
+<td style="text-align: left;">业务数据分析</td>
+<td style="text-align: center;">fork</td>
+<td style="text-align: left;">query_schema, query_data, analyze_data</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;">migration</td>
+<td style="text-align: left;">数据迁移</td>
+<td style="text-align: center;">fork</td>
+<td style="text-align: left;">query_schema, modify_data, ask_user</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;">permission_audit</td>
+<td style="text-align: left;">权限审计</td>
+<td style="text-align: center;">fork</td>
+<td style="text-align: left;">query_permission, query_data, query_schema</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;">skillify</td>
+<td style="text-align: left;">操作转技能</td>
+<td style="text-align: center;">fork</td>
+<td style="text-align: left;">全部</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: left;">competitive_analysis</td>
+<td style="text-align: left;">竞品分析</td>
+<td style="text-align: center;">fork</td>
+<td style="text-align: left;">web_search, company_info, financial_report, query_data</td>
+<td style="text-align: left;">search/company/financial-plugin</td>
+</tr>
+<tr>
+<td style="text-align: left;">customer_onboarding</td>
+<td style="text-align: left;">客户入职引导</td>
+<td style="text-align: center;">fork</td>
+<td style="text-align: left;">query_data, query_schema, ask_user, send_notification</td>
+<td style="text-align: left;">notification-plugin</td>
+</tr>
+<tr>
+<td style="text-align: left;">deal_coaching</td>
+<td style="text-align: left;">商机辅导</td>
+<td style="text-align: center;">fork</td>
+<td style="text-align: left;">query_data, analyze_data, search_memories</td>
+<td style="text-align: left;">memory-plugin</td>
+</tr>
+<tr>
+<td style="text-align: left;">report_generation</td>
+<td style="text-align: left;">报告生成</td>
+<td style="text-align: center;">fork</td>
+<td style="text-align: left;">query_data, analyze_data, web_search</td>
+<td style="text-align: left;">search-plugin</td>
+</tr>
+</tbody>
+</table>
+<h4 id="553">5.5.3 两种执行模式<a class="headerlink" href="#553" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">模式</th>
+<th style="text-align: left;">行为</th>
+<th style="text-align: left;">适用场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>inline</strong></td>
+<td style="text-align: left;">将 prompt 作为工具返回值注入当前对话，LLM 按 SOP 继续在<strong>主 Agent 上下文</strong>里调用 Tool</td>
+<td style="text-align: left;">轻量技能（verify_config / customer_360）；不启动子 Agent，零额外会话成本；能继承主 Agent 的历史上下文</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>fork</strong></td>
+<td style="text-align: left;">启动<strong>子 Agent 独立执行</strong>，工具集 = 主 Agent 工具集 ∩ skill.allowed_tools</td>
+<td style="text-align: left;">复杂任务（diagnose / data_analysis）；需要隔离上下文、限制工具、限制轮次；可指定专属 agent 类型</td>
+</tr>
+</tbody>
+</table>
+<h4 id="554-skillmd">5.5.4 SKILL.md 声明式定义<a class="headerlink" href="#554-skillmd" title="Permanent link">&para;</a></h4>
+<p>Skill 用 Markdown + YAML frontmatter 声明，无需写代码就能开发新技能。文件放在技能目录下的子文件夹里（<code>SKILL.md</code> 为固定文件名）：</p>
+<div class="highlight"><pre><span></span><code>---
+name: account-insight                    # 技能名（缺省则取目录名）
+description: 深度分析客户的业务全景        # 一句话描述，LLM 据此判断何时调用
+when_to_use: 客户洞察|客户分析|account分析  # 触发关键词，| 分隔
+arguments:                                 # 命名参数，prompt 中用 {arg} 占位
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>account_id
+allowed-tools:                             # 额外允许的工具
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>query_schema
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>query_data
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>analyze_data
+context: fork                              # inline / fork
+agent: analytics                           # fork 模式下指定子 Agent 类型（可选）
+model: &quot;&quot;                                  # 指定模型（空=继承主模型）
+risk_level: read_only                      # 风险等级（read_only / write / destructive）
+version: 1.0.0
+owner: CRM-Product
+max_tool_calls: 15                         # 最大工具调用数
+<span class="gu">timeout_ms: 45000</span>
+<span class="gu">---</span>
+
+你是一位资深 CRM 客户分析专家。请对客户 {account_id} 进行深度洞察分析。
+
+<span class="gu">## 分析步骤</span>
+
+<span class="gu">### 步骤 1: 获取客户基本信息</span>
+调用 query_data(action=&quot;get&quot;, entity_api_key=&quot;account&quot;, record_id=&quot;{account_id}&quot;)
+提取：公司名称、行业、规模、负责人。
+
+<span class="gu">### 步骤 2: 分析商机全景</span>
+调用 analyze_data(entity_api_key=&quot;opportunity&quot;, metrics=[...], group_by=&quot;stage&quot;, filters={...})
+了解各阶段商机数量和金额分布。
+
+<span class="gu">### 步骤 3: ...</span>
+
+<span class="gu">## 输出格式</span>
+
+按以下结构输出分析报告：
+...
+</code></pre></div>
+
+<p><strong>SKILL.md 必填字段</strong>：<code>description</code> + <code>context</code>（inline / fork）。其余字段有合理默认值。</p>
+<h4 id="555-skill">5.5.5 Skill 多源加载优先级（后加载覆盖先加载）<a class="headerlink" href="#555-skill" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code>1. 内置技能（bundled）        src/skills/crm_skills.py 定义为 SkillDefinition 对象
+                            启动时自动注册
+2. 项目技能（project）        ./skills/definitions/&lt;name&gt;/SKILL.md
+                            SkillLoader.discover() 启动时扫描加载
+3. 自动生成技能（auto）       ./skills/auto-generated/&lt;name&gt;/SKILL.md
+                            SkillGenerator 运行时写入
+4. 租户数据库技能（tenant）   ai_skill_definition 表存储，按租户加载
+                            租户管理后台可配置，热更新
+5. Plugin 提供的技能         Plugin.initialize 阶段向 SkillRegistry 注册
+</code></pre></div>
+
+<h4 id="556-skill">5.5.6 Skill 扩展路径（从简单到复杂）<a class="headerlink" href="#556-skill" title="Permanent link">&para;</a></h4>
+<p>开发一个新 Skill 有四条路径，按成本由低到高：</p>
+<p><strong>路径 A：写一份 SKILL.md</strong>（推荐，零代码）</p>
+<div class="highlight"><pre><span></span><code>1. 在 skills/definitions/&lt;skill-name&gt;/ 下新建 SKILL.md
+2. 填写 frontmatter（name / description / when_to_use / arguments / allowed-tools / context）
+3. 在 body 里写 SOP 提示词（描述 LLM 如何分步骤调用 Tool）
+4. 重启（或调用 SkillRegistry.reload()），SkillLoader 自动发现并注册
+5. LLM 在下一轮对话中即可通过 skills_tool 调用
+</code></pre></div>
+
+<p>适合：绝大多数业务技能（查客户 360、竞品分析、报告生成、权限审计等）。</p>
+<p><strong>路径 B：代码里声明 SkillDefinition</strong>（适合内置技能 / 测试 / 动态生成）</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">src.skills.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">SkillDefinition</span>
+
+<span class="n">CUSTOMER_360</span> <span class="o">=</span> <span class="n">SkillDefinition</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;customer_360&quot;</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;生成客户 360 度全景视图&quot;</span><span class="p">,</span>
+    <span class="n">when_to_use</span><span class="o">=</span><span class="s2">&quot;客户详情|360|全景&quot;</span><span class="p">,</span>
+    <span class="n">arguments</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;account_id&quot;</span><span class="p">],</span>
+    <span class="n">allowed_tools</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;query_data&quot;</span><span class="p">],</span>
+    <span class="n">context</span><span class="o">=</span><span class="s2">&quot;inline&quot;</span><span class="p">,</span>
+    <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;&quot;&quot;你现在需要生成客户 </span><span class="si">{account_id}</span><span class="s2"> 的 360 度全景视图。</span>
+<span class="s2">    ## 步骤 1: ...</span>
+<span class="s2">    ## 步骤 2: ...&quot;&quot;&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">registry</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">CUSTOMER_360</span><span class="p">)</span>
+</code></pre></div>
+
+<p>适合：启动时就要加载的平台级技能。</p>
+<p><strong>路径 C：租户级配置（管理后台）</strong></p>
+<div class="highlight"><pre><span></span><code>管理员登录 → 租户技能管理 → 新建技能
+   ├─ 填写表单（与 SKILL.md 字段一一对应）
+   ├─ 在线编辑 SOP 提示词
+   ├─ 选择允许的工具（从租户启用的工具列表中选）
+   └─ 保存 → 写入 ai_skill_definition 表
+       ↓
+SkillRegistry 监听配置变更事件 → 热更新
+       ↓
+该租户的 Agent 下一轮对话生效
+</code></pre></div>
+
+<p>适合：每个租户业务流程不同，需要独立配置的场景。</p>
+<p><strong>路径 D：Plugin 提供技能</strong>（最重）</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">MyPlugin</span><span class="p">(</span><span class="n">Plugin</span><span class="p">):</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">initialize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
+        <span class="c1"># Plugin 启动时向 SkillRegistry 注册一批技能</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">.skills</span><span class="w"> </span><span class="kn">import</span> <span class="n">MY_SKILL_1</span><span class="p">,</span> <span class="n">MY_SKILL_2</span>
+        <span class="n">config</span><span class="o">.</span><span class="n">skill_registry</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">MY_SKILL_1</span><span class="p">)</span>
+        <span class="n">config</span><span class="o">.</span><span class="n">skill_registry</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">MY_SKILL_2</span><span class="p">)</span>
+</code></pre></div>
+
+<p>适合：需要打包一组相关技能 + 配套 Tool + 基础设施的完整能力模块（如"财报分析 Plugin"同时提供 financial_report Tool + 3 个财报解读 Skill）。</p>
+<h4 id="557-sop">5.5.7 SOP 提示词编写指南<a class="headerlink" href="#557-sop" title="Permanent link">&para;</a></h4>
+<p>好的 Skill prompt 本质上是一份<strong>给 LLM 看的 SOP</strong>，有固定模板：</p>
+<div class="highlight"><pre><span></span><code>你的身份定位: &quot;你是一位资深 XX 专家&quot;（设定角色，影响回复风格）
+任务目标:    一句话说清要做什么
+分步骤 SOP:   每步明确：
+              - 调哪个 Tool
+              - 传什么参数（用 {arg} 占位符）
+              - 期望什么结果
+              - 失败时如何处理
+输出格式:     给出模板（表格 / 列表 / Markdown 结构）
+风险约束:     禁止事项（&quot;必须使用工具获取真实数据，不得编造&quot;）
+</code></pre></div>
+
+<p>一个写得好的 Skill 的判断标准：<br />
+1. <strong>可验证</strong>：每步都有明确的输入输出，能复现<br />
+2. <strong>参数化</strong>：用 <code>{arg}</code> 占位可变部分，而不是硬编码<br />
+3. <strong>容错</strong>：告诉 LLM 数据缺失时如何降级（继续？补充？终止？）<br />
+4. <strong>边界清晰</strong>：when_to_use 覆盖用户可能的 3-5 种表述方式</p>
+<h4 id="558-skill">5.5.8 Skill 执行链路<a class="headerlink" href="#558-skill" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code>LLM 判断: &quot;这个任务需要走 SOP&quot;
+  ↓
+LLM 调用 skills_tool(skill_name=&quot;account-insight&quot;, arguments={&quot;account_id&quot;:&quot;acc_001&quot;})
+  ↓
+SkillsTool.call() → SkillExecutor.execute()
+  ├─ SkillRegistry.get(&quot;account-insight&quot;)
+  ├─ skill.format_prompt(arguments)   # 替换 {account_id} 占位符
+  │
+  ├─ context == &quot;inline&quot;:
+  │    返回 formatted_prompt 作为 ToolResult
+  │    LLM 看到 prompt 后继续在主对话中调用 query_data / analyze_data ...
+  │
+  └─ context == &quot;fork&quot;:
+       AgentFactory.build(agent_name=skill.agent, depth=current_depth+1)
+          → 工具集 = 主 Agent 工具集 ∩ skill.allowed_tools
+       构建 HumanMessage（包含 formatted_prompt）作为任务指令
+       agent.ainvoke({&quot;messages&quot;: [human_msg]}, thread_id=&quot;skill-xxx-...&quot;)
+       提取最后一条 AIMessage 作为结果返回
+  ↓
+SkillTracker.record(execution)        # 记录本次执行的 tool_calls / tokens / duration
+  ↓
+SkillOptimizer.should_optimize(skill_name)?   # 每 N 次检查一次
+  ├─ 是 → 异步触发 optimize()，不阻塞主流程
+  └─ 否 → 跳过
+  ↓
+ToolResult 返回给主 Agent，LLM 基于结果继续对话
+</code></pre></div>
+
+<h4 id="559-skill-skilltracker-skilloptimizer-skillgenerator">5.5.9 Skill 自改进循环（SkillTracker + SkillOptimizer + SkillGenerator）<a class="headerlink" href="#559-skill-skilltracker-skilloptimizer-skillgenerator" title="Permanent link">&para;</a></h4>
+<p>Skill 系统内置<strong>使用数据反哺自身</strong>的闭环：</p>
+<div class="highlight"><pre><span></span><code>┌──────────────────────────────────────────────────────────┐
+│ Phase 1 · 记录（每次执行都写入）                           │
+│                                                          │
+│ SkillTracker.record(SkillExecution{                      │
+│   skill_name, arguments, tool_calls,                    │
+│   total_tokens, duration_ms, output,                    │
+│   user_feedback (accepted/retry/abandoned/unknown)      │
+│ })                                                       │
+│   ↓ 持久化                                                │
+│ skill_metrics.db                                         │
+│   ├─ skill_executions  明细表                             │
+│   └─ skill_metrics     聚合表（success_rate / avg_tokens）│
+└───────────────────────────┬──────────────────────────────┘
+                            ▼
+┌──────────────────────────────────────────────────────────┐
+│ Phase 2 · 评估（达到阈值时触发）                           │
+│                                                          │
+│ SkillOptimizer.should_optimize(skill_name)               │
+│   触发条件: 执行次数达 optimize_threshold (默认 5) 的整数倍 │
+└───────────────────────────┬──────────────────────────────┘
+                            ▼
+┌──────────────────────────────────────────────────────────┐
+│ Phase 3 · 优化（LLM 改写 SKILL.md）                        │
+│                                                          │
+│ SkillOptimizer.optimize(skill_name)                      │
+│   ├─ 读取当前 SKILL.md                                    │
+│   ├─ 拉取最近 5 次执行轨迹                                 │
+│   ├─ 拉取 metrics（成功率 / 耗时 / token）                 │
+│   ├─ LLM 评估 prompt:                                    │
+│   │   &quot;SOP 步骤是否都被执行？                              │
+│   │    工具调用顺序是否合理？                              │
+│   │    参数是否有硬编码应该参数化？                         │
+│   │    when_to_use 是否准确？&quot;                            │
+│   ├─ LLM 输出改进版 SKILL.md 或 &quot;NO_CHANGE&quot;                │
+│   ├─ 校验新版本 (SkillLoader.validate)                    │
+│   ├─ 备份旧版本 (.v{N}.md.bak)                            │
+│   ├─ 写入新版本                                           │
+│   └─ SkillRegistry.register(new_skill)  热更新            │
+└───────────────────────────┬──────────────────────────────┘
+                            ▼
+┌──────────────────────────────────────────────────────────┐
+│ Phase 4 · 淘汰（长期低效的技能自动下线）                    │
+│                                                          │
+│ should_retire 判据:                                      │
+│   - 执行次数 ≥ 3 次，但成功率 &lt; 30%，或                    │
+│   - 连续 30 天未使用                                      │
+│                                                          │
+│ SkillOptimizer.cleanup_retiring()                        │
+│   删除 SKILL.md + 从 SkillRegistry 下线                   │
+└──────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<p><strong>自动生成新 Skill（SkillGenerator）</strong>：</p>
+<div class="highlight"><pre><span></span><code>场景: 用户让 Agent 完成一个复杂任务（调用 &gt;= 5 次工具）
+    ↓
+任务完成 → AutoGenerateMiddleware.after_agent
+    ↓
+SkillGenerator.should_generate(messages)?  # tool_count &gt;= 5
+    ├─ 是 → generate_with_llm(messages)
+    │    LLM 从对话中提取任务模式
+    │    生成 SKILL.md（name / description / when_to_use / arguments / SOP）
+    │    写入 ./skills/auto-generated/&lt;name&gt;/SKILL.md
+    │    自动注册到 SkillRegistry
+    │    下次用户说类似的话 → LLM 直接调用该技能（一次搞定 vs 5 次工具调用）
+    └─ 否 → 跳过
+</code></pre></div>
+
+<p><strong>效果度量</strong>（对齐 Hermes Agent 的指标体系）：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">指标</th>
+<th style="text-align: left;">含义</th>
+<th style="text-align: left;">用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">success_rate</td>
+<td style="text-align: left;">user_feedback == "accepted" 的比例</td>
+<td style="text-align: left;">判断 SOP 是否有效</td>
+</tr>
+<tr>
+<td style="text-align: left;">avg_tokens</td>
+<td style="text-align: left;">平均消耗的 token</td>
+<td style="text-align: left;">判断提示词是否臃肿</td>
+</tr>
+<tr>
+<td style="text-align: left;">avg_duration_ms</td>
+<td style="text-align: left;">平均执行耗时</td>
+<td style="text-align: left;">判断是否需要切换轻量模型</td>
+</tr>
+<tr>
+<td style="text-align: left;">total_executions</td>
+<td style="text-align: left;">累计执行次数</td>
+<td style="text-align: left;">判断是否被真实使用</td>
+</tr>
+<tr>
+<td style="text-align: left;">last_used</td>
+<td style="text-align: left;">最后使用时间</td>
+<td style="text-align: left;">淘汰判据</td>
+</tr>
+<tr>
+<td style="text-align: left;">version</td>
+<td style="text-align: left;">当前版本号</td>
+<td style="text-align: left;">追溯历史变更</td>
+</tr>
+</tbody>
+</table>
+<h4 id="5510-skill-checklist">5.5.10 Skill 开发清单（Checklist）<a class="headerlink" href="#5510-skill-checklist" title="Permanent link">&para;</a></h4>
+<p>开发一个新业务 Skill 前，对照以下清单确认：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: center;">✓</th>
+<th style="text-align: left;">检查项</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">☐</td>
+<td style="text-align: left;">任务是否需要多步骤 LLM 推理？（是 → Skill；否 → Tool）</td>
+</tr>
+<tr>
+<td style="text-align: center;">☐</td>
+<td style="text-align: left;">所需工具是否都已在 ToolRegistry 注册？</td>
+</tr>
+<tr>
+<td style="text-align: center;">☐</td>
+<td style="text-align: left;">SOP 步骤是否清晰可验证？（每步有输入输出）</td>
+</tr>
+<tr>
+<td style="text-align: center;">☐</td>
+<td style="text-align: left;">参数是否都用 <code>{arg}</code> 占位，没有硬编码业务值？</td>
+</tr>
+<tr>
+<td style="text-align: center;">☐</td>
+<td style="text-align: left;">when_to_use 是否覆盖了用户的 3-5 种表述？</td>
+</tr>
+<tr>
+<td style="text-align: center;">☐</td>
+<td style="text-align: left;">context 选择是否正确？（短任务 inline / 长任务 fork）</td>
+</tr>
+<tr>
+<td style="text-align: center;">☐</td>
+<td style="text-align: left;">allowed-tools 是否是执行 SOP 所需的<strong>最小集合</strong>？</td>
+</tr>
+<tr>
+<td style="text-align: center;">☐</td>
+<td style="text-align: left;">输出格式是否有明确模板？</td>
+</tr>
+<tr>
+<td style="text-align: center;">☐</td>
+<td style="text-align: left;">失败 / 数据缺失的降级路径是否说明？</td>
+</tr>
+<tr>
+<td style="text-align: center;">☐</td>
+<td style="text-align: left;">risk_level 是否标注正确？（write / destructive 需走 HITL）</td>
+</tr>
+<tr>
+<td style="text-align: center;">☐</td>
+<td style="text-align: left;">是否写了至少一个端到端测试用例？</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="56">5.6 三维度协作总览<a class="headerlink" href="#56" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>┌────────────────────────────────────────────────────────────────┐
+│                         User Request                           │
+└──────────────────────────────┬─────────────────────────────────┘
+                               │
+                  ┌────────────▼────────────┐
+                  │      Lead Agent          │
+                  └────────────┬────────────┘
+                               │
+        ┌──────────────────────┼──────────────────────┐
+        │                      │                      │
+        ▼                      ▼                      ▼
+  ┌───────────┐          ┌───────────┐          ┌───────────┐
+  │   Tool    │          │   Skill   │          │  Plugin   │
+  │ (LLM直调) │          │(Agent SOP)│          │(基础设施) │
+  └─────┬─────┘          └─────┬─────┘          └─────▲─────┘
+        │                      │                      │
+        │ 调用接口              │ 编排多个 Tool         │ 提供能力
+        └──────────────────────┼──────────────────────┘
+                               │
+                               ▼
+                     ┌──────────────────┐
+                     │   Plugin Context │
+                     │ (llm/memory/...)  │
+                     └──────────────────┘
+</code></pre></div>
+
+<hr />
+<h2 id="vikingmemoryengine">六、记忆系统（VikingMemoryEngine）<a class="headerlink" href="#vikingmemoryengine" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>由 memory-plugin 提供，详见《VikingMemoryEngine-长期记忆系统设计.md》《记忆提取与检索.md》《记忆遗忘与反思-设计方案.md》《记忆与系统数据一致性设计.md》。</p>
+</blockquote>
+<h3 id="61-4">6.1 4 类分类体系<a class="headerlink" href="#61-4" title="Permanent link">&para;</a></h3>
+<p>记忆统一为 <strong>4 类</strong>，全部由 LLM 四路并行从用户对话中提取：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">类别</th>
+<th style="text-align: left;">主语判据</th>
+<th style="text-align: left;">说明</th>
+<th style="text-align: left;">合并策略</th>
+<th style="text-align: left;">CRM 示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">agent_rules</td>
+<td style="text-align: left;">主语"你"（Agent）</td>
+<td style="text-align: left;">用户对 Agent 的角色定义与行为准则</td>
+<td style="text-align: left;">LLM 合并（矛盾以新为准）</td>
+<td style="text-align: left;">"你是我的数据分析助理，回复不超过100字"</td>
+</tr>
+<tr>
+<td style="text-align: left;">profile</td>
+<td style="text-align: left;">主语"我"描述身份</td>
+<td style="text-align: left;">用户身份、角色、背景</td>
+<td style="text-align: left;">始终追加合并</td>
+<td style="text-align: left;">"华东区销售总监，管理15人团队"</td>
+</tr>
+<tr>
+<td style="text-align: left;">preferences</td>
+<td style="text-align: left;">主语"我"表达偏好</td>
+<td style="text-align: left;">偏好与习惯（按语义 slug 独立）</td>
+<td style="text-align: left;">同 slug 替换</td>
+<td style="text-align: left;">"data_display：偏好表格"</td>
+</tr>
+<tr>
+<td style="text-align: left;">entities</td>
+<td style="text-align: left;">主语为第三方</td>
+<td style="text-align: left;">客户 / 联系人 / 商机 / 合同</td>
+<td style="text-align: left;">同 merge_key 替换</td>
+<td style="text-align: left;">"华为/ERP项目：500万，谈判阶段"</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>历史设计中的 <code>soul</code> 已在实现里统一命名为 <code>agent_rules</code>；历史讨论中出现的 <code>events / cases / patterns / tools / skills</code> 不在记忆体系内（运行时指标与经验沉淀走独立机制，见 §6.7）。</p>
+</blockquote>
+<h3 id="62-pg">6.2 存储架构（PG 权威 + 向量库检索）<a class="headerlink" href="#62-pg" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>PG (权威数据源 ai_agent_memory 表):
+  4 类全量 + L0/L1/L2
+  ├── memory_id, tenant_id, user_id, category
+  ├── abstract (L0) / overview (L1) / content (L2)
+  ├── merge_key, parent_entity, biz_id/biz_parent_id
+  ├── status (active/stale/archived/deleted)
+  ├── active_count, confidence, last_accessed_at
+  └── vector_synced, vector_id
+
+向量库 (语义检索索引):
+  只存需要语义检索的类别
+  ├── id = memory_id
+  ├── embedding = embed(abstract)
+  ├── FilterIndex: status, category, tenant_id, user_id, parent_entity
+  └── 稀疏向量（BM25）
+
+类别与存储的对应关系:
+  仅 PG（精确查询，无语义检索需求）:
+    profile, agent_rules
+  PG + 向量库（需要语义检索）:
+    entities, preferences
+
+同步机制:
+  写入: PG 先写 → 异步队列 → 向量库（vector_synced=1）
+  状态: 定时任务批量更新 status 到向量库
+  检索: 只读向量库（实时）
+        异步写 PG（last_accessed_at + active_count）
+</code></pre></div>
+
+<h3 id="63">6.3 四层召回<a class="headerlink" href="#63" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: center;">层</th>
+<th style="text-align: left;">触发</th>
+<th style="text-align: left;">召回方式</th>
+<th style="text-align: left;">Token 成本</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;">会话开始（一次）</td>
+<td style="text-align: left;">profile + agent_rules 全量注入</td>
+<td style="text-align: left;">固定 ~500</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td style="text-align: left;">每轮用户消息</td>
+<td style="text-align: left;">意图检测 → entities/preferences 目录递归检索 → 重排序</td>
+<td style="text-align: left;">~200–1000</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td style="text-align: left;">Agent 主动调用</td>
+<td style="text-align: left;">search_memories 工具</td>
+<td style="text-align: left;">按需</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td style="text-align: left;">技能执行</td>
+<td style="text-align: left;">拦截 skill 加载，追加使用经验（来自 §6.7 经验存储）</td>
+<td style="text-align: left;">~100–500</td>
+</tr>
+</tbody>
+</table>
+<h3 id="64">6.4 记忆提取原则（四路并行提取器）<a class="headerlink" href="#64" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>设计目标:
+  1. 一个维度一个 prompt    — 降低分类混淆，四路并行
+  2. 只接收 user 消息        — 不从 tool 结果或 assistant 回复中提取
+  3. 主语判据               — 用主语区分四个类别（唯一边界依据）
+  4. 注入已有记忆           — profile / agent_rules 注入旧内容避免重复提取
+
+四个提取器:
+  PROFILE_EXTRACTOR        主语&quot;我&quot;，描述身份 / 角色 / 背景
+  PREFERENCES_EXTRACTOR    主语&quot;我&quot;，表达喜好 / 习惯 / 倾向（按 slug 拆分）
+  AGENT_RULES_EXTRACTOR    主语&quot;你&quot;，指令 / 约束 / 角色定义
+  ENTITIES_EXTRACTOR       主语为第三方，陈述客观事实
+
+不提取:
+  - 一次性操作指令（&quot;帮我查XX&quot;）
+  - 系统字段值（精确金额、概率、电话等）— 属于业务数据，不是记忆
+  - tool 结果里的业务数据（属于 Scratchpad / 工具上下文）
+  - 用户与 Agent 的闲聊内容
+</code></pre></div>
+
+<h3 id="65">6.5 记忆遗忘（三阶段淡化）<a class="headerlink" href="#65" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>active ──过期+30天无检索──▶ stale ──30天无检索──▶ archived ──30天无检索──▶ deleted
+  ▲                          │                      │
+  │        被检索命中          │       被检索命中       │
+  └──────────────────────────┴──────────────────────┘
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">类别</th>
+<th style="text-align: center;">active 期</th>
+<th style="text-align: center;">+ stale</th>
+<th style="text-align: center;">+ archived</th>
+<th style="text-align: center;">总生命周期</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">entities</td>
+<td style="text-align: center;">180d</td>
+<td style="text-align: center;">30d</td>
+<td style="text-align: center;">30d</td>
+<td style="text-align: center;">240d</td>
+</tr>
+<tr>
+<td style="text-align: left;">preferences</td>
+<td style="text-align: center;">不遗忘，同 slug 自动替换</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">∞</td>
+</tr>
+<tr>
+<td style="text-align: left;">profile</td>
+<td style="text-align: center;">不遗忘，超长自动精炼（&gt; 200 字）</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">∞</td>
+</tr>
+<tr>
+<td style="text-align: left;">agent_rules</td>
+<td style="text-align: center;">不遗忘，超长自动精炼（&gt; 300 字）</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">∞</td>
+</tr>
+</tbody>
+</table>
+<h3 id="66">6.6 记忆反思（三种触发）<a class="headerlink" href="#66" title="Permanent link">&para;</a></h3>
+<p>反思只对 <strong>entities</strong> 类别触发（其他三类靠合并策略已足够）：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">触发</th>
+<th style="text-align: left;">时机</th>
+<th style="text-align: left;">动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">会话反思</td>
+<td style="text-align: left;">每轮对话后（5s 冷却）</td>
+<td style="text-align: left;">跨 merge_key 冲突检测</td>
+</tr>
+<tr>
+<td style="text-align: left;">失败反思</td>
+<td style="text-align: left;">AI / Tool 失败时（60s 冷却）</td>
+<td style="text-align: left;">检查是否记忆导致错误</td>
+</tr>
+<tr>
+<td style="text-align: left;">用户纠正反思</td>
+<td style="text-align: left;">用户说"不对 / 错了"时（30s 冷却）</td>
+<td style="text-align: left;">修正旧记忆</td>
+</tr>
+</tbody>
+</table>
+<p>冲突检测二步法：LLM 分类关系（<code>identical</code> / <code>contradiction</code> / <code>evolution</code> / <code>unrelated</code>）→ 规则映射动作（<code>discard_new</code> / <code>archive_old</code> / <code>update_old</code> / <code>keep_both</code>）。</p>
+<h3 id="67">6.7 运行时经验数据（不属于记忆体系）<a class="headerlink" href="#67" title="Permanent link">&para;</a></h3>
+<p>部分历史设计中出现的 <code>events / cases / patterns / tools / skills</code> 在实际系统里<strong>不作为记忆类别</strong>存在，而是通过独立机制沉淀：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">数据类型</th>
+<th style="text-align: left;">存储</th>
+<th style="text-align: left;">产生方式</th>
+<th style="text-align: left;">消费者</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">业务事件（events）</td>
+<td style="text-align: left;">业务系统本身 + <code>ai_trace</code></td>
+<td style="text-align: left;">由业务服务产生（签约、客户更名等）</td>
+<td style="text-align: left;">通过 query_data 工具查询，不进记忆</td>
+</tr>
+<tr>
+<td style="text-align: left;">失败案例（cases）</td>
+<td style="text-align: left;">ReflectionNode 的内部状态 + 审计日志</td>
+<td style="text-align: left;">Agent 失败分析的临时产物</td>
+<td style="text-align: left;">下一轮对话的 system prompt 局部注入</td>
+</tr>
+<tr>
+<td style="text-align: left;">经验模式（patterns）</td>
+<td style="text-align: left;">skill 的 prompt 模板（SKILL.md）</td>
+<td style="text-align: left;">SkillOptimizer 从高频成功路径归纳</td>
+<td style="text-align: left;">技能执行时自动加载</td>
+</tr>
+<tr>
+<td style="text-align: left;">工具统计（tools）</td>
+<td style="text-align: left;">SQLite 指标库 <code>skill_metrics.db</code></td>
+<td style="text-align: left;">ToolErrorHandlingMiddleware 实时记录</td>
+<td style="text-align: left;">SkillOptimizer 判断是否优化技能</td>
+</tr>
+<tr>
+<td style="text-align: left;">技能统计（skills）</td>
+<td style="text-align: left;">同上</td>
+<td style="text-align: left;">SkillTracker 记录每次执行的耗时/成功率/token</td>
+<td style="text-align: left;">同上</td>
+</tr>
+</tbody>
+</table>
+<p><strong>为什么不放进记忆体系</strong>：记忆是"从对话中理解用户"，而工具/技能统计是"系统对自己行为的观测"——两者的生命周期、更新频率、检索方式完全不同。把它们塞进 <code>ai_agent_memory</code> 只会污染记忆的语义空间。</p>
+<p><strong>对外表现</strong>：从用户视角看，"Agent 记住了某个工作流程" 是感知到的，但这不通过记忆系统实现，而是通过<strong>技能经验注入</strong>（SkillMiddleware 在技能执行时读 SKILL.md 追加使用经验）。</p>
+<hr />
+<h2 id="_6">七、上下文压缩（四层架构）<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>详见《上下文压缩设计.md》。</p>
+</blockquote>
+<h3 id="71">7.1 四层总览<a class="headerlink" href="#71" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>Layer 0 · Scratchpad（外部工作区）
+  完整数据不进 LLM 上下文，Agent 按需查询（Redis / PG / 内存）
+       ↓
+Layer 1 · 源头隔离（100% 对话触发）
+  ├─ 前端组件分流（render_type → UI 渲染，不进 LLM）
+  ├─ 工具结果 &gt; 阈值 → 两层摘要
+  │   1. 代码格式化提取（零 LLM 成本）
+  │   2. LLM 摘要兜底
+  └─ 原文保存虚拟文件 FileInfo
+       ↓
+Layer 2 · 当前轮次裁剪（5+ 步复杂任务触发）
+  ├─ Pass 1: MD5 去重
+  ├─ Pass 2: 保护区外旧 ToolMessage 替换为一行摘要
+  └─ Pass 3: tool_call 参数截断（&gt;500 → 200）
+       ↓
+Layer 3 · 回复摘要回写（&gt;500 字符触发）
+  ├─ answerSummary（异步写 PG）
+  └─ sessionSummary（迭代更新写 Redis）
+       ↓
+Layer 4 · 历史上下文构建（100% 非首轮触发）
+  双套视图 + sessionSummary 注入 + Prompt Cache
+</code></pre></div>
+
+<h3 id="72-crm">7.2 CRM 不可回避的六类大数据源<a class="headerlink" href="#72-crm" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">类型</th>
+<th style="text-align: left;">场景</th>
+<th style="text-align: left;">量级</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">D1 大文本字段</td>
+<td style="text-align: left;">商机需求描述、客户备注</td>
+<td style="text-align: left;">2K–20K 字符</td>
+</tr>
+<tr>
+<td style="text-align: left;">D2 搜索全文</td>
+<td style="text-align: left;">竞品定价页、案例详情</td>
+<td style="text-align: left;">10K–80K 字符</td>
+</tr>
+<tr>
+<td style="text-align: left;">D3 百级列表</td>
+<td style="text-align: left;">总监看全部 pipeline</td>
+<td style="text-align: left;">15K–75K 字符</td>
+</tr>
+<tr>
+<td style="text-align: left;">D4 跨实体关联</td>
+<td style="text-align: left;">客户+商机+联系人+活动+合同</td>
+<td style="text-align: left;">20K–120K 字符</td>
+</tr>
+<tr>
+<td style="text-align: left;">D5 对话全文</td>
+<td style="text-align: left;">一个月 WhatsApp + 语音转文字</td>
+<td style="text-align: left;">5K–100K 字符</td>
+</tr>
+<tr>
+<td style="text-align: left;">D6 元数据定义</td>
+<td style="text-align: left;">实体 30–50 字段完整 schema</td>
+<td style="text-align: left;">5K–20K 字符</td>
+</tr>
+</tbody>
+</table>
+<h3 id="73">7.3 动态阈值<a class="headerlink" href="#73" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">工具类型</th>
+<th style="text-align: center;">summary_threshold</th>
+<th style="text-align: center;">max_words</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">查询类（query_data / query_schema）</td>
+<td style="text-align: center;">300</td>
+<td style="text-align: center;">100</td>
+</tr>
+<tr>
+<td style="text-align: left;">分析类（analyze_data）</td>
+<td style="text-align: center;">800</td>
+<td style="text-align: center;">200</td>
+</tr>
+<tr>
+<td style="text-align: left;">外部信息（web_search）</td>
+<td style="text-align: center;">500</td>
+<td style="text-align: center;">150</td>
+</tr>
+<tr>
+<td style="text-align: left;">财务报价（financial_report）</td>
+<td style="text-align: center;">1500</td>
+<td style="text-align: center;">300</td>
+</tr>
+<tr>
+<td style="text-align: left;">确认类（save_memory / ask_user）</td>
+<td style="text-align: center;">∞</td>
+<td style="text-align: center;">—</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_7">八、多模态支持<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h2>
+<p>多模态是 CRM 场景的刚需：销售上传合同截图、扫描件、产品照片；总监让 Agent 读 Excel 月报；客服处理用户发来的故障截图；Agent 生成架构图 / 流程图 / 图表回复用户。系统在<strong>输入 / 理解 / 生成 / 存储 / 记忆</strong>五个环节原生支持多模态。</p>
+<h3 id="81">8.1 支持的媒体类型<a class="headerlink" href="#81" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">类别</th>
+<th style="text-align: left;">扩展名</th>
+<th style="text-align: left;">处理方式</th>
+<th style="text-align: left;">上下文占用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">图片</td>
+<td style="text-align: left;">png / jpg / jpeg / gif / webp / bmp / svg</td>
+<td style="text-align: left;">直接送入多模态 LLM（VLM）</td>
+<td style="text-align: left;">按图片 token 计费</td>
+</tr>
+<tr>
+<td style="text-align: left;">文档</td>
+<td style="text-align: left;">pdf / docx / xlsx / pptx / csv / txt / md</td>
+<td style="text-align: left;">文档解析服务（可插拔，腾讯云 LKEAP / 自部署 OCR 等）→ Markdown + 结构化 JSON</td>
+<td style="text-align: left;">文本 token</td>
+</tr>
+<tr>
+<td style="text-align: left;">屏幕截图</td>
+<td style="text-align: left;">png / jpg</td>
+<td style="text-align: left;">走图片路径</td>
+<td style="text-align: left;">同图片</td>
+</tr>
+<tr>
+<td style="text-align: left;">语音</td>
+<td style="text-align: left;">mp3 / wav / m4a</td>
+<td style="text-align: left;">ASR 转写 + 原音频保留</td>
+<td style="text-align: left;">文本 token（转写文本）</td>
+</tr>
+<tr>
+<td style="text-align: left;">Agent 生成物</td>
+<td style="text-align: left;">图片 / Markdown / 代码 / 图表 JSON</td>
+<td style="text-align: left;">artifact 持久化，前端渲染</td>
+<td style="text-align: left;">仅摘要进入上下文</td>
+</tr>
+</tbody>
+</table>
+<h3 id="82">8.2 多模态数据流（端到端）<a class="headerlink" href="#82" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>┌──────────────────────────────────────────────────────────────┐
+│ 用户侧                                                        │
+│  上传文件 / 拖拽图片 / 粘贴截图 / 录音 → 前端                   │
+└───────────────────────────┬──────────────────────────────────┘
+                            │ multipart/form-data
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│ 上传层 — UploadManager                                        │
+│  1. 保存文件到对象存储（COS / OSS）→ 生成 URL                  │
+│  2. 识别 MIME 类型 → 记录 FileMetadata                        │
+│  3. 文档类型 → 调文档解析服务（腾讯云 LKEAP / 自部署）→ Markdown │
+│  4. 图片类型 → 不预处理（直接走 VLM）                          │
+│  5. 语音类型 → 调 ASR 获取转写                                │
+└───────────────────────────┬──────────────────────────────────┘
+                            │ configurable[&quot;files&quot;] = [...]
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│ FileProcessMiddleware.before_agent                           │
+│  识别 fileType：image / document / audio                     │
+│  归一化字段 → state.thread_data.parsed_files                  │
+│  每个文件: {fileName, fileType, content(文本), url, mediaId}  │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+          ┌─────────────────┼─────────────────┐
+          │                 │                 │
+          ▼                 ▼                 ▼
+     图片路径          文档路径            Agent 主动调用
+     (direct VLM)   (load_file_content)   (load_file_content)
+          │                 │                 │
+          │                 │                 │
+┌─────────▼──────────┐  ┌──▼──────────────┐  │
+│ Multimodal         │  │ 文本内容直接注入 │  │
+│ InjectMiddleware   │  │ LLM 上下文       │  │
+│ .before_model      │  │ (&gt;10K 自动截断)  │  │
+│                    │  │                  │  │
+│ 将 image url 以    │  └──────────────────┘  │
+│ {&quot;type&quot;:&quot;image_url&quot;│                        │
+│  &quot;image_url&quot;:{&quot;url&quot;│   当图片未预注入时 ────┘
+│  :&quot;...&quot;}} 格式     │   load_file_content 返回
+│ 插入 HumanMessage  │   ATTACHMENT_MARKER，
+│                    │   下一轮再注入
+└─────────┬──────────┘
+          │
+          ▼
+    多模态 LLM (VLM)
+     ├─ 看图回答问题
+     ├─ 提取图表数据
+     └─ 理解截图内容
+          │
+          ▼
+     回复文本 / 调用工具 / 生成 artifact
+</code></pre></div>
+
+<h3 id="83-openai-deepseek-claude">8.3 多模态消息格式（OpenAI 兼容，豆包 / DeepSeek / Claude 通用）<a class="headerlink" href="#83-openai-deepseek-claude" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># 用户消息含图片</span>
+<span class="n">HumanMessage</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span>
+    <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="s2">&quot;帮我看这张合同截图里的总金额&quot;</span><span class="p">},</span>
+    <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;image_url&quot;</span><span class="p">,</span> <span class="s2">&quot;image_url&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="s2">&quot;https://cos.../contract.png&quot;</span><span class="p">}},</span>
+<span class="p">])</span>
+
+<span class="c1"># 用户消息含文档（文本化后）</span>
+<span class="n">HumanMessage</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span>
+    <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="s2">&quot;分析这份月报&quot;</span><span class="p">},</span>
+    <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="s2">&quot;[附件: monthly_report.pdf]</span><span class="se">\n</span><span class="s2">## 1. 销售概况</span><span class="se">\n</span><span class="s2">...&quot;</span><span class="p">},</span>
+<span class="p">])</span>
+
+<span class="c1"># Agent 生成图片回复</span>
+<span class="n">AIMessage</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span>
+    <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="s2">&quot;按你的需求画了一张架构图，要点如下：&quot;</span><span class="p">},</span>
+<span class="p">],</span> <span class="n">artifacts</span><span class="o">=</span><span class="p">[</span>
+    <span class="n">Artifact</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="s2">&quot;artifact_001&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s2">&quot;image&quot;</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">&quot;系统架构图&quot;</span><span class="p">,</span>
+             <span class="n">content</span><span class="o">=</span><span class="s2">&quot;https://cos.../generated/arch.png&quot;</span><span class="p">),</span>
+<span class="p">])</span>
+</code></pre></div>
+
+<h3 id="84-vlm">8.4 图片路径 — 直接走 VLM<a class="headerlink" href="#84-vlm" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>上传图片 → UploadManager 存 COS → URL 回传
+              │
+              ▼
+   FileProcessMiddleware 写入 parsed_files
+              │
+              ▼
+   MultimodalInjectMiddleware.before_model
+     检查 parsed_files 中的 fileType == &quot;image&quot;
+     将 image URL 以 content part 格式拼入最新 HumanMessage
+              │
+              ▼
+   多模态 LLM 看图 + 文 → 回复
+</code></pre></div>
+
+<p><strong>关键设计</strong>：图片不需要 LLM 主动调用工具就能看到，系统自动注入。这符合"用户拖了图就是想让 Agent 看到"的直觉。</p>
+<h3 id="85">8.5 文档路径 — 解析 + 按需加载<a class="headerlink" href="#85" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>上传文档 → UploadManager
+            │
+            ├─ PDF/DOCX/PPTX/XLSX → 文档解析服务（可插拔）→ Markdown + 结构化 JSON
+            │   （保留表格 / 公式 / 图片描述；供应商可替换：腾讯云 LKEAP / 自部署 OCR / Apache Tika 等）
+            ├─ CSV/TXT/MD → 直接文本读取
+            └─ 存 parsed_files.content (文本) + .url (原文件)
+
+LLM 调用 load_file_content 工具 →
+  ├─ 文件有 content 字段 → 返回文本（超 10K 自动截断）
+  ├─ 文件只有 URL（扫描 PDF 等图片型文档）
+  │   → 返回 ATTACHMENT_MARKER 标记
+  │   → MultimodalInjectMiddleware 下一轮注入为 input_file
+  │   → VLM 读图式理解
+  └─ 图片文件 → 同上，注入为 input_image
+</code></pre></div>
+
+<p><strong>关键设计</strong>：文档不自动注入，由 LLM 按需通过 <code>load_file_content</code> 工具加载，避免长文档占满上下文。</p>
+<h3 id="86-agent-artifact-image">8.6 Agent 生成物（Artifact / Image）<a class="headerlink" href="#86-agent-artifact-image" title="Permanent link">&para;</a></h3>
+<p>Agent 的输出不只是文本，还包括结构化生成物：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">类型</th>
+<th style="text-align: left;">生成方式</th>
+<th style="text-align: left;">存储</th>
+<th style="text-align: left;">前端渲染</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">artifact · 代码</td>
+<td style="text-align: left;">LLM 直接输出</td>
+<td style="text-align: left;"><code>state.artifacts</code> + ai_message_ext</td>
+<td style="text-align: left;">Monaco / 代码块</td>
+</tr>
+<tr>
+<td style="text-align: left;">artifact · 文档</td>
+<td style="text-align: left;">LLM 输出 Markdown</td>
+<td style="text-align: left;">同上</td>
+<td style="text-align: left;">Markdown 渲染</td>
+</tr>
+<tr>
+<td style="text-align: left;">artifact · 图表</td>
+<td style="text-align: left;">LLM 输出 chart schema（Vega-Lite / ECharts）</td>
+<td style="text-align: left;">同上</td>
+<td style="text-align: left;">图表组件</td>
+</tr>
+<tr>
+<td style="text-align: left;">image · 生成图</td>
+<td style="text-align: left;"><code>generate_image</code> 工具调图像生成厂商（OpenAI / 字节豆包 / 百度文心一格 等）</td>
+<td style="text-align: left;">COS + <code>state.images</code></td>
+<td style="text-align: left;"><code>&lt;img&gt;</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">image · 数据可视化</td>
+<td style="text-align: left;">LLM 输出 chart → 前端渲染 → 截图存档</td>
+<td style="text-align: left;">COS + <code>state.images</code></td>
+<td style="text-align: left;"><code>&lt;img&gt;</code></td>
+</tr>
+</tbody>
+</table>
+<p>Artifact 持久化到 <code>ai_message_ext</code> 表（type='artifact'），前端通过 AG-UI 事件流增量接收（<code>ARTIFACT_CREATED</code> / <code>ARTIFACT_UPDATED</code>）。</p>
+<h3 id="87">8.7 多模态 × 上下文压缩<a class="headerlink" href="#87" title="Permanent link">&para;</a></h3>
+<p>多模态内容的压缩策略与文本不同：</p>
+<div class="highlight"><pre><span></span><code>┌─────────────────────────────────────────────────────────────┐
+│ Layer 1 · 源头隔离                                           │
+│  图片 content part → 保留（视觉信息不可摘要）                │
+│  文档 load_file_content 结果 → 按阈值摘要（见 7.3）           │
+│  Artifact → 摘要进 LLM，原文存 parsed_files                  │
+└─────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 2 · 轮次裁剪                                           │
+│  同一图片 URL 重复注入 → 去重（只保留最新一次）               │
+│  旧轮次 image content part → 替换为 &quot;[历史图片: xxx]&quot; 文本   │
+│  保护当前轮次的所有图片 + 最近 3 轮的图片                    │
+└─────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 3 · 回复摘要                                           │
+│  Agent 理解图片后的文字结论 → 写入 answerSummary             │
+│  （下次调用时只看得到结论，不重复消耗视觉 token）             │
+└─────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<p><strong>图片 Token 控制</strong>：<br />
+- 单图 2000 × 2000 约 1200 tokens（以主流多模态模型为参考，具体计费规则视厂商而定）<br />
+- 单轮对话默认最多 5 张图片（超限自动降质 / 截断）<br />
+- 历史轮次图片超过 3 轮未引用 → 替换为文字占位符</p>
+<h3 id="88">8.8 多模态 × 记忆<a class="headerlink" href="#88" title="Permanent link">&para;</a></h3>
+<p>多模态内容的记忆有两条原则：<strong>视觉内容不存向量库，存文字结论</strong>。</p>
+<div class="highlight"><pre><span></span><code>用户上传合同截图 → VLM 识别 → Agent 回复&quot;合同金额500万，甲方华为&quot;
+  ↓
+LLM 提取 → entities 记忆
+  abstract: &quot;华为合同：金额500万&quot;
+  content:  &quot;用户上传了华为合同截图，识别到甲方华为、金额500万...&quot;
+  metadata: {source_type: &quot;image_extracted&quot;, image_url: &quot;...&quot;}
+
+下次检索&quot;华为合同金额&quot; → 直接命中文字记忆，无需重新读图
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">场景</th>
+<th style="text-align: left;">存什么</th>
+<th style="text-align: left;">不存什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">合同 / 截图识别</td>
+<td style="text-align: left;">识别出的关键字段（金额 / 客户 / 日期） + 原图 URL</td>
+<td style="text-align: left;">图片本身的 embedding</td>
+</tr>
+<tr>
+<td style="text-align: left;">产品照片</td>
+<td style="text-align: left;">用户/Agent 对照片的描述和判断</td>
+<td style="text-align: left;">原图 embedding</td>
+</tr>
+<tr>
+<td style="text-align: left;">图表截图</td>
+<td style="text-align: left;">图表的数据结论、趋势判断</td>
+<td style="text-align: left;">像素级信息</td>
+</tr>
+</tbody>
+</table>
+<p>原图 URL 存在 <code>ai_message_ext.attachments</code> 表，记忆只存文字抽象。如果未来需要以图搜图，可以单独加一个 <code>image_memory</code> 表，但不混入现有 4 类。</p>
+<h3 id="89-ag-ui-a2ui">8.9 多模态 × AG-UI / A2UI<a class="headerlink" href="#89-ag-ui-a2ui" title="Permanent link">&para;</a></h3>
+<p>多模态的展示离不开前端协议支撑（详见第十章）：</p>
+<div class="highlight"><pre><span></span><code>图片消息       → CUSTOM &quot;attachment_added&quot; (type: input_image)
+Agent 生成图   → CUSTOM &quot;artifact_created&quot; (type: image, url)
+Artifact 流式 → CUSTOM &quot;artifact_updated&quot; (content_delta)
+音频播放       → CUSTOM &quot;attachment_added&quot; (type: audio, url)
+图表 Artifact → A2UI ComponentMatcher 匹配 chart_block → 前端渲染 Vega-Lite
+看图分析过程   → REASONING_CONTENT 下发推理过程给前端可视化
+</code></pre></div>
+
+<p>VLM 的视觉理解能力 + AG-UI 的流式推理事件 = 前端可以把"Agent 看图的思考过程"动态展示给用户（如高亮关注区域、分步骤输出结论）。</p>
+<h3 id="810">8.10 语音（可选扩展）<a class="headerlink" href="#810" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">输入</th>
+<th style="text-align: left;">处理</th>
+<th style="text-align: left;">产出</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">用户录音</td>
+<td style="text-align: left;">ASR 转写（腾讯云 ASR / 豆包语音）</td>
+<td style="text-align: left;">文本 content，原音频存 COS</td>
+</tr>
+<tr>
+<td style="text-align: left;">销售通话录音</td>
+<td style="text-align: left;">ASR + 说话人分离 + 情感分析</td>
+<td style="text-align: left;">结构化 JSON，写 entities 记忆</td>
+</tr>
+<tr>
+<td style="text-align: left;">Agent 语音回复</td>
+<td style="text-align: left;">TTS 合成</td>
+<td style="text-align: left;">音频 URL，AG-UI 事件下发</td>
+</tr>
+</tbody>
+</table>
+<p>语音转写后走纯文本路径，不占用 VLM token。</p>
+<h3 id="811">8.11 安全与合规<a class="headerlink" href="#811" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">风险</th>
+<th style="text-align: left;">控制点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">违规图片（色情 / 暴力 / 政治敏感）</td>
+<td style="text-align: left;">FileProcessMiddleware 调用图像审查 API → 拒绝 / 模糊处理</td>
+</tr>
+<tr>
+<td style="text-align: left;">OCR 泄漏 PII（身份证 / 银行卡）</td>
+<td style="text-align: left;">文档解析返回后经 PII 脱敏管线</td>
+</tr>
+<tr>
+<td style="text-align: left;">水印泄露（商业机密）</td>
+<td style="text-align: left;">Artifact 生成图加上租户水印</td>
+</tr>
+<tr>
+<td style="text-align: left;">图片链接越权访问</td>
+<td style="text-align: left;">所有图片 URL 附带租户签名，失效时间 1h</td>
+</tr>
+<tr>
+<td style="text-align: left;">文件格式攻击（恶意 PDF）</td>
+<td style="text-align: left;">UploadManager 白名单 + 大小限制（图片 ≤ 20MB，文档 ≤ 100MB）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="812">8.12 前端侧多模态展示<a class="headerlink" href="#812" title="Permanent link">&para;</a></h3>
+<p>对齐 CRM 系统的视觉规范，多模态交互提供以下专属组件：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">组件</th>
+<th style="text-align: left;">用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">ImageMessage</td>
+<td style="text-align: left;">用户/Agent 图片消息气泡</td>
+</tr>
+<tr>
+<td style="text-align: left;">FileMessage</td>
+<td style="text-align: left;">文档消息（图标 + 文件名 + 大小 + 下载）</td>
+</tr>
+<tr>
+<td style="text-align: left;">ImagePreviewModal</td>
+<td style="text-align: left;">图片放大预览</td>
+</tr>
+<tr>
+<td style="text-align: left;">ArtifactPanel</td>
+<td style="text-align: left;">右侧 artifact 面板（代码 / 文档 / 图表多 tab）</td>
+</tr>
+<tr>
+<td style="text-align: left;">AudioPlayer</td>
+<td style="text-align: left;">语音消息播放器</td>
+</tr>
+<tr>
+<td style="text-align: left;">UploadDropzone</td>
+<td style="text-align: left;">拖拽上传区（含粘贴图片）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="agent">九、子 Agent 设计<a class="headerlink" href="#agent" title="Permanent link">&para;</a></h2>
+<h3 id="91">9.1 两种模式<a class="headerlink" href="#91" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">模式</th>
+<th style="text-align: left;">触发工具</th>
+<th style="text-align: left;">执行</th>
+<th style="text-align: left;">适用场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">同步</td>
+<td style="text-align: left;"><code>delegate_task</code></td>
+<td style="text-align: left;">阻塞等待</td>
+<td style="text-align: left;">短任务（&lt;2min）：查询、校验、分析</td>
+</tr>
+<tr>
+<td style="text-align: left;">异步</td>
+<td style="text-align: left;"><code>start_async_task</code></td>
+<td style="text-align: left;">不阻塞</td>
+<td style="text-align: left;">长任务（&gt;2min）：调研、批处理、迁移</td>
+</tr>
+</tbody>
+</table>
+<h3 id="92">9.2 继承与隔离<a class="headerlink" href="#92" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>继承: tenant_id / user_id / llm-plugin / memory-plugin / 审计日志
+隔离: messages（独立历史）/ session_id（派生）/ notification（不发）/ HITL（不弹）
+限制: 工具按 agent_type 裁剪 / max_llm_calls 独立 / depth ≤ 3
+</code></pre></div>
+
+<h3 id="93-7-agent">9.3 7 个业务域子 Agent<a class="headerlink" href="#93-7-agent" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">域</th>
+<th style="text-align: left;">类型</th>
+<th style="text-align: left;">工具集</th>
+<th style="text-align: left;">典型任务</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">销售</td>
+<td style="text-align: left;">sales</td>
+<td style="text-align: left;">query_data, analyze_data, company_info, financial_report, web_search, search_memories</td>
+<td style="text-align: left;">客户背景、商机分析、竞品调研</td>
+</tr>
+<tr>
+<td style="text-align: left;">客服</td>
+<td style="text-align: left;">service</td>
+<td style="text-align: left;">query_data, query_schema, web_search, search_memories, ask_user</td>
+<td style="text-align: left;">诊断问题、搜方案</td>
+</tr>
+<tr>
+<td style="text-align: left;">分析</td>
+<td style="text-align: left;">analytics</td>
+<td style="text-align: left;">query_data, analyze_data, financial_report, web_search, search_memories</td>
+<td style="text-align: left;">数据统计、趋势、异常</td>
+</tr>
+<tr>
+<td style="text-align: left;">配置</td>
+<td style="text-align: left;">config</td>
+<td style="text-align: left;">query_schema, query_data, query_permission, search_memories, ask_user</td>
+<td style="text-align: left;">对象配置、字段规则</td>
+</tr>
+<tr>
+<td style="text-align: left;">数据</td>
+<td style="text-align: left;">data_ops</td>
+<td style="text-align: left;">query_schema, query_data, analyze_data, modify_data, ask_user</td>
+<td style="text-align: left;">数据清理、批量更新</td>
+</tr>
+<tr>
+<td style="text-align: left;">调研</td>
+<td style="text-align: left;">research</td>
+<td style="text-align: left;">web_search, company_info, financial_report, search_memories</td>
+<td style="text-align: left;">行业、尽调、政策</td>
+</tr>
+<tr>
+<td style="text-align: left;">通用</td>
+<td style="text-align: left;">general</td>
+<td style="text-align: left;">主 Agent 全部（除编排工具）</td>
+<td style="text-align: left;">无法归类</td>
+</tr>
+</tbody>
+</table>
+<h3 id="94">9.4 工具裁剪算法<a class="headerlink" href="#94" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>最终工具集 = 主 Agent 工具集 ∩ 业务域默认工具集 ∩ LLM 请求工具集
+
+约束:
+  - delegate_task / start_async_task 只有主 Agent 可用（不可递归派生）
+  - 每个域工具集是最小必要集合
+  - 租户可覆盖默认配置
+</code></pre></div>
+
+<h3 id="95-agent">9.5 异步子 Agent 管理工具<a class="headerlink" href="#95-agent" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">工具</th>
+<th style="text-align: left;">功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">start_async_task</td>
+<td style="text-align: left;">启动，返回 task_id</td>
+</tr>
+<tr>
+<td style="text-align: left;">check_async_task</td>
+<td style="text-align: left;">查状态 / 取结果</td>
+</tr>
+<tr>
+<td style="text-align: left;">update_async_task</td>
+<td style="text-align: left;">发送后续指令（有状态）</td>
+</tr>
+<tr>
+<td style="text-align: left;">cancel_async_task</td>
+<td style="text-align: left;">取消</td>
+</tr>
+<tr>
+<td style="text-align: left;">list_async_tasks</td>
+<td style="text-align: left;">列出全部任务</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="ag-ui-a2ui">十、协议层（AG-UI + A2UI）<a class="headerlink" href="#ag-ui-a2ui" title="Permanent link">&para;</a></h2>
+<p>Agent 与前端的交互通过两个开放协议解耦：<strong>AG-UI</strong> 承担实时事件流（Agent 在做什么），<strong>A2UI</strong> 承担动态组件渲染（Agent 输出该怎么展示）。两者配合，第三方前端只要实现协议就能接入系统，无需知道后端实现细节。</p>
+<h3 id="101">10.1 协议职责分工<a class="headerlink" href="#101" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>┌────────────────────────────────────────────────────────────┐
+│                      Agent 运行时                           │
+└──────────────┬──────────────────────────────┬──────────────┘
+               │                              │
+               │ astream_events                │ render_hint
+               │                              │  + custom data
+               ▼                              ▼
+       ┌──────────────────┐          ┌───────────────────┐
+       │  AG-UI Converter │          │ A2UI Progressive  │
+       │                  │          │   Renderer        │
+       │ 运行时事件 →     │          │                   │
+       │ AG-UI 标准事件流  │          │ STEP 边界 →        │
+       │                  │          │ 组件 loading/     │
+       └────────┬─────────┘          │ delta/complete    │
+                │                     └──────┬────────────┘
+                │                            │
+                └──────────┬─────────────────┘
+                           │ SSE 事件流
+                           ▼
+                  ┌──────────────────┐
+                  │    前端 (任意)    │
+                  │  React / Vue /   │
+                  │  小程序 / 第三方  │
+                  └──────────────────┘
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">协议</th>
+<th style="text-align: left;">定位</th>
+<th style="text-align: left;">内容</th>
+<th style="text-align: left;">参考</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>AG-UI</strong></td>
+<td style="text-align: left;">Agent ↔ UI <strong>事件流协议</strong></td>
+<td style="text-align: left;">运行状态、文本流、工具调用、推理过程、消息快照</td>
+<td style="text-align: left;"><a href="https://docs.ag-ui.com/concepts/events">ag-ui.com/concepts/events</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>A2UI</strong></td>
+<td style="text-align: left;">Agent-to-UI <strong>动态组件协议</strong></td>
+<td style="text-align: left;">根据 Agent 输出内容渲染业务组件（客户画像卡 / BANT 分析 / Pipeline 看板 …）</td>
+<td style="text-align: left;">本项目自定义，基于 AG-UI <code>CUSTOM</code> 事件扩展</td>
+</tr>
+</tbody>
+</table>
+<h3 id="102-ag-ui">10.2 AG-UI 事件类型<a class="headerlink" href="#102-ag-ui" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">AGUIEventType</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">Enum</span><span class="p">):</span>
+    <span class="c1"># ── 运行生命周期 ──</span>
+    <span class="n">RUN_STARTED</span> <span class="o">=</span> <span class="s2">&quot;RUN_STARTED&quot;</span>
+    <span class="n">RUN_FINISHED</span> <span class="o">=</span> <span class="s2">&quot;RUN_FINISHED&quot;</span>
+    <span class="n">RUN_ERROR</span> <span class="o">=</span> <span class="s2">&quot;RUN_ERROR&quot;</span>
+
+    <span class="c1"># ── 文本消息流（三段式状态机）──</span>
+    <span class="n">TEXT_MESSAGE_START</span> <span class="o">=</span> <span class="s2">&quot;TEXT_MESSAGE_START&quot;</span>
+    <span class="n">TEXT_MESSAGE_CONTENT</span> <span class="o">=</span> <span class="s2">&quot;TEXT_MESSAGE_CONTENT&quot;</span>    <span class="c1"># delta 增量</span>
+    <span class="n">TEXT_MESSAGE_END</span> <span class="o">=</span> <span class="s2">&quot;TEXT_MESSAGE_END&quot;</span>
+
+    <span class="c1"># ── 工具调用 ──</span>
+    <span class="n">TOOL_CALL_START</span> <span class="o">=</span> <span class="s2">&quot;TOOL_CALL_START&quot;</span>
+    <span class="n">TOOL_CALL_ARGS</span> <span class="o">=</span> <span class="s2">&quot;TOOL_CALL_ARGS&quot;</span>                <span class="c1"># 参数增量</span>
+    <span class="n">TOOL_CALL_END</span> <span class="o">=</span> <span class="s2">&quot;TOOL_CALL_END&quot;</span>
+    <span class="n">TOOL_CALL_RESULT</span> <span class="o">=</span> <span class="s2">&quot;TOOL_CALL_RESULT&quot;</span>
+
+    <span class="c1"># ── 步骤（Skill / SubAgent 边界）──</span>
+    <span class="n">STEP_STARTED</span> <span class="o">=</span> <span class="s2">&quot;STEP_STARTED&quot;</span>                    <span class="c1"># skill_apikey, step_index</span>
+    <span class="n">STEP_FINISHED</span> <span class="o">=</span> <span class="s2">&quot;STEP_FINISHED&quot;</span>                  <span class="c1"># status: completed/failed</span>
+
+    <span class="c1"># ── 推理过程（thinking 模型）──</span>
+    <span class="n">REASONING_STARTED</span> <span class="o">=</span> <span class="s2">&quot;REASONING_STARTED&quot;</span>
+    <span class="n">REASONING_CONTENT</span> <span class="o">=</span> <span class="s2">&quot;REASONING_CONTENT&quot;</span>          <span class="c1"># delta 增量</span>
+    <span class="n">REASONING_FINISHED</span> <span class="o">=</span> <span class="s2">&quot;REASONING_FINISHED&quot;</span>
+
+    <span class="c1"># ── 状态同步 ──</span>
+    <span class="n">MESSAGES_SNAPSHOT</span> <span class="o">=</span> <span class="s2">&quot;MESSAGES_SNAPSHOT&quot;</span>          <span class="c1"># 完整消息列表</span>
+
+    <span class="c1"># ── 扩展通道（A2UI 走这里）──</span>
+    <span class="n">CUSTOM</span> <span class="o">=</span> <span class="s2">&quot;CUSTOM&quot;</span>
+</code></pre></div>
+
+<h3 id="103-ag-ui-sse">10.3 AG-UI 事件流示例（SSE 格式）<a class="headerlink" href="#103-ag-ui-sse" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>event: RUN_STARTED
+data: {&quot;run_id&quot;:&quot;r_001&quot;,&quot;thread_id&quot;:&quot;t_abc&quot;}
+
+event: TEXT_MESSAGE_START
+data: {&quot;message_id&quot;:&quot;m_001&quot;}
+
+event: TEXT_MESSAGE_CONTENT
+data: {&quot;message_id&quot;:&quot;m_001&quot;,&quot;delta&quot;:&quot;我来查一下华为&quot;}
+
+event: TEXT_MESSAGE_CONTENT
+data: {&quot;message_id&quot;:&quot;m_001&quot;,&quot;delta&quot;:&quot;的商机情况。&quot;}
+
+event: TEXT_MESSAGE_END
+data: {&quot;message_id&quot;:&quot;m_001&quot;}
+
+event: TOOL_CALL_START
+data: {&quot;tool_call_id&quot;:&quot;tc_001&quot;,&quot;tool_name&quot;:&quot;query_data&quot;}
+
+event: TOOL_CALL_ARGS
+data: {&quot;tool_call_id&quot;:&quot;tc_001&quot;,&quot;args&quot;:{&quot;entity&quot;:&quot;opportunity&quot;,&quot;filters&quot;:{&quot;customer&quot;:&quot;华为&quot;}}}
+
+event: TOOL_CALL_END
+data: {&quot;tool_call_id&quot;:&quot;tc_001&quot;}
+
+event: TOOL_CALL_RESULT
+data: {&quot;tool_call_id&quot;:&quot;tc_001&quot;,&quot;result&quot;:{&quot;records&quot;:[...],&quot;count&quot;:3}}
+
+event: CUSTOM
+data: {&quot;name&quot;:&quot;component_loading&quot;,&quot;value&quot;:{&quot;apikey&quot;:&quot;pipeline_dashboard&quot;,&quot;state&quot;:&quot;loading&quot;}}
+
+event: CUSTOM
+data: {&quot;name&quot;:&quot;component_complete&quot;,&quot;value&quot;:{&quot;apikey&quot;:&quot;pipeline_dashboard&quot;,&quot;data&quot;:{...}}}
+
+event: TEXT_MESSAGE_START
+data: {&quot;message_id&quot;:&quot;m_002&quot;}
+
+event: TEXT_MESSAGE_CONTENT
+data: {&quot;message_id&quot;:&quot;m_002&quot;,&quot;delta&quot;:&quot;华为有 3 个活跃商机，总金额 780 万。&quot;}
+
+event: TEXT_MESSAGE_END
+data: {&quot;message_id&quot;:&quot;m_002&quot;}
+
+event: RUN_FINISHED
+data: {&quot;run_id&quot;:&quot;r_001&quot;,&quot;thread_id&quot;:&quot;t_abc&quot;}
+</code></pre></div>
+
+<h3 id="104-a2ui-agent">10.4 A2UI 协议（Agent 驱动动态组件）<a class="headerlink" href="#104-a2ui-agent" title="Permanent link">&para;</a></h3>
+<p>A2UI 解决的核心问题：<strong>Agent 想展示专业业务组件（如客户画像卡、BANT 四象限、Pipeline 看板），但不应该让后端关心前端组件代码</strong>。协议让 Agent 通过语义 key 指定"要渲染什么"，前端负责"怎么渲染"。</p>
+<h4 id="1041">10.4.1 核心概念<a class="headerlink" href="#1041" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code>skill_apikey    — Agent 执行的技能标识（如 customer_360_analysis）
+                  由后端 Skill 注册表管理
+component_apikey — 前端组件库中注册的业务组件标识（如 customer_profile_card）
+                  由前端组件库维护
+ComponentMatcher — 二者的映射层（skill_apikey → component_apikey）
+                  可以是静态映射、租户配置、Schema 匹配
+</code></pre></div>
+
+<h4 id="1042-loading-delta-complete-error">10.4.2 生命周期（loading → delta → complete / error）<a class="headerlink" href="#1042-loading-delta-complete-error" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code>┌────────────────────────────────────────────────────────────┐
+│ 1. STEP_STARTED                                             │
+│    Agent: 开始执行 skill &quot;customer_360_analysis&quot;            │
+│    A2UI:  ComponentMatcher 查找对应组件                     │
+│    推送 CUSTOM &quot;component_loading&quot;                         │
+│    前端: 渲染骨架屏 / Loading 状态                          │
+└────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌────────────────────────────────────────────────────────────┐
+│ 2. 执行过程中（可选）                                       │
+│    Skill 通过 renderer.push_delta() 推送中间数据            │
+│    推送 CUSTOM &quot;component_delta&quot;                           │
+│    前端: 流式更新组件内容                                    │
+└────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌────────────────────────────────────────────────────────────┐
+│ 3. STEP_FINISHED                                            │
+│    skill 完成 → 推送 CUSTOM &quot;component_complete&quot; + 数据     │
+│    skill 失败 → 推送 CUSTOM &quot;component_error&quot; + 错误信息    │
+│    前端: 切换到完成态 / 错误态                              │
+└────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<h4 id="1043-componentmatcher">10.4.3 ComponentMatcher 接口<a class="headerlink" href="#1043-componentmatcher" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ComponentMatcher</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;将 Skill 执行意图映射到前端组件&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">resolve</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">skill_apikey</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;skill_apikey → component_apikey（未匹配返回 None 走纯文本回复）&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">skill_apikey</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">component_apikey</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;注册映射关系&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">warmup</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;启动时预热（加载配置 / 缓存）&quot;&quot;&quot;</span>
+
+
+<span class="c1"># 三种典型实现</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">StaticComponentMatcher</span><span class="p">(</span><span class="n">ComponentMatcher</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;配置文件静态映射（默认实现）&quot;&quot;&quot;</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TenantComponentMatcher</span><span class="p">(</span><span class="n">ComponentMatcher</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;按租户查库匹配（同一 skill 不同租户用不同组件）&quot;&quot;&quot;</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">SchemaComponentMatcher</span><span class="p">(</span><span class="n">ComponentMatcher</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;按数据 schema 自动匹配（Agent 返回什么结构就渲染什么组件）&quot;&quot;&quot;</span>
+</code></pre></div>
+
+<h4 id="1044-toolrender_hint-a2ui">10.4.4 Tool.render_hint 与 A2UI 的衔接<a class="headerlink" href="#1044-toolrender_hint-a2ui" title="Permanent link">&para;</a></h4>
+<p>Tool 返回结果时可以声明 <code>render_hint</code>，直接指定前端组件：</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Tool 中返回（不走 Skill 边界，直接触发组件）</span>
+<span class="k">return</span> <span class="n">ToolResult</span><span class="p">(</span>
+    <span class="n">content</span><span class="o">=</span><span class="s2">&quot;华为科技: 年营收1200亿，通信行业龙头&quot;</span><span class="p">,</span>
+    <span class="n">render_hint</span><span class="o">=</span><span class="n">RenderHint</span><span class="p">(</span>
+        <span class="n">render_type</span><span class="o">=</span><span class="s2">&quot;customer_profile_card&quot;</span><span class="p">,</span>         <span class="c1"># component_apikey</span>
+        <span class="n">props_data</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;华为科技&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;revenue&quot;</span><span class="p">:</span> <span class="s2">&quot;1200亿&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;industry&quot;</span><span class="p">:</span> <span class="s2">&quot;通信&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;contacts&quot;</span><span class="p">:</span> <span class="p">[</span><span class="o">...</span><span class="p">],</span>
+        <span class="p">},</span>
+        <span class="n">template</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">{name}</span><span class="s2">年营收</span><span class="si">{revenue}</span><span class="s2">，</span><span class="si">{industry}</span><span class="s2">行业龙头&quot;</span><span class="p">,</span>  <span class="c1"># 降级文本</span>
+    <span class="p">),</span>
+<span class="p">)</span>
+
+<span class="c1"># OutputRenderMiddleware 识别后发出 CUSTOM 事件</span>
+<span class="err">→</span> <span class="n">CUSTOM</span> <span class="s2">&quot;component_complete&quot;</span> <span class="p">{</span> <span class="n">apikey</span><span class="p">:</span> <span class="s2">&quot;customer_profile_card&quot;</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}</span> <span class="p">}</span>
+</code></pre></div>
+
+<h3 id="105-a2ui-crm">10.5 A2UI 典型业务组件清单（CRM 场景）<a class="headerlink" href="#105-a2ui-crm" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">组件 apikey</th>
+<th style="text-align: left;">对应 Skill / Tool</th>
+<th style="text-align: left;">用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">pipeline_dashboard</td>
+<td style="text-align: left;">pipeline_analysis skill</td>
+<td style="text-align: left;">Pipeline 看板（阶段 / 负责人 / 金额分布）</td>
+</tr>
+<tr>
+<td style="text-align: left;">customer_profile_card</td>
+<td style="text-align: left;">query_data (customer) + company_info</td>
+<td style="text-align: left;">客户 360 画像卡</td>
+</tr>
+<tr>
+<td style="text-align: left;">bant_analysis</td>
+<td style="text-align: left;">deal_coaching skill</td>
+<td style="text-align: left;">BANT 四象限分析（Budget / Authority / Need / Timeline）</td>
+</tr>
+<tr>
+<td style="text-align: left;">competitive_matrix</td>
+<td style="text-align: left;">competitive_analysis skill</td>
+<td style="text-align: left;">竞品对比矩阵</td>
+</tr>
+<tr>
+<td style="text-align: left;">data_grid</td>
+<td style="text-align: left;">query_data</td>
+<td style="text-align: left;">结构化数据表格（可排序 / 筛选 / 导出）</td>
+</tr>
+<tr>
+<td style="text-align: left;">chart_block</td>
+<td style="text-align: left;">analyze_data</td>
+<td style="text-align: left;">图表区块（柱状 / 折线 / 饼图）</td>
+</tr>
+<tr>
+<td style="text-align: left;">permission_tree</td>
+<td style="text-align: left;">query_permission</td>
+<td style="text-align: left;">权限树可视化</td>
+</tr>
+<tr>
+<td style="text-align: left;">schema_designer</td>
+<td style="text-align: left;">query_schema / modify_schema</td>
+<td style="text-align: left;">元数据配置向导</td>
+</tr>
+<tr>
+<td style="text-align: left;">todo_tracker</td>
+<td style="text-align: left;">TodoMiddleware</td>
+<td style="text-align: left;">Agent 任务清单</td>
+</tr>
+<tr>
+<td style="text-align: left;">trace_panel</td>
+<td style="text-align: left;">TracingMiddleware</td>
+<td style="text-align: left;">执行链路可视化</td>
+</tr>
+</tbody>
+</table>
+<h3 id="106-ag-ui">10.6 AG-UI × 多模态<a class="headerlink" href="#106-ag-ui" title="Permanent link">&para;</a></h3>
+<p>多模态生成物（图片 / Artifact / 语音）通过 AG-UI 事件流独立下发：</p>
+<div class="highlight"><pre><span></span><code>event: CUSTOM
+data: {&quot;name&quot;:&quot;artifact_created&quot;,&quot;value&quot;:{
+  &quot;artifact_id&quot;:&quot;a_001&quot;,&quot;type&quot;:&quot;image&quot;,&quot;title&quot;:&quot;系统架构图&quot;,&quot;url&quot;:&quot;...&quot;
+}}
+
+event: CUSTOM
+data: {&quot;name&quot;:&quot;artifact_updated&quot;,&quot;value&quot;:{
+  &quot;artifact_id&quot;:&quot;a_001&quot;,&quot;content_delta&quot;:&quot;...&quot;
+}}
+
+event: CUSTOM
+data: {&quot;name&quot;:&quot;attachment_added&quot;,&quot;value&quot;:{
+  &quot;type&quot;:&quot;input_image&quot;,&quot;url&quot;:&quot;...&quot;,&quot;role&quot;:&quot;assistant&quot;
+}}
+</code></pre></div>
+
+<h3 id="107">10.7 协议管道工厂<a class="headerlink" href="#107" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">create_agui_pipeline</span><span class="p">(</span>
+    <span class="n">run_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">thread_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">history_messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">component_map</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">AGUIConverter</span><span class="p">,</span> <span class="n">ProgressiveRenderer</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;创建 AG-UI 转换 + A2UI 渲染管道</span>
+
+<span class="sd">    用法:</span>
+<span class="sd">        converter, renderer = create_agui_pipeline(run_id, thread_id)</span>
+<span class="sd">        async for event in renderer.process(</span>
+<span class="sd">            converter.convert(agent.astream_events())</span>
+<span class="sd">        ):</span>
+<span class="sd">            yield event.to_sse()</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+</code></pre></div>
+
+<h3 id="108">10.8 协议的开放性<a class="headerlink" href="#108" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">特性</th>
+<th style="text-align: left;">收益</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">标准化事件类型</td>
+<td style="text-align: left;">第三方前端可按协议对接，不锁定特定框架</td>
+</tr>
+<tr>
+<td style="text-align: left;">组件语义解耦</td>
+<td style="text-align: left;">后端只管 skill_apikey，前端按需实现 component_apikey</td>
+</tr>
+<tr>
+<td style="text-align: left;">增量更新</td>
+<td style="text-align: left;">STEP + delta 机制支持组件内流式渲染</td>
+</tr>
+<tr>
+<td style="text-align: left;">降级友好</td>
+<td style="text-align: left;">组件未注册时自动走 <code>template</code> 纯文本回复</td>
+</tr>
+<tr>
+<td style="text-align: left;">多端适配</td>
+<td style="text-align: left;">同一套事件流可驱动 Web / 小程序 / 桌面端</td>
+</tr>
+<tr>
+<td style="text-align: left;">审计可回放</td>
+<td style="text-align: left;">事件流完整存档后可按时间戳重放整个对话</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="content-review">十一、内容审查（Content Review）<a class="headerlink" href="#content-review" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>详见《内容审查设计方案.md》。</p>
+</blockquote>
+<h3 id="111">11.1 两阶段审查<a class="headerlink" href="#111" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>输入审查  — ContentReviewTransformer（InputTransformMiddleware 内）
+           在 PII 脱敏之前拦截违规内容
+
+输出审查  — OutputValidationMiddleware（after_model hook）
+           每轮 LLM 输出后拦截（含工具结果再送 LLM 前）
+
+图像审查  — FileProcessMiddleware（详见第八章 8.11）
+           用户上传图片送入 VLM 前做视觉内容审查
+</code></pre></div>
+
+<h3 id="112">11.2 配置模型<a class="headerlink" href="#112" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ContentReviewConfig</span><span class="p">:</span>
+    <span class="n">keywords</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>           <span class="c1"># 敏感词列表</span>
+    <span class="n">input_message</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># 输入拦截提示</span>
+    <span class="n">output_message</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># 输出拦截提示</span>
+    <span class="n">is_input</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">is_output</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">case_sensitive</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+</code></pre></div>
+
+<h3 id="113">11.3 降级策略<a class="headerlink" href="#113" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>审查异常 → 放行，记录日志
+审查命中输入 → 替换 HumanMessage 为拦截提示 → Agent 回复&quot;无法处理&quot;
+审查命中输出 → 替换 AIMessage 为拦截提示 → Agent 停止循环
+审查命中图像 → 拒绝注入 VLM，返回&quot;图片涉及违规内容&quot;
+</code></pre></div>
+
+<hr />
+<h2 id="_8">十二、数据库模型<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>详见《数据库表设计.md》。</p>
+</blockquote>
+<h3 id="121">12.1 核心表<a class="headerlink" href="#121" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">表</th>
+<th style="text-align: left;">用途</th>
+<th style="text-align: left;">关键字段</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">ai_agent_memory</td>
+<td style="text-align: left;">记忆权威源（4 类 + L0/L1/L2）</td>
+<td style="text-align: left;">memory_id, category (profile/preferences/agent_rules/entities), abstract, overview, content, merge_key, parent_entity, biz_id, status, vector_synced</td>
+</tr>
+<tr>
+<td style="text-align: left;">ai_conversation</td>
+<td style="text-align: left;">会话元数据</td>
+<td style="text-align: left;">thread_id, title, summary, token_count</td>
+</tr>
+<tr>
+<td style="text-align: left;">ai_message</td>
+<td style="text-align: left;">用户 Q&amp;A 对</td>
+<td style="text-align: left;">thread_id, role, content, trace_id</td>
+</tr>
+<tr>
+<td style="text-align: left;">ai_message_ext</td>
+<td style="text-align: left;">附件 / 卡片 / 反馈 / <strong>artifact / image</strong></td>
+<td style="text-align: left;">message_id, type (attachment/artifact/image/card/feedback), payload</td>
+</tr>
+<tr>
+<td style="text-align: left;">ai_upload_file</td>
+<td style="text-align: left;">用户上传文件元数据（多模态入口）</td>
+<td style="text-align: left;">file_id, thread_id, file_name, mime_type, size, url, markdown_path, parse_status</td>
+</tr>
+<tr>
+<td style="text-align: left;">ai_trace</td>
+<td style="text-align: left;">完整执行 trace</td>
+<td style="text-align: left;">trace_id, session_id, duration, token_total</td>
+</tr>
+<tr>
+<td style="text-align: left;">ai_trace_span</td>
+<td style="text-align: left;">单步 span</td>
+<td style="text-align: left;">trace_id, span_type (context/memory/llm/tool/file_parse), parent_span_id</td>
+</tr>
+<tr>
+<td style="text-align: left;">ai_content_review_log</td>
+<td style="text-align: left;">审查拦截审计</td>
+<td style="text-align: left;">action, keyword, original, replaced, modality (text/image)</td>
+</tr>
+<tr>
+<td style="text-align: left;">ai_token_usage</td>
+<td style="text-align: left;">Token 消耗聚合</td>
+<td style="text-align: left;">tenant_id, date, model, prompt_tokens, completion_tokens, <strong>vision_tokens</strong></td>
+</tr>
+<tr>
+<td style="text-align: left;">skill_metrics</td>
+<td style="text-align: left;">技能 / 工具执行统计（非记忆）</td>
+<td style="text-align: left;">skill_name / tool_name, execution_id, duration_ms, success, token_used, error_type</td>
+</tr>
+</tbody>
+</table>
+<h3 id="122">12.2 关键索引<a class="headerlink" href="#122" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="n">idx_memory_user_cat</span><span class="w">        </span><span class="p">(</span><span class="n">tenant_id</span><span class="p">,</span><span class="w"> </span><span class="n">user_id</span><span class="p">,</span><span class="w"> </span><span class="n">category</span><span class="p">,</span><span class="w"> </span><span class="n">delete_flg</span><span class="p">)</span>
+<span class="n">uk_memory_merge</span><span class="w">            </span><span class="p">(</span><span class="n">tenant_id</span><span class="p">,</span><span class="w"> </span><span class="n">user_id</span><span class="p">,</span><span class="w"> </span><span class="n">category</span><span class="p">,</span><span class="w"> </span><span class="n">merge_key</span><span class="p">)</span><span class="w">   </span><span class="k">UNIQUE</span>
+<span class="n">idx_memory_parent</span><span class="w">          </span><span class="p">(</span><span class="n">tenant_id</span><span class="p">,</span><span class="w"> </span><span class="n">user_id</span><span class="p">,</span><span class="w"> </span><span class="n">parent_entity</span><span class="p">)</span>
+<span class="n">idx_memory_biz_id</span><span class="w">          </span><span class="p">(</span><span class="n">biz_id</span><span class="p">)</span>
+<span class="n">idx_memory_status_time</span><span class="w">     </span><span class="p">(</span><span class="n">tenant_id</span><span class="p">,</span><span class="w"> </span><span class="n">category</span><span class="p">,</span><span class="w"> </span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">updated_at</span><span class="p">)</span>
+<span class="n">idx_memory_vector_sync</span><span class="w">     </span><span class="p">(</span><span class="n">vector_synced</span><span class="p">,</span><span class="w"> </span><span class="n">updated_at</span><span class="p">)</span>
+<span class="n">idx_memory_thread</span><span class="w">          </span><span class="p">(</span><span class="n">tenant_id</span><span class="p">,</span><span class="w"> </span><span class="n">thread_id</span><span class="p">)</span>
+<span class="n">idx_upload_thread</span><span class="w">          </span><span class="p">(</span><span class="n">tenant_id</span><span class="p">,</span><span class="w"> </span><span class="n">thread_id</span><span class="p">,</span><span class="w"> </span><span class="n">delete_flg</span><span class="p">)</span>
+<span class="n">idx_message_ext_type</span><span class="w">       </span><span class="p">(</span><span class="n">message_id</span><span class="p">,</span><span class="w"> </span><span class="k">type</span><span class="p">)</span>
+</code></pre></div>
+
+<h3 id="123-apaas">12.3 基线约束（对齐 aPaaS 平台）<a class="headerlink" href="#123-apaas" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>1. BaseEntity 6 字段必须: id / delete_flg / created_at / created_by / updated_at / updated_by
+2. 布尔统一 xxxFlg + SMALLINT(0/1)，禁用 Boolean / ENUM / AUTO_INCREMENT
+3. 所有 DDL 兼容 MySQL + PostgreSQL
+4. 字段命名 snake_case（表/列）+ camelCase（api_key / Java 字段）
+5. 租户隔离 tenant_id BIGINT 必填，默认 0
+6. 多模态文件 URL 带租户签名，过期时间 1h
+</code></pre></div>
+
+<hr />
+<h2 id="_9">十三、系统横切关注点<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h2>
+<h3 id="131-tenantmiddleware">13.1 租户隔离（TenantMiddleware）<a class="headerlink" href="#131-tenantmiddleware" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>before_step:
+  1. 根据 state.tenant_id 加载租户配置
+  2. 注入租户上下文到 system prompt（名称 / 行业 / 规模）
+  3. 按租户开关过滤 Tool / Skill / Plugin
+  4. 隔离记忆空间（所有查询加 tenant_id 过滤）
+  5. 隔离审计日志
+  6. 隔离上传文件（COS 路径按 tenant_id 分隔）
+</code></pre></div>
+
+<h3 id="132-auditmiddleware-audit-plugin">13.2 审计日志（AuditMiddleware + audit-plugin）<a class="headerlink" href="#132-auditmiddleware-audit-plugin" title="Permanent link">&para;</a></h3>
+<p>记录维度：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">层级</th>
+<th style="text-align: left;">记录内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">LLM 调用</td>
+<td style="text-align: left;">prompt_hash / model / tokens_in/out / <strong>vision_tokens</strong> / latency / cost</td>
+</tr>
+<tr>
+<td style="text-align: left;">Tool 执行</td>
+<td style="text-align: left;">tool_name / input / output_hash / 成功失败 / latency</td>
+</tr>
+<tr>
+<td style="text-align: left;">文件解析</td>
+<td style="text-align: left;">file_id / mime_type / parse_backend / duration</td>
+</tr>
+<tr>
+<td style="text-align: left;">状态变更</td>
+<td style="text-align: left;">节点切换 / HITL 暂停恢复 / 错误升级</td>
+</tr>
+<tr>
+<td style="text-align: left;">记忆写入</td>
+<td style="text-align: left;">memory_id / category / 冲突检测结果</td>
+</tr>
+<tr>
+<td style="text-align: left;">内容审查</td>
+<td style="text-align: left;">命中规则 / 替换前后 / 审查模态（text/image）</td>
+</tr>
+</tbody>
+</table>
+<p>落地位置：<code>ai_trace</code> + <code>ai_trace_span</code> + <code>ai_content_review_log</code>。</p>
+<h3 id="133">13.3 观测与调试<a class="headerlink" href="#133" title="Permanent link">&para;</a></h3>
+<ul>
+<li>前端链路面板 <code>/static/trace_explorer.html</code></li>
+<li>记忆浏览器 <code>/static/memory_browser.html</code></li>
+<li>按 source 过滤（Agent / Middleware / Tool / Skill / SubAgent）</li>
+<li>Span 级耗时、token、状态展示</li>
+</ul>
+<hr />
+<h2 id="_10">十四、核心设计原则<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>抽象层优先</strong> — Router / Node / Middleware / Plugin 接口稳定，底层框架可替换</li>
+<li><strong>单向依赖</strong> — Skill → Tool → Plugin，逆向禁止</li>
+<li><strong>ToolRegistry 唯一真相源</strong> — 禁止 Plugin 直接注册 Tool，Tool 通过 <code>is_enabled()</code> 检查 Plugin</li>
+<li><strong>元数据驱动</strong> — 业务对象、字段、权限全部走 aPaaS 元数据，Agent 不硬编码业务 Schema</li>
+<li><strong>租户隔离优先</strong> — 所有存储、缓存、队列、索引、上传文件都按 tenant_id 分隔</li>
+<li><strong>多模态原生</strong> — 图片 / 文档 / 语音 / 生成物作为一等公民，不绕弯子做文本转换</li>
+<li><strong>协议开放</strong> — AG-UI + A2UI 标准化事件与组件协议，前端按协议对接即可，不锁定实现</li>
+<li><strong>优雅降级</strong> — 审查 / 记忆 / Plugin / 文件解析失败不阻塞主流程</li>
+<li><strong>可观测</strong> — 从 LLM 调用到文件解析全链路 span 可追溯</li>
+<li><strong>渐进沉淀</strong> — 会话 → 记忆 → 技能，用户行为持续反哺系统能力</li>
+</ol>
+</body>
+</html>

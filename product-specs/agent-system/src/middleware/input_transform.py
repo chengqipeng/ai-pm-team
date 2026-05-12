@@ -110,6 +110,9 @@ class ContentReviewTransformer(InputTransformer):
             return messages
         if metadata.get("content_review") is False:
             return messages
+        # 入口层 ContentReviewer 已审查过时跳过（通过 /api/chat 进入的请求）
+        if metadata.get("entry_review_passed"):
+            return messages
 
         for i in range(len(messages) - 1, -1, -1):
             if isinstance(messages[i], HumanMessage) and isinstance(messages[i].content, str):

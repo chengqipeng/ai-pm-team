@@ -170,6 +170,10 @@ def build_middleware(
         TitleMiddleware(llm=llm),
     ]
 
+    # 为所有中间件添加执行追踪包装（TracingMiddleware 自身除外）
+    from src.middleware.tracing import wrap_middlewares_with_tracing
+    middleware = wrap_middlewares_with_tracing(middleware)
+
     logger.info("已组装 %d 个中间件 (memory=%s, guardrail=%s, subagent=%s)",
                 len(middleware), memory_enabled, guardrail_enabled, subagent_enabled)
     return middleware

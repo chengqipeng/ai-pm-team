@@ -19,7 +19,7 @@ from .title import TitleMiddleware
 from .todo import TodoMiddleware
 from .file_process import FileProcessMiddleware
 from .multimodal_inject import MultimodalInjectMiddleware
-from .tracing import TracingMiddleware, tracing_middleware
+from .tracing import TracingMiddleware, tracing_middleware, MiddlewareTracingWrapper, wrap_middlewares_with_tracing
 
 __all__ = [
     "AgentMiddleware",
@@ -53,4 +53,6 @@ __all__ = [
     "MultimodalInjectMiddleware",
     "TracingMiddleware",
     "tracing_middleware",
+    "MiddlewareTracingWrapper",
+    "wrap_middlewares_with_tracing",
 ]

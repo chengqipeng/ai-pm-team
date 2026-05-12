@@ -714,10 +714,14 @@ class DocumentIngestionPipeline:
             raise
 
         if not markdown or not markdown.strip():
-            err = "解析结果为空（LKEAP 返回的 zip 未包含 .md 或 .json）"
+            err = (
+                "解析结果为空（LKEAP 返回的 zip 未包含可用的文本内容）。"
+                "可能原因：文档为纯图片/扫描件且 OCR 失败、文档加密、或文件损坏。"
+                f" file={payload.get('file_name', '')} type={file_type}"
+            )
             logger.error("Phase1 empty markdown: doc=%s %s", doc_id, err)
             KnowledgeDocumentDAO.update_parse_status(
-                doc_id, "failed", parse_error=err,
+                doc_id, "failed", parse_error=err[:2000],
             )
             raise RuntimeError(err)
 
