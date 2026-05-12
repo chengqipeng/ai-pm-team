@@ -4,7 +4,9 @@
     1. 用户问题（原始输入）
     2. 查询改写 + 关键词提取（Query Rewrite）
     3. Self-Querying 关键字/过滤条件提取
-    4. Phase 1 并行召回（切片 hybrid + 文档元数据 hybrid 同时执行）
+    4. Phase 1 并行召回（总览 + 路A + 路B 分别展示）
+       4a. 路A 切片hybrid召回（全局，不带元数据filter）
+       4b. 路B 文档元数据hybrid召回（带元数据filter）
     5. Phase 2 定向召回（有 filter 时，用文档元数据命中的 Top-50 doc_id 定向搜切片）
     6. 命中分片详情（Hydrate + 上下文扩展）
     7. RRF 三维度加权排序（α切片RRF + β文档元数据 + γ文档属性）
@@ -62,6 +64,12 @@ class PipelineNode(BaseModel):
     input_data: Any = None
     output_data: Any = None
     detail: str = ""
+    # 并行执行标记：同一 parallel_group 的节点表示并行执行
+    parallel_group: str | None = None  # 如 "phase1_recall" 表示路A和路B并行
+    # 层级标记：父节点的 name_en，用于前端渲染层级缩进
+    parent_node: str | None = None  # 如 "phase1_parallel_recall" 表示是 Phase 1 的子节点
+    # 子步骤编号：用于同一 step 内的子步骤排序和命名
+    sub_step: str | None = None  # 如 "a" / "b"，前端可拼接为 "Step 4a"
 
 
 class ChunkHit(BaseModel):
@@ -409,6 +417,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                 ),
             ))
 
+    # ── Node 4: Phase 1 总览（Embedding + 并行执行模式） ──
     nodes.append(PipelineNode(
         step=4,
         name="Phase 1 并行召回 (切片hybrid + 文档元数据hybrid)",
@@ -419,43 +428,151 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         duration_ms=phase1_ms,
         input_data={
             "semantic_query": semantic_query,
-            "execution_mode": "asyncio.gather (并行)",
+            "execution_mode": "asyncio.gather (路A ∥ 路B 并行执行)",
             "embedding_dim": len(query_vec),
             "embedding_status": embed_status,
             "embedding_error": embed_error,
             "embedding_ms": embed_ms,
-            "路A_切片hybrid": {
-                "filter": global_chunk_filter,
-                "chunk_limit": chunk_limit,
-                "dense_weight": 0.3,
-                "sparse_weight": 0.7,
-                "note": "全局不带元数据 filter",
-            },
-            "路B_文档元数据hybrid": {
-                "filter": doc_filter,
-                "doc_limit": doc_limit,
-                "dense_weight": 0.5,
-                "sparse_weight": 0.5,
-                "bm25_fields": "title×3 + summary×2 + keywords×2 + candidate×1 + toc×1",
-                "note": "一次 hybrid_search 融合 ANN + BM25",
-            },
+            "并行说明": "路A和路B通过 asyncio.gather 同时发起，总耗时 = max(路A, 路B)，非相加",
         },
         output_data={
             "路A_切片命中": len(chunk_results_global),
-            "路A_error": chunk_recall_error,
-            "路A_top5_scores": [round(r.get("score", 0), 4) for r in chunk_results_global[:5]],
             "路B_文档命中": len(doc_meta_rank),
-            "路B_error": doc_recall_error,
-            "路B_top5_doc_ids": doc_meta_rank[:5],
             "parallel_ms": parallel_ms,
+            "total_phase1_ms": phase1_ms,
         },
         detail=(
             f"Embedding {embed_ms}ms (dim={len(query_vec)}) → "
-            f"并行执行 {parallel_ms}ms: "
+            f"路A ∥ 路B 并行执行 {parallel_ms}ms: "
             f"路A 切片hybrid命中 {len(chunk_results_global)} 条, "
             f"路B 文档元数据hybrid命中 {len(doc_meta_rank)} 个文档"
-            + (f"\n❌ 路A: {chunk_recall_error}" if chunk_recall_error else "")
-            + (f"\n❌ 路B: {doc_recall_error}" if doc_recall_error else "")
+            + (f"\n❌ Embedding: {embed_error}" if embed_error else "")
+        ),
+    ))
+
+    # ── Node 4a: 路A — 切片级 hybrid_search（与路B并行执行） ──
+    route_a_status = "success" if chunk_results_global else ("failed" if chunk_recall_error else "skipped")
+    nodes.append(PipelineNode(
+        step=4,
+        name="⫘ 路A 切片hybrid召回 (全局，不带元数据filter)",
+        name_en="phase1_route_a_chunk_hybrid",
+        status=route_a_status,
+        duration_ms=parallel_ms,
+        parallel_group="phase1_recall",
+        parent_node="phase1_parallel_recall",
+        sub_step="a",
+        input_data={
+            "collection": "kb_chunks",
+            "search_type": "hybrid_search (dense + sparse)",
+            "semantic_query": semantic_query,
+            "filter": global_chunk_filter,
+            "chunk_limit": chunk_limit,
+            "dense_weight": 0.3,
+            "sparse_weight": 0.7,
+            "执行方式": "与路B并行 (asyncio.gather)",
+            "设计意图": "全局不带元数据 filter，确保语义相关切片不会因打标不准而被漏掉",
+        },
+        output_data={
+            "命中切片数": len(chunk_results_global),
+            "error": chunk_recall_error or None,
+            "top5_scores": [round(r.get("score", 0), 4) for r in chunk_results_global[:5]],
+            "top5_chunks": [
+                {
+                    "chunk_id": r.get("id", ""),
+                    "doc_id": r.get("doc_id", ""),
+                    "score": round(r.get("score", 0), 4),
+                    "section_title": (r.get("section_title") or "")[:50],
+                    "content_preview": (r.get("content") or "")[:80],
+                }
+                for r in chunk_results_global[:5]
+            ],
+        },
+        detail=(
+            f"[并行] kb_chunks.hybrid_search → 命中 {len(chunk_results_global)} 条切片"
+            + (f"\n❌ {chunk_recall_error}" if chunk_recall_error else "")
+            + (f"\nTop-1 score: {chunk_results_global[0].get('score', 0):.4f}" if chunk_results_global else "")
+        ),
+    ))
+
+    # ── Node 4b: 路B — 文档元数据 hybrid_search（与路A并行执行） ──
+    route_b_status = "success" if doc_meta_rank else ("failed" if doc_recall_error else "skipped")
+    if doc_meta_filter_fallback:
+        route_b_status = "success"
+
+    # 构建路B详细查询逻辑描述
+    route_b_query_logic = {
+        "1_集合": "kb_doc_metadata（每份文档一条记录）",
+        "2_调用方式": "tcvectordb hybrid_search（一次调用融合 ANN + BM25）",
+        "3_ANN路（dense）": {
+            "field": "vector",
+            "数据来源": "文档摘要(summary)的 embedding 向量",
+            "维度": len(query_vec),
+            "作用": "语义级文档召回 — 找到整体主题相关的文档",
+            "权重": f"dense_weight={0.5}",
+        },
+        "4_BM25路（sparse）": {
+            "field": "sparse_vector",
+            "数据来源": "5路加权文本拼接后的 BM25Encoder 编码",
+            "加权拼接规则": {
+                "title": "×3（标题命中权重最高）",
+                "summary": "×2（摘要命中次之）",
+                "keywords": "×2（LLM提取的关键词）",
+                "candidate_keywords": "×1（jieba TF-IDF候选）",
+                "toc": "×1（外部路径 + 章节大纲）",
+            },
+            "编码方式": "BM25Encoder.encode_texts(加权拼接文本) → sparse_vector",
+            "查询编码": "BM25Encoder.encode_queries(semantic_query) → query_sparse",
+            "作用": "关键词级文档召回 — 标题/摘要/关键词精确匹配",
+            "权重": f"sparse_weight={0.5}",
+        },
+        "5_融合方式": "WeightedRerank(field_list=['vector','sparse_vector'], weight=[0.5, 0.5])",
+        "6_过滤条件": {
+            "filter_expr": doc_filter,
+            "含义": "knowledge_base_id + status=active + 元数据分类条件(来自Self-Querying)",
+            "注意": "路B带元数据filter，路A不带 — 这是两路的核心区别",
+        },
+        "7_返回值": f"按融合分降序的 doc_id 列表（Top-{doc_limit}），列表位置即 rank",
+        "8_用途": [
+            "β维度打分：doc_id 在列表中的 rank → 1/(K_SUMMARY + rank + 1) + 1/(K_META_TEXT + rank + 1)",
+            "Phase 2 定向召回：取 Top-50 doc_id 作为切片定向搜索范围",
+        ],
+        "9_降级机制": "带filter返回0结果时 → 去掉分类条件重试（纯语义召回）→ 确保β维度有打分数据",
+    }
+
+    nodes.append(PipelineNode(
+        step=4,
+        name="⫘ 路B 文档元数据hybrid召回 (带元数据filter)",
+        name_en="phase1_route_b_doc_meta_hybrid",
+        status=route_b_status,
+        duration_ms=parallel_ms,
+        parallel_group="phase1_recall",
+        parent_node="phase1_parallel_recall",
+        sub_step="b",
+        input_data={
+            "collection": "kb_doc_metadata",
+            "search_type": "hybrid_search (summary ANN + 加权BM25)",
+            "semantic_query": semantic_query,
+            "filter": doc_filter,
+            "doc_limit": doc_limit,
+            "dense_weight": 0.5,
+            "sparse_weight": 0.5,
+            "执行方式": "与路A并行 (asyncio.gather)",
+            "查询逻辑详解": route_b_query_logic,
+        },
+        output_data={
+            "命中文档数": len(doc_meta_rank),
+            "error": doc_recall_error or None,
+            "filter_fallback_triggered": doc_meta_filter_fallback,
+            "top5_doc_ids": doc_meta_rank[:5],
+            "用途": "① β维度打分 ② Phase 2 定向召回的文档范围",
+        },
+        detail=(
+            f"[并行] kb_doc_metadata.hybrid_search → 命中 {len(doc_meta_rank)} 个文档\n"
+            f"查询逻辑：ANN(summary向量, dense=0.5) + BM25(title×3+summary×2+keywords×2+candidate×1+toc×1, sparse=0.5)\n"
+            f"Filter: {doc_filter}"
+            + (f"\n⚠️ 降级触发：原始 filter 无结果，去掉分类条件后重试成功" if doc_meta_filter_fallback else "")
+            + (f"\n❌ {doc_recall_error}" if doc_recall_error else "")
+            + (f"\nTop-5 doc_ids: {doc_meta_rank[:5]}" if doc_meta_rank else "")
         ),
     ))
 
@@ -836,6 +953,69 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
             raw_score = retriever._ALPHA * na + retriever._BETA * nb + retriever._GAMMA * nc
             final = round(raw_score * (1.0 - effective_threshold) + effective_threshold, 4)
 
+            # 构建 α 维度详细说明
+            chunk_count_for_doc = len(doc_chunks[did])
+            alpha_raw = doc_rrf.get(did, 0)
+            alpha_detail_text = (
+                f"切片RRF聚合分={alpha_raw:.6f} → 归一化normA={na:.4f}\n"
+                f"  命中{chunk_count_for_doc}个切片, "
+                f"聚合方式: seg[0]"
+                + (f" + Σseg[i]×0.2^i (衰减聚合)" if chunk_count_for_doc > 1 else "")
+                + f"\n  理论锚点: max={theoretical_max_rrf:.6f}, min={theoretical_min_rrf:.6f}"
+                + f"\n  加权贡献: α({retriever._ALPHA}) × {na:.4f} = {retriever._ALPHA * na:.4f}"
+            )
+
+            # 构建 β 维度详细说明
+            beta_boost_raw = 0.0
+            beta_rank_info = ""
+            try:
+                idx_s = doc_meta_rank.index(did)
+                s_contrib = 1.0 / (retriever._K_SUMMARY + idx_s + 1)
+                beta_boost_raw += s_contrib
+                beta_rank_info += f"摘要ANN排名#{idx_s+1} → 贡献={s_contrib:.6f}; "
+            except ValueError:
+                beta_rank_info += "摘要ANN未命中; "
+            try:
+                idx_m = doc_meta_rank.index(did)
+                m_contrib = 1.0 / (retriever._K_META_TEXT + idx_m + 1)
+                beta_boost_raw += m_contrib
+                beta_rank_info += f"BM25排名#{idx_m+1} → 贡献={m_contrib:.6f}"
+            except ValueError:
+                beta_rank_info += "BM25未命中"
+            beta_detail_text = (
+                f"文档元数据排名贡献: normB={nb:.4f}\n"
+                f"  {beta_rank_info}\n"
+                f"  boost = ({beta_boost_raw:.6f}) × METADATA_WEIGHT({retriever._METADATA_WEIGHT}) = {beta_boost_raw * retriever._METADATA_WEIGHT:.6f}\n"
+                f"  归一化: boost / MAX_BOOST({retriever._MAX_METADATA_BOOST:.6f}) = {nb:.4f}\n"
+                f"  加权贡献: β({retriever._BETA}) × {nb:.4f} = {retriever._BETA * nb:.4f}"
+            )
+
+            # 构建 γ 维度详细说明
+            meta = doc_cache.get(did) or {}
+            if "quality_score_x10k" in meta:
+                quality_val = float(meta.get("quality_score_x10k") or 0) / 10000.0
+            else:
+                quality_val = float(meta.get("quality_score") or 0.5)
+            quality_val = max(0.0, min(1.0, quality_val)) if quality_val else 0.5
+            recency_val = 0.5
+            ref_ts = int(meta.get("date_published") or 0) or int(meta.get("created_at") or 0)
+            if ref_ts and ref_ts > 0:
+                age_ms = max(0, now_ms - ref_ts)
+                recency_val = math.pow(0.5, age_ms / retriever._RECENCY_HALFLIFE_MS)
+            hit_val = 0.0
+            hit_count = int(meta.get("search_hit_count") or 0)
+            if hit_count > 0:
+                hit_val = min(1.0, math.log10(hit_count + 1) / math.log10(1000))
+            gamma_detail_text = (
+                f"文档属性综合: normC={nc:.4f}\n"
+                f"  质量分: {quality_val:.3f} × {retriever._QUALITY_WEIGHT} = {quality_val * retriever._QUALITY_WEIGHT:.4f}\n"
+                f"  时效性: {recency_val:.3f} × {retriever._RECENCY_WEIGHT} = {recency_val * retriever._RECENCY_WEIGHT:.4f}"
+                + (f" (发布距今{(now_ms - ref_ts) / 86400000:.0f}天)" if ref_ts > 0 else " (无发布时间,默认0.5)")
+                + f"\n  热度: {hit_val:.3f} × {retriever._HIT_WEIGHT} = {hit_val * retriever._HIT_WEIGHT:.4f}"
+                + (f" (被检索{hit_count}次)" if hit_count > 0 else " (未被检索过)")
+                + f"\n  加权贡献: γ({retriever._GAMMA}) × {nc:.4f} = {retriever._GAMMA * nc:.4f}"
+            )
+
             rrf_details.append(RRFDetail(
                 doc_id=did,
                 document_title=doc_titles.get(did, ""),
@@ -844,9 +1024,9 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                 gamma_score=round(nc, 4),
                 final_score=final,
                 chunk_count=len(doc_chunks[did]),
-                alpha_detail=f"切片RRF聚合={round(doc_rrf.get(did, 0), 6)}, 归一化后={round(na, 4)} (α={retriever._ALPHA})",
-                beta_detail=f"文档元数据排名贡献={round(nb, 4)} (β={retriever._BETA})",
-                gamma_detail=f"质量={round(doc_norm_c.get(did, 0) * retriever._MAX_ATTR_BOOST / max(retriever._QUALITY_WEIGHT, 0.001), 2) if doc_norm_c.get(did) else 0}, 时效+热度 (γ={retriever._GAMMA})",
+                alpha_detail=alpha_detail_text,
+                beta_detail=beta_detail_text,
+                gamma_detail=gamma_detail_text,
             ))
 
         # 按 finalScore 排序
@@ -870,6 +1050,49 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
 
     rrf_ms = int((time.time() - t0) * 1000)
 
+    # 构建三维度加权的详细描述
+    rrf_detail_lines = [
+        f"═══ 三维度归一化加权排序 ═══",
+        f"",
+        f"公式: finalScore = α·normA + β·normB + γ·normC",
+        f"映射: mappedScore = rawScore × (1 - threshold) + threshold → [{effective_threshold}, 1.0]",
+        f"",
+        f"── α 维度：切片相关性 (权重={retriever._ALPHA}) ──",
+        f"  数据来源: 路A 切片hybrid_search返回的融合分(dense 30% + BM25 70%)",
+        f"  计算步骤:",
+        f"    1. 切片按score降序排名 → RRF贡献 = 1/(K_CHUNK + rank + 1), K_CHUNK={retriever._K_CHUNK}",
+        f"    2. 同文档多切片几何衰减聚合: docScore = seg[0] + Σ seg[i] × {retriever._CHUNK_DECAY}^i",
+        f"    3. 理论锚点归一化: normA = (docScore - theoreticalMin) / (theoreticalMax - theoreticalMin)",
+        f"       theoreticalMax = 1/(K+1) = {1.0/(retriever._K_CHUNK+1):.6f} (排名第1)",
+        f"       theoreticalMin = 1/(K+N+1), N=召回切片数",
+        f"  含义: 衡量文档中切片与查询的语义+关键词相关程度，多切片命中会提升文档得分",
+        f"",
+        f"── β 维度：文档元数据 (权重={retriever._BETA}) ──",
+        f"  数据来源: 路B 文档元数据hybrid_search的排名位置",
+        f"  计算步骤:",
+        f"    1. 摘要ANN贡献 = 1/(K_SUMMARY + rank + 1), K_SUMMARY={retriever._K_SUMMARY}",
+        f"    2. 加权BM25贡献 = 1/(K_META_TEXT + rank + 1), K_META_TEXT={retriever._K_META_TEXT}",
+        f"       BM25加权拼接: title×3 + summary×2 + keywords×2 + candidate×1 + toc×1",
+        f"    3. boost = (ANN贡献 + BM25贡献) × METADATA_WEIGHT({retriever._METADATA_WEIGHT})",
+        f"    4. normB = boost / MAX_METADATA_BOOST({retriever._MAX_METADATA_BOOST:.6f})",
+        f"  含义: 衡量文档整体（标题/摘要/关键词）与查询的匹配度，补充切片级检索的文档级信号",
+        f"",
+        f"── γ 维度：文档属性 (权重={retriever._GAMMA}) ──",
+        f"  数据来源: VDB kb_doc_metadata集合中的文档属性字段",
+        f"  子维度:",
+        f"    • 质量分 (quality_weight={retriever._QUALITY_WEIGHT}): LLM评估的文档质量 [0,1]",
+        f"    • 时效性 (recency_weight={retriever._RECENCY_WEIGHT}): 半衰期={retriever._RECENCY_HALFLIFE_MS/86400000:.0f}天的指数衰减",
+        f"    • 热度 (hit_weight={retriever._HIT_WEIGHT}): log10(hit_count+1)/log10(1000) 对数归一化",
+        f"  计算: normC = (quality×{retriever._QUALITY_WEIGHT} + recency×{retriever._RECENCY_WEIGHT} + hit×{retriever._HIT_WEIGHT}) / MAX_ATTR_BOOST({retriever._MAX_ATTR_BOOST})",
+        f"  含义: 高质量、近期更新、频繁被检索命中的文档获得额外加分",
+        f"",
+        f"── 阈值过滤 ──",
+        f"  threshold={effective_threshold} (来源: {'调用方显式指定' if req.threshold is not None else '知识库配置 / 系统默认'})",
+        f"  mappedScore < threshold 的文档被过滤",
+        f"  通过阈值: {len(chunk_hits)}条 / 总评分: {len(rrf_details)}个文档",
+    ]
+    rrf_detail_text = "\n".join(rrf_detail_lines)
+
     nodes.append(PipelineNode(
         step=7,
         name="RRF 三维度加权排序",
@@ -877,26 +1100,54 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         status="success" if rrf_details else "skipped",
         duration_ms=rrf_ms,
         input_data={
-            "alpha_weight": retriever._ALPHA,
-            "beta_weight": retriever._BETA,
-            "gamma_weight": retriever._GAMMA,
-            "threshold": effective_threshold,
-            "rrf_k_chunk": retriever._K_CHUNK,
-            "rrf_k_summary": retriever._K_SUMMARY,
-            "chunk_decay": retriever._CHUNK_DECAY,
-            "normalization": "theoretical_anchor",
+            "公式说明": {
+                "总公式": "finalScore = α·normA + β·normB + γ·normC",
+                "分数映射": f"mappedScore = rawScore × (1 - {effective_threshold}) + {effective_threshold} → [{effective_threshold}, 1.0]",
+            },
+            "α_切片相关性": {
+                "权重": retriever._ALPHA,
+                "数据来源": "路A 切片hybrid_search (dense 30% + BM25 70%)",
+                "RRF_K值": retriever._K_CHUNK,
+                "多切片衰减系数": retriever._CHUNK_DECAY,
+                "归一化方式": "理论锚点归一化 (theoreticalMax=1/(K+1), theoreticalMin=1/(K+N+1))",
+                "聚合方式": "同文档多切片几何衰减: docScore = seg[0] + Σ seg[i] × 0.2^i",
+            },
+            "β_文档元数据": {
+                "权重": retriever._BETA,
+                "数据来源": "路B 文档元数据hybrid_search (摘要ANN 50% + 加权BM25 50%)",
+                "K_SUMMARY": retriever._K_SUMMARY,
+                "K_META_TEXT": retriever._K_META_TEXT,
+                "METADATA_WEIGHT": retriever._METADATA_WEIGHT,
+                "BM25加权规则": "title×3 + summary×2 + keywords×2 + candidate_keywords×1 + toc×1",
+                "计算": "boost = (1/(K_SUMMARY+rank+1) + 1/(K_META_TEXT+rank+1)) × METADATA_WEIGHT",
+            },
+            "γ_文档属性": {
+                "权重": retriever._GAMMA,
+                "数据来源": "VDB kb_doc_metadata 集合属性字段",
+                "子维度": {
+                    "quality_score": f"LLM评估的文档质量 [0,1], 子权重={retriever._QUALITY_WEIGHT}",
+                    "recency": f"时效性指数衰减, 半衰期={retriever._RECENCY_HALFLIFE_MS/86400000:.0f}天, 子权重={retriever._RECENCY_WEIGHT}",
+                    "hit_count": f"检索热度 log10归一化, 子权重={retriever._HIT_WEIGHT}",
+                },
+                "MAX_ATTR_BOOST": retriever._MAX_ATTR_BOOST,
+            },
+            "阈值配置": {
+                "threshold": effective_threshold,
+                "来源": "调用方显式指定" if req.threshold is not None else "知识库min_score配置 / 系统默认0.3",
+                "作用": f"mappedScore < {effective_threshold} 的文档被过滤掉",
+            },
         },
         output_data={
             "scored_docs": len(rrf_details),
             "passed_threshold": len(chunk_hits),
+            "filtered_out": len(rrf_details) - len(chunk_hits),
             "threshold_used": effective_threshold,
+            "score_range": {
+                "max": rrf_details[0].final_score if rrf_details else 0,
+                "min": rrf_details[-1].final_score if rrf_details else 0,
+            },
         },
-        detail=(
-            f"三维度加权: α(切片RRF)={retriever._ALPHA}, "
-            f"β(文档元数据)={retriever._BETA}, "
-            f"γ(质量+时效+热度)={retriever._GAMMA}; "
-            f"阈值={effective_threshold}, 通过={len(chunk_hits)}条"
-        ),
+        detail=rrf_detail_text,
     ))
 
     # ── Node 8: 最终排序结果 ──

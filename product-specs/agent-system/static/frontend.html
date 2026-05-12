@@ -188,6 +188,22 @@ body { margin: 0; }
 .max-h-40 { max-height: 10rem; }
 .max-h-56 { max-height: 14rem; }
 
+/* 推理链路阶段容器样式 */
+.trace-node summary::-webkit-details-marker { display: none; }
+.trace-node summary::marker { display: none; }
+.trace-phase-entry { border-left-color: #f97316; }
+.trace-phase-context { border-left-color: #3b82f6; }
+.trace-phase-reasoning { border-left-color: #8b5cf6; }
+.trace-phase-output { border-left-color: #22c55e; }
+.trace-phase-post { border-left-color: #f43f5e; }
+
+/* 文本链路风格 */
+.trace-phase { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', monospace; }
+.trace-line { word-break: break-all; }
+.trace-line-mw { word-break: break-all; }
+.trace-loop { position: relative; }
+#traceContent { font-size: 11px; line-height: 1.7; }
+
 /* 背景装饰球 */
 .top-\[-10\%\] { top: -10%; }
 .left-\[-5\%\] { left: -5%; }
@@ -742,7 +758,8 @@ function scrollToBottom() {
   setTimeout(() => { area.scrollTop = area.scrollHeight; }, 50);
 }
 
-// ═══ Trace 链路渲染 ═══
+// ═══ Trace 链路渲染（层级结构版）═══
+// 设计参考：入口预处理 → 上下文准备 → 模型推理 Agent Loop（含循环/Skill 子 Agent）→ 回复输出 → 后处理
 function resetTrace() {
   liveSpans = [];
   document.getElementById('traceContent').innerHTML = '<div class="text-center text-gray-400 text-xs py-10">等待对话开始...</div>';
@@ -761,171 +778,179 @@ function updatePanelStatus(processing) {
 function renderTraceNode(span, idx, seqNum) {
   const isComplete = span.status === 'complete';
   const isActive = span.status === 'active';
-  const isPending = span.status === 'pending';
-
-  // 检测是否为最终回答节点（LLM 最后一轮，不再调用工具）
+  const isSkipped = span.status === 'skipped';
   const md = span.metadata || {};
   const isFinalResponse = (md.is_final === true) || (span.output_data && span.output_data.is_final === true);
 
-  // 步骤编号：使用传入的连续编号
   const stepNum = seqNum || (idx + 1);
   let stepName = span.step_name || span.title || '';
   const stepNameEn = span.step_name_en || span.type || '';
-  const durationText = span.duration_ms ? `${Math.round(span.duration_ms)}ms` : '';
+  const durationMs = span.duration_ms || 0;
+  const durationText = durationMs ? `${Math.round(durationMs)}ms` : '';
   const detail = span.detail || span.desc || '';
 
-  // 最终回答节点追加标记
-  if (isFinalResponse) {
-    stepName += ' → 生成回复';
+  // 判断是否为中间件节点
+  const isMiddleware = stepNameEn === 'middleware' || (md.is_middleware === true);
+  // 判断是否为技能执行节点
+  const isSkillExec = stepNameEn === 'skill_execution' || (md.skill_name != null);
+  // 判断是否有子 Agent 循环
+  const hasSubAgent = span.sub_agent_spans && span.sub_agent_spans.length > 0;
+
+  // ═══ 构建详细描述文本 ═══
+  const descText = _buildStepDescription(span, md, detail);
+
+  // ═══ 中间件节点：紧凑单行 [N] · ⚙️ Name · Xms — desc ═══
+  if (isMiddleware) {
+    const mwName = md.middleware_name || stepName;
+    const checkPrefix = isComplete ? '✓' : (isActive ? '⏳' : '·');
+    return `
+      <div class="trace-line-mw flex items-start py-[2px] text-[10.5px] leading-[1.6] font-mono ${isActive ? 'text-blue-500' : 'text-gray-500'}">
+        <span class="text-gray-400 shrink-0 w-[30px] text-right mr-1 select-none">[${stepNum}]</span>
+        <span>${checkPrefix} ⚙️ <span class="font-semibold">${esc(mwName)}</span></span>
+        ${durationText ? `<span class="text-gray-400 ml-1">· ${durationText}</span>` : ''}
+        ${descText ? `<span class="text-gray-400 ml-1">— ${descText}</span>` : ''}
+      </div>`;
   }
 
-  // ── 根据步骤类型选择样式 ──
-  const typeStyles = {
-    'content_review': { icon: '🛡️', color: 'purple', gradient: 'from-purple-500 to-violet-500' },
-    'query_rewrite': { icon: '✏️', color: 'amber', gradient: 'from-amber-500 to-orange-500' },
-    'user_input': { icon: '💬', color: 'blue', gradient: 'from-blue-500 to-cyan-500' },
-    'context_build': { icon: '🧱', color: 'slate', gradient: 'from-slate-500 to-gray-500' },
-    'middleware': { icon: '⚙️', color: 'gray', gradient: 'from-gray-400 to-slate-400' },
-    'memory_retrieval': { icon: '🧠', color: 'pink', gradient: 'from-pink-500 to-rose-500' },
-    'intent_analysis': { icon: '🎯', color: 'indigo', gradient: 'from-indigo-500 to-blue-500' },
-    'llm_input': { icon: '📥', color: 'sky', gradient: 'from-sky-500 to-blue-500' },
-    'llm_call': { icon: '⚡', color: 'violet', gradient: 'from-violet-500 to-purple-500' },
-    'tool_call': { icon: '🔧', color: 'emerald', gradient: 'from-emerald-500 to-teal-500' },
-    'hierarchical_search': { icon: '🔍', color: 'cyan', gradient: 'from-cyan-500 to-blue-500' },
-    'memory_extract': { icon: '💾', color: 'rose', gradient: 'from-rose-500 to-pink-500' },
-    'title_generation': { icon: '🏷️', color: 'teal', gradient: 'from-teal-500 to-cyan-500' },
-    'response_complete': { icon: '✅', color: 'green', gradient: 'from-green-500 to-emerald-500' },
-    'error': { icon: '❌', color: 'red', gradient: 'from-red-500 to-rose-500' },
-  };
-  const style = typeStyles[stepNameEn] || typeStyles[span.step_name_en] || { icon: '📌', color: 'gray', gradient: 'from-gray-500 to-slate-500' };
-
-  // 状态指示
-  const isSkipped = span.status === 'skipped';
-  const statusDot = isSkipped
-    ? `<span class="w-2 h-2 bg-gray-400 rounded-full ring-2 ring-gray-200"></span>`
-    : isActive
-    ? `<span class="w-2 h-2 bg-blue-500 rounded-full animate-pulse-slow ring-4 ring-blue-100"></span>`
-    : isComplete
-    ? `<span class="w-2 h-2 bg-green-500 rounded-full ring-2 ring-green-100"></span>`
-    : `<span class="w-2 h-2 bg-gray-300 rounded-full"></span>`;
-
-  // 输入/输出
-  const hasInputData = span.input_data && Object.keys(span.input_data).length > 0;
-  const hasOutputData = span.output_data && Object.keys(span.output_data).length > 0;
-  const hasLegacyInput = !hasInputData && span.input != null && span.input !== '';
-  const hasLegacyOutput = !hasOutputData && span.output != null && span.output !== '';
-  // 从 metadata 中提取输入输出（兜底）— md 已在函数顶部声明
-  const hasMetaInput = !hasInputData && !hasLegacyInput && (md.input || md.query_used || md.tool_name || md.original_query || md.messages_to_llm);
-  const hasMetaOutput = !hasOutputData && !hasLegacyOutput && (md.output || md.hit_count != null || md.task_type || md.rewritten_query || md.output_tokens);
-
-  // 子节点
-  let childrenHtml = '';
-  if (span.children && span.children.length) {
-    childrenHtml = '<div class="mt-2 space-y-1">';
-    span.children.forEach(ch => {
-      const dotColor = ch.status === 'complete' ? 'bg-green-400' : ch.status === 'active' ? 'bg-blue-400 animate-pulse' : 'bg-gray-300';
-      childrenHtml += `
-        <div class="flex items-center gap-2 text-[10px] px-2 py-1 bg-gray-50/50 rounded-md">
-          <div class="w-1.5 h-1.5 rounded-full ${dotColor} shrink-0"></div>
-          <span class="text-gray-600 truncate">${esc(ch.label)}</span>
-          ${ch.duration_ms ? '<span class="text-gray-400 ml-auto shrink-0">' + ch.duration_ms + 'ms</span>' : ''}
-        </div>`;
+  // ═══ 普通节点：[N] 步骤名 · Xms — 详细描述 ═══
+  let subAgentHtml = '';
+  if (hasSubAgent) {
+    subAgentHtml = `<div class="ml-[30px] pl-4 my-0.5 border-l-2 border-indigo-200 text-[10px] font-mono text-indigo-500 leading-[1.7]">`;
+    subAgentHtml += `<div>┌─ 子 Agent Loop (depth=${md.depth || 2}, thread=${esc(md.sub_thread_id || 'skill-*')}) ──┐</div>`;
+    span.sub_agent_spans.forEach((sub, si) => {
+      subAgentHtml += `<div>│  子循环 ${si + 1}: ${esc(sub.label || sub.name || '')}</div>`;
     });
-    childrenHtml += '</div>';
+    subAgentHtml += `<div>└${'─'.repeat(38)}┘</div>`;
+    if (md.sub_result) {
+      subAgentHtml += `<div class="text-gray-600">→ 返回: ${esc(truncStr(md.sub_result, 60))}</div>`;
+    }
+    subAgentHtml += `</div>`;
   }
 
-  // 输入参数
-  let inputHtml = '';
-  let inputVal = hasInputData ? span.input_data : (hasLegacyInput ? span.input : null);
-  if (!inputVal && hasMetaInput) {
-    // 从 metadata 构造输入数据
-    inputVal = {};
-    if (md.query_used) inputVal.query = md.query_used;
-    if (md.original_query) inputVal.original_query = md.original_query;
-    if (md.tool_name) inputVal.tool_name = md.tool_name;
-    if (md.input) inputVal.arguments = md.input;
-    if (md.messages_to_llm) inputVal.messages = md.messages_to_llm;
-  }
-  if (inputVal) {
-    inputHtml = `
-      <details class="text-[10px] mt-1.5">
-        <summary class="cursor-pointer text-gray-400 hover:text-blue-600 font-medium flex items-center gap-1 transition-colors">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-          输入参数
-        </summary>
-        <pre class="mt-1 bg-slate-50 border border-slate-100 rounded-lg p-2.5 overflow-x-auto text-slate-700 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto text-[10px] custom-scrollbar leading-relaxed">${esc(formatDetailValue(inputVal))}</pre>
-      </details>`;
-  }
-
-  // 输出结果
-  let outputHtml = '';
-  let outputVal = hasOutputData ? span.output_data : (hasLegacyOutput ? span.output : null);
-  if (!outputVal && hasMetaOutput) {
-    // 从 metadata 构造输出数据
-    outputVal = {};
-    if (md.output) outputVal.result = md.output;
-    if (md.hit_count != null) outputVal.hit_count = md.hit_count;
-    if (md.task_type) outputVal.task_type = md.task_type;
-    if (md.rewritten_query) outputVal.rewritten_query = md.rewritten_query;
-    if (md.output_tokens) outputVal.output_tokens = md.output_tokens;
-    if (md.tool_calls) outputVal.tool_calls = md.tool_calls;
-    if (md.matched_skills) outputVal.matched_skills = md.matched_skills;
-  }
-  if (outputVal) {
-    outputHtml = `
-      <details class="text-[10px] mt-1.5">
-        <summary class="cursor-pointer text-gray-400 hover:text-green-600 font-medium flex items-center gap-1 transition-colors">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-          输出结果
-        </summary>
-        <pre class="mt-1 bg-green-50/50 border border-green-100 rounded-lg p-2.5 overflow-x-auto text-slate-700 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto text-[10px] custom-scrollbar leading-relaxed">${esc(formatDetailValue(outputVal))}</pre>
-      </details>`;
-  }
-
-  // 最终回答节点的特殊样式
-  const finalBadge = isFinalResponse
-    ? '<span class="text-[8px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded-full ml-1">FINAL</span>'
-    : '';
-  const skippedBadge = isSkipped
-    ? '<span class="text-[8px] bg-gray-100 text-gray-500 font-bold px-1.5 py-0.5 rounded-full ml-1">SKIPPED</span>'
-    : '';
+  // 技能后缀
+  const skillSuffix = isSkillExec ? ` (${md.skill_mode || 'inline'})` : '';
+  // 最终回复标记
+  const finalMark = isFinalResponse ? ' → 生成回复' : '';
 
   return `
-    <details class="mb-1.5 group trace-node" ${isActive ? 'open' : ''}>
-      <summary class="cursor-pointer rounded-xl px-3 py-2.5 flex items-center gap-3 transition-all list-none
-        ${isFinalResponse ? 'bg-green-50/80 border border-green-200 shadow-sm' : isActive ? 'bg-blue-50/80 border border-blue-200 shadow-sm' : 'bg-white/80 border border-gray-100 hover:border-gray-200 hover:shadow-sm'}">
-        <!-- 左侧：序号徽章 -->
-        <div class="w-7 h-7 bg-gradient-to-br ${style.gradient} rounded-lg flex items-center justify-center text-white text-[10px] font-bold shadow-sm shrink-0">
-          ${stepNum}
-        </div>
-        <!-- 中间：名称 + 状态 -->
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2">
-            <span class="text-[12px] font-semibold text-gray-800">${esc(stepName)}</span>
-            ${finalBadge}
-            ${skippedBadge}
-            ${statusDot}
-          </div>
-          <div class="flex items-center gap-2 mt-0.5">
-            <span class="text-[9px] text-gray-400 font-mono">${esc(stepNameEn)}</span>
-            ${durationText ? `<span class="text-[9px] text-gray-400">· ${durationText}</span>` : ''}
-          </div>
-        </div>
-        <!-- 右侧：时间 + 展开箭头 -->
-        <div class="flex items-center gap-2 shrink-0">
-          ${span.time ? `<span class="text-[9px] text-gray-400 font-mono">${esc(span.time)}</span>` : ''}
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-gray-300 group-open:rotate-90 transition-transform duration-200"><polyline points="9 18 15 12 9 6"/></svg>
-        </div>
-      </summary>
-      <!-- 展开内容 -->
-      <div class="ml-3.5 mt-1 border-l-2 border-${style.color}-100 pl-4 pb-2 space-y-1.5">
-        ${detail ? `<div class="text-[11px] text-gray-600 leading-relaxed py-1">${esc(detail)}</div>` : ''}
-        ${_renderToolCallInfo(span)}
-        ${childrenHtml}
-        ${inputHtml}
-        ${outputHtml}
+    <div class="trace-line flex items-start py-[3px] text-[11px] leading-[1.7] ${isActive ? 'bg-blue-50/60 rounded px-1 -mx-1' : ''}">
+      <span class="text-gray-400 font-mono shrink-0 w-[30px] text-right mr-1 select-none">[${stepNum}]</span>
+      <div class="flex-1 min-w-0">
+        <span class="font-semibold text-gray-800">${esc(stepName)}${skillSuffix}${finalMark}</span>
+        ${durationText ? `<span class="text-gray-400 ml-1">· ${durationText}</span>` : ''}
+        ${descText ? `<span class="text-gray-500 ml-1">— ${descText}</span>` : ''}
+        ${isFinalResponse ? ' ✅' : ''}
+        ${isActive ? ' <span class="inline-block w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse align-middle"></span>' : ''}
       </div>
-    </details>`;
+    </div>
+    ${subAgentHtml}`;
+}
+
+// ═══ 为每种步骤类型生成详细技术描述 ═══
+function _buildStepDescription(span, md, fallbackDetail) {
+  const type = span.step_name_en || span.type || '';
+  const outputData = span.output_data || {};
+  const inputData = span.input_data || {};
+
+  switch (type) {
+    case 'title_generation': {
+      const title = md.generated_title || outputData.title || '';
+      return title
+        ? `生成标题「${esc(truncStr(title, 30))}」（规则同步 + 后台 LLM 异步优化）`
+        : (fallbackDetail || '生成会话标题（规则同步 + 后台 LLM 异步优化）');
+    }
+    case 'content_review': {
+      const passed = md.passed !== false && outputData.passed !== false;
+      const blocked = md.blocked_reason || (outputData.blocked_keywords || []).join(', ');
+      return passed
+        ? '敏感词 + LLM 语义审查 → ✅ 通过'
+        : `敏感词 + LLM 语义审查 → ❌ 拦截: ${esc(truncStr(blocked, 40))}`;
+    }
+    case 'query_rewrite': {
+      const original = md.original_query || inputData.original_query || '';
+      const rewritten = md.rewritten_query || outputData.rewritten_query || '';
+      if (original && rewritten && original !== rewritten) {
+        return `改写:「${esc(truncStr(original, 20))}」→「${esc(truncStr(rewritten, 30))}」`;
+      }
+      return fallbackDetail || '首轮对话，无需改写';
+    }
+    case 'context_build': {
+      const msgCount = md.message_count || inputData.message_count || outputData.message_count || 0;
+      const tokens = md.estimated_tokens || outputData.estimated_tokens || 0;
+      let desc = `构建 LLM 上下文: ${msgCount}条消息`;
+      if (tokens) desc += `, 预估 ${tokens} tokens`;
+      desc += '（TracingMiddleware.before_agent：统计消息数、token 估算、消息摘要）';
+      return desc;
+    }
+    case 'memory_retrieval': {
+      const hitCount = md.hit_count != null ? md.hit_count : (outputData.hit_count != null ? outputData.hit_count : '?');
+      const query = md.query_used || inputData.query || '';
+      let desc = `命中 ${hitCount} 条（MemoryMiddleware.abefore_agent：检索记忆 → 注入 SystemMessage 到 state）`;
+      return desc;
+    }
+    case 'middleware': {
+      const mwName = md.middleware_name || span.step_name || '';
+      if (mwName.includes('DanglingToolCall')) return '无悬挂 tool_calls';
+      if (mwName.includes('InputTransform')) {
+        const changed = md.changed || outputData.changed;
+        return `敏感词(fallback) + PII脱敏 → ${changed ? '已变更' : '无变更'}`;
+      }
+      if (mwName.includes('Summarization')) {
+        const before = md.before_count || '';
+        const after = md.after_count || '';
+        return (before && after) ? `上下文压缩: ${before}条→${after}条` : '无需压缩';
+      }
+      if (mwName.includes('SubagentLimit')) return '无子 Agent 并发';
+      if (mwName.includes('LoopDetection')) {
+        const loopCount = md.loop_count || 0;
+        return loopCount > 0 ? `检测到循环 (${loopCount}次)` : '首次调用，无循环';
+      }
+      if (mwName.includes('OutputValidation')) return '输出敏感词校验通过';
+      if (mwName.includes('Guardrail')) {
+        const toolName = md.tool_name || '';
+        return toolName ? `安全护栏: ${esc(toolName)} → 放行` : '安全护栏 → 放行';
+      }
+      if (mwName.includes('ToolErrorHandling')) return '异常兜底';
+      if (mwName.includes('Clarification')) return '透传';
+      if (mwName.includes('OutputRender')) return 'PII 还原 + 输出格式化: Markdown 清理';
+      return fallbackDetail || '';
+    }
+    case 'llm_call': {
+      const iteration = md.iteration || '';
+      const toolCalls = md.tool_calls || outputData.tool_calls || [];
+      if (toolCalls.length > 0) {
+        const firstTool = typeof toolCalls[0] === 'string' ? toolCalls[0] : (toolCalls[0].name || toolCalls[0].tool_name || '');
+        return iteration ? `第${iteration}轮: 调用 ${esc(firstTool)}` : `调用 ${esc(firstTool)}`;
+      }
+      const isFinal = (md.is_final === true) || (span.output_data && span.output_data.is_final === true);
+      if (isFinal) return iteration ? `第${iteration}轮: 生成最终回复` : '生成最终回复';
+      return fallbackDetail || (iteration ? `第${iteration}轮推理` : '');
+    }
+    case 'tool_call': {
+      const toolName = md.display_name || md.tool_name || '';
+      const output = md.output || (outputData.result) || '';
+      let desc = toolName || '';
+      if (output) desc += ` → ${esc(truncStr(String(output), 50))}`;
+      return desc || fallbackDetail || '';
+    }
+    case 'skill_execution': {
+      const skillName = md.skill_name || '';
+      const mode = md.skill_mode || 'inline';
+      let desc = skillName || '';
+      if (mode === 'inline') desc += ' → 返回 SOP prompt，LLM 下一轮按步骤执行';
+      if (md.skill_result_desc) desc = `${skillName} → ${esc(truncStr(md.skill_result_desc, 50))}`;
+      return desc || fallbackDetail || '';
+    }
+    case 'memory_extract': {
+      const count = md.extracted_count || outputData.extracted_count || '?';
+      return `提取 ${count} 条新记忆（MemoryMiddleware.aafter_agent → engine.extract_and_update）`;
+    }
+    case 'response_complete': {
+      return 'SSE 流式推送最终回复（前端 type=done 事件）';
+    }
+    default:
+      return fallbackDetail || '';
+  }
 }
 
 function formatDetailValue(val) {
@@ -952,163 +977,168 @@ function addLiveSpan(span) {
 }
 
 function _renderToolCallInfo(span) {
-  if (span.step_name_en !== 'tool_call' && !(span.step_name || '').includes('工具')) return '';
-  const md = span.metadata || {};
-  const toolName = md.display_name || md.tool_name || '';
-  if (!toolName) return '';
-
-  const isComplete = span.status === 'complete';
-  const statusBg = isComplete ? 'bg-emerald-50 border-emerald-200' : 'bg-blue-50 border-blue-200';
-
-  let html = `<div class="mt-2 border ${statusBg} rounded-xl p-3 text-[10px]">`;
-  // 工具名称头部
-  html += `<div class="flex items-center gap-2 mb-2">`;
-  html += `<div class="w-6 h-6 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-lg flex items-center justify-center shadow-sm"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>`;
-  html += `<span class="font-bold text-gray-800 text-[11px]">${esc(toolName)}</span>`;
-  if (isComplete) html += `<span class="ml-auto text-emerald-600 font-bold text-[9px] bg-emerald-100 px-1.5 py-0.5 rounded-full">✓ 完成</span>`;
-  else html += `<span class="ml-auto text-blue-600 font-bold text-[9px] bg-blue-100 px-1.5 py-0.5 rounded-full animate-pulse-slow">执行中</span>`;
-  if (span.duration_ms) html += `<span class="text-gray-400 text-[9px]">${Math.round(span.duration_ms)}ms</span>`;
-  html += `</div>`;
-
-  // 输入参数摘要
-  const input = md.input || (span.input_data && span.input_data.arguments) || '';
-  if (input) {
-    let inputPreview = '';
-    try {
-      const parsed = JSON.parse(input);
-      const entries = Object.entries(parsed).slice(0, 5);
-      inputPreview = entries.map(([k, v]) => {
-        const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
-        return `<span class="text-gray-400">${esc(k)}:</span> <span class="text-gray-700">${esc(truncStr(val, 40))}</span>`;
-      }).join('<span class="text-gray-300 mx-1">|</span>');
-    } catch(e) {
-      inputPreview = `<span class="text-gray-700">${esc(truncStr(String(input), 100))}</span>`;
-    }
-    html += `<div class="bg-white/60 rounded-lg px-2.5 py-1.5 border border-gray-100 mb-1.5"><span class="text-gray-400 mr-1">📥</span>${inputPreview}</div>`;
-  }
-
-  // 输出摘要
-  const output = md.output || (span.output_data && span.output_data.result) || '';
-  if (output && isComplete) {
-    html += `<div class="bg-white/60 rounded-lg px-2.5 py-1.5 border border-gray-100"><span class="text-gray-400 mr-1">📤</span><span class="text-gray-700">${esc(truncStr(String(output), 120))}</span></div>`;
-  }
-
-  html += `</div>`;
-  return html;
+  // 文本链路风格不需要卡片式工具信息，描述已内联到 _buildStepDescription
+  return '';
 }
 
 function refreshTrace() {
   const el = document.getElementById('traceContent');
 
-  // ── 阶段定义（用于在阶段切换时插入分隔标题） ──
-  const PHASE_MAP = {
-    'content_review': { id: 'entry', label: '入口预处理', labelEn: 'Preprocessing', icon: '🚀' },
-    'content_review_input': { id: 'entry', label: '入口预处理', labelEn: 'Preprocessing', icon: '🚀' },
-    'content_review_output': { id: 'entry', label: '入口预处理', labelEn: 'Preprocessing', icon: '🚀' },
-    'query_rewrite': { id: 'entry', label: '入口预处理', labelEn: 'Preprocessing', icon: '🚀' },
-    'title_generation': { id: 'entry', label: '入口预处理', labelEn: 'Preprocessing', icon: '🚀' },
-    'context_build': { id: 'context', label: '上下文准备', labelEn: 'Context Build', icon: '📦' },
-    'memory_retrieval': { id: 'context', label: '上下文准备', labelEn: 'Context Build', icon: '📦' },
-    'user_input': { id: 'context', label: '上下文准备', labelEn: 'Context Build', icon: '📦' },
-    'middleware': { id: 'context', label: '上下文准备', labelEn: 'Context Build', icon: '📦' },
-    'intent_analysis': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
-    'llm_input': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
-    'llm_call': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
-    'tool_call': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
-    'clarification': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
-    'hierarchical_search': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
-    'error': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
-    'memory_extract': { id: 'post', label: '后处理', labelEn: 'Post Process', icon: '💾' },
-    'response_complete': { id: 'post', label: '后处理', labelEn: 'Post Process', icon: '💾' },
+  // ═══ 阶段定义（严格线性：entry → context → reasoning → output → post）═══
+  // 关键设计：阶段只能前进，不能回退。一旦进入 reasoning，后续所有中间件都归属 reasoning。
+  const PHASE_ORDER = ['entry', 'context', 'reasoning', 'output', 'post'];
+
+  const PHASE_META = {
+    'entry': { label: '入口预处理', labelEn: 'server.py 入口层，LangGraph 之外', icon: '🚀' },
+    'context': { label: '上下文准备', labelEn: 'before_agent，执行 1 次', icon: '📦' },
+    'reasoning': { label: '模型推理 Agent Loop', labelEn: '', icon: '⚡' },
+    'output': { label: '回复输出', labelEn: '', icon: '✅' },
+    'post': { label: '后处理', labelEn: 'after_agent，执行 1 次', icon: '💾' },
   };
 
-  function getPhase(span) {
+  // 根据 span 类型确定其"自然"阶段
+  function getNaturalPhase(span) {
     const typeKey = span.step_name_en || span.type || '';
-    const typeKey2 = span.type || '';
-    // 中间件 span 根据 metadata.phase 判断
-    if (typeKey === 'middleware' || typeKey2 === 'middleware') {
+    // 入口预处理
+    if (['content_review', 'content_review_input', 'content_review_output', 'query_rewrite', 'title_generation'].includes(typeKey)) return 'entry';
+    // 上下文准备
+    if (['context_build', 'memory_retrieval', 'user_input'].includes(typeKey)) return 'context';
+    // Agent Loop
+    if (['llm_call', 'tool_call', 'skill_execution', 'clarification', 'hierarchical_search', 'error'].includes(typeKey)) return 'reasoning';
+    // 回复输出
+    if (typeKey === 'response_complete') return 'output';
+    // 后处理
+    if (typeKey === 'memory_extract') return 'post';
+    // 中间件：根据 metadata.phase 判断
+    if (typeKey === 'middleware') {
       const mwPhase = (span.metadata && span.metadata.phase) || '';
-      if (mwPhase === 'after_agent') return { id: 'post', label: '后处理', labelEn: 'Post Process', icon: '💾' };
-      return PHASE_MAP['middleware'];
+      if (mwPhase === 'after_agent') return 'post';
+      if (mwPhase === 'before_agent') return 'context';
+      // before_model / after_model / wrap_tool_call 都属于 reasoning
+      if (mwPhase === 'before_model' || mwPhase === 'after_model' || mwPhase === 'wrap_tool_call') return 'reasoning';
+      // 无 phase 标记的中间件，默认跟随当前阶段（不触发切换）
+      return null;
     }
-    return PHASE_MAP[typeKey] || PHASE_MAP[typeKey2] || null;
+    return null;
   }
 
-  // 严格按到达顺序渲染，在阶段切换时插入分隔标题
-  // Agent Loop 阶段内部按循环编号分组
   let html = '';
   let seqNum = 0;
   let currentPhaseId = null;
-  let currentLoopNum = 0;  // 当前循环编号（Agent Loop 内部）
+  let currentPhaseIdx = -1; // 当前阶段在 PHASE_ORDER 中的索引
+  let currentLoopNum = 0;
+  let llmCallCount = 0;
+  let totalLoopCount = 0; // 全局循环计数（不因阶段切换重置）
 
-  // 内部调试 span，不作为独立节点显示（信息已合并到 llm_call 节点中）
-  const HIDDEN_SPAN_TYPES = new Set(['llm_input', 'intent_analysis', 'context_build']);
+  const HIDDEN_SPAN_TYPES = new Set(['llm_input', 'intent_analysis', 'request']);
 
-  // 预扫描：统计 Agent Loop 中有多少轮 LLM 调用（判断是否多轮）
+  // 预扫描：统计 Agent Loop 中有多少轮 LLM 调用
   const totalLlmCalls = liveSpans.filter(s => {
     const en = s.step_name_en || s.type || '';
     return en === 'llm_call' || (s.title && s.title.includes('思考'));
   }).length;
   const isMultiLoop = totalLlmCalls > 1;
-  let llmCallCount = 0;
+
+  // 预扫描：收集每轮循环的描述
+  let loopDescriptions = [];
+  for (const s of liveSpans) {
+    const en = s.step_name_en || s.type || '';
+    if (en === 'llm_call' || (s.title && s.title.includes('思考'))) {
+      const md = s.metadata || {};
+      const toolCalls = md.tool_calls || (s.output_data && s.output_data.tool_calls) || [];
+      let desc = '';
+      if (md.is_final) {
+        desc = 'LLM 整合结果生成最终回复';
+      } else if (toolCalls.length > 0) {
+        const firstTool = typeof toolCalls[0] === 'string' ? toolCalls[0] : (toolCalls[0].name || toolCalls[0].tool_name || '');
+        desc = `LLM 决定调用 ${firstTool}`;
+      } else {
+        desc = 'LLM 推理';
+      }
+      loopDescriptions.push(desc);
+    }
+  }
 
   for (const s of liveSpans) {
-    const phase = getPhase(s);
-    const phaseId = phase ? phase.id : '__unknown__';
+    const spanTypeKey = s.step_name_en || s.type || '';
+    if (HIDDEN_SPAN_TYPES.has(spanTypeKey)) continue;
 
-    // 阶段切换时插入分隔标题
-    if (phaseId !== currentPhaseId) {
+    // 确定该 span 应归属的阶段
+    let targetPhase = getNaturalPhase(s);
+
+    // 核心规则：阶段只能前进，不能回退
+    if (targetPhase === null) {
+      // 无法确定阶段的 span，归属当前阶段
+      targetPhase = currentPhaseId || 'context';
+    }
+    const targetIdx = PHASE_ORDER.indexOf(targetPhase);
+    if (targetIdx < currentPhaseIdx) {
+      // 不允许回退：该 span 归属当前阶段
+      targetPhase = currentPhaseId;
+    }
+
+    // ── 阶段切换：仅在前进时触发 ──
+    if (targetPhase !== currentPhaseId) {
       // 关闭上一个循环容器
       if (currentPhaseId === 'reasoning' && currentLoopNum > 0) {
         html += '</div>';
       }
-      // 关闭上一个阶段的容器
+      // 关闭上一个阶段容器
       if (currentPhaseId !== null) {
-        html += '</div></div>';
+        html += '</div>';
       }
-      currentPhaseId = phaseId;
+      currentPhaseId = targetPhase;
+      currentPhaseIdx = PHASE_ORDER.indexOf(targetPhase);
       currentLoopNum = 0;
       llmCallCount = 0;
 
-      const phaseLabel = phase ? phase.label : '其他';
-      const phaseLabelEn = phase ? phase.labelEn : '';
-      const phaseIcon = phase ? phase.icon : '📌';
+      const meta = PHASE_META[targetPhase] || { label: '其他', labelEn: '', icon: '📌' };
 
+      // 纯文本阶段标题行
       html += `
-        <div class="mb-3">
-          <div class="flex items-center gap-2 px-2 py-1.5 mb-1">
-            <span class="text-[11px]">${phaseIcon}</span>
-            <span class="text-[10px] font-bold text-gray-500 tracking-wider">${phaseLabel}</span>
-            <span class="text-[9px] text-gray-300 font-mono">${phaseLabelEn}</span>
-            <div class="flex-1 h-px bg-gray-100 ml-2"></div>
+        <div class="trace-phase mt-4 mb-1 first:mt-0">
+          <div class="text-[12px] font-bold text-gray-700 py-1">
+            <span>${meta.icon}</span>
+            <span class="ml-1">${meta.label}</span>
+            ${meta.labelEn ? `<span class="text-[10px] text-gray-400 font-normal ml-1">(${meta.labelEn})</span>` : ''}
           </div>
-          <div class="space-y-1 pl-1">`;
+          <div class="pl-0">`;
 
-      // 多轮对话：进入 reasoning 阶段时立即开始第 1 轮容器
-      if (phaseId === 'reasoning' && isMultiLoop) {
-        currentLoopNum = 1;
-        html += `
-          <div class="ml-1 mb-2 border-l-2 border-violet-200 pl-3">
-            <div class="text-[9px] font-bold text-violet-500 mb-1">第 1 轮</div>`;
+      // 进入 reasoning 阶段时开始第 1 轮
+      if (targetPhase === 'reasoning') {
+        totalLoopCount++;
+        currentLoopNum = totalLoopCount;
+        const loopDesc = loopDescriptions[0] || '';
+        if (isMultiLoop) {
+          html += `
+            <div class="trace-loop ml-0 pl-3 border-l-2 border-violet-200 mt-1 mb-1">
+              <div class="text-[10px] text-violet-600 font-semibold mb-0.5">├─ 循环 ${currentLoopNum}<span class="text-gray-400 font-normal ml-2">（${esc(loopDesc)}）</span></div>`;
+        }
       }
     }
 
-    // 多轮 Agent Loop：第 2+ 个 LLM 调用开始新循环
-    if (currentPhaseId === 'reasoning' && isMultiLoop) {
+    // ── Agent Loop 内部：LLM 调用触发新循环 ──
+    if (currentPhaseId === 'reasoning') {
       const stepEn = s.step_name_en || s.type || '';
       const isLlmCall = stepEn === 'llm_call' || (s.title && s.title.includes('思考'));
 
       if (isLlmCall) {
         llmCallCount++;
         if (llmCallCount > 1) {
-          // 关闭上一轮，开始新一轮
-          html += '</div>';
-          currentLoopNum++;
+          // 关闭上一轮
+          if (isMultiLoop && currentLoopNum > 0) {
+            html += '</div>';
+          }
+          totalLoopCount++;
+          currentLoopNum = totalLoopCount;
           const isFinal = s.metadata && s.metadata.is_final;
-          const loopBadge = isFinal ? ' <span class=\"text-[8px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full font-bold\">FINAL</span>' : '';
-          html += `
-            <div class="ml-1 mb-2 border-l-2 border-violet-200 pl-3">
-              <div class="text-[9px] font-bold text-violet-500 mb-1">第 ${currentLoopNum} 轮${loopBadge}</div>`;
+          const loopDesc = loopDescriptions[llmCallCount - 1] || '';
+          const finalTag = isFinal ? ' [FINAL]' : '';
+          if (isMultiLoop) {
+            html += `
+              <div class="trace-loop ml-0 pl-3 border-l-2 ${isFinal ? 'border-green-300' : 'border-violet-200'} mt-1 mb-1">
+                <div class="text-[10px] ${isFinal ? 'text-green-600' : 'text-violet-600'} font-semibold mb-0.5">├─ 循环 ${currentLoopNum}${finalTag}<span class="text-gray-400 font-normal ml-2">（${esc(loopDesc)}）</span></div>`;
+          }
         }
       }
     }
@@ -1117,16 +1147,15 @@ function refreshTrace() {
     html += renderTraceNode(s, seqNum - 1, seqNum);
   }
 
-  // 关闭最后的循环容器
-  if (currentPhaseId === 'reasoning' && currentLoopNum > 0) {
+  // 关闭容器
+  if (currentPhaseId === 'reasoning' && currentLoopNum > 0 && isMultiLoop) {
     html += '</div>';
   }
-  // 关闭最后一个阶段容器
   if (currentPhaseId !== null) {
-    html += '</div></div>';
+    html += '</div>';
   }
 
-  el.innerHTML = html;
+  el.innerHTML = html || '<div class="text-center text-gray-400 text-xs py-10">等待对话开始...</div>';
 }
 
 // ═══ 文件上下文渲染 ═══
@@ -1339,8 +1368,10 @@ const SPAN_LABELS = {
   llm_input: 'LLM 输入准备',
   llm_call: '模型推理',
   tool_call: '工具调用',
+  skill_execution: '技能执行',
   hierarchical_search: '分层检索',
   memory_extract: '记忆提取',
+  title_generation: '标题生成',
   response_complete: '回复完成',
   error: '执行错误',
 };
@@ -1859,7 +1890,7 @@ function renderHistoricalTrace(spans) {
     const inD = s.input_data || s.input || {};
     const outD = s.output_data || s.output || {};
 
-    // 子节点（trace 详情的 children 可能是子 span_id 列表，真实子节点信息在 metadata.children）
+    // 子节点
     const children = [];
     if (Array.isArray(md.children)) {
       md.children.forEach(ch => {
@@ -1877,9 +1908,17 @@ function renderHistoricalTrace(spans) {
       children.push({ label: truncStr(String(md.output), 60), status: 'complete' });
     }
 
+    // 子 Agent 循环（fork 技能）
+    let subAgentSpans = [];
+    if (md.sub_agent_loops && Array.isArray(md.sub_agent_loops)) {
+      subAgentSpans = md.sub_agent_loops.map(loop => ({
+        label: loop.label || loop.name || '',
+        duration_ms: loop.duration_ms || 0,
+      }));
+    }
+
     const startTime = s.start_time ? new Date(s.start_time * 1000).toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8) : '';
 
-    // 使用后端传来的结构化字段（新格式），兼容旧格式
     let stepName = s.step_name || md.step_name || getSpanLabel(s.type);
     const stepNameEn = s.step_name_en || md.step_name_en || s.type || '';
     const detail = s.detail || md.detail || (md.query_used ? `查询: "${truncStr(md.query_used, 50)}"` : (s.duration_ms ? `完成 (${Math.round(s.duration_ms)}ms)` : ''));
@@ -1892,13 +1931,20 @@ function renderHistoricalTrace(spans) {
       }
     }
 
-    // input_data / output_data（优先用结构化字段）
+    // 对 skill_execution 类型，补充技能名称
+    if (s.type === 'skill_execution') {
+      const skillName = md.skill_name || '';
+      if (skillName && !stepName.includes(skillName)) {
+        stepName = `技能执行: ${skillName}`;
+      }
+    }
+
+    // input_data / output_data
     let inputData = {};
     let outputData = {};
     if (typeof inD === 'object' && !Array.isArray(inD) && Object.keys(inD).length > 0) {
       inputData = inD;
     } else {
-      // 旧格式兼容：从 metadata 中提取
       if (s.type === 'query_rewrite') inputData = { original_query: md.original_query || '' };
       else if (s.type === 'memory_retrieval') inputData = { query: md.query_used || '', dimensions: md.dimensions || [] };
       else if (s.type === 'intent_analysis') inputData = { raw_intent: md.raw_intent || '' };
@@ -1908,6 +1954,7 @@ function renderHistoricalTrace(spans) {
       else if (s.type === 'memory_extract') inputData = { source: 'agent_response' };
       else if (s.type === 'context_build') inputData = { message_count: md.message_count || 0 };
       else if (s.type === 'hierarchical_search') inputData = { search_type: md.search_type || '' };
+      else if (s.type === 'skill_execution') inputData = { skill_name: md.skill_name || '', mode: md.skill_mode || 'inline' };
     }
     if (typeof outD === 'object' && !Array.isArray(outD) && Object.keys(outD).length > 0) {
       outputData = outD;
@@ -1920,10 +1967,11 @@ function renderHistoricalTrace(spans) {
       else if (s.type === 'memory_extract') outputData = { extracted_count: md.extracted_count || 0, dimensions: md.dimensions || [] };
       else if (s.type === 'context_build') outputData = { estimated_tokens: md.estimated_tokens || 0, message_count: md.message_count || 0 };
       else if (s.type === 'hierarchical_search') outputData = { hit_count: md.hit_count || 0 };
+      else if (s.type === 'skill_execution') outputData = { result: md.skill_result_desc || md.output || '' };
     }
 
     return {
-      status: 'complete',
+      status: s.status || 'complete',
       icon: getSpanIcon(s.type),
       title: s.name || getSpanLabel(s.type),
       step_name: stepName,
@@ -1934,6 +1982,7 @@ function renderHistoricalTrace(spans) {
       duration_ms: s.duration_ms || 0,
       time: startTime,
       children: children,
+      sub_agent_spans: subAgentSpans,
       input_data: inputData,
       output_data: outputData,
       input: '',

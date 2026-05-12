@@ -43,7 +43,6 @@ def build_middleware(
         SubagentLimitMiddleware,
         SummarizationMiddleware,
         TitleMiddleware,
-        TodoMiddleware,
         ToolErrorHandlingMiddleware,
     )
     from src.middleware.input_transform import PIIRedactTransformer, ContentReviewTransformer
@@ -199,7 +198,6 @@ def _build_middleware_by_names(
         SubagentLimitMiddleware,
         SummarizationMiddleware,
         TitleMiddleware,
-        TodoMiddleware,
         ToolErrorHandlingMiddleware,
     )
 
@@ -210,7 +208,6 @@ def _build_middleware_by_names(
         "input_transform": InputTransformMiddleware,
         "summarization": SummarizationMiddleware,
         "memory": MemoryMiddleware,
-        "todo": TodoMiddleware,
         "subagent_limit": SubagentLimitMiddleware,
         "guardrail": GuardrailMiddleware,
         "loop_detection": LoopDetectionMiddleware,

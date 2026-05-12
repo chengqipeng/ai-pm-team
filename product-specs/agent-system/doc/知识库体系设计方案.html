@@ -1,76 +1,53 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>知识库体系设计方案</title>
-  <style>
-    :root {
-      --primary: #2563eb;
-      --primary-bg: #eff6ff;
-      --success: #059669;
-      --success-bg: #ecfdf5;
-      --warn: #d97706;
-      --warn-bg: #fffbeb;
-      --danger: #dc2626;
-      --danger-bg: #fef2f2;
-      --purple: #7c3aed;
-      --purple-bg: #f5f3ff;
-      --text: #1e293b;
-      --text-secondary: #64748b;
-      --border: #e2e8f0;
-      --bg: #f8fafc;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-      background: #ffffff;
-      color: var(--text);
-      line-height: 1.8;
-      padding: 2rem 3rem;
-      max-width: 1000px;
-      margin: 0 auto;
-      font-size: 15px;
-    }
-    .container { max-width: 100%; margin: 0 auto; }
-    h1 { font-size: 2rem; margin-bottom: 0.3rem; color: var(--text); border-bottom: 3px solid var(--primary); padding-bottom: 0.5rem; margin-top: 1rem; }
-    section { background: #fff; border-radius: 12px; padding: 2rem; margin-bottom: 2rem; border: 1px solid var(--border); overflow-x: auto; }
-    h2 { font-size: 1.5rem; margin-bottom: 1rem; margin-top: 2.5rem; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
-    h3 { font-size: 1.1rem; margin: 1.5rem 0 0.8rem; color: #334155; }
-    h4 { font-size: 0.95rem; margin: 1.2rem 0 0.5rem; color: #475569; }
-    table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.85rem; }
-    th, td { padding: 0.6rem 0.8rem; border: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: break-word; word-wrap: break-word; }
-    th { background: #f1f5f9; font-weight: 600; white-space: nowrap; }
-    td { min-width: 60px; }
-    tr:hover td { background: #fafbfc; }
-    .diagram { background: #1e293b; color: #e2e8f0; padding: 1.5rem; border-radius: 8px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.75rem; overflow-x: auto; white-space: pre; line-height: 1.6; margin: 1rem 0; max-width: 100%; }
-    .box { padding: 1rem 1.2rem; border-radius: 8px; margin: 1rem 0; font-size: 0.9rem; }
-    .box-info { background: var(--primary-bg); border-left: 4px solid var(--primary); }
-    .box-success { background: var(--success-bg); border-left: 4px solid var(--success); }
-    .box-warn { background: var(--warn-bg); border-left: 4px solid var(--warn); }
-    .box-danger { background: var(--danger-bg); border-left: 4px solid var(--danger); }
-    .box-purple { background: var(--purple-bg); border-left: 4px solid var(--purple); }
-    ul, ol { padding-left: 1.5rem; margin: 0.5rem 0; }
-    li { margin: 0.3rem 0; font-size: 0.9rem; }
-    blockquote { border-left: 4px solid var(--primary); background: var(--primary-bg); padding: 0.8rem 1.2rem; margin: 1rem 0; border-radius: 0 8px 8px 0; }
-    blockquote p { margin: 0.3rem 0; }
-    hr { border: none; border-top: 2px solid var(--border); margin: 2rem 0; }
-    code { background: #f1f5f9; padding: 2px 6px; border-radius: 3px; font-size: 0.82rem; font-family: 'JetBrains Mono', monospace; }
-    .code-block { background: #1e293b; color: #e2e8f0; padding: 1.2rem; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; overflow-x: auto; white-space: pre; line-height: 1.5; margin: 1rem 0; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
-    .b-done { background: var(--success-bg); color: var(--success); }
-    .b-pending { background: var(--warn-bg); color: var(--warn); }
-    .b-new { background: var(--purple-bg); color: var(--purple); }
-    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin: 1rem 0; }
-    .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin: 1rem 0; }
-    p { margin: 0.5rem 0; font-size: 0.9rem; }
-    strong { color: #1e293b; }
-    .formula { background: #f8fafc; border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem 1.2rem; margin: 0.8rem 0; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; text-align: center; overflow-x: auto; }
-    @media (max-width: 900px) { .two-col, .three-col { grid-template-columns: 1fr; } body { padding: 1rem; font-size: 14px; } section { padding: 1.5rem; } }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识库体系设计方案</title>
+<style>
+:root { --bg:#fff; --text:#1a1a2e; --heading:#16213e; --accent:#0f3460; --border:#e0e0e0; --code-bg:#f5f5f5; --table-header:#f0f4f8; --table-border:#d0d7de; --link:#0969da; --blockquote-bg:#f6f8fa; --blockquote-border:#d0d7de; --primary:#2563eb; --primary-bg:#eff6ff; --success:#059669; --success-bg:#ecfdf5; --warn:#d97706; --warn-bg:#fffbeb; --danger:#dc2626; --danger-bg:#fef2f2; --purple:#7c3aed; --purple-bg:#f5f3ff; }
+* { box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; line-height: 1.75; color: var(--text); background: var(--bg); max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; font-size: 15px; }
+h1 { font-size: 2em; color: var(--heading); border-bottom: 3px solid var(--accent); padding-bottom: 12px; margin-top: 48px; }
+h2 { font-size: 1.5em; color: var(--heading); border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-top: 48px; }
+h3 { font-size: 1.25em; color: var(--heading); margin-top: 32px; }
+h4 { font-size: 1.1em; color: var(--heading); margin-top: 24px; }
+h5, h6 { font-size: 1em; color: var(--heading); }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+p { margin: 12px 0; }
+blockquote { background: var(--blockquote-bg); border-left: 4px solid var(--blockquote-border); margin: 16px 0; padding: 12px 20px; color: #57606a; border-radius: 0 8px 8px 0; }
+blockquote p { margin: 4px 0; }
+code { font-family: "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace; font-size: 0.88em; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; }
+pre { background: #1e1e2e; color: #cdd6f4; padding: 20px; border-radius: 8px; overflow-x: auto; line-height: 1.5; margin: 16px 0; }
+pre code { background: none; padding: 0; font-size: 0.85em; color: inherit; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.92em; }
+thead { background: var(--table-header); }
+th, td { border: 1px solid var(--table-border); padding: 10px 14px; text-align: left; vertical-align: top; }
+th { font-weight: 600; color: var(--heading); }
+tr:nth-child(even) { background: #f9fafb; }
+ul, ol { padding-left: 24px; margin: 8px 0; }
+li { margin: 4px 0; }
+hr { border: none; border-top: 2px solid var(--border); margin: 40px 0; }
+strong { color: var(--heading); }
+.box { padding: 1rem 1.2rem; border-radius: 8px; margin: 1rem 0; font-size: 0.9rem; }
+.box-info { background: var(--primary-bg); border-left: 4px solid var(--primary); }
+.box-success { background: var(--success-bg); border-left: 4px solid var(--success); }
+.box-warn { background: var(--warn-bg); border-left: 4px solid var(--warn); }
+.box-danger { background: var(--danger-bg); border-left: 4px solid var(--danger); }
+.box-purple { background: var(--purple-bg); border-left: 4px solid var(--purple); }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+.b-done { background: var(--success-bg); color: var(--success); }
+.b-pending { background: var(--warn-bg); color: var(--warn); }
+.b-new { background: var(--purple-bg); color: var(--purple); }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin: 1rem 0; }
+.three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+.formula { background: #f8fafc; border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem 1.2rem; margin: 0.8rem 0; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; text-align: center; overflow-x: auto; }
+@media print { body { max-width: 100%; padding: 20px; font-size: 12px; } pre { background: #f5f5f5 !important; color: #333 !important; border: 1px solid #ddd; } h1, h2, h3 { page-break-after: avoid; } table { page-break-inside: avoid; } }
+@media (max-width: 768px) { body { padding: 20px 16px; font-size: 14px; } table { display: block; overflow-x: auto; } pre { padding: 12px; } .two-col, .three-col { grid-template-columns: 1fr; } }
+</style>
 </head>
 <body>
-<div class="container">
 
 <h1>知识库体系设计方案</h1>
 <blockquote>
@@ -88,7 +65,6 @@
 <hr>
 
 <!-- ===== 一、系统整体架构 ===== -->
-<section id="arch">
 <h2>一、系统整体架构</h2>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 750" style="width:100%;max-width:960px;display:block;margin:0 auto;">
   <defs>
@@ -235,11 +211,9 @@
   <text x="480" y="714" text-anchor="middle" font-size="11" font-weight="600" fill="#475569">🔑 关键特性：全自动入库（7阶段流水线） · 三维度智能排序（相关性+质量+时效） · 租户级数据隔离 · 19维元数据治理 · 异步不阻塞</text>
   <text x="480" y="732" text-anchor="middle" font-size="9.5" fill="#94a3b8">支持 PDF / Word / PPT / Excel / Markdown / 图片等格式 | 20页文档入库 ≈ 30~60秒 | 检索响应 &lt; 200ms</text>
 </svg>
-</section>
 
 <!-- ===== 第一节：设计背景与目标 ===== -->
-<section id="sec1">
-  <h2>一、设计背景与目标</h2>
+<h2>一、设计背景与目标</h2>
 
   <h3>1.1 系统定位</h3>
   <p>知识库是独立子系统，为 Agent 提供<strong>企业文档的入库、检索、治理</strong>全链路能力。与记忆系统（短文本、用户维度、自动提取）互补，知识库面向<strong>长文档、租户维度、人工上传</strong>的场景。</p>
@@ -289,12 +263,9 @@
 隔离层:   tenant_id 全链路强制注入（PG WHERE + VDB FilterIndex + COS 分桶）
 </code></pre>
 
-</section>
-
 <!-- ===== 第二节：LKEAP 接入 ===== -->
 
-<section id="sec2">
-  <h2>二、文档解析</h2>
+<h2>二、文档解析</h2>
 
   <h3>2.1 腾讯文档解析能力接入</h3>
   <p>通过 <code>TencentLKEAPClient</code> 接入腾讯云知识引擎原子能力（LKEAP），按需调用以下能力：</p>
@@ -526,23 +497,20 @@
 
   <hr>
 
-</section>
-
 <!-- ===== 第三节：知识库架构设计 ===== -->
 <!-- ===== 第五节：知识检索引擎 ===== -->
-<section id="sec5">
-  <h2>三、知识检索引擎</h2>
+<h2>三、知识检索引擎</h2>
   <p>全 VDB 架构：所有检索信号都在向量数据库完成，命中后直接返回切片内容，不回 PG。</p>
 
   <h3>3.1 检索链路总览</h3>
 
   <!-- 链路流程图 SVG -->
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" style="width:100%;max-width:960px;display:block;margin:1rem auto;">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 680" style="width:100%;max-width:960px;display:block;margin:1rem auto;">
     <defs>
       <marker id="a5" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2563eb"/></marker>
       <filter id="d5"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-opacity="0.06"/></filter>
     </defs>
-    <rect x="0" y="0" width="960" height="480" rx="14" fill="#fdfcff" stroke="#dbeafe" stroke-width="1.5"/>
+    <rect x="0" y="0" width="960" height="680" rx="14" fill="#fdfcff" stroke="#dbeafe" stroke-width="1.5"/>
 
     <!-- Step 1: Query 输入 -->
     <rect x="380" y="12" width="200" height="36" rx="18" fill="#2563eb" filter="url(#d5)"/>
@@ -597,26 +565,37 @@
 
     <line x1="480" y1="390" x2="480" y2="409" stroke="#2563eb" stroke-width="1.5" marker-end="url(#a5)"/>
 
+    <!-- Step 3.5: Phase 2 定向召回 -->
+    <rect x="180" y="413" width="600" height="62" rx="8" fill="#eff6ff" stroke="#93c5fd" stroke-width="1" filter="url(#d5)"/>
+    <rect x="180" y="413" width="600" height="20" rx="8" fill="#dbeafe"/>
+    <rect x="180" y="427" width="600" height="6" fill="#dbeafe"/>
+    <text x="198" y="428" font-size="9" font-weight="700" fill="#1e40af">Step 3.5</text>
+    <text x="252" y="428" font-size="10" font-weight="600" fill="#1e293b">Phase 2 定向召回（条件触发，与 Phase 1 串行）</text>
+    <text x="198" y="448" font-size="9" fill="#475569">触发条件：有 Self-Querying filter 且路B有结果 → 用路B Top-50 doc_id 在切片集合内再搜一次</text>
+    <text x="198" y="462" font-size="9" fill="#475569">目的：捞回路A全局 Top-30 截断遗漏的分类相关切片 → 与路A结果合并去重（chunk_id 去重，保留高分）</text>
+    <text x="198" y="472" font-size="8" fill="#dc2626">⚡ 串行原因：依赖路B输出的 doc_id 列表作为搜索范围</text>
+    <line x1="480" y1="475" x2="480" y2="491" stroke="#2563eb" stroke-width="1.5" marker-end="url(#a5)"/>
+
     <!-- Step 5: 聚合 + 加权 -->
-    <rect x="130" y="413" width="700" height="56" rx="8" fill="#fefce8" stroke="#fde047" stroke-width="0.8" filter="url(#d5)"/>
-    <text x="148" y="431" font-size="9" font-weight="700" fill="#854d0e">Step 4-5</text>
-    <text x="200" y="431" font-size="10" font-weight="600" fill="#1e293b">切片→文档聚合 + 三维度归一化加权</text>
-    <text x="148" y="451" font-size="9" fill="#475569">聚合：doc_rrf = seg[0] + seg[1]×0.2 + seg[2]×0.04 ...（几何衰减）</text>
-    <text x="148" y="465" font-size="9" fill="#475569">加权：finalScore = α(0.7)×相关性 + β(0.1)×元数据 + γ(0.2)×文档属性(质量+时效+热度)</text>
-    <line x1="480" y1="469" x2="480" y2="485" stroke="#2563eb" stroke-width="1.5" marker-end="url(#a5)"/>
+    <rect x="130" y="495" width="700" height="56" rx="8" fill="#fefce8" stroke="#fde047" stroke-width="0.8" filter="url(#d5)"/>
+    <text x="148" y="513" font-size="9" font-weight="700" fill="#854d0e">Step 4-5</text>
+    <text x="200" y="513" font-size="10" font-weight="600" fill="#1e293b">切片→文档聚合 + 三维度归一化加权</text>
+    <text x="148" y="533" font-size="9" fill="#475569">聚合：doc_rrf = seg[0] + seg[1]×0.2 + seg[2]×0.04 ...（几何衰减）</text>
+    <text x="148" y="547" font-size="9" fill="#475569">加权：finalScore = α(0.7)×相关性 + β(0.1)×元数据 + γ(0.2)×文档属性(质量+时效+热度)</text>
+    <line x1="480" y1="551" x2="480" y2="567" stroke="#2563eb" stroke-width="1.5" marker-end="url(#a5)"/>
 
     <!-- Step 6: threshold -->
-    <rect x="300" y="489" width="360" height="42" rx="8" fill="#fdf2f8" stroke="#f9a8d4" stroke-width="0.8" filter="url(#d5)"/>
-    <text x="318" y="507" font-size="9" font-weight="700" fill="#9d174d">Step 6</text>
-    <text x="360" y="507" font-size="10" font-weight="600" fill="#1e293b">threshold 过滤 + top_k 截断</text>
-    <text x="318" y="523" font-size="9" fill="#64748b">finalScore &lt; threshold(默认0.3) 丢弃 → 按分数降序取 top_k</text>
-    <line x1="480" y1="531" x2="480" y2="547" stroke="#2563eb" stroke-width="1.5" marker-end="url(#a5)"/>
+    <rect x="300" y="571" width="360" height="42" rx="8" fill="#fdf2f8" stroke="#f9a8d4" stroke-width="0.8" filter="url(#d5)"/>
+    <text x="318" y="589" font-size="9" font-weight="700" fill="#9d174d">Step 6</text>
+    <text x="360" y="589" font-size="10" font-weight="600" fill="#1e293b">threshold 过滤 + top_k 截断</text>
+    <text x="318" y="605" font-size="9" fill="#64748b">finalScore &lt; threshold(默认0.3) 丢弃 → 按分数降序取 top_k</text>
+    <line x1="480" y1="613" x2="480" y2="629" stroke="#2563eb" stroke-width="1.5" marker-end="url(#a5)"/>
 
     <!-- Step 7: 输出 -->
-    <rect x="250" y="551" width="460" height="36" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="0.8" filter="url(#d5)"/>
-    <text x="268" y="569" font-size="9" font-weight="700" fill="#166534">Step 7</text>
-    <text x="310" y="569" font-size="10" font-weight="600" fill="#1e293b">返回结果</text>
-    <text x="400" y="569" font-size="9" fill="#475569">VDB 直接返回 content · Parent-Child 扩展(±1) · 热度+1 · 审计日志</text>
+    <rect x="250" y="633" width="460" height="36" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="0.8" filter="url(#d5)"/>
+    <text x="268" y="651" font-size="9" font-weight="700" fill="#166534">Step 7</text>
+    <text x="310" y="651" font-size="10" font-weight="600" fill="#1e293b">返回结果</text>
+    <text x="400" y="651" font-size="9" fill="#475569">VDB 直接返回 content · Parent-Child 扩展(±1) · 热度+1 · 审计日志</text>
   </svg>
 
   <h3>3.2 Step 1 — 查询改写</h3>
@@ -650,30 +629,216 @@
 
   <p><strong>关键规则</strong>：宁可不过滤也不要错误过滤。只有用户明确说出分类词（"成功案例"、"制造业"）时才加 filter；产品名称、型号走语义检索，不做精确过滤。</p>
 
-  <h3>3.4 Step 3 — 两路并行召回</h3>
-  <p>通过 <code>asyncio.gather</code> 并发执行两路检索，任一失败降级为空列表不影响另一路：</p>
+  <h3>3.4 Step 3 — 两路并行召回和定向召回</h3>
+
+  <p>检索核心分为三路：路A 和路B 通过 <code>asyncio.gather</code> <strong>并行</strong>执行（Phase 1），Phase 2 定向召回在路B完成后<strong>串行</strong>触发。三路各有不同的检索维度、参数和设计目的。</p>
 
   <table>
-    <thead><tr><th>路径</th><th>数据集合</th><th>检索方式</th><th>召回数量</th><th>作用</th></tr></thead>
+    <thead><tr><th>对比维度</th><th>路 A — 切片级 hybrid</th><th>路 B — 文档元数据 hybrid</th><th>Phase 2 — 定向召回</th></tr></thead>
     <tbody>
-      <tr><td><strong>路 A（主力）</strong></td><td><code>kb_chunks</code></td><td>hybrid_search：Dense(0.3) + Sparse BM25(0.7)</td><td>max(top_k×5, 30)</td><td>找到与 query 字面和语义都相关的<strong>切片</strong></td></tr>
-      <tr><td><strong>路 B（辅助）</strong></td><td><code>kb_doc_metadata</code></td><td>hybrid_search：Summary ANN + 5路加权BM25</td><td>max(top_k×5, 50)</td><td>找到整体主题相关的<strong>文档</strong></td></tr>
+      <tr><td><strong>数据集合</strong></td><td><code>kb_chunks</code>（每个切片一条，~400字）</td><td><code>kb_doc_metadata</code>（每份文档一条）</td><td><code>kb_chunks</code>（同路A集合，加 doc_id IN 范围限定）</td></tr>
+      <tr><td><strong>Dense 向量</strong></td><td>chunk.content embedding（1024d）</td><td>文档 summary embedding（1024d）</td><td>同路A</td></tr>
+      <tr><td><strong>Sparse 向量</strong></td><td>chunk.content BM25 编码</td><td>5路加权文本 BM25 编码：<br/>title×3 + summary×2 + keywords×2 + candidate×1 + toc×1</td><td>同路A</td></tr>
+      <tr><td><strong>Dense/Sparse 权重</strong></td><td>0.3 / 0.7（偏关键词精确匹配）</td><td>0.5 / 0.5（语义与关键词均衡）</td><td>0.3 / 0.7（同路A）</td></tr>
+      <tr><td><strong>元数据 Filter</strong></td><td>❌ 不带（全局召回）</td><td>✅ 带 Self-Querying 提取的分类条件</td><td>❌ 不带元数据 filter，用 <code>doc_id IN (Top-50)</code> 替代</td></tr>
+      <tr><td><strong>召回数量</strong></td><td>max(top_k×5, 30) 条切片</td><td>max(top_k×5, 50) 个 doc_id</td><td>max(top_k×3, 20) 条切片</td></tr>
+      <tr><td><strong>返回内容</strong></td><td>chunk_id + content + score</td><td>doc_id 列表（按融合分排序）</td><td>chunk_id + content + score</td></tr>
+      <tr><td><strong>执行时机</strong></td><td>Phase 1 — 并行</td><td>Phase 1 — 并行</td><td>Phase 2 — 串行（等路B完成后）</td></tr>
+      <tr><td><strong>触发条件</strong></td><td>始终执行</td><td>始终执行</td><td>仅当有 filter 且路B有结果时</td></tr>
+      <tr><td><strong>后续用途</strong></td><td>α 维度打分（切片 RRF → 文档聚合）</td><td>β 维度打分 + Phase 2 定向范围</td><td>与路A合并去重，补充被截断的切片</td></tr>
     </tbody>
   </table>
 
-  <p><strong>路 A 权重偏向 BM25(0.7) 的原因</strong>：中文场景下，产品型号（"3051"）、专业术语（"量程"）等关键词精确匹配比语义相似度更可靠。</p>
-
-  <p><strong>路 B 的 5 路加权 BM25 文本</strong>：</p>
+  <h4>检索方式差异</h4>
   <table>
-    <thead><tr><th>字段</th><th>重复次数</th><th>效果</th></tr></thead>
+    <thead><tr><th></th><th>路 A</th><th>路 B</th><th>Phase 2</th></tr></thead>
     <tbody>
-      <tr><td>title（文档标题）</td><td>×3</td><td>标题命中权重最高</td></tr>
-      <tr><td>summary（摘要）</td><td>×2</td><td>摘要命中次之</td></tr>
-      <tr><td>keywords（LLM 关键词）</td><td>×2</td><td>核心关键词</td></tr>
-      <tr><td>candidate_keywords（jieba TF-IDF）</td><td>×1</td><td>补充候选词</td></tr>
-      <tr><td>toc（目录路径）</td><td>×1</td><td>章节结构信号</td></tr>
+      <tr><td><strong>API 调用</strong></td><td><code>kb_chunks.hybrid_search(ann, match, rerank, filter)</code></td><td><code>kb_doc_metadata.hybrid_search(ann, match, rerank, filter)</code></td><td><code>kb_chunks.hybrid_search(ann, match, rerank, filter)</code></td></tr>
+      <tr><td><strong>ANN 输入</strong></td><td>query embedding → 与 chunk.content 向量做 COSINE</td><td>query embedding → 与 summary 向量做 COSINE</td><td>同路A</td></tr>
+      <tr><td><strong>BM25 输入</strong></td><td><code>BM25Encoder.encode_queries(semantic_query)</code> → 与 chunk.content sparse 匹配</td><td><code>BM25Encoder.encode_queries(semantic_query)</code> → 与 5路加权拼接文本 sparse 匹配</td><td>同路A</td></tr>
+      <tr><td><strong>Rerank 方式</strong></td><td><code>WeightedRerank(['vector','sparse_vector'], [0.3, 0.7])</code></td><td><code>WeightedRerank(['vector','sparse_vector'], [0.5, 0.5])</code></td><td>同路A</td></tr>
+      <tr><td><strong>Filter 表达式</strong></td><td><code>kb_id="X" AND status="active"</code></td><td><code>kb_id="X" AND status="active" AND industry="制造业" ...</code></td><td><code>kb_id="X" AND doc_id IN ("docA","docB",...)</code></td></tr>
     </tbody>
   </table>
+
+  <h4>为什么这样设计</h4>
+  <ul>
+    <li><strong>路A 不带 filter</strong>：知识库文档打标不完整（LLM 自动打标可能遗漏），如果路A也带 filter，打标缺失的文档中的高质量切片会被完全排除。路A 不带 filter = 保底机制。</li>
+    <li><strong>路A 偏 BM25(0.7)</strong>：中文场景下产品型号（"3051"）、专业术语（"量程"）等关键词精确匹配比语义相似度更可靠，避免语义漂移。</li>
+    <li><strong>路B 带 filter</strong>：路B 的职责是"圈定正确文档范围"，filter 是其核心能力。即使 filter 过严导致 0 结果，有降级机制（去掉 filter 重试）兜底。</li>
+    <li><strong>路B 用 5 路加权 BM25</strong>：单集合只支持 1 路 sparse，通过文本重复拼接模拟字段 boost（title×3 权重最高），一次调用融合 ANN + BM25。</li>
+    <li><strong>Phase 2 串行</strong>：依赖路B输出的 doc_id 列表作为搜索范围，无法与 Phase 1 并行。但搜索范围缩小到 50 个文档内，延迟很低（通常 &lt;50ms）。</li>
+    <li><strong>Phase 2 条件触发</strong>：纯语义查询（"3051参数"）不需要定向召回——路A全局搜已足够好，多一次 VDB 调用只增加延迟没有收益。</li>
+  </ul>
+
+  <h4>3.4.1 两路能力和定向召回差异对比</h4>
+
+  <table>
+    <thead><tr><th></th><th>路 A（切片 hybrid）</th><th>路 B（文档元数据 hybrid）</th><th>Phase 2（定向召回）</th></tr></thead>
+    <tbody>
+      <tr><td><strong>实际作用</strong></td>
+        <td>全局搜切片，不带 filter，返回 Top-30。按纯语义+BM25 排序，不感知分类意图。当用户说"制造业的产品手册"时，制造业文档的切片可能排在第 35、40 名——被 Top-30 截断了。路A 不知道用户想要"制造业"的东西。</td>
+        <td>带 filter 搜文档，返回 doc_id 列表。路B 知道哪些文档属于"制造业"，但它只返回 doc_id，不返回切片内容。它知道"答案在 docA 里"，但不知道 docA 的哪个切片最相关。</td>
+        <td>把路B的"文档范围"和路A的"切片搜索能力"结合：在路B圈定的 Top-50 文档内再搜一次切片，捞回路A因全局截断而遗漏的分类相关切片。</td>
+      </tr>
+      <tr><td><strong>执行时机</strong></td><td colspan="2" style="text-align:center;">Phase 1 — <strong>并行</strong>（asyncio.gather）</td><td>Phase 2 — <strong>串行</strong>（等路B完成后）</td></tr>
+      <tr><td><strong>为什么并行/串行</strong></td><td colspan="2" style="text-align:center;">路A和路B互不依赖，搜不同集合，可同时发起</td><td>依赖路B的输出（doc_id 列表）作为搜索范围，必须等路B完成</td></tr>
+      <tr><td><strong>带 Filter</strong></td><td>❌ 不带（保底，防打标缺失漏召回）</td><td>✅ 带（圈定分类范围）</td><td>❌ 不带元数据 filter，用 doc_id IN 替代</td></tr>
+      <tr><td><strong>触发条件</strong></td><td>始终执行</td><td>始终执行</td><td>仅当有 filter 且路B有结果时</td></tr>
+    </tbody>
+  </table>
+
+  <h4>3.4.2 三路检索场景化深度模拟</h4>
+
+  <p>场景设定：知识库 500 份文档、10000 个切片，top_k=5，路A 召回 Top-30，路B 召回 Top-50 文档。</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:14%;">业务场景</th>
+        <th style="width:22%;">路 A（切片 hybrid，全局无 filter）</th>
+        <th style="width:22%;">路 B（文档元数据 hybrid，带 filter）</th>
+        <th style="width:22%;">Phase 2（定向召回）</th>
+        <th style="width:20%;">最终结果</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>"制造业的审批流配置手册"</strong><br/><span style="font-size:0.75rem;color:#6b7280;">分类+语义混合意图</span></td>
+        <td>
+          rank 1-10: 通用/金融行业的"审批流"切片<br/>
+          rank 11-30: "配置""手册"等词命中的混杂切片<br/>
+          <strong style="color:#dc2626;">rank 35: docA（制造业手册）"审批流配置"章节 ← 被截断 ❌</strong>
+        </td>
+        <td>
+          filter: industry=制造业<br/>
+          rank 0: docA（制造业审批流配置手册）<br/>
+          rank 1: docB（制造业操作指南）<br/>
+          <span style="color:#6b21a8;">✅ 精确圈定制造业文档，但不知道哪段最相关</span>
+        </td>
+        <td>
+          <strong>触发 ✅</strong>（有 filter + 路B有结果）<br/>
+          在 docA/docB 内搜切片：<br/>
+          chunk_47(docA) score=0.91 — "审批流配置步骤"<br/>
+          chunk_48(docA) score=0.87 — "条件分支配置"<br/>
+          <span style="color:#1e40af;">✅ 捞回路A截断的 chunk_47</span>
+        </td>
+        <td>
+          合并去重后 33 个切片进入加权<br/>
+          docA: α=0.85 + β=1.0 + γ=0.78<br/>
+          <strong>finalScore=0.851 → 排名第 1 ✅</strong>
+        </td>
+      </tr>
+      <tr>
+        <td><strong>"3051压力变送器的量程范围"</strong><br/><span style="font-size:0.75rem;color:#6b7280;">纯语义/型号查询</span></td>
+        <td>
+          rank 1: chunk 含"量程: 0-6.9MPa"<br/>
+          rank 2-3: 相关技术参数切片<br/>
+          <span style="color:#166534;">✅ 直接命中目标切片，无需分类辅助</span>
+        </td>
+        <td>
+          Self-Querying 未提取 filter（产品型号不触发分类过滤）<br/>
+          仍执行纯语义搜索：通过 title×3 匹配到 3051 文档<br/>
+          <span style="color:#6b21a8;">辅助 β 加分，非决定性</span>
+        </td>
+        <td>
+          <strong>不触发 ⏭️</strong>（无 filter）<br/>
+          <span style="color:#475569;">节省一次 VDB 调用延迟</span>
+        </td>
+        <td>
+          α 主导（路A rank 1 直接命中）<br/>
+          <strong>路A 独立完成，Phase 2 不执行</strong>
+        </td>
+      </tr>
+      <tr>
+        <td><strong>"制造业的成功案例"</strong><br/><span style="font-size:0.75rem;color:#6b7280;">双重分类意图</span></td>
+        <td>
+          命中含"制造业""案例"的切片<br/>
+          但可能来自金融案例文档（BM25 命中"案例"）<br/>
+          <span style="color:#dc2626;">目标切片排名靠后，可能被截断</span>
+        </td>
+        <td>
+          filter: industry=制造业, docCategory=成功案例<br/>
+          rank 0-4: 5 份制造业成功案例文档<br/>
+          <span style="color:#6b21a8;">✅ 双重 filter 精确缩小范围</span>
+        </td>
+        <td>
+          <strong>触发 ✅</strong><br/>
+          在 5 份案例文档内搜切片：<br/>
+          命中具体客户案例段落（"某制造企业通过..."）<br/>
+          <span style="color:#1e40af;">✅ 精确定位案例内容</span>
+        </td>
+        <td>
+          Phase 2 切片成为核心答案来源<br/>
+          <strong>路B + Phase 2 协作完成</strong>
+        </td>
+      </tr>
+      <tr>
+        <td><strong>"给技术人员的售前培训材料"</strong><br/><span style="font-size:0.75rem;color:#6b7280;">受众+阶段双重分类</span></td>
+        <td>
+          命中含"培训"的切片<br/>
+          混入售后培训、管理层培训内容<br/>
+          <span style="color:#dc2626;">无法区分受众和阶段</span>
+        </td>
+        <td>
+          filter: targetAudience=技术人员, businessStage=售前<br/>
+          rank 0-2: 3 份售前技术培训文档<br/>
+          <span style="color:#6b21a8;">✅ 双重 filter 大幅缩小范围</span>
+        </td>
+        <td>
+          <strong>触发 ✅</strong><br/>
+          在 3 份文档内搜切片：<br/>
+          命中"技术架构培训""API 对接指南"等段落<br/>
+          <span style="color:#1e40af;">✅ 排除了售后/管理层内容</span>
+        </td>
+        <td>
+          路A 的"培训"切片被正确文档的切片超越<br/>
+          <strong>分类精确度依赖路B + Phase 2</strong>
+        </td>
+      </tr>
+      <tr>
+        <td><strong>"审批流怎么配置"</strong><br/><span style="font-size:0.75rem;color:#6b7280;">通用问题，无分类</span></td>
+        <td>
+          rank 1-5: 直接命中"审批流配置"相关切片<br/>
+          <span style="color:#166534;">✅ BM25(0.7) 精确匹配关键词</span>
+        </td>
+        <td>
+          无 filter，纯语义搜索<br/>
+          toc 字段匹配"第三章 审批流配置"<br/>
+          <span style="color:#6b21a8;">✅ 通过目录结构辅助定位文档</span>
+        </td>
+        <td>
+          <strong>不触发 ⏭️</strong>（无 filter）
+        </td>
+        <td>
+          两路互相印证<br/>
+          <strong>α + β 双高分，排名靠前</strong>
+        </td>
+      </tr>
+      <tr>
+        <td><strong>"这个产品的优势和应用场景"</strong><br/><span style="font-size:0.75rem;color:#6b7280;">跨段落宏观问题</span></td>
+        <td>
+          可能命中"优势"段落 OR "应用场景"段落<br/>
+          难以在 Top-30 内同时覆盖两个主题<br/>
+          <span style="color:#dc2626;">单切片 400 字无法承载宏观问题</span>
+        </td>
+        <td>
+          摘要向量（200字全文概括）语义匹配<br/>
+          找到整体讨论该产品的文档<br/>
+          <span style="color:#6b21a8;">✅ 文档级语义理解优于切片级</span>
+        </td>
+        <td>
+          <strong>不触发 ⏭️</strong>（无分类 filter）
+        </td>
+        <td>
+          路B找到文档 → 该文档多切片命中<br/>
+          <strong>多切片衰减聚合提升 α 分</strong>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p><strong>规律总结</strong>：纯语义查询（型号/术语）→ 路A独立完成；含分类意图 → 路B + Phase 2 协作补充；宏观问题 → 路B文档级语义 + 多切片聚合。三路互补覆盖全场景。</p>
 
   <h3>3.5 Step 4-5 — 切片→文档聚合 + 三维度归一化加权</h3>
   <p>Step 3 的两路召回产出了两类原始数据，Step 4-5 将它们融合为每个文档的最终分数：</p>
@@ -826,14 +991,13 @@ DEFAULT_THRESHOLD = 0.3    # finalScore 下限
 RECENCY_HALFLIFE  = 180天  # 时效性半衰期
 expand_context_n  = 1      # Parent-Child 前后各 1 个切片
 </code></pre>
-</section>
 
 <!-- Footer -->
-<section style="background: transparent; border: none; text-align: center; color: var(--text-secondary); font-size: 0.8rem; padding: 1rem;">
-  <p>知识库体系设计方案 | 最后更新：2026-05-09</p>
-  <p>代码仓库：<code>product-specs/agent-system</code> | 对齐基准：<code>neo-ai-data-process-service</code></p>
-</section>
+<hr>
+<p style="text-align: center; color: #57606a; font-size: 0.8rem; padding: 1rem;">
+  知识库体系设计方案 | 最后更新：2026-05-09<br>
+  代码仓库：<code>product-specs/agent-system</code> | 对齐基准：<code>neo-ai-data-process-service</code>
+</p>
 
-</div>
 </body>
 </html>

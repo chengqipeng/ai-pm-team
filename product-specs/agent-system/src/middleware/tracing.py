@@ -118,6 +118,7 @@ class TracingMiddleware(AgentMiddleware):
         "llm_input":            {"phase": "reasoning", "name": "LLM 输入准备",   "name_en": "llm_input"},
         "llm_call":             {"phase": "reasoning", "name": "模型推理",       "name_en": "llm_call"},
         "tool_call":            {"phase": "reasoning", "name": "工具调用",       "name_en": "tool_call"},
+        "skill_execution":      {"phase": "reasoning", "name": "技能执行",       "name_en": "skill_execution"},
         "hierarchical_search":  {"phase": "reasoning", "name": "分层检索",      "name_en": "hierarchical_search"},
         "memory_extract":       {"phase": "post",      "name": "记忆提取",      "name_en": "memory_extract"},
     }
@@ -708,10 +709,10 @@ class MiddlewareTracingWrapper(AgentMiddleware):
         return self._inner
 
     def _should_trace(self, phase: str, has_effect: bool) -> bool:
-        """判断是否需要追踪 — 只记录有实际效果的中间件"""
+        """判断是否需要追踪 — 所有执行过的中间件都记录"""
         if self._name in self._SELF_TRACING_NAMES:
             return False
-        return has_effect
+        return True
 
     def before_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
         start = time.monotonic()

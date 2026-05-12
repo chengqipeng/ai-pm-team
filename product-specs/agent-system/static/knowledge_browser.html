@@ -1541,18 +1541,88 @@ function renderPipelinePanel(data){
 
   let html = '';
 
-  // ── 流水线步骤（每步独立可展开卡片） ──
-  (data.pipeline_nodes || []).forEach(node => {
+  // ── 流水线步骤（每步独立可展开卡片，支持并行分叉渲染） ──
+  const pipelineNodes = data.pipeline_nodes || [];
+  let i = 0;
+  while (i < pipelineNodes.length) {
+    const node = pipelineNodes[i];
+
+    // 检测并行组：连续的同 parallel_group 节点并排渲染
+    if (node.parallel_group) {
+      // 收集同一 parallel_group 的所有节点
+      const groupNodes = [node];
+      let j = i + 1;
+      while (j < pipelineNodes.length && pipelineNodes[j].parallel_group === node.parallel_group) {
+        groupNodes.push(pipelineNodes[j]);
+        j++;
+      }
+      // 渲染并行容器
+      html += `
+        <div class="mb-2 relative">
+          <!-- 并行分叉指示器 -->
+          <div class="flex items-center gap-1.5 mb-1.5 ml-2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-indigo-400"><path d="M6 3v12"/><path d="M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M18 9c0 4-3.5 6-6 6.5"/><path d="M6 15c0-4 3.5-6 6-6.5"/></svg>
+            <span class="text-[10px] font-bold text-indigo-500 uppercase tracking-wide">并行执行 (asyncio.gather)</span>
+          </div>
+          <!-- 并行节点并排容器 -->
+          <div class="grid grid-cols-${groupNodes.length} gap-2 ml-4 border-l-2 border-indigo-200 pl-3">
+            ${groupNodes.map(gn => {
+              const gIcon = gn.status === 'success' ? '✅' : gn.status === 'skipped' ? '⏭️' : gn.status === 'partial' ? '⚠️' : '❌';
+              const gBorderColor = gn.status === 'success' ? 'border-l-green-400' : gn.status === 'skipped' ? 'border-l-gray-300' : gn.status === 'partial' ? 'border-l-yellow-400' : 'border-l-red-400';
+              const gBgColor = gn.status === 'failed' ? 'bg-red-50/50' : gn.status === 'partial' ? 'bg-yellow-50/30' : 'bg-white';
+              const stepLabel = gn.sub_step ? `Step ${gn.step}${gn.sub_step}` : `Step ${gn.step}`;
+              return `
+              <details class="group" open>
+                <summary class="cursor-pointer ${gBgColor} border border-gray-100 border-l-4 ${gBorderColor} rounded-lg px-2.5 py-1.5 flex items-center justify-between hover:bg-gray-50/80 transition-all list-none">
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="text-[10px] shrink-0">${gIcon}</span>
+                    <span class="text-[10px] font-bold text-indigo-600 shrink-0">${stepLabel}</span>
+                    <span class="text-[10px] text-gray-600 truncate">${esc(gn.name)}</span>
+                  </div>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    ${gn.duration_ms ? `<span class="text-[9px] text-gray-400">${gn.duration_ms}ms</span>` : ''}
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-gray-400 group-open:rotate-90 transition-transform"><polyline points="9 18 15 12 9 6"/></svg>
+                  </div>
+                </summary>
+                <div class="mt-1 pl-2 pb-1 space-y-1">
+                  <div class="text-[10px] text-gray-600 leading-relaxed">${esc(gn.detail).replace(/\\n/g, '<br/>')}</div>
+                  ${gn.input_data ? `
+                    <details class="text-[9px]">
+                      <summary class="cursor-pointer text-gray-400 hover:text-gray-600 font-medium">▸ 输入参数</summary>
+                      <pre class="mt-1 bg-gray-50 border border-gray-100 rounded p-1.5 overflow-x-auto text-gray-700 font-mono whitespace-pre-wrap max-h-28 overflow-y-auto text-[9px]">${esc(JSON.stringify(gn.input_data, null, 2))}</pre>
+                    </details>` : ''}
+                  ${gn.output_data ? `
+                    <details class="text-[9px]" open>
+                      <summary class="cursor-pointer text-gray-400 hover:text-gray-600 font-medium">▸ 输出结果</summary>
+                      <pre class="mt-1 bg-gray-50 border border-gray-100 rounded p-1.5 overflow-x-auto text-gray-700 font-mono whitespace-pre-wrap max-h-28 overflow-y-auto text-[9px]">${esc(JSON.stringify(gn.output_data, null, 2))}</pre>
+                    </details>` : ''}
+                </div>
+              </details>`;
+            }).join('')}
+          </div>
+          <!-- 并行汇合指示器 -->
+          <div class="flex items-center gap-1.5 mt-1.5 ml-2">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-indigo-300"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+            <span class="text-[9px] text-indigo-400">汇合 → 合并去重</span>
+          </div>
+        </div>`;
+      i = j;  // 跳过已处理的并行节点
+      continue;
+    }
+
+    // 普通串行节点（含父节点的子节点缩进）
     const icon = node.status === 'success' ? '✅' : node.status === 'skipped' ? '⏭️' : node.status === 'partial' ? '⚠️' : '❌';
     const borderColor = node.status === 'success' ? 'border-l-green-400' : node.status === 'skipped' ? 'border-l-gray-300' : node.status === 'partial' ? 'border-l-yellow-400' : 'border-l-red-400';
     const bgColor = node.status === 'failed' ? 'bg-red-50/50' : node.status === 'partial' ? 'bg-yellow-50/30' : 'bg-white';
+    const indentClass = node.parent_node ? 'ml-4' : '';
+    const stepLabel = node.sub_step ? `Step ${node.step}${node.sub_step}` : `Step ${node.step}`;
 
     html += `
-      <details class="mb-2 group" ${node.step === 4 || node.step === 5 || node.status === 'failed' ? 'open' : ''}>
+      <details class="mb-2 group ${indentClass}" ${node.step === 4 || node.step === 5 || node.status === 'failed' ? 'open' : ''}>
         <summary class="cursor-pointer ${bgColor} border border-gray-100 border-l-4 ${borderColor} rounded-lg px-3 py-2 flex items-center justify-between hover:bg-gray-50/80 transition-all list-none">
           <div class="flex items-center gap-2 min-w-0">
             <span class="text-xs shrink-0">${icon}</span>
-            <span class="text-[11px] font-bold text-gray-800 shrink-0">Step ${node.step}</span>
+            <span class="text-[11px] font-bold text-gray-800 shrink-0">${stepLabel}</span>
             <span class="text-[11px] text-gray-600 truncate">${esc(node.name)}</span>
           </div>
           <div class="flex items-center gap-2 shrink-0">
@@ -1575,17 +1645,77 @@ function renderPipelinePanel(data){
           ${_renderNodeExtra(node)}
         </div>
       </details>`;
-  });
+    i++;
+  }
 
   // ── RRF 打分 ──
   if (data.rrf_details && data.rrf_details.length) {
+    // 从 pipeline_nodes 中获取 rrf_scoring 节点的详细参数
+    const rrfNode = data.pipeline_nodes ? data.pipeline_nodes.find(n => n.name_en === 'rrf_scoring') : null;
+    const rrfInput = rrfNode ? rrfNode.input_data : null;
+
     html += `
       <details class="mb-2" open>
         <summary class="cursor-pointer bg-white border border-gray-100 border-l-4 border-l-purple-400 rounded-lg px-3 py-2 flex items-center justify-between hover:bg-gray-50/80 transition-all list-none">
           <div class="flex items-center gap-2"><span class="text-xs">📊</span><span class="text-[11px] font-bold text-gray-800">RRF 三维度打分</span><span class="text-[10px] text-gray-400">${data.rrf_details.length} 文档</span></div>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-gray-400"><polyline points="9 18 15 12 9 6"/></svg>
         </summary>
-        <div class="ml-4 mt-1 border-l-2 border-gray-100 pl-3 pb-1 space-y-2">`;
+        <div class="ml-4 mt-1 border-l-2 border-gray-100 pl-3 pb-1 space-y-2">
+          <!-- 三维度加权算法说明 -->
+          <div class="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-100 rounded-lg p-3 text-[10px] leading-relaxed">
+            <div class="font-bold text-purple-800 text-[11px] mb-1.5">📐 三维度归一化加权排序算法</div>
+            <div class="text-gray-700 mb-2">
+              <span class="font-mono bg-white px-1.5 py-0.5 rounded border border-purple-100 text-purple-700">finalScore = α·normA + β·normB + γ·normC</span>
+              <span class="ml-2 text-gray-500">→ 映射到</span>
+              <span class="font-mono bg-white px-1.5 py-0.5 rounded border border-purple-100 text-purple-700 ml-1">mappedScore = raw × (1-threshold) + threshold</span>
+            </div>
+            <div class="grid grid-cols-1 gap-2">
+              <div class="bg-white rounded-md p-2 border border-blue-100">
+                <div class="flex items-center gap-1.5 mb-1">
+                  <span class="w-2 h-2 bg-blue-500 rounded-full"></span>
+                  <span class="font-bold text-blue-700">α 切片相关性 (权重=${rrfInput?.['α_切片相关性']?.['权重'] ?? 0.7})</span>
+                </div>
+                <div class="text-gray-600 pl-3.5 space-y-0.5">
+                  <div>• 数据来源：路A 切片hybrid_search (dense 30% + BM25 70%)</div>
+                  <div>• 切片按score降序排名 → RRF贡献 = 1/(K + rank + 1), K=${rrfInput?.['α_切片相关性']?.['RRF_K值'] ?? 60}</div>
+                  <div>• 同文档多切片几何衰减聚合：docScore = seg[0] + Σ seg[i] × ${rrfInput?.['α_切片相关性']?.['多切片衰减系数'] ?? 0.2}^i</div>
+                  <div>• 归一化：理论锚点法 normA = (docScore - min) / (max - min)</div>
+                  <div class="text-gray-400 italic">含义：衡量文档中切片与查询的语义+关键词相关程度</div>
+                </div>
+              </div>
+              <div class="bg-white rounded-md p-2 border border-purple-100">
+                <div class="flex items-center gap-1.5 mb-1">
+                  <span class="w-2 h-2 bg-purple-500 rounded-full"></span>
+                  <span class="font-bold text-purple-700">β 文档元数据 (权重=${rrfInput?.['β_文档元数据']?.['权重'] ?? 0.1})</span>
+                </div>
+                <div class="text-gray-600 pl-3.5 space-y-0.5">
+                  <div>• 数据来源：路B 文档元数据hybrid_search (摘要ANN 50% + 加权BM25 50%)</div>
+                  <div>• 摘要ANN贡献 = 1/(K_SUMMARY + rank + 1), K=${rrfInput?.['β_文档元数据']?.['K_SUMMARY'] ?? 60}</div>
+                  <div>• 加权BM25贡献 = 1/(K_META + rank + 1), K=${rrfInput?.['β_文档元数据']?.['K_META_TEXT'] ?? 60}</div>
+                  <div>• BM25加权拼接：${rrfInput?.['β_文档元数据']?.['BM25加权规则'] ?? 'title×3 + summary×2 + keywords×2 + candidate×1 + toc×1'}</div>
+                  <div>• boost = (ANN + BM25) × METADATA_WEIGHT(${rrfInput?.['β_文档元数据']?.['METADATA_WEIGHT'] ?? 0.15})</div>
+                  <div class="text-gray-400 italic">含义：衡量文档整体（标题/摘要/关键词）与查询的匹配度</div>
+                </div>
+              </div>
+              <div class="bg-white rounded-md p-2 border border-green-100">
+                <div class="flex items-center gap-1.5 mb-1">
+                  <span class="w-2 h-2 bg-green-500 rounded-full"></span>
+                  <span class="font-bold text-green-700">γ 文档属性 (权重=${rrfInput?.['γ_文档属性']?.['权重'] ?? 0.2})</span>
+                </div>
+                <div class="text-gray-600 pl-3.5 space-y-0.5">
+                  <div>• 质量分 (子权重=${rrfInput?.['γ_文档属性']?.['子维度']?.quality_score ? '0.1' : '0.1'})：LLM评估的文档质量 [0,1]</div>
+                  <div>• 时效性 (子权重=0.05)：半衰期180天的指数衰减 0.5^(age/halflife)</div>
+                  <div>• 热度 (子权重=0.05)：log₁₀(hit_count+1) / log₁₀(1000) 对数归一化</div>
+                  <div class="text-gray-400 italic">含义：高质量、近期更新、频繁命中的文档获得额外加分</div>
+                </div>
+              </div>
+            </div>
+            <div class="mt-2 pt-2 border-t border-purple-100 flex items-center justify-between">
+              <span class="text-gray-600">阈值过滤：threshold = <span class="font-mono font-bold text-purple-700">${rrfNode?.output_data?.threshold_used ?? 0.3}</span></span>
+              <span class="text-gray-600">通过 <span class="font-bold text-green-700">${rrfNode?.output_data?.passed_threshold ?? 0}</span> 条 / 总评分 <span class="font-bold text-gray-700">${rrfNode?.output_data?.scored_docs ?? 0}</span> 个文档</span>
+            </div>
+          </div>
+          <!-- 每个文档的打分详情 -->`;
     data.rrf_details.forEach((rrf, i) => {
       html += `
           <div class="bg-white border border-gray-100 rounded-lg p-2.5">
@@ -1597,6 +1727,12 @@ function renderPipelinePanel(data){
               ${_scoreBar('α 切片RRF', rrf.alpha_score, 'bg-blue-500', rrf.alpha_detail)}
               ${_scoreBar('β 文档元数据', rrf.beta_score, 'bg-purple-500', rrf.beta_detail)}
               ${_scoreBar('γ 质量时效', rrf.gamma_score, 'bg-green-500', rrf.gamma_detail)}
+            </div>
+            <div class="mt-1.5 text-[9px] text-gray-400 flex items-center gap-3">
+              <span>命中切片: ${rrf.chunk_count}条</span>
+              <span class="font-mono">α×${(rrfInput?.['α_切片相关性']?.['权重'] ?? 0.7)}=${(rrf.alpha_score * (rrfInput?.['α_切片相关性']?.['权重'] ?? 0.7)).toFixed(4)}</span>
+              <span class="font-mono">β×${(rrfInput?.['β_文档元数据']?.['权重'] ?? 0.1)}=${(rrf.beta_score * (rrfInput?.['β_文档元数据']?.['权重'] ?? 0.1)).toFixed(4)}</span>
+              <span class="font-mono">γ×${(rrfInput?.['γ_文档属性']?.['权重'] ?? 0.2)}=${(rrf.gamma_score * (rrfInput?.['γ_文档属性']?.['权重'] ?? 0.2)).toFixed(4)}</span>
             </div>
           </div>`;
     });
@@ -1753,7 +1889,12 @@ async function resyncVectors(){
 
 function _scoreBar(label, score, colorClass, detail){
   const pct = Math.round(score * 100);
-  return `<div class="flex items-center gap-2" title="${esc(detail || '')}"><span class="text-[9px] text-gray-500 w-16 shrink-0 truncate">${esc(label)}</span><div class="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden"><div class="${colorClass} h-full rounded-full" style="width:${pct}%"></div></div><span class="text-[9px] font-bold text-gray-600 w-8 text-right">${score.toFixed(3)}</span></div>`;
+  const detailLines = (detail || '').split('\\n').filter(l => l.trim());
+  const hasDetail = detailLines.length > 0;
+  return `<div class="space-y-0.5">
+    <div class="flex items-center gap-2"><span class="text-[9px] text-gray-500 w-16 shrink-0 truncate">${esc(label)}</span><div class="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden"><div class="${colorClass} h-full rounded-full" style="width:${pct}%"></div></div><span class="text-[9px] font-bold text-gray-600 w-8 text-right">${score.toFixed(3)}</span></div>
+    ${hasDetail ? `<details class="ml-16"><summary class="text-[9px] text-gray-400 cursor-pointer hover:text-gray-600">▸ 计算详情</summary><div class="text-[9px] text-gray-500 mt-0.5 pl-2 border-l border-gray-200 font-mono leading-relaxed whitespace-pre-wrap">${esc(detail)}</div></details>` : ''}
+  </div>`;
 }
 
 function _highlightContent(content, pipelineNodes){

@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NeoAgent2.0 与 AgentOS 对接架构设计</title>
+<style>
+:root{--bg:#fff;--text:#1a1a2e;--heading:#16213e;--accent:#0f3460;--border:#e0e0e0;--code-bg:#f5f5f5;--table-header:#f0f4f8;--table-border:#d0d7de;--link:#0969da;--blockquote-bg:#f6f8fa;--blockquote-border:#d0d7de;--agent:#7c3aed;--agent-bg:#f5f3ff;--apaas:#059669;--apaas-bg:#ecfdf5;--shared:#d97706;--shared-bg:#fffbeb;--agentos:#2563eb;--agentos-bg:#eff6ff}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC",sans-serif;line-height:1.75;color:var(--text);background:var(--bg);max-width:1100px;margin:0 auto;padding:40px 24px 80px;font-size:15px}
+h1{font-size:2em;color:var(--heading);border-bottom:3px solid var(--accent);padding-bottom:12px;margin-top:48px}
+h2{font-size:1.5em;color:var(--heading);border-bottom:1px solid var(--border);padding-bottom:8px;margin-top:48px}
+h3{font-size:1.25em;color:var(--heading);margin-top:32px}
+h4{font-size:1.1em;color:var(--heading);margin-top:24px}
+a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}
+p{margin:12px 0}
+blockquote{background:var(--blockquote-bg);border-left:4px solid var(--blockquote-border);margin:16px 0;padding:12px 20px;color:#57606a}
+code{font-family:"JetBrains Mono","Fira Code",Menlo,Consolas,monospace;font-size:.88em;background:var(--code-bg);padding:2px 6px;border-radius:4px}
+pre{background:#1e1e2e;color:#cdd6f4;padding:20px;border-radius:8px;overflow-x:auto;line-height:1.5;margin:16px 0}
+pre code{background:none;padding:0;font-size:.85em;color:inherit}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:.92em}
+thead{background:var(--table-header)}
+th,td{border:1px solid var(--table-border);padding:10px 14px;text-align:left}
+th{font-weight:600;color:var(--heading)}
+tr:nth-child(even){background:#f9fafb}
+ul,ol{padding-left:24px;margin:8px 0}li{margin:4px 0}
+hr{border:none;border-top:2px solid var(--border);margin:40px 0}
+strong{color:var(--heading)}
+.diagram{background:#1a1a2e;color:#a6e3a1;padding:24px;border-radius:10px;overflow-x:auto;font-family:"JetBrains Mono",monospace;font-size:.78em;line-height:1.55;margin:20px 0;white-space:pre}
+.highlight-box{border-left:4px solid;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0}
+.highlight-agent{border-color:var(--agent);background:var(--agent-bg)}
+.highlight-agentos{border-color:var(--agentos);background:var(--agentos-bg)}
+.highlight-shared{border-color:var(--shared);background:var(--shared-bg)}
+.toc{background:#f8f9fa;border:1px solid var(--border);border-radius:8px;padding:20px 28px;margin:24px 0}
+.toc h3{margin-top:0;font-size:1.1em}.toc ul{list-style:none;padding-left:0}.toc li{margin:6px 0}.toc a{color:var(--accent)}
+.compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:20px 0}
+.compare-card{border:2px solid var(--border);border-radius:12px;padding:20px;background:#fafbfc}
+.compare-card h4{margin-top:0}
+.compare-card.neo{border-color:var(--agent);background:var(--agent-bg)}
+.compare-card.aos{border-color:var(--agentos);background:var(--agentos-bg)}
+@media print{body{max-width:100%;padding:20px;font-size:12px}pre{background:#f5f5f5!important;color:#333!important}h1,h2,h3{page-break-after:avoid}table{page-break-inside:avoid}}
+@media(max-width:768px){body{padding:20px 16px;font-size:14px}table{display:block;overflow-x:auto}.compare-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<h1>NeoAgent2.0 与 AgentOS (CloudAgent) 对接架构设计</h1>
+<blockquote>
+<p><strong>版本</strong>：v1.0 | <strong>日期</strong>：2026-05-12<br>
+<strong>参考</strong>：<a href="https://cnb.cool/shouqianceshi/AgentOS-demo">AgentOS Demo 仓库</a> | NeoAgent2.0 整体设计方案 | AG-UI/A2UI 协议层设计</p>
+</blockquote>
+
+<div class="toc">
+<h3>目录</h3>
+<ul>
+<li><a href="#sec1">一、两系统架构对比</a></li>
+<li><a href="#sec2">二、对接总体架构</a></li>
+<li><a href="#sec3">三、核心对接模块设计</a></li>
+<li><a href="#sec4">四、Runtime 生命周期管理</a></li>
+<li><a href="#sec5">五、ACP 协议对接层</a></li>
+<li><a href="#sec6">六、Manifest 配置映射</a></li>
+<li><a href="#sec7">七、Session 与状态管理</a></li>
+<li><a href="#sec8">八、Checkpoint / Version 快照集成</a></li>
+<li><a href="#sec9">九、Webhook 事件集成</a></li>
+<li><a href="#sec10">十、安全与多租户</a></li>
+<li><a href="#sec11">十一、部署架构与高可用</a></li>
+<li><a href="#sec12">十二、对接时序图</a></li>
+<li><a href="#sec13">十三、风险与实施路线</a></li>
+</ul>
+</div>
+<hr>
+
+<h2 id="sec1">一、两系统架构对比</h2>
+
+<div class="compare-grid">
+<div class="compare-card neo">
+<h4 style="color:var(--agent)">NeoAgent2.0（企业级 CRM Agent 系统）</h4>
+<ul>
+<li><strong>定位</strong>：Agent 大脑 — "决定做什么、怎么做"</li>
+<li><strong>核心能力</strong>：意图推理 / 记忆系统 / 上下文工程 / Agentic RAG / Multi-Agent</li>
+<li><strong>协议</strong>：AG-UI 事件流 + A2UI 声明式 UI</li>
+<li><strong>运行时</strong>：自建 K8S + LangGraph Agent Loop</li>
+<li><strong>存储</strong>：PostgreSQL + Redis + 向量数据库</li>
+<li><strong>多租户</strong>：RLS 行级隔离 + Namespace</li>
+</ul>
+</div>
+<div class="compare-card aos">
+<h4 style="color:var(--agentos)">AgentOS / CloudAgent（云端沙箱运行时）</h4>
+<ul>
+<li><strong>定位</strong>：Agent 沙箱 — "保证安全运行、可管理、可恢复"</li>
+<li><strong>核心能力</strong>：Runtime 管理 / ACP 通信 / Checkpoint / Manifest 注入</li>
+<li><strong>协议</strong>：ACP（Agent Communication Protocol）+ SSE</li>
+<li><strong>运行时</strong>：云端容器沙箱（按 Runtime 隔离）</li>
+<li><strong>存储</strong>：沙箱文件系统 + 快照存储</li>
+<li><strong>多租户</strong>：Runtime 级容器隔离</li>
+</ul>
+</div>
+</div>
+
+<h3>1.1 架构层级并排对比</h3>
+<div class="diagram">
++===========================================+     +===========================================+
+|         NeoAgent2.0 架构                   |     |         AgentOS 架构                       |
++===========================================+     +===========================================+
+|                                           |     |                                           |
+|  [应用层]                                  |     |  [接入层]                                  |
+|  ┌─────────────────────────────────────┐  |     |  ┌─────────────────────────────────────┐  |
+|  │ AI Agent 应用（对话/语音/嵌入式）     │  |     |  │ Dashboard 控制台 / Python SDK / API  │  |
+|  │ aPaaS 定制应用（表单/流程/仪表盘）   │  |     |  │ 第三方应用通过 API Key 接入           │  |
+|  └─────────────────────────────────────┘  |     |  └─────────────────────────────────────┘  |
+|                                           |     |                                           |
+|  [核心引擎层]                              |     |  [Runtime 管理层]                          |
+|  ┌─────────────────────────────────────┐  |     |  ┌─────────────────────────────────────┐  |
+|  │ 意图推理 │ 智能流程编排 │ 记忆系统   │  |     |  │ Runtime CRUD │ Fork │ sandboxSpec    │  |
+|  │ 上下文工程 │ Agentic RAG │ MCP接入  │  |     |  │ Manifest 注入 │ 配置热更新           │  |
+|  │ Multi-Agent │ 安全信任 │ 可观测     │  |     |  │ 弹性伸缩 │ 资源配额                  │  |
+|  └─────────────────────────────────────┘  |     |  └─────────────────────────────────────┘  |
+|                                           |     |                                           |
+|  [Agent Loop 层]                           |     |  [通信层 - ACP]                            |
+|  ┌─────────────────────────────────────┐  |     |  ┌─────────────────────────────────────┐  |
+|  │ 入口预处理 → LLM推理循环 → 后处理   │  |     |  │ SSE 连接 │ Initialize 握手           │  |
+|  │ before_model / after_model 中间件   │  |     |  │ Session 管理 │ 断线重连               │  |
+|  │ Tool/Skill/Plugin/SubAgent 执行     │  |     |  │ set_model │ cancel │ 消息路由         │  |
+|  └─────────────────────────────────────┘  |     |  └─────────────────────────────────────┘  |
+|                                           |     |                                           |
+|  [协议层]                                  |     |  [状态管理层]                              |
+|  ┌─────────────────────────────────────┐  |     |  ┌─────────────────────────────────────┐  |
+|  │ AG-UI 事件流（SSE）                   │  |     |  │ Checkpoint（轻量快照）               │  |
+|  │  RUN/STEP/TEXT/TOOL/REASONING/STATE │  |     |  │ Version（命名版本）                   │  |
+|  │ A2UI 声明式 UI（JSONL）              │  |     |  │ Release（产物发布）                   │  |
+|  │  surfaceUpdate/dataModel/rendering  │  |     |  │ 快照恢复 │ 回滚 │ 时间旅行           │  |
+|  └─────────────────────────────────────┘  |     |  └─────────────────────────────────────┘  |
+|                                           |     |                                           |
+|  [能力执行层]                              |     |  [事件层]                                  |
+|  ┌─────────────────────────────────────┐  |     |  ┌─────────────────────────────────────┐  |
+|  │ Tool（原子操作：query/modify/analyze）│  |     |  │ Webhook 回调（13种事件）             │  |
+|  │ Skill（SOP编排：inline/fork）        │  |     |  │ HMAC-SHA256 签名验证                 │  |
+|  │ Plugin（基础设施：memory/search）    │  |     |  │ runtime.* / session.* / checkpoint.* │  |
+|  │ SubAgent（任务委派：sales/service）  │  |     |  │ agent.message / agent.tool_call      │  |
+|  └─────────────────────────────────────┘  |     |  └─────────────────────────────────────┘  |
+|                                           |     |                                           |
+|  [数据层]                                  |     |  [沙箱层]                                  |
+|  ┌─────────────────────────────────────┐  |     |  ┌─────────────────────────────────────┐  |
+|  │ LLM API │ 向量DB │ PostgreSQL       │  |     |  │ 独立容器 │ 文件系统隔离              │  |
+|  │ Redis │ 对象存储                     │  |     |  │ 网络命名空间 │ 资源限制              │  |
+|  └─────────────────────────────────────┘  |     |  │ envd 文件操作 │ secrets 注入          │  |
+|                                           |     |  └─────────────────────────────────────┘  |
++===========================================+     +===========================================+
+</div>
+
+<h3>1.2 能力互补矩阵</h3>
+<table>
+<thead><tr><th>能力域</th><th>NeoAgent2.0</th><th>AgentOS</th><th>对接后增益</th></tr></thead>
+<tbody>
+<tr><td>LLM 推理 / 意图理解</td><td>&#10003; 核心</td><td>—</td><td>不变</td></tr>
+<tr><td>记忆系统（长期/工作/情景）</td><td>&#10003; 核心</td><td>—</td><td>记忆可随 Checkpoint 持久化</td></tr>
+<tr><td>Skill / Tool 编排</td><td>&#10003; 核心</td><td>—</td><td>Skill 定义可注入 Manifest</td></tr>
+<tr><td>AG-UI / A2UI 协议</td><td>&#10003; 核心</td><td>—</td><td>通过 ACP Bridge 透传</td></tr>
+<tr><td>沙箱隔离</td><td>Namespace 级</td><td>&#10003; 容器级</td><td><strong>升级为容器级隔离</strong></td></tr>
+<tr><td>状态快照 / 回滚</td><td>Redis 检查点（手动）</td><td>&#10003; 原生</td><td><strong>获得原生快照能力</strong></td></tr>
+<tr><td>弹性伸缩</td><td>K8S HPA（自管）</td><td>&#10003; 平台托管</td><td><strong>降低运维成本</strong></td></tr>
+<tr><td>Agent 生命周期 API</td><td>自建（非标准）</td><td>&#10003; 标准化</td><td><strong>获得标准化管理 API</strong></td></tr>
+<tr><td>配置热更新</td><td>需重启</td><td>&#10003; Manifest 热注入</td><td><strong>零停机配置变更</strong></td></tr>
+<tr><td>多租户计费</td><td>&#10003; 资源点</td><td>&#10003; Runtime 计费</td><td>双层计费聚合</td></tr>
+</tbody>
+</table>
+
+<h3>1.3 协议层对比</h3>
+<table>
+<thead><tr><th>维度</th><th>NeoAgent2.0 (AG-UI)</th><th>AgentOS (ACP)</th><th>桥接策略</th></tr></thead>
+<tbody>
+<tr><td>传输</td><td>SSE (text/event-stream)</td><td>SSE (text/event-stream)</td><td>同构，直接映射</td></tr>
+<tr><td>事件粒度</td><td>细粒度（30+ 事件类型）</td><td>中粒度（消息级）</td><td>AG-UI 多事件 → ACP 单消息</td></tr>
+<tr><td>状态管理</td><td>STATE_SNAPSHOT / STATE_DELTA</td><td>Session 内部状态</td><td>STATE → Checkpoint 触发</td></tr>
+<tr><td>UI 协议</td><td>A2UI（声明式组件）</td><td>无（纯文本/工具）</td><td>A2UI 打包为 custom_event</td></tr>
+<tr><td>工具调用</td><td>TOOL_CALL_START/ARGS/END/RESULT</td><td>tool_use / tool_result</td><td>四事件 → 两消息 聚合</td></tr>
+<tr><td>推理过程</td><td>REASONING_* (6 种事件)</td><td>thinking block</td><td>聚合为 thinking block</td></tr>
+<tr><td>断线重连</td><td>首包序列（5 步）</td><td>SSE 重连 + Session 幂等</td><td>双重保障</td></tr>
+</tbody>
+</table>
+
+<hr>
+<h2 id="sec2">二、对接总体架构</h2>
+
+<h3>2.1 对接架构总览</h3>
+<div class="diagram">
++=============================================================================================+
+|                              用户层（Web / Mobile / API）                                      |
+|  +---------------------+  +---------------------+  +-----------------------------+          |
+|  | CRM 前端应用         |  | AI 对话窗口          |  | 第三方集成（Open API）       |          |
+|  | (AG-UI Client)      |  | (SSE 消费)          |  |                             |          |
+|  +----------+----------+  +----------+----------+  +--------------+--------------+          |
++=============|========================|========================|=========================+
+              v                         v                         v
++=============|========================|========================|=========================+
+|                    NeoAgent2.0 服务集群                                                      |
+|                                                                                             |
+|  +------ 网关层 ---------------------------------------------------------------+           |
+|  | 认证鉴权 | 限流降级 | 路由分发 | SSE 代理 | Webhook 接收端点                  |           |
+|  +--------------------------------------------------------------------------+           |
+|                                                                                             |
+|  +====== AgentOS Bridge（对接层 · 新增） ==========================================+       |
+|  |                                                                                  |       |
+|  |  +----------------+  +----------------+  +----------------+  +----------------+  |       |
+|  |  | RuntimeManager |  | ACPBridge      |  | ManifestGen    |  | WebhookHandler |  |       |
+|  |  | 生命周期管理    |  | 协议双向转换    |  | 配置映射生成    |  | 事件接收路由    |  |       |
+|  |  +-------+--------+  +-------+--------+  +-------+--------+  +-------+--------+  |       |
+|  |          |                    |                    |                    |          |       |
+|  |  +-------+--------+  +-------+--------+  +-------+--------+  +-------+--------+  |       |
+|  |  | SessionCoord   |  | CheckpointMgr  |  | StateSyncEngine|  | EventRouter    |  |       |
+|  |  | 会话映射/重连   |  | 快照策略/恢复   |  | 状态双向同步    |  | 事件分发处理    |  |       |
+|  |  +----------------+  +----------------+  +----------------+  +----------------+  |       |
+|  |                                                                                  |       |
+|  +==================================================================================+       |
+|                                          |                                                  |
+|  +====== NeoAgent2.0 Agent 引擎（现有核心） ==========================================+     |
+|  |                                                                                    |     |
+|  |  入口预处理 → Agent Loop(LLM推理) → AG-UI Converter → 后处理(记忆/渲染)            |     |
+|  |  记忆系统 | 上下文工程 | Skill/Tool 编排 | A2UI Builder | Aggregator               |     |
+|  |                                                                                    |     |
+|  +====================================================================================+     |
+|                                                                                             |
+|  +------ 数据层 ---------------------------------------------------------------+           |
+|  | LLM API(多厂商) | 向量DB(记忆) | PostgreSQL(会话) | Redis(缓存) | OSS(文件) |           |
+|  +--------------------------------------------------------------------------+           |
++=====|=========================|=========================|===============================+
+      |          HTTPS/mTLS     |                         |
+      v                         v                         v
++=====|=========================|=========================|===============================+
+|                    AgentOS 平台（CodeBuddy CloudAgent）                                      |
+|                                                                                             |
+|  +------ API Gateway -----------------------------------------------------------------+   |
+|  | Runtime API | Session API | ACP(SSE) | Checkpoint API | Version API | Webhook 推送 |   |
+|  +----------------------------------------------------------------------------+   |
+|                                                                                             |
+|  +------ Runtime 沙箱集群 -----------------------------------------------------------+   |
+|  |  +----------+  +----------+  +----------+  +----------+  +----------+             |   |
+|  |  | Runtime  |  | Runtime  |  | Runtime  |  | Runtime  |  | Runtime  |             |   |
+|  |  | 租户A    |  | 租户B    |  | 租户C    |  | 租户D    |  | (预热池) |             |   |
+|  |  | 销售Agent|  | 客服Agent|  | 分析Agent|  | 销售Agent|  | (待分配) |             |   |
+|  |  +----------+  +----------+  +----------+  +----------+  +----------+             |   |
+|  +--------------------------------------------------------------------------------+   |
++=========================================================================================+
+</div>
+
+<h3>2.2 职责边界定义</h3>
+<div class="highlight-box highlight-agent">
+<strong>NeoAgent2.0 负责（不变）</strong>：LLM 推理、意图理解、记忆管理、上下文压缩、Skill/Tool 编排、AG-UI/A2UI 事件产生、业务权限控制、资源点计费。
+</div>
+<div class="highlight-box highlight-agentos">
+<strong>AgentOS 负责（新增依赖）</strong>：Runtime 沙箱创建/销毁、容器级隔离、ACP 通信标准化、Checkpoint/Version 快照、Manifest 配置注入、Webhook 事件推送、弹性伸缩。
+</div>
+<div class="highlight-box highlight-shared">
+<strong>Bridge 对接层负责（新增开发）</strong>：AG-UI ↔ ACP 协议转换、Runtime 生命周期编排、Session 映射与重连、Manifest 配置生成、Webhook 事件消费与路由、状态同步、故障降级。
+</div>
+
+<h3>2.3 数据流总览</h3>
+<table>
+<thead><tr><th>流向</th><th>协议</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td>用户 → NeoAgent2.0</td><td>HTTP / WebSocket</td><td>自然语言输入、文件上传、userAction</td></tr>
+<tr><td>NeoAgent2.0 → 用户</td><td>SSE (AG-UI)</td><td>事件流（文本/推理/工具调用/状态/UI）</td></tr>
+<tr><td>NeoAgent2.0 → AgentOS</td><td>HTTPS REST</td><td>Runtime CRUD、Session 管理、Checkpoint 操作</td></tr>
+<tr><td>NeoAgent2.0 &#8596; AgentOS</td><td>SSE (ACP)</td><td>Agent 对话通信（Initialize → Message → Response）</td></tr>
+<tr><td>AgentOS → NeoAgent2.0</td><td>HTTPS Webhook</td><td>生命周期事件回调（HMAC-SHA256 签名）</td></tr>
+</tbody>
+</table>
+
+<hr>
+<h2 id="sec3">三、核心对接模块设计</h2>
+<h3>3.1 模块结构</h3>
+<div class="diagram">
+src/
+├── agentos_bridge/                    # AgentOS 对接层（新增）
+│   ├── __init__.py
+│   ├── client.py                     # AgentOS API Client（封装全部 REST API）
+│   ├── runtime_manager.py            # Runtime 生命周期管理
+│   ├── session_coordinator.py        # Session 协调器（幂等性 + 断线重连）
+│   ├── acp_bridge.py                 # ACP ↔ AG-UI 协议桥接
+│   ├── manifest_generator.py         # NeoAgent 配置 → AgentOS Manifest 映射
+│   ├── checkpoint_manager.py         # Checkpoint / Version 快照管理
+│   ├── webhook_handler.py            # Webhook 事件接收与路由
+│   ├── state_sync.py                 # 双向状态同步引擎
+│   ├── models.py                     # 数据模型定义
+│   └── config.py                     # 对接配置
+│
+├── agui/                              # AG-UI 事件层（现有，不变）
+├── a2ui/                              # A2UI 声明式 UI 层（现有，不变）
+└── agents/                            # Agent 引擎（现有，不变）
+</div>
+
+<h3>3.2 核心类关系图</h3>
+<div class="diagram">
++-------------------+       +-------------------+       +-------------------+
+|  RuntimeManager   |       | SessionCoordinator|       |   ACPBridge       |
+|                   |       |                   |       |                   |
+| - client          |       | - client          |       | - client          |
+| - pool: dict      |       | - sessions: dict  |       | - agui_converter  |
+| - tenant_map      |       | - reconnect_policy|       | - a2ui_emitter    |
+|                   |       |                   |       |                   |
+| + ensure_runtime()|       | + get_or_create() |       | + agui_to_acp()   |
+| + scale_pool()    |       | + reconnect()     |       | + acp_to_agui()   |
+| + health_check()  |       | + close()         |       | + stream_bridge() |
++--------+----------+       +--------+----------+       +--------+----------+
+         |                           |                            |
+         v                           v                            v
++-------------------+       +-------------------+       +-------------------+
+| CheckpointManager |       |  ManifestGenerator|       |  WebhookHandler   |
+|                   |       |                   |       |                   |
+| - client          |       | - skill_registry  |       | - secret          |
+| - auto_policy     |       | - tool_registry   |       | - event_router    |
+|                   |       | - mcp_config      |       |                   |
+| + auto_snapshot() |       | + generate()      |       | + verify_sig()    |
+| + restore()       |       | + diff_update()   |       | + dispatch()      |
+| + gc_old()        |       | + validate()      |       | + handle_event()  |
++-------------------+       +-------------------+       +-------------------+
+         |                           |                            |
+         +---------------------------+----------------------------+
+                                     |
+                                     v
+                          +---------------------+
+                          |   AgentOSClient     |
+                          | (REST API 统一封装) |
+                          +---------------------+
+</div>
+
+<h3>3.3 AgentOS API Client</h3>
+<pre><code># agentos_bridge/client.py
+
+class AgentOSClient:
+    """AgentOS REST API 全功能客户端"""
+
+    def __init__(self, api_key: str, base_url: str = "https://api.cloudagent.tencent.com"):
+        self.api_key = api_key
+        self.base_url = base_url
+        self.session = httpx.AsyncClient(headers={"Authorization": f"Bearer {api_key}"})
+
+    # -- Runtime 管理 --
+    async def create_runtime(self, name: str, manifest: dict) -> RuntimeInfo: ...
+    async def get_runtime(self, runtime_id: str) -> RuntimeInfo: ...
+    async def list_runtimes(self, page: int = 1, size: int = 20) -> list[RuntimeInfo]: ...
+    async def delete_runtime(self, runtime_id: str) -> bool: ...
+    async def fork_runtime(self, runtime_id: str, name: str) -> RuntimeInfo: ...
+
+    # -- Session 管理 --
+    async def create_session(self, runtime_id: str, session_id: str = None) -> SessionInfo: ...
+    async def list_sessions(self, runtime_id: str) -> list[SessionInfo]: ...
+
+    # -- ACP 通信 --
+    async def connect_sse(self, runtime_id: str) -> AsyncIterator[ACPEvent]: ...
+    async def send_message(self, runtime_id: str, session_id: str, msg: str) -> None: ...
+    async def initialize_acp(self, runtime_id: str, session_id: str) -> ACPHandshake: ...
+    async def cancel_session(self, runtime_id: str, session_id: str) -> None: ...
+    async def set_model(self, runtime_id: str, session_id: str, model: str) -> None: ...
+
+    # -- Checkpoint / Version --
+    async def create_checkpoint(self, runtime_id: str, label: str = None) -> CheckpointInfo: ...
+    async def list_checkpoints(self, runtime_id: str) -> list[CheckpointInfo]: ...
+    async def restore_checkpoint(self, runtime_id: str, checkpoint_id: str) -> bool: ...
+    async def create_version(self, runtime_id: str, tag: str) -> VersionInfo: ...
+    async def list_versions(self, runtime_id: str) -> list[VersionInfo]: ...
+    async def rollback_version(self, runtime_id: str, version_id: str) -> bool: ...
+
+    # -- Manifest --
+    async def update_manifest(self, runtime_id: str, manifest: dict) -> bool: ...
+    async def get_manifest(self, runtime_id: str) -> dict: ...
+</code></pre>
+
+<hr>
+<h2 id="sec4">四、Runtime 生命周期管理</h2>
+<h3>4.1 租户 → Runtime 映射策略</h3>
+<table>
+<thead><tr><th>策略</th><th>描述</th><th>适用场景</th></tr></thead>
+<tbody>
+<tr><td>1:1 独占</td><td>每个租户一个独立 Runtime</td><td>企业版客户、数据隔离要求高</td></tr>
+<tr><td>1:N 池化</td><td>多个租户共享 Runtime 池，按需分配</td><td>标准版客户、成本敏感</td></tr>
+<tr><td>按 Agent 类型</td><td>同一租户不同 Agent 类型使用不同 Runtime</td><td>多 Agent 场景（销售/客服/分析）</td></tr>
+</tbody>
+</table>
+
+<h3>4.2 Runtime 状态机</h3>
+<div class="diagram">
+                    create_runtime()
+                         |
+                         v
++----------+     +------------------+     +-----------+
+|  PENDING  | --> |  INITIALIZING    | --> |  RUNNING  |
++----------+     +------------------+     +-----+-----+
+                                                |
+                    +---------------------------+---------------------------+
+                    |                           |                           |
+                    v                           v                           v
+             +-----------+            +--------------+             +-----------+
+             | SUSPENDED |            | CHECKPOINTING|             |  STOPPED  |
+             | (暂停)    |            | (快照中)     |             |  (停止)   |
+             +-----+-----+            +------+-------+             +-----+-----+
+                   |                          |                           |
+                   +--- resume() --->  RUNNING                           v
+                                              |                    +-----------+
+                                              +--- done --->       |  DELETED  |
+                                                            RUNNING+-----------+
+</div>
+
+<h3>4.3 RuntimeManager 核心逻辑</h3>
+<pre><code># agentos_bridge/runtime_manager.py
+
+class RuntimeManager:
+    """管理 NeoAgent2.0 租户与 AgentOS Runtime 的映射关系"""
+
+    async def ensure_runtime(self, tenant_id: str, agent_type: str = "default") -> str:
+        """确保租户有可用的 Runtime，不存在则创建"""
+        key = f"{tenant_id}:{agent_type}"
+        if key in self._pool and self._pool[key].status == "running":
+            return self._pool[key].runtime_id
+
+        manifest = await self._manifest_gen.generate(tenant_id, agent_type)
+        runtime = await self.client.create_runtime(
+            name=f"neo-{tenant_id}-{agent_type}", manifest=manifest
+        )
+        self._pool[key] = runtime
+        return runtime.runtime_id
+
+    async def health_check(self) -> dict[str, str]:
+        """批量健康检查，返回异常 Runtime"""
+        unhealthy = {}
+        for key, info in self._pool.items():
+            rt = await self.client.get_runtime(info.runtime_id)
+            if rt.status not in ("running", "initializing"):
+                unhealthy[key] = rt.status
+        return unhealthy
+
+    async def cleanup_idle(self, idle_threshold_minutes: int = 30):
+        """清理空闲 Runtime，降低成本"""
+        ...
+</code></pre>
+
+<hr>
+<h2 id="sec5">五、ACP 协议对接层</h2>
+<h3>5.1 协议映射总览</h3>
+<div class="diagram">
+NeoAgent2.0 (AG-UI 事件)                          AgentOS (ACP 消息)
+========================                          ==================
+
+RUN_STARTED                  ─────────────►       Initialize (握手)
+TEXT_MESSAGE_START            ─────────────►       content_block_start (type=text)
+TEXT_MESSAGE_CONTENT         ─────────────►       content_block_delta (text_delta)
+TEXT_MESSAGE_END             ─────────────►       content_block_stop
+TOOL_CALL_START              ─────────────►       content_block_start (type=tool_use)
+TOOL_CALL_ARGS               ─────────────►       content_block_delta (input_json_delta)
+TOOL_CALL_END                ─────────────►       content_block_stop
+TOOL_CALL_RESULT             ─────────────►       tool_result
+REASONING_START/CONTENT/END  ─────────────►       thinking block
+STATE_SNAPSHOT               ─────────────►       custom_event (type=state)
+ACTIVITY_SNAPSHOT (A2UI)     ─────────────►       custom_event (type=a2ui)
+RUN_FINISHED                 ─────────────►       message_stop + end_turn
+
+                             ◄─────────────       user message (对话输入)
+                             ◄─────────────       session/new (新建会话)
+                             ◄─────────────       set_model (切换模型)
+                             ◄─────────────       cancel (取消执行)
+</div>
+
+<h3>5.2 ACPBridge 核心实现</h3>
+<pre><code># agentos_bridge/acp_bridge.py
+
+class ACPBridge:
+    """AG-UI ↔ ACP 双向协议桥接器"""
+
+    async def stream_bridge(
+        self, runtime_id: str, session_id: str, user_input: str
+    ) -> AsyncIterator[AGUIEvent]:
+        """
+        核心桥接：用户输入 → ACP → AgentOS Runtime → ACP响应 → AG-UI事件流
+        """
+        # 1. 建立/复用 SSE 连接
+        acp_stream = await self.client.connect_sse(runtime_id)
+        # 2. 通过 ACP 发送用户消息
+        await self.client.send_message(runtime_id, session_id, user_input)
+        # 3. 消费 ACP 响应流，实时转换为 AG-UI 事件
+        async for acp_event in acp_stream:
+            for agui_event in self._acp_to_agui(acp_event):
+                yield agui_event
+
+    def _acp_to_agui(self, acp_event: ACPEvent) -> list[AGUIEvent]:
+        """ACP → AG-UI 事件转换（一对多映射）"""
+        match acp_event.type:
+            case "content_block_start":
+                if acp_event.content_type == "text":
+                    return [text_message_start(acp_event.id)]
+                elif acp_event.content_type == "tool_use":
+                    return [tool_call_start(acp_event.id, acp_event.name)]
+            case "content_block_delta":
+                if acp_event.delta_type == "text_delta":
+                    return [text_message_content(acp_event.id, acp_event.text)]
+                elif acp_event.delta_type == "input_json_delta":
+                    return [tool_call_args(acp_event.id, acp_event.partial_json)]
+            case "content_block_stop":
+                return [text_message_end(acp_event.id)]
+            case "message_stop":
+                return [run_finished(acp_event.run_id, acp_event.thread_id)]
+        return []
+
+    async def handle_tool_result(self, runtime_id, session_id, tool_call_id, result):
+        """将 NeoAgent Tool 执行结果回传给 AgentOS"""
+        await self.client.send_tool_result(runtime_id, session_id, tool_call_id, result)
+</code></pre>
+
+<h3>5.3 双模式运行</h3>
+<table>
+<thead><tr><th>模式</th><th>描述</th><th>适用场景</th></tr></thead>
+<tbody>
+<tr><td><strong>代理模式 (Proxy)</strong></td><td>NeoAgent 独立运行，Bridge 与 AgentOS 交互获取沙箱/快照能力</td><td>混合部署，Agent 逻辑保留在自有集群</td></tr>
+<tr><td><strong>透传模式 (Passthrough)</strong></td><td>NeoAgent 作为 AgentOS Runtime 内的引擎，ACP 直接驱动 Agent Loop</td><td>完全托管，Agent 运行在 AgentOS 沙箱内</td></tr>
+</tbody>
+</table>

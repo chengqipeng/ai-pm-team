@@ -415,6 +415,16 @@ class SkillExecutor:
 
         duration_ms = _time.monotonic() * 1000 - start_ms
 
+        # 记录 skill 执行 tracing span
+        self._record_skill_span(
+            skill_name=skill_name,
+            context_mode=skill.context,
+            arguments=arguments,
+            duration_ms=duration_ms,
+            output_preview=result[:300] if result else "",
+            parent_thread_id=parent_thread_id,
+        )
+
         # 自动追踪执行轨迹
         if self._tracker is not None:
             try:
@@ -422,11 +432,11 @@ class SkillExecutor:
                 self._tracker.record(SkillExecution(
                     skill_name=skill_name,
                     arguments=arguments,
-                    tool_calls=[],  # inline 模式无法追踪具体工具调用
-                    total_tokens=len(result) // 2,  # 粗略估算
+                    tool_calls=[],
+                    total_tokens=len(result) // 2,
                     duration_ms=duration_ms,
                     output=result[:500],
-                    user_feedback="unknown",  # 后续由 MemoryMiddleware 更新
+                    user_feedback="unknown",
                 ))
             except Exception as e:
                 logger.warning("SkillTracker record failed: %s", e)
@@ -442,6 +452,36 @@ class SkillExecutor:
                 logger.warning("SkillOptimizer check failed: %s", e)
 
         return result
+
+    @staticmethod
+    def _record_skill_span(
+        skill_name: str, context_mode: str, arguments: dict,
+        duration_ms: float, output_preview: str, parent_thread_id: str,
+    ) -> None:
+        """记录 skill 执行 span 到 TracingMiddleware"""
+        try:
+            from src.middleware.tracing import tracing_middleware
+            tracing_middleware._add("skill_execution", f"skill:{skill_name}", duration_ms,
+                metadata={
+                    "skill_name": skill_name,
+                    "context_mode": context_mode,
+                    "arguments": {k: v[:100] if isinstance(v, str) else v for k, v in arguments.items()},
+                    "parent_thread_id": parent_thread_id,
+                },
+                input_data={
+                    "skill_name": skill_name,
+                    "context_mode": context_mode,
+                    "arguments": arguments,
+                },
+                output_data={
+                    "output_preview": output_preview[:200],
+                    "duration_ms": round(duration_ms, 1),
+                    "context_mode": context_mode,
+                },
+                detail=f"技能 {skill_name} ({context_mode}) · {round(duration_ms)}ms",
+            )
+        except Exception as e:
+            logger.debug("Skill span record failed: %s", e)
 
     async def _async_optimize(self, skill_name: str) -> None:
         """异步优化技能（不阻塞主流程）"""

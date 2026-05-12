@@ -325,13 +325,13 @@ def demo_middleware_imports():
         MemoryMiddleware, MemoryEngine, MemoryDimension, NoopMemoryEngine,
         OutputValidationMiddleware, OutputRenderMiddleware,
         SubagentLimitMiddleware, SummarizationMiddleware, TitleMiddleware,
-        TodoMiddleware, ToolErrorHandlingMiddleware,
+        ToolErrorHandlingMiddleware,
     )
     all_mw = [AgentLoggingMiddleware, ClarificationMiddleware, DanglingToolCallMiddleware,
               GuardrailMiddleware, InputTransformMiddleware, LoopDetectionMiddleware,
               MemoryMiddleware, OutputValidationMiddleware, OutputRenderMiddleware,
               SubagentLimitMiddleware, SummarizationMiddleware, TitleMiddleware,
-              TodoMiddleware, ToolErrorHandlingMiddleware]
+              ToolErrorHandlingMiddleware]
     for cls in all_mw:
         check(f"{cls.__name__}", issubclass(cls, AgentMiddleware))
     check("NoopMemoryEngine 实现 MemoryEngine", issubclass(NoopMemoryEngine, MemoryEngine))
