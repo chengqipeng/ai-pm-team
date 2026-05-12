@@ -512,3 +512,441 @@ class ACPBridge:
 <tr><td><strong>透传模式 (Passthrough)</strong></td><td>NeoAgent 作为 AgentOS Runtime 内的引擎，ACP 直接驱动 Agent Loop</td><td>完全托管，Agent 运行在 AgentOS 沙箱内</td></tr>
 </tbody>
 </table>
+
+<hr>
+<h2 id="sec6">六、Manifest 配置映射</h2>
+<h3>6.1 映射关系</h3>
+<div class="diagram">
+NeoAgent2.0 配置                          AgentOS Manifest
+================                          ================
+
+Agent 人设 (system_prompt)    ──────►     manifest.rules[]
+Skill 定义 (skill_registry)   ──────►     manifest.skills[]
+Tool 注册 (tool_registry)     ──────►     manifest.skills[].tools[]
+MCP 服务配置                   ──────►     manifest.mcp{}
+环境变量 (tenant secrets)     ──────►     manifest.secrets{} + manifest.envs{}
+模型配置 (model_router)       ──────►     manifest.model{}
+权限模式                       ──────►     manifest.permissionMode
+沙箱规格                       ──────►     manifest.sandboxSpec{}
+</div>
+
+<h3>6.2 Manifest 完整示例</h3>
+<pre><code>{
+  "name": "neo-agent-sales",
+  "version": "2.0",
+  "rules": [
+    "你是 NeoAgent 销售助理，帮助销售团队管理客户关系和商机。",
+    "必须遵守租户数据隔离规则，不得跨租户访问数据。",
+    "所有数据修改操作需要用户确认后执行。"
+  ],
+  "skills": [
+    {
+      "name": "customer_analysis",
+      "description": "客户分析：画像、行为分析、价值评估",
+      "tools": ["query_customers", "analyze_behavior", "score_value"],
+      "prompt": "分析客户数据时，优先使用最近 90 天的活跃数据..."
+    },
+    {
+      "name": "opportunity_management",
+      "description": "商机管理：创建、阶段推进、预测",
+      "tools": ["list_opportunities", "update_stage", "forecast_revenue"]
+    }
+  ],
+  "mcp": {
+    "crm-data-server": {
+      "command": "uvx",
+      "args": ["neo-crm-mcp-server@latest"],
+      "env": {"TENANT_ID": "${TENANT_ID}", "API_ENDPOINT": "${CRM_API_URL}"}
+    }
+  },
+  "secrets": {
+    "TENANT_ID": "tenant_abc123",
+    "CRM_API_URL": "https://api.crm.example.com/v2",
+    "CRM_API_KEY": "sk-xxx"
+  },
+  "envs": {
+    "AGENT_TYPE": "sales",
+    "LOG_LEVEL": "info",
+    "MAX_TOOL_CALLS": "20"
+  },
+  "model": {"default": "doubao-pro-32k", "fallback": "deepseek-chat"},
+  "permissionMode": "accept_edits",
+  "sandboxSpec": {"memory": "2Gi", "cpu": "1", "timeout": 300}
+}
+</code></pre>
+
+<hr>
+<h2 id="sec7">七、Session 与状态管理</h2>
+<h3>7.1 Session 映射</h3>
+<div class="diagram">
+NeoAgent2.0                              AgentOS
+===========                              =======
+
+tenant_id + user_id    ──────────►       Runtime (沙箱)
+     |
+     +── thread_id_1   ──────────►       Session-A (幂等：相同ID返回已有Session)
+     |
+     +── thread_id_2   ──────────►       Session-B
+     |
+     +── thread_id_3   ──────────►       Session-C
+</div>
+
+<h3>7.2 状态同步策略</h3>
+<table>
+<thead><tr><th>状态类型</th><th>同步方向</th><th>同步策略</th></tr></thead>
+<tbody>
+<tr><td>对话历史 (messages)</td><td>NeoAgent → AgentOS</td><td>每轮结束后推送 MESSAGES_SNAPSHOT</td></tr>
+<tr><td>业务数据 (data.*)</td><td>NeoAgent → AgentOS</td><td>STATE_DELTA 增量推送</td></tr>
+<tr><td>UI 状态 (surfaces)</td><td>NeoAgent → AgentOS</td><td>ACTIVITY_SNAPSHOT 全量替换</td></tr>
+<tr><td>记忆摘要</td><td>NeoAgent → AgentOS</td><td>Checkpoint 时打包写入</td></tr>
+<tr><td>Runtime 状态</td><td>AgentOS → NeoAgent</td><td>Webhook 事件通知</td></tr>
+<tr><td>用户操作</td><td>AgentOS → NeoAgent</td><td>ACP userAction 回传</td></tr>
+</tbody>
+</table>
+
+<h3>7.3 断线重连机制</h3>
+<pre><code>class SessionCoordinator:
+    async def reconnect(self, thread_id: str) -> bool:
+        """断线重连（指数退避 + 首包重放）"""
+        mapping = self._mapping.get(thread_id)
+        for attempt in ExponentialBackoff(base=1, max_retries=5):
+            try:
+                await self.client.connect_sse(mapping.runtime_id)
+                await self.client.initialize_acp(mapping.runtime_id, mapping.session_id)
+                # AgentOS 重连后按固定顺序下发首包：
+                # 1. RUN_STARTED  2. MESSAGES_SNAPSHOT  3. STATE_SNAPSHOT
+                # 4. ACTIVITY_SNAPSHOT(每个活跃surface)  5. 恢复增量推送
+                mapping.is_active = True
+                return True
+            except ConnectionError:
+                await asyncio.sleep(attempt.delay)
+        return False
+</code></pre>
+
+<hr>
+<h2 id="sec8">八、Checkpoint / Version 快照集成</h2>
+<h3>8.1 快照策略</h3>
+<table>
+<thead><tr><th>触发条件</th><th>快照类型</th><th>保留策略</th></tr></thead>
+<tbody>
+<tr><td>每 N 轮对话结束</td><td>Checkpoint（轻量）</td><td>保留最近 10 个</td></tr>
+<tr><td>Skill 执行完成（含数据变更）</td><td>Checkpoint</td><td>保留最近 5 个</td></tr>
+<tr><td>用户显式保存</td><td>Version（带标签）</td><td>永久保留</td></tr>
+<tr><td>Agent 配置变更</td><td>Version</td><td>永久保留</td></tr>
+<tr><td>异常恢复前</td><td>Checkpoint</td><td>保留至恢复成功</td></tr>
+</tbody>
+</table>
+
+<h3>8.2 CheckpointManager</h3>
+<pre><code>class CheckpointManager:
+    async def auto_snapshot(self, runtime_id: str, trigger: str, metadata: dict = None):
+        """根据策略自动创建快照"""
+        should_snapshot = (
+            trigger == "skill_complete" or
+            trigger == "user_save" or
+            self._round_counter[runtime_id] % self.config.rounds_interval == 0
+        )
+        if should_snapshot:
+            label = f"{trigger}_{datetime.now().isoformat()}"
+            checkpoint = await self.client.create_checkpoint(runtime_id, label=label)
+            await self._gc_old_checkpoints(runtime_id)
+            return checkpoint
+
+    async def restore(self, runtime_id: str, checkpoint_id: str = None):
+        """恢复到指定快照（默认最近一个）"""
+        if not checkpoint_id:
+            checkpoints = await self.client.list_checkpoints(runtime_id)
+            checkpoint_id = checkpoints[-1].id
+        await self.client.restore_checkpoint(runtime_id, checkpoint_id)
+        await self._notify_state_reload(runtime_id, checkpoint_id)
+</code></pre>
+
+<hr>
+<h2 id="sec9">九、Webhook 事件集成</h2>
+<h3>9.1 事件类型与处理</h3>
+<table>
+<thead><tr><th>事件类型</th><th>触发时机</th><th>NeoAgent2.0 处理动作</th></tr></thead>
+<tbody>
+<tr><td>runtime.created</td><td>Runtime 创建完成</td><td>更新租户 Runtime 映射表</td></tr>
+<tr><td>runtime.started</td><td>Runtime 启动就绪</td><td>标记可用，开始接受请求</td></tr>
+<tr><td>runtime.stopped</td><td>Runtime 停止</td><td>标记不可用，触发重建或告警</td></tr>
+<tr><td>runtime.error</td><td>Runtime 异常</td><td>记录错误，触发自动恢复</td></tr>
+<tr><td>session.created</td><td>Session 创建</td><td>更新 Session 映射</td></tr>
+<tr><td>session.ended</td><td>Session 结束</td><td>清理本地缓存</td></tr>
+<tr><td>checkpoint.created</td><td>快照创建完成</td><td>记录快照元数据</td></tr>
+<tr><td>checkpoint.restored</td><td>快照恢复完成</td><td>重新加载 Agent 状态</td></tr>
+<tr><td>version.created</td><td>版本创建</td><td>记录版本信息</td></tr>
+<tr><td>manifest.updated</td><td>Manifest 更新</td><td>确认配置生效</td></tr>
+<tr><td>agent.message</td><td>Agent 产生消息</td><td>转发到前端 SSE</td></tr>
+<tr><td>agent.tool_call</td><td>Agent 调用工具</td><td>本地执行 Tool 并回传结果</td></tr>
+<tr><td>agent.error</td><td>Agent 执行异常</td><td>错误处理与降级</td></tr>
+</tbody>
+</table>
+
+<h3>9.2 Webhook 处理流程</h3>
+<pre><code>class WebhookHandler:
+    def verify_signature(self, payload: bytes, signature: str) -> bool:
+        """HMAC-SHA256 签名验证"""
+        expected = hmac.new(self.secret.encode(), payload, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(f"sha256={expected}", signature)
+
+    async def handle(self, request: Request) -> Response:
+        payload = await request.body()
+        signature = request.headers.get("X-AgentOS-Signature")
+        if not self.verify_signature(payload, signature):
+            return Response(status_code=401)
+        event = json.loads(payload)
+        await self.router.dispatch(event["type"], event["data"])
+        return Response(status_code=200)
+
+class EventRouter:
+    async def _on_runtime_error(self, data: dict):
+        """Runtime 异常 -> 自动恢复"""
+        runtime_id = data["runtime_id"]
+        if data.get("error_code") == "OOM":
+            await checkpoint_manager.restore(runtime_id)
+            await runtime_manager.scale_up(runtime_id)
+        elif data.get("error_code") == "TIMEOUT":
+            await runtime_manager.restart(runtime_id)
+
+    async def _on_agent_tool_call(self, data: dict):
+        """Agent 请求调用工具 -> 本地执行并回传"""
+        result = await tool_executor.execute(data["tool_name"], data["arguments"])
+        await acp_bridge.handle_tool_result(
+            data["runtime_id"], data["session_id"], data["tool_call_id"], result
+        )
+</code></pre>
+
+<hr>
+<h2 id="sec10">十、安全与多租户</h2>
+<h3>10.1 认证链路</h3>
+<div class="diagram">
++------------------+          +------------------+          +------------------+
+|   CRM 用户       |          |  NeoAgent2.0     |          |    AgentOS       |
+|                  |          |                  |          |                  |
+|  SSO Token       |---auth-->|  验证 Token      |          |                  |
+|                  |          |  提取 tenant_id  |          |                  |
+|                  |          |  提取 user_id    |          |                  |
+|                  |          |                  |          |                  |
+|                  |          |  API Key         |---auth-->|  验证 API Key    |
+|                  |          |  (per-tenant)    |          |  关联 Runtime    |
++------------------+          +------------------+          +------------------+
+</div>
+
+<h3>10.2 多租户隔离模型</h3>
+<table>
+<thead><tr><th>隔离层</th><th>NeoAgent2.0 侧</th><th>AgentOS 侧</th></tr></thead>
+<tbody>
+<tr><td>计算隔离</td><td>K8S Namespace</td><td>独立 Runtime 沙箱（容器级）</td></tr>
+<tr><td>数据隔离</td><td>PostgreSQL RLS + tenant_id</td><td>Runtime 文件系统隔离</td></tr>
+<tr><td>网络隔离</td><td>VPC + Security Group</td><td>Runtime 网络命名空间</td></tr>
+<tr><td>密钥隔离</td><td>Vault per-tenant secrets</td><td>Manifest secrets（加密存储）</td></tr>
+<tr><td>API 隔离</td><td>租户级 API Key</td><td>Runtime 级 API Key</td></tr>
+<tr><td>配额隔离</td><td>资源点配额（三级）</td><td>Runtime 资源限制（CPU/Mem）</td></tr>
+</tbody>
+</table>
+
+<h3>10.3 数据安全措施</h3>
+<ul>
+<li><strong>传输加密</strong>：NeoAgent ↔ AgentOS 全链路 TLS 1.3 + mTLS</li>
+<li><strong>PII 脱敏</strong>：敏感数据在进入 AgentOS 前经 InputTransform 中间件脱敏</li>
+<li><strong>零数据保留</strong>：Runtime 停止后沙箱内临时数据自动清除</li>
+<li><strong>审计日志</strong>：所有跨系统 API 调用记录到统一审计存储</li>
+<li><strong>Webhook 签名</strong>：HMAC-SHA256 防篡改 + 时间戳防重放（5分钟窗口）</li>
+</ul>
+
+<hr>
+<h2 id="sec11">十一、部署架构与高可用</h2>
+<h3>11.1 部署拓扑</h3>
+<div class="diagram">
+                    +---------------------------+
+                    |      CDN / WAF / LB       |
+                    +-------------+-------------+
+                                  |
+                    +-------------v-------------+
+                    |    NeoAgent2.0 集群        |
+                    |    (K8S Cluster)           |
+                    |                           |
+                    |  +-----+ +-----+ +-----+ |     Agent 服务实例（无状态）
+                    |  | Pod | | Pod | | Pod | |
+                    |  +-----+ +-----+ +-----+ |
+                    |                           |
+                    |  +---------------------+  |     AgentOS Bridge（可独立扩缩）
+                    |  | Bridge Pod x 2-3    |  |
+                    |  +---------------------+  |
+                    |                           |
+                    |  +-----+ +-----+ +-----+ |     数据层
+                    |  |Redis| | PG  | |Vector| |
+                    |  +-----+ +-----+ +-----+ |
+                    +-------------+-------------+
+                                  |
+                         HTTPS (mTLS)
+                                  |
+                    +-------------v-------------+
+                    |    AgentOS 平台            |
+                    |    (腾讯云托管)            |
+                    |                           |
+                    |  +---------------------+  |
+                    |  |   API Gateway       |  |
+                    |  +---------------------+  |
+                    |                           |
+                    |  +-----+ +-----+ +-----+ |     Runtime 沙箱
+                    |  | RT-1| | RT-2| | RT-N| |
+                    |  +-----+ +-----+ +-----+ |
+                    +---------------------------+
+</div>
+
+<h3>11.2 高可用设计</h3>
+<table>
+<thead><tr><th>故障场景</th><th>检测方式</th><th>恢复策略</th><th>RTO</th></tr></thead>
+<tbody>
+<tr><td>AgentOS API 不可用</td><td>健康检查 + 超时</td><td>降级到本地模式（无快照）</td><td>&lt; 5s</td></tr>
+<tr><td>Runtime 异常退出</td><td>Webhook runtime.error</td><td>自动重建 + 恢复最近 Checkpoint</td><td>&lt; 30s</td></tr>
+<tr><td>SSE 连接断开</td><td>心跳超时</td><td>指数退避重连 + 首包重放</td><td>&lt; 10s</td></tr>
+<tr><td>Bridge Pod 重启</td><td>K8S liveness probe</td><td>无状态重启 + 从 Redis 恢复映射</td><td>&lt; 15s</td></tr>
+<tr><td>Webhook 投递失败</td><td>AgentOS 重试机制</td><td>幂等处理 + 死信队列</td><td>&lt; 60s</td></tr>
+</tbody>
+</table>
+
+<hr>
+<h2 id="sec12">十二、对接时序图</h2>
+<h3>12.1 首次对话完整时序</h3>
+<div class="diagram">
+用户          NeoAgent网关       Bridge层         AgentOS API       Runtime沙箱
+ |                |                |                  |                 |
+ |-- 发送消息 --->|                |                  |                 |
+ |                |-- 认证鉴权 --->|                  |                 |
+ |                |                |                  |                 |
+ |                |                |-- ensure_runtime() -->             |
+ |                |                |  (检查/创建 Runtime)               |
+ |                |                |<-- runtime_id ---|                 |
+ |                |                |                  |                 |
+ |                |                |-- get_or_create_session() -------->|
+ |                |                |<-- session_id ---|                 |
+ |                |                |                  |                 |
+ |                |                |-- connect_sse() ----------------->|
+ |                |                |<-- SSE stream ---|                 |
+ |                |                |                  |                 |
+ |                |                |-- initialize_acp() -------------->|
+ |                |                |<-- ACP handshake |                 |
+ |                |                |                  |                 |
+ |                |                |-- send_message() ---------------->|
+ |                |                |                  |-- LLM 推理 --->|
+ |                |                |                  |                 |
+ |                |                |<-- ACP events (SSE) --------------|
+ |                |                |                  |                 |
+ |                |<-- AG-UI events|  (ACP->AG-UI)    |                 |
+ |<-- SSE 事件流 -|                |                  |                 |
+ |                |                |                  |                 |
+ |                |                |-- auto_snapshot() -->              |
+ |                |                |<-- checkpoint_id |                 |
+</div>
+
+<h3>12.2 Tool 调用时序（代理模式）</h3>
+<div class="diagram">
+Runtime沙箱       AgentOS API       Bridge层          NeoAgent Tool引擎    aPaaS API
+    |                 |                |                    |                  |
+    |-- tool_use ---->|                |                    |                  |
+    |                 |-- webhook ---->|                    |                  |
+    |                 | (agent.tool_call)                   |                  |
+    |                 |                |-- execute_tool --->|                  |
+    |                 |                |                    |-- 调用业务API -->|
+    |                 |                |                    |<-- 业务数据 -----|
+    |                 |                |<-- tool_result ----|                  |
+    |                 |<-- send_tool_result --|             |                  |
+    |<-- continue ----|                |                    |                  |
+</div>
+
+<h3>12.3 断线重连时序</h3>
+<div class="diagram">
+用户          NeoAgent2.0          Bridge层           AgentOS
+ |                |                   |                  |
+ |                |   (SSE 连接断开)  |                  |
+ |                |                   |                  |
+ |                |                   |-- reconnect() -->|
+ |                |                   |  (指数退避重试)  |
+ |                |                   |<-- SSE 重连成功 -|
+ |                |                   |                  |
+ |                |                   |-- initialize_acp() -->
+ |                |                   |<-- 首包序列:     |
+ |                |                   |    RUN_STARTED   |
+ |                |                   |    MESSAGES_SNAP |
+ |                |                   |    STATE_SNAP    |
+ |                |                   |    ACTIVITY_SNAP |
+ |                |                   |                  |
+ |<-- 恢复事件流 -|<-- AG-UI events --|                  |
+</div>
+
+<hr>
+<h2 id="sec13">十三、风险与实施路线</h2>
+<h3>13.1 风险评估</h3>
+<table>
+<thead><tr><th>风险</th><th>影响</th><th>概率</th><th>应对措施</th></tr></thead>
+<tbody>
+<tr><td>AgentOS 平台不可用</td><td>Agent 服务中断</td><td>低</td><td>降级到本地模式；多区域部署</td></tr>
+<tr><td>ACP 协议版本不兼容</td><td>通信失败</td><td>中</td><td>Bridge 版本协商；保留旧版适配器</td></tr>
+<tr><td>Runtime 冷启动延迟</td><td>首次响应慢</td><td>高</td><td>Runtime 预热池；Warm Start 策略</td></tr>
+<tr><td>状态同步延迟</td><td>数据不一致</td><td>中</td><td>最终一致性设计；冲突检测与合并</td></tr>
+<tr><td>Webhook 丢失</td><td>事件遗漏</td><td>低</td><td>幂等处理 + 定期轮询补偿 + 死信队列</td></tr>
+<tr><td>Manifest 配置错误</td><td>Agent 行为异常</td><td>中</td><td>配置校验 + 灰度发布 + 快速回滚</td></tr>
+<tr><td>多租户资源争抢</td><td>性能下降</td><td>中</td><td>Runtime 资源配额 + 优先级队列</td></tr>
+<tr><td>AgentOS 计费超预期</td><td>成本失控</td><td>中</td><td>用量监控告警 + 自动休眠 + 预算上限</td></tr>
+</tbody>
+</table>
+
+<h3>13.2 实施路线图</h3>
+<table>
+<thead><tr><th>阶段</th><th>时间</th><th>目标</th><th>交付物</th></tr></thead>
+<tbody>
+<tr><td><strong>Phase 1: 基础对接</strong></td><td>第 1-3 周</td><td>打通 Runtime 创建 + ACP 基础通信</td><td>AgentOSClient + RuntimeManager + ACPBridge 基础版</td></tr>
+<tr><td><strong>Phase 2: 协议桥接</strong></td><td>第 4-6 周</td><td>AG-UI ↔ ACP 完整双向转换</td><td>ACPBridge 完整版 + SessionCoordinator</td></tr>
+<tr><td><strong>Phase 3: 配置映射</strong></td><td>第 7-8 周</td><td>Manifest 自动生成 + Skill/Tool 映射</td><td>ManifestGenerator + 配置管理 UI</td></tr>
+<tr><td><strong>Phase 4: 状态管理</strong></td><td>第 9-11 周</td><td>Checkpoint/Version + 状态同步</td><td>CheckpointManager + StateSyncEngine</td></tr>
+<tr><td><strong>Phase 5: 事件集成</strong></td><td>第 12-13 周</td><td>Webhook 全事件处理 + 自动恢复</td><td>WebhookHandler + EventRouter + 告警</td></tr>
+<tr><td><strong>Phase 6: 生产就绪</strong></td><td>第 14-16 周</td><td>多租户 + 高可用 + 监控 + 灰度</td><td>完整部署方案 + 运维手册 + 压测报告</td></tr>
+</tbody>
+</table>
+
+<h3>13.3 里程碑</h3>
+<ul>
+<li><strong>M1（第 3 周末）</strong>：单租户 Demo — 用户发消息 → NeoAgent → AgentOS Runtime → 返回响应</li>
+<li><strong>M2（第 6 周末）</strong>：完整对话体验 — AG-UI 事件流 + A2UI 界面 + Tool 调用全链路</li>
+<li><strong>M3（第 11 周末）</strong>：状态可恢复 — Checkpoint 自动创建 + 异常自动恢复</li>
+<li><strong>M4（第 16 周末）</strong>：生产上线 — 多租户隔离 + 弹性伸缩 + 全链路监控</li>
+</ul>
+
+<hr>
+<h2>附录：AgentOS API 接口清单</h2>
+<table>
+<thead><tr><th>分类</th><th>方法</th><th>路径</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>Runtime</td><td>POST</td><td>/v1/runtimes</td><td>创建 Runtime</td></tr>
+<tr><td>Runtime</td><td>GET</td><td>/v1/runtimes</td><td>列出 Runtime</td></tr>
+<tr><td>Runtime</td><td>GET</td><td>/v1/runtimes/:id</td><td>查询详情</td></tr>
+<tr><td>Runtime</td><td>DELETE</td><td>/v1/runtimes/:id</td><td>删除 Runtime</td></tr>
+<tr><td>Runtime</td><td>POST</td><td>/v1/runtimes/:id/fork</td><td>Fork Runtime</td></tr>
+<tr><td>Session</td><td>POST</td><td>/v1/runtimes/:id/sessions</td><td>创建 Session</td></tr>
+<tr><td>Session</td><td>GET</td><td>/v1/runtimes/:id/sessions</td><td>列出 Session</td></tr>
+<tr><td>ACP</td><td>GET</td><td>/v1/runtimes/:id/sse</td><td>建立 SSE 连接</td></tr>
+<tr><td>ACP</td><td>POST</td><td>/v1/runtimes/:id/sessions/:sid/messages</td><td>发送消息</td></tr>
+<tr><td>ACP</td><td>POST</td><td>/v1/runtimes/:id/sessions/:sid/initialize</td><td>ACP 握手</td></tr>
+<tr><td>ACP</td><td>POST</td><td>/v1/runtimes/:id/sessions/:sid/set_model</td><td>切换模型</td></tr>
+<tr><td>ACP</td><td>POST</td><td>/v1/runtimes/:id/sessions/:sid/cancel</td><td>取消执行</td></tr>
+<tr><td>Checkpoint</td><td>POST</td><td>/v1/runtimes/:id/checkpoints</td><td>创建 Checkpoint</td></tr>
+<tr><td>Checkpoint</td><td>GET</td><td>/v1/runtimes/:id/checkpoints</td><td>列出 Checkpoint</td></tr>
+<tr><td>Checkpoint</td><td>POST</td><td>/v1/runtimes/:id/checkpoints/:cid/restore</td><td>恢复</td></tr>
+<tr><td>Version</td><td>POST</td><td>/v1/runtimes/:id/versions</td><td>创建 Version</td></tr>
+<tr><td>Version</td><td>GET</td><td>/v1/runtimes/:id/versions</td><td>列出 Version</td></tr>
+<tr><td>Version</td><td>POST</td><td>/v1/runtimes/:id/versions/:vid/rollback</td><td>回滚</td></tr>
+<tr><td>Manifest</td><td>PUT</td><td>/v1/runtimes/:id/manifest</td><td>更新 Manifest</td></tr>
+<tr><td>Manifest</td><td>GET</td><td>/v1/runtimes/:id/manifest</td><td>查询 Manifest</td></tr>
+</tbody>
+</table>
+
+<hr>
+<p style="text-align:center;color:#666;margin-top:60px;font-size:.9em;">
+— NeoAgent2.0 与 AgentOS 对接架构设计 v1.0 —<br>
+文档维护：NeoAgent 架构组 | 最后更新：2026-05-12
+</p>
+</body>
+</html>
