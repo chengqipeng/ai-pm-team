@@ -1006,6 +1006,7 @@ function refreshTrace() {
     'content_review_input': { id: 'entry', label: '入口预处理', labelEn: 'Preprocessing', icon: '🚀' },
     'content_review_output': { id: 'entry', label: '入口预处理', labelEn: 'Preprocessing', icon: '🚀' },
     'query_rewrite': { id: 'entry', label: '入口预处理', labelEn: 'Preprocessing', icon: '🚀' },
+    'title_generation': { id: 'entry', label: '入口预处理', labelEn: 'Preprocessing', icon: '🚀' },
     'context_build': { id: 'context', label: '上下文准备', labelEn: 'Context Build', icon: '📦' },
     'memory_retrieval': { id: 'context', label: '上下文准备', labelEn: 'Context Build', icon: '📦' },
     'user_input': { id: 'context', label: '上下文准备', labelEn: 'Context Build', icon: '📦' },
@@ -1013,9 +1014,10 @@ function refreshTrace() {
     'intent_analysis': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
     'llm_input': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
     'llm_call': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
-    'tool_call': { id: 'execution', label: '执行阶段', labelEn: 'Tool Execution', icon: '🔧' },
-    'hierarchical_search': { id: 'execution', label: '执行阶段', labelEn: 'Tool Execution', icon: '🔧' },
-    'error': { id: 'execution', label: '执行阶段', labelEn: 'Tool Execution', icon: '🔧' },
+    'tool_call': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
+    'clarification': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
+    'hierarchical_search': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
+    'error': { id: 'reasoning', label: '模型推理', labelEn: 'Agent Loop', icon: '⚡' },
     'memory_extract': { id: 'post', label: '后处理', labelEn: 'Post Process', icon: '💾' },
     'response_complete': { id: 'post', label: '后处理', labelEn: 'Post Process', icon: '💾' },
   };
@@ -1033,9 +1035,22 @@ function refreshTrace() {
   }
 
   // 严格按到达顺序渲染，在阶段切换时插入分隔标题
+  // Agent Loop 阶段内部按循环编号分组
   let html = '';
   let seqNum = 0;
   let currentPhaseId = null;
+  let currentLoopNum = 0;  // 当前循环编号（Agent Loop 内部）
+
+  // 内部调试 span，不作为独立节点显示（信息已合并到 llm_call 节点中）
+  const HIDDEN_SPAN_TYPES = new Set(['llm_input', 'intent_analysis', 'context_build']);
+
+  // 预扫描：统计 Agent Loop 中有多少轮 LLM 调用（判断是否多轮）
+  const totalLlmCalls = liveSpans.filter(s => {
+    const en = s.step_name_en || s.type || '';
+    return en === 'llm_call' || (s.title && s.title.includes('思考'));
+  }).length;
+  const isMultiLoop = totalLlmCalls > 1;
+  let llmCallCount = 0;
 
   for (const s of liveSpans) {
     const phase = getPhase(s);
@@ -1043,13 +1058,18 @@ function refreshTrace() {
 
     // 阶段切换时插入分隔标题
     if (phaseId !== currentPhaseId) {
+      // 关闭上一个循环容器
+      if (currentPhaseId === 'reasoning' && currentLoopNum > 0) {
+        html += '</div>';
+      }
       // 关闭上一个阶段的容器
       if (currentPhaseId !== null) {
         html += '</div></div>';
       }
       currentPhaseId = phaseId;
+      currentLoopNum = 0;
+      llmCallCount = 0;
 
-      // 计算该阶段后续 spans 的状态
       const phaseLabel = phase ? phase.label : '其他';
       const phaseLabelEn = phase ? phase.labelEn : '';
       const phaseIcon = phase ? phase.icon : '📌';
@@ -1063,12 +1083,44 @@ function refreshTrace() {
             <div class="flex-1 h-px bg-gray-100 ml-2"></div>
           </div>
           <div class="space-y-1 pl-1">`;
+
+      // 多轮对话：进入 reasoning 阶段时立即开始第 1 轮容器
+      if (phaseId === 'reasoning' && isMultiLoop) {
+        currentLoopNum = 1;
+        html += `
+          <div class="ml-1 mb-2 border-l-2 border-violet-200 pl-3">
+            <div class="text-[9px] font-bold text-violet-500 mb-1">第 1 轮</div>`;
+      }
+    }
+
+    // 多轮 Agent Loop：第 2+ 个 LLM 调用开始新循环
+    if (currentPhaseId === 'reasoning' && isMultiLoop) {
+      const stepEn = s.step_name_en || s.type || '';
+      const isLlmCall = stepEn === 'llm_call' || (s.title && s.title.includes('思考'));
+
+      if (isLlmCall) {
+        llmCallCount++;
+        if (llmCallCount > 1) {
+          // 关闭上一轮，开始新一轮
+          html += '</div>';
+          currentLoopNum++;
+          const isFinal = s.metadata && s.metadata.is_final;
+          const loopBadge = isFinal ? ' <span class=\"text-[8px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full font-bold\">FINAL</span>' : '';
+          html += `
+            <div class="ml-1 mb-2 border-l-2 border-violet-200 pl-3">
+              <div class="text-[9px] font-bold text-violet-500 mb-1">第 ${currentLoopNum} 轮${loopBadge}</div>`;
+        }
+      }
     }
 
     seqNum++;
     html += renderTraceNode(s, seqNum - 1, seqNum);
   }
 
+  // 关闭最后的循环容器
+  if (currentPhaseId === 'reasoning' && currentLoopNum > 0) {
+    html += '</div>';
+  }
   // 关闭最后一个阶段容器
   if (currentPhaseId !== null) {
     html += '</div></div>';

@@ -67,23 +67,42 @@ class TracingMiddleware(AgentMiddleware):
             has_effect: 是否产生了副作用（修改了 state）
             detail: 额外描述
         """
-        self._add("middleware", f"mw:{middleware_name}", duration_ms,
-            metadata={
+        # 根据执行阶段映射到前端 phase 分组
+        phase_mapping = {
+            "before_agent": "context",    # Agent 开始前 → 上下文准备
+            "after_agent": "post",        # Agent 结束后 → 后处理
+            "before_model": "reasoning",  # LLM 调用前 → 模型推理（循环内）
+            "after_model": "reasoning",   # LLM 返回后 → 模型推理（循环内）
+            "wrap_tool_call": "reasoning", # 工具调用时 → 模型推理（循环内）
+        }
+        display_phase = phase_mapping.get(phase, "context")
+
+        tid = self._tid()
+        self._spans.setdefault(tid, []).append({
+            "type": "middleware",
+            "name": f"mw:{middleware_name}",
+            "phase": display_phase,
+            "step_name": middleware_name,
+            "step_name_en": "middleware",
+            "timestamp": time.time(),
+            "duration_ms": round(duration_ms, 1),
+            "status": "success",
+            "input_data": {
+                "middleware": middleware_name,
+                "phase": phase,
+            },
+            "output_data": {
+                "has_effect": has_effect,
+                "duration_ms": round(duration_ms, 1),
+            },
+            "detail": detail or f"{middleware_name}.{phase} {'→ 已修改状态' if has_effect else '→ 无变更'}",
+            "metadata": {
                 "middleware_name": middleware_name,
                 "phase": phase,
                 "has_effect": has_effect,
             },
-            input_data={
-                "middleware": middleware_name,
-                "phase": phase,
-            },
-            output_data={
-                "has_effect": has_effect,
-                "duration_ms": round(duration_ms, 1),
-            },
-            detail=detail or f"{middleware_name}.{phase} {'→ 已修改状态' if has_effect else '→ 无变更'}",
-            step_name_override=middleware_name,
-        )
+            "children": [],
+        })
 
     # ── 步骤定义：对齐检索链路详情的 PipelineNode 格式 ──
     # 每个步骤有阶段标识、中文名、英文名（编号由前端按到达顺序动态分配）
@@ -93,13 +112,13 @@ class TracingMiddleware(AgentMiddleware):
         "user_input":           {"phase": "context",   "name": "用户输入",       "name_en": "user_input"},
         "context_build":        {"phase": "context",   "name": "上下文构建",     "name_en": "context_build"},
         "middleware":           {"phase": "context",   "name": "中间件",         "name_en": "middleware"},
-        "title_generation":     {"phase": "post",      "name": "标题生成",       "name_en": "title_generation"},
+        "title_generation":     {"phase": "entry",     "name": "标题生成",       "name_en": "title_generation"},
         "memory_retrieval":     {"phase": "context",   "name": "记忆检索",       "name_en": "memory_retrieval"},
         "intent_analysis":      {"phase": "reasoning", "name": "意图分析",       "name_en": "intent_analysis"},
         "llm_input":            {"phase": "reasoning", "name": "LLM 输入准备",   "name_en": "llm_input"},
         "llm_call":             {"phase": "reasoning", "name": "模型推理",       "name_en": "llm_call"},
-        "tool_call":            {"phase": "execution", "name": "工具调用",       "name_en": "tool_call"},
-        "hierarchical_search":  {"phase": "execution", "name": "分层检索",      "name_en": "hierarchical_search"},
+        "tool_call":            {"phase": "reasoning", "name": "工具调用",       "name_en": "tool_call"},
+        "hierarchical_search":  {"phase": "reasoning", "name": "分层检索",      "name_en": "hierarchical_search"},
         "memory_extract":       {"phase": "post",      "name": "记忆提取",      "name_en": "memory_extract"},
     }
 
@@ -671,6 +690,9 @@ class MiddlewareTracingWrapper(AgentMiddleware):
     # 不需要追踪的中间件（TracingMiddleware 自身 + 纯日志类）
     _SKIP_NAMES = {"TracingMiddleware", "AgentLoggingMiddleware"}
 
+    # 已自行记录详细 span 的中间件（避免重复记录粗粒度 middleware span）
+    _SELF_TRACING_NAMES = {"MemoryMiddleware", "TitleMiddleware"}
+
     def __init__(self, inner: AgentMiddleware) -> None:
         super().__init__()
         self._inner = inner
@@ -685,17 +707,17 @@ class MiddlewareTracingWrapper(AgentMiddleware):
     def inner(self) -> AgentMiddleware:
         return self._inner
 
-    def _should_trace(self, phase: str) -> bool:
-        """判断是否需要追踪（跳过 TracingMiddleware 已经记录的中间件）"""
-        # MemoryMiddleware 已经通过 record_memory_retrieval 自行记录
-        # 但我们仍然记录它的执行，因为用户想看到所有中间件
-        return True
+    def _should_trace(self, phase: str, has_effect: bool) -> bool:
+        """判断是否需要追踪 — 只记录有实际效果的中间件"""
+        if self._name in self._SELF_TRACING_NAMES:
+            return False
+        return has_effect
 
     def before_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
         start = time.monotonic()
         result = self._inner.before_agent(state, runtime)
         dur = (time.monotonic() - start) * 1000
-        if dur > 0.5:
+        if self._should_trace("before_agent", result is not None):
             tracing_middleware.record_middleware_execution(
                 self._name, "before_agent", dur,
                 has_effect=result is not None,
@@ -704,14 +726,13 @@ class MiddlewareTracingWrapper(AgentMiddleware):
 
     async def abefore_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
         start = time.monotonic()
-        # 检查内部中间件是否有自定义的 abefore_agent
         inner_cls = type(self._inner)
         if hasattr(inner_cls, 'abefore_agent') and inner_cls.abefore_agent is not AgentMiddleware.abefore_agent:
             result = await self._inner.abefore_agent(state, runtime)
         else:
             result = self._inner.before_agent(state, runtime)
         dur = (time.monotonic() - start) * 1000
-        if dur > 0.5:
+        if self._should_trace("before_agent", result is not None):
             tracing_middleware.record_middleware_execution(
                 self._name, "before_agent", dur,
                 has_effect=result is not None,
@@ -722,7 +743,7 @@ class MiddlewareTracingWrapper(AgentMiddleware):
         start = time.monotonic()
         result = self._inner.after_agent(state, runtime)
         dur = (time.monotonic() - start) * 1000
-        if dur > 0.5:
+        if self._should_trace("after_agent", result is not None):
             tracing_middleware.record_middleware_execution(
                 self._name, "after_agent", dur,
                 has_effect=result is not None,
@@ -737,7 +758,7 @@ class MiddlewareTracingWrapper(AgentMiddleware):
         else:
             result = self._inner.after_agent(state, runtime)
         dur = (time.monotonic() - start) * 1000
-        if dur > 0.5:
+        if self._should_trace("after_agent", result is not None):
             tracing_middleware.record_middleware_execution(
                 self._name, "after_agent", dur,
                 has_effect=result is not None,
@@ -745,34 +766,87 @@ class MiddlewareTracingWrapper(AgentMiddleware):
         return result
 
     def before_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
-        return self._inner.before_model(state, runtime)
+        start = time.monotonic()
+        result = self._inner.before_model(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if self._should_trace("before_model", result is not None):
+            tracing_middleware.record_middleware_execution(
+                self._name, "before_model", dur,
+                has_effect=result is not None,
+            )
+        return result
 
     async def abefore_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        start = time.monotonic()
         inner_cls = type(self._inner)
         if hasattr(inner_cls, 'abefore_model') and inner_cls.abefore_model is not AgentMiddleware.abefore_model:
-            return await self._inner.abefore_model(state, runtime)
-        return self._inner.before_model(state, runtime)
+            result = await self._inner.abefore_model(state, runtime)
+        else:
+            result = self._inner.before_model(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if self._should_trace("before_model", result is not None):
+            tracing_middleware.record_middleware_execution(
+                self._name, "before_model", dur,
+                has_effect=result is not None,
+            )
+        return result
 
     def after_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
-        return self._inner.after_model(state, runtime)
+        start = time.monotonic()
+        result = self._inner.after_model(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if self._should_trace("after_model", result is not None):
+            tracing_middleware.record_middleware_execution(
+                self._name, "after_model", dur,
+                has_effect=result is not None,
+            )
+        return result
 
     async def aafter_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        start = time.monotonic()
         inner_cls = type(self._inner)
         if hasattr(inner_cls, 'aafter_model') and inner_cls.aafter_model is not AgentMiddleware.aafter_model:
-            return await self._inner.aafter_model(state, runtime)
-        return self._inner.after_model(state, runtime)
+            result = await self._inner.aafter_model(state, runtime)
+        else:
+            result = self._inner.after_model(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if self._should_trace("after_model", result is not None):
+            tracing_middleware.record_middleware_execution(
+                self._name, "after_model", dur,
+                has_effect=result is not None,
+            )
+        return result
 
     def wrap_tool_call(self, request: ToolCallRequest, handler):
         inner_cls = type(self._inner)
         if hasattr(inner_cls, 'wrap_tool_call') and inner_cls.wrap_tool_call is not AgentMiddleware.wrap_tool_call:
-            return self._inner.wrap_tool_call(request, handler)
+            start = time.monotonic()
+            result = self._inner.wrap_tool_call(request, handler)
+            dur = (time.monotonic() - start) * 1000
+            if self._should_trace("wrap_tool_call", True):
+                tool_name = request.tool_call.get("name", "unknown")
+                tracing_middleware.record_middleware_execution(
+                    self._name, "wrap_tool_call", dur,
+                    has_effect=True,
+                    detail=f"{self._name}: {tool_name}",
+                )
+            return result
         return handler(request)
 
     async def awrap_tool_call(self, request: ToolCallRequest, handler):
         inner_cls = type(self._inner)
         if hasattr(inner_cls, 'awrap_tool_call') and inner_cls.awrap_tool_call is not AgentMiddleware.awrap_tool_call:
-            return await self._inner.awrap_tool_call(request, handler)
-        # 内部中间件未实现 awrap_tool_call，直接透传
+            start = time.monotonic()
+            result = await self._inner.awrap_tool_call(request, handler)
+            dur = (time.monotonic() - start) * 1000
+            if self._should_trace("wrap_tool_call", True):
+                tool_name = request.tool_call.get("name", "unknown")
+                tracing_middleware.record_middleware_execution(
+                    self._name, "wrap_tool_call", dur,
+                    has_effect=True,
+                    detail=f"{self._name}: {tool_name}",
+                )
+            return result
         return await handler(request)
 
 

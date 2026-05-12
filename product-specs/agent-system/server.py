@@ -606,12 +606,25 @@ async def chat_stream(req: ChatRequest):
 
     # ══════════════════════════════════════════════════════════════
     # 入口层预处理流水线（在任何主 Agent 调用之前执行）
-    #   顺序：毒性检测 → 查询改写 → 送入 Agent
+    #   顺序：标题生成 → 毒性检测 → 查询改写 → 送入 Agent
     # ══════════════════════════════════════════════════════════════
 
     # 清理上一轮可能残留的中间件 spans（防止异步 memory_extract 延迟写入导致串轮）
     from src.middleware.tracing import tracing_middleware
     tracing_middleware.clear(thread_id)
+
+    # ── Step 0: 标题生成（首次对话时同步记录 span，异步生成标题）──
+    if not history_messages:
+        from src.middleware.title import TitleMiddleware
+        rule_title = TitleMiddleware._rule_generate(req.message)
+        tracing_middleware._add_to_thread(
+            thread_id, "title_generation", "title_generation", 0,
+            {"title": rule_title, "method": "rule", "phase": "entry"},
+            input_data={"trigger": "首次对话", "user_input": req.message[:200]},
+            output_data={"title": rule_title, "method": "rule", "async_llm_optimize": "后台执行中"},
+            detail=f"生成会话标题「{rule_title}」（规则）",
+            status="success",
+        )
 
     # ── Step 1: 毒性检测（必须在改写之前，避免恶意输入进入任何 LLM 调用） ──
     from src.core.content_reviewer import get_content_reviewer

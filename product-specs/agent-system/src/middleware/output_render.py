@@ -74,8 +74,6 @@ class OutputRenderMiddleware(AgentMiddleware):
         self._renderers.append(renderer)
 
     def after_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
-        if not self._renderers:
-            return None
         messages = state.get("messages", [])
         if not messages:
             return None
@@ -95,13 +93,35 @@ class OutputRenderMiddleware(AgentMiddleware):
         configurable = get_config().get("configurable", {})
         metadata = configurable.get("render_metadata", {})
 
-        for renderer in self._renderers:
-            try:
-                if renderer.can_render(content, metadata):
-                    result = renderer.render(content, metadata)
-                    logger.info("Output rendered by %s", type(renderer).__name__)
-                    return {"render_result": result.text, "components": result.components}
-            except Exception as e:
-                logger.error("Renderer %s failed: %s", type(renderer).__name__, e)
+        changed = False
 
+        # ── PII 还原：将 Agent 输出中的占位符还原为原始值 ──
+        pii_placeholders = configurable.get("pii_placeholders", {})
+        if not pii_placeholders:
+            # 也尝试从 input_metadata 中获取（InputTransformMiddleware 写入）
+            input_meta = configurable.get("input_metadata", {})
+            pii_placeholders = input_meta.get("pii_placeholders", {})
+
+        if pii_placeholders:
+            from src.middleware.input_transform import PIIRedactTransformer
+            restored = PIIRedactTransformer.restore_pii(content, pii_placeholders)
+            if restored != content:
+                last_ai.content = restored
+                content = restored
+                changed = True
+                logger.info("PII 还原完成: %d 个占位符", len(pii_placeholders))
+
+        # ── 渲染器匹配 ──
+        if self._renderers:
+            for renderer in self._renderers:
+                try:
+                    if renderer.can_render(content, metadata):
+                        result = renderer.render(content, metadata)
+                        logger.info("Output rendered by %s", type(renderer).__name__)
+                        return {"render_result": result.text, "components": result.components}
+                except Exception as e:
+                    logger.error("Renderer %s failed: %s", type(renderer).__name__, e)
+
+        if changed:
+            return {"messages": [last_ai]}
         return None

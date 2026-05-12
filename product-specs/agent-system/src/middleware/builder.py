@@ -57,6 +57,7 @@ def build_middleware(
 
     middleware: list[AgentMiddleware] = [
         tracing_middleware,  # 全局单例，放最前面，记录完整链路
+        TitleMiddleware(llm=llm),  # 入口阶段：首次对话生成标题（异步不阻塞）
         AgentLoggingMiddleware(
             system_prompt=system_prompt,
             agent_name=agent_name,
@@ -149,8 +150,6 @@ def build_middleware(
             else:
                 middleware.append(MemoryMiddleware())
 
-    middleware.append(TodoMiddleware())
-
     # 子 Agent 限制（按 features 开关）
     subagent_enabled = getattr(features, "subagent_enabled", True) if features else True
     if subagent_enabled:
@@ -167,7 +166,6 @@ def build_middleware(
         ClarificationMiddleware(),
         OutputValidationMiddleware(review_service=review_service),
         OutputRenderMiddleware(),
-        TitleMiddleware(llm=llm),
     ]
 
     # 为所有中间件添加执行追踪包装（TracingMiddleware 自身除外）
