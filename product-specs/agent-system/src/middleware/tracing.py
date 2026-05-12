@@ -93,6 +93,7 @@ class TracingMiddleware(AgentMiddleware):
         "user_input":           {"phase": "context",   "name": "用户输入",       "name_en": "user_input"},
         "context_build":        {"phase": "context",   "name": "上下文构建",     "name_en": "context_build"},
         "middleware":           {"phase": "context",   "name": "中间件",         "name_en": "middleware"},
+        "title_generation":     {"phase": "post",      "name": "标题生成",       "name_en": "title_generation"},
         "memory_retrieval":     {"phase": "context",   "name": "记忆检索",       "name_en": "memory_retrieval"},
         "intent_analysis":      {"phase": "reasoning", "name": "意图分析",       "name_en": "intent_analysis"},
         "llm_input":            {"phase": "reasoning", "name": "LLM 输入准备",   "name_en": "llm_input"},

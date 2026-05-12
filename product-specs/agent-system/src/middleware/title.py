@@ -1,12 +1,15 @@
-"""会话标题生成中间件 — 异步生成，不阻塞主流程
+"""会话标题生成中间件 — 同步规则生成 + 异步 LLM 优化
 
 仅在首次对话（thread 第一条消息）时触发：
-1. after_agent 阶段检测是否需要生成标题
-2. 如果需要，启动异步任务在后台生成（LLM 优先，规则 fallback）
-3. 生成完成后持久化到 ai_conversation 表
-4. 前端通过 SSE 事件 `title_update` 接收新标题替换"新对话"
+1. aafter_agent 同步用规则生成标题（<1ms），立即记录完整 span
+2. 同步持久化规则标题到 ai_conversation 表（保证即使 LLM 失败也有标题）
+3. 启动后台任务调用 LLM 优化标题，成功后覆盖规则标题
+4. 前端通过轮询 /api/conversations 获取最终标题（规则版立即可见，LLM 版几秒后更新）
 
-不阻塞 Agent 响应流，标题生成耗时不计入用户等待时间。
+设计权衡：
+- 规则生成耗时可忽略，不阻塞主流程
+- LLM 优化异步执行，即使失败也不影响基本功能
+- Span 立即可见，链路完整
 """
 from __future__ import annotations
 
@@ -24,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class TitleMiddleware(AgentMiddleware):
-    """异步生成会话标题 — 仅首次对话触发，后台执行不阻塞"""
+    """会话标题生成 — 首次对话规则同步 + LLM 异步优化"""
 
     def __init__(self, llm: Any = None) -> None:
         super().__init__()
@@ -32,17 +35,22 @@ class TitleMiddleware(AgentMiddleware):
         self._generated: set[str] = set()  # 已生成标题的 thread_id
 
     def after_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
-        """同步版本 — 不执行任何操作，所有逻辑在 aafter_agent 中"""
-        return None
+        """同步版本 — fallback 用"""
+        return self._trigger(state, runtime, is_async=False)
 
     async def aafter_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
-        """检测是否需要生成标题，如果需要则启动异步任务"""
+        """异步版本 — LangGraph 在 astream 模式下优先调用此方法"""
+        return self._trigger(state, runtime, is_async=True)
+
+    def _trigger(self, state: AgentState, runtime: Runtime, is_async: bool) -> dict[str, Any] | None:
+        """检测首次对话，同步生成规则标题，异步启动 LLM 优化"""
         try:
             configurable = get_config().get("configurable", {})
             thread_id = configurable.get("thread_id", "")
             tenant_id = configurable.get("tenant_id", "")
             user_id = configurable.get("user_id", "")
-        except Exception:
+        except Exception as e:
+            logger.error("[TitleMiddleware] get_config failed: %s", e)
             return None
 
         # 每个 thread 只生成一次标题
@@ -50,10 +58,10 @@ class TitleMiddleware(AgentMiddleware):
             return None
 
         messages = state.get("messages", [])
-        # 只有首次对话（只有一条 user 消息）才生成标题
         user_messages = [m for m in messages if isinstance(m, HumanMessage)]
+
+        # 首次对话判断：只有一条 user 消息
         if len(user_messages) != 1:
-            # 非首次对话，标记为已处理避免后续重复检查
             if thread_id:
                 self._generated.add(thread_id)
             return None
@@ -63,7 +71,7 @@ class TitleMiddleware(AgentMiddleware):
         if not content.strip():
             return None
 
-        # 获取 Agent 回复
+        # 获取 Agent 回复（用于 LLM 优化）
         last_ai = ""
         for m in reversed(messages):
             if isinstance(m, AIMessage) and not getattr(m, "tool_calls", None):
@@ -73,48 +81,58 @@ class TitleMiddleware(AgentMiddleware):
         # 标记为已处理
         self._generated.add(thread_id)
 
-        # 启动异步任务生成标题（不阻塞 Agent 响应）
-        asyncio.ensure_future(
-            self._async_generate_and_persist(
-                thread_id, tenant_id, user_id, content, last_ai
-            )
-        )
+        # ── 同步：规则生成 + 立即记录 span + 立即持久化 ──
+        start = time.monotonic()
+        rule_title = self._rule_generate(content)
+        rule_duration_ms = (time.monotonic() - start) * 1000
+
+        # 立即持久化规则标题（即使后续 LLM 失败，也有标题）
+        self._persist_title(thread_id, tenant_id, user_id, rule_title)
+
+        # 立即记录完整 span
+        self._record_span(thread_id, rule_title, rule_duration_ms, method="rule",
+                          user_input=content, status="success")
+
+        logger.info("[TitleMiddleware] rule title='%s' (%.1fms) thread=%s",
+                    rule_title, rule_duration_ms, thread_id)
+
+        # ── 异步：LLM 优化（后台执行，成功后覆盖规则标题）──
+        if self._llm is not None and last_ai:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(
+                    self._async_llm_optimize(
+                        thread_id, tenant_id, user_id, content, last_ai, rule_title,
+                    )
+                )
+            except RuntimeError:
+                logger.debug("[TitleMiddleware] no running loop, skip LLM optimization")
 
         return None
 
-    async def _async_generate_and_persist(
+    async def _async_llm_optimize(
         self, thread_id: str, tenant_id: str, user_id: str,
-        user_input: str, agent_output: str,
+        user_input: str, agent_output: str, fallback_title: str,
     ) -> None:
-        """异步生成标题并持久化"""
+        """后台调用 LLM 优化标题，成功后覆盖规则标题"""
         start = time.monotonic()
         try:
-            title = await self._generate_title(user_input, agent_output)
-            duration_ms = (time.monotonic() - start) * 1000
-            logger.info("Title generated for thread %s: '%s' (%.0fms)",
-                        thread_id, title, duration_ms)
-
-            if title:
+            title = await asyncio.wait_for(
+                self._llm_generate(user_input, agent_output),
+                timeout=15,  # 给 LLM 足够时间（后台任务，用户已经看到规则标题）
+            )
+            if title and len(title) <= 30 and title != fallback_title:
                 self._persist_title(thread_id, tenant_id, user_id, title)
-                # 记录 tracing span
-                self._record_span(thread_id, title, duration_ms)
-
+                logger.info("[TitleMiddleware] LLM title='%s' overrode rule='%s' thread=%s",
+                            title, fallback_title, thread_id)
+            else:
+                logger.debug("[TitleMiddleware] LLM title kept: '%s' thread=%s",
+                             title, thread_id)
+        except asyncio.TimeoutError:
+            logger.warning("[TitleMiddleware] LLM timeout after %.1fs, keep rule title='%s'",
+                           time.monotonic() - start, fallback_title)
         except Exception as e:
-            logger.warning("Async title generation failed (non-fatal): %s", e)
-
-    async def _generate_title(self, user_input: str, agent_output: str) -> str:
-        """生成标题 — LLM 优先，规则 fallback"""
-        if self._llm is not None:
-            try:
-                title = await self._llm_generate(user_input, agent_output)
-                if title and len(title) <= 30:
-                    return title
-            except asyncio.TimeoutError:
-                logger.warning("LLM title generation timed out, fallback to rules")
-            except Exception as e:
-                logger.warning("LLM title generation failed: %s, fallback to rules", e)
-
-        return self._rule_generate(user_input)
+            logger.warning("[TitleMiddleware] LLM optimize failed: %s, keep rule title", e)
 
     async def _llm_generate(self, user_input: str, agent_output: str) -> str:
         """用 LLM 生成简短标题"""
@@ -124,9 +142,9 @@ class TitleMiddleware(AgentMiddleware):
             f"助手: {agent_output[:300]}\n\n"
             "标题:"
         )
-        result = await asyncio.wait_for(
-            self._llm.ainvoke(prompt, config={"callbacks": [], "tags": ["__title_internal__"]}),
-            timeout=8,
+        result = await self._llm.ainvoke(
+            prompt,
+            config={"callbacks": [], "tags": ["__title_internal__"]},
         )
         title = getattr(result, "content", None) or str(result)
         title = title.strip().strip('"').strip("'").strip("《》")
@@ -148,6 +166,32 @@ class TitleMiddleware(AgentMiddleware):
             return text[:25] + "..."
         return text or "新对话"
 
+    @staticmethod
+    def _record_span(
+        thread_id: str, title: str, duration_ms: float,
+        method: str = "rule", user_input: str = "", status: str = "success",
+    ) -> None:
+        """记录 title_generation span"""
+        try:
+            from src.middleware.tracing import tracing_middleware
+            tracing_middleware._add_to_thread(
+                thread_id, "title_generation", "title_generation", duration_ms,
+                {"title": title, "method": method},
+                input_data={
+                    "trigger": "首次对话",
+                    "user_input": user_input[:200],
+                },
+                output_data={
+                    "title": title,
+                    "method": method,
+                    "optimized_by_llm": "后续异步优化中" if method == "rule" else "已优化",
+                },
+                detail=f"首轮对话生成标题「{title}」（{method}）",
+                status=status,
+            )
+        except Exception as e:
+            logger.debug("[TitleMiddleware] record span failed: %s", e)
+
     def _persist_title(self, thread_id: str, tenant_id: str, user_id: str, title: str) -> None:
         """将标题持久化到 ai_conversation 表"""
         try:
@@ -166,28 +210,13 @@ class TitleMiddleware(AgentMiddleware):
 
                 if row:
                     conv_id, existing_title = row
-                    if not existing_title or existing_title in ('', '新对话', '对话'):
+                    # 允许覆盖：空、默认值、或规则标题（LLM 优化时会覆盖）
+                    if not existing_title or existing_title in ('', '新对话', '对话') or existing_title.endswith('...'):
                         cur.execute(
                             "UPDATE ai_conversation SET title=%s, updated_at=%s WHERE id=%s",
                             (title, now, conv_id))
-                        logger.debug("Title persisted: conv=%s title='%s'", conv_id, title)
-                else:
-                    logger.debug("Conversation not yet created for thread %s, title will be set by TraceWriter", thread_id)
+                        logger.info("[TitleMiddleware] persisted: conv=%s title='%s'", conv_id, title)
+                # conversation 不存在时（TraceWriter 尚未创建），标题会通过后续 LLM 优化再次尝试持久化
 
         except Exception as e:
-            logger.warning("Title persist failed (non-fatal): %s", e)
-
-    @staticmethod
-    def _record_span(thread_id: str, title: str, duration_ms: float) -> None:
-        """记录 tracing span"""
-        try:
-            from src.middleware.tracing import tracing_middleware
-            tracing_middleware._add_to_thread(
-                thread_id, "middleware", "TitleMiddleware", duration_ms,
-                {"title": title, "method": "llm" if duration_ms > 100 else "rule"},
-                input_data={"trigger": "首次对话"},
-                output_data={"title": title},
-                detail=f"生成标题: {title}",
-            )
-        except Exception:
-            pass
+            logger.warning("[TitleMiddleware] persist failed: %s", e)

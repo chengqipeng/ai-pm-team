@@ -1,6 +1,7 @@
 # NeoAgent2.0 整体设计方案
 
 > 面向 2B CRM SaaS 的企业级 Agent 系统完整设计。
+> 融合 Claude Code + NeoAgents + OpenViking/Hermes 四大体系精华。
 > 本文档是系统全貌概览，各子系统详细设计见独立文档（记忆 / 上下文压缩 / 内容审查 / 协议 / 数据库表 等）。
 
 ---
@@ -18,7 +19,7 @@ NeoAgent2.0 是面向 2B CRM SaaS 场景的智能 Agent 系统，在 aPaaS 元�
   - `preferences` — 用户偏好与习惯（按语义 slug 拆分）
   - `agent_rules` — 用户对 Agent 的角色定义与行为准则
   - `entities` — 客户 / 联系人 / 商机 / 合同等第三方实体的信息与洞察
-- **执行任务** — 通过 Tool + Skill + Plugin 三层能力体系完成查询、分析、修改、配置、通知等任务
+- **执行任务** — 通过 Tool + Skill + Middleware 三层能力体系完成查询、分析、修改、配置、通知等任务
 - **开放协议** — 通过 **AG-UI**（Agent ↔ UI 事件协议）和 **A2UI**（Agent-to-UI 动态组件协议）让前端实时感知 Agent 执行、按需渲染专用业务组件
 - **持续进化** — 反思 + 遗忘机制保证记忆质量；工具与技能的执行统计沉淀在独立的指标存储中（非记忆体系），通过 SkillTracker / SkillOptimizer 驱动技能迭代
 
@@ -32,7 +33,7 @@ NeoAgent2.0 是面向 2B CRM SaaS 场景的智能 Agent 系统，在 aPaaS 元�
 | 上下文效率 | 单轮对话上下文占用 < 30% 窗口（64K–200K tokens） |
 | 响应延迟 | 首 token P95 < 3s，完整回复 P95 < 15s |
 | 记忆精度 | 记忆检索 Top-5 命中率 > 80% |
-| 可扩展性 | 新增 Tool / Skill / Plugin 无需修改框架代码 |
+| 可扩展性 | 新增 Tool / Skill / Middleware 无需修改框架代码 |
 | 容错恢复 | 支持检查点恢复，LLM/工具失败按级别分级处理（16 级错误体系） |
 | 安全合规 | 输入输出内容审查 + 危险操作 HITL 审批 + 完整审计日志 |
 
@@ -53,7 +54,7 @@ NeoAgent2.0 是面向 2B CRM SaaS 场景的智能 Agent 系统，在 aPaaS 元�
 
 #### 1.3.1 LLM 多厂商支持
 
-Agent 通过 `llm-plugin` 统一接入多家 LLM 厂商，租户可按需配置主模型与辅助模型：
+Agent 通过 `llm-middleware` 统一接入多家 LLM 厂商，租户可按需配置主模型与辅助模型：
 
 | 厂商 | 接入方式 | 典型场景 |
 |:---|:---|:---|
@@ -79,7 +80,7 @@ Agent 通过 `llm-plugin` 统一接入多家 LLM 厂商，租户可按需配置�
 | 代码生成 | 代码专长模型 | 代码质量 |
 | 嵌入（Embedding） | 嵌入模型 | 向量检索 |
 
-租户级配置：可在 `llm-plugin` 配置中为每种 TaskType 指定厂商 + 具体模型，支持按租户 / 按会话覆盖。具体模型 ID 随厂商迭代演进，不在架构文档中固定。
+租户级配置：可在 `llm-middleware` 配置中为每种 TaskType 指定厂商 + 具体模型，支持按租户 / 按会话覆盖。具体模型 ID 随厂商迭代演进，不在架构文档中固定。
 
 > 底层 Agent 编排基于开源 Agent 框架构建（通过 `create_agent` 接口与中间件栈集成），但本文档保持**框架无关的设计语言**，聚焦抽象层与业务约束。
 
@@ -121,7 +122,7 @@ Agent 通过 `llm-plugin` 统一接入多家 LLM 厂商，租户可按需配置�
 ┌──────────────────────────▼─────────────────────────────────┐
 │  能力层（三维度）                                            │
 │  ┌─────────────┐  ┌─────────────┐  ┌───────────────────┐   │
-│  │ ToolRegistry│  │SkillRegistry│  │  PluginRegistry   │   │
+│  │ ToolRegistry│  │SkillRegistry│  │  MiddlewareRegistry   │   │
 │  │ 15 个 CRM   │  │ 12 个业务    │  │  9 个基础设施     │   │
 │  │ 原子工具    │  │ 技能         │  │  可插拔能力       │   │
 │  └─────────────┘  └─────────────┘  └───────────────────┘   │
@@ -357,7 +358,7 @@ class Middleware(Protocol):
 | 3 | DanglingToolCallMiddleware | before_agent | 修复遗留的未闭合 tool_call |
 | 4 | FileProcessMiddleware | before_agent | **多模态**：解析上传文件 → `parsed_files`，识别 image / document |
 | 5 | InputTransformMiddleware | before_agent | 输入预处理管线（见 4.3） |
-| 6 | MemoryMiddleware | before_agent / after_agent | 记忆召回 + 提取写入（Plugin 提供） |
+| 6 | MemoryMiddleware | before_agent / after_agent | 记忆召回 + 提取写入（Middleware 提供） |
 | 7 | SummarizationMiddleware | before_model | 上下文压缩（四层架构，见第七章） |
 | 8 | TodoMiddleware | before_model | 任务清单管理 |
 | 9 | SubagentLimitMiddleware | before_tool_call | 子 Agent 并发数限制 |
@@ -401,7 +402,7 @@ class Middleware(Protocol):
 
 ## 五、能力层（三维度）
 
-> 核心原则：Tool 是 LLM 的手，Skill 是 Agent 的 SOP，Plugin 是系统的器官。三者单向依赖：Skill 编排 Tool → Tool 调用 Plugin 接口 → Plugin 不感知 Tool 存在。
+> 核心原则：Tool 是 LLM 的手，Skill 是 Agent 的 SOP，Middleware 是系统的器官。三者单向依赖：Skill 编排 Tool → Tool 调用 Middleware 接口 → Middleware 不感知 Tool 存在。
 
 ### 5.1 边界定义
 
@@ -410,16 +411,16 @@ class Middleware(Protocol):
 │ Tool（工具）= LLM 的手                                       │
 │   一次原子操作，LLM 通过 function calling 直接调用。         │
 │   输入参数 → 执行 → 返回结果。无状态、单步、确定性。           │
-│   统一由 ToolRegistry 管理，不允许 Plugin 直接注册。          │
+│   统一由 ToolRegistry 管理，不允许 Middleware 直接注册。          │
 └─────────────────────────────────────────────────────────────┘
                               │
                               │ 调用
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ Plugin（插件）= 系统的器官                                   │
+│ Middleware（中间件）= 系统的器官                                   │
 │   可插拔基础设施能力：LLM / Memory / Search / Notification…  │
 │   有生命周期、有配置、有状态，影响 Agent 整体行为。            │
-│   通过 PluginContext 向 Tool / Middleware 提供能力。          │
+│   通过 MiddlewareContext 向 Tool / Middleware 提供能力。          │
 └─────────────────────────────────────────────────────────────┘
                               ▲
                               │ 编排
@@ -439,97 +440,97 @@ class Middleware(Protocol):
 ```
 Q1: LLM 能一次调用直接完成吗？   → 是 → Tool
 Q2: 需要多步推理、多次工具调用？ → 是 → Skill
-Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Plugin
+Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Middleware
 ```
 
 ---
 
-### 5.3 Plugin 维度（9 个基础设施插件）
+### 5.3 Middleware 维度（9 个基础设施中间件）
 
-#### 5.3.1 Plugin 接口
+#### 5.3.1 Middleware 接口
 
 ```python
-class Plugin(ABC):
-    name: str                              # 插件唯一名称
+class Middleware(ABC):
+    name: str                              # 中间件唯一名称
     version: str
 
     async def initialize(self, config: dict) -> None: ...   # 生命周期：启动
     async def shutdown(self) -> None: ...                   # 生命周期：关闭
     def is_healthy(self) -> bool: ...                       # 健康检查
 
-    # 向 PluginContext 暴露的接口由各 Plugin 自行定义
-    # 如 memory_plugin.recall() / search_plugin.search() / llm_plugin.complete()
+    # 向 MiddlewareContext 暴露的接口由各 Middleware 自行定义
+    # 如 memory_middleware.recall() / search_middleware.search() / llm_middleware.complete()
 ```
 
-#### 5.3.2 PluginContext — Tool 访问 Plugin 的统一入口
+#### 5.3.2 MiddlewareContext — Tool 访问 Middleware 的统一入口
 
 ```python
 @dataclass
-class PluginContext:
-    """Tool 调用时传入的上下文，通过它访问所有已启用的 Plugin。
+class MiddlewareContext:
+    """Tool 调用时传入的上下文，通过它访问所有已启用的 Middleware。
 
-    核心约束：Plugin 未启用时，context 对应字段为 None。
+    核心约束：Middleware 未启用时，context 对应字段为 None。
     Tool 的 is_enabled() 据此判断是否在工具列表中暴露。
     """
     tenant_id: str
     user_id: str
     session_id: str
 
-    llm: LLMPlugin | None = None
-    memory: MemoryPlugin | None = None
-    search: SearchPlugin | None = None
-    company: CompanyDataPlugin | None = None
-    financial: FinancialDataPlugin | None = None
-    notification: NotificationPlugin | None = None
-    doc_parse: DocumentParsePlugin | None = None
-    image_gen: ImageGenPlugin | None = None
-    audit: AuditPlugin | None = None
+    llm: LLMMiddleware | None = None
+    memory: MemoryMiddleware | None = None
+    search: SearchMiddleware | None = None
+    company: CompanyDataMiddleware | None = None
+    financial: FinancialDataMiddleware | None = None
+    notification: NotificationMiddleware | None = None
+    doc_parse: DocumentParseMiddleware | None = None
+    image_gen: ImageGenMiddleware | None = None
+    audit: AuditMiddleware | None = None
 
     tool_registry: ToolRegistry | None = None
     skill_registry: SkillRegistry | None = None
 ```
 
-#### 5.3.3 7 个核心 Plugin
+#### 5.3.3 7 个核心 Middleware
 
-| Plugin | 职责 | 向 Context 暴露 | 替代性 | 依赖的 Tool |
+| Middleware | 职责 | 向 Context 暴露 | 替代性 | 依赖的 Tool |
 |:---|:---|:---|:---:|:---|
-| `llm-plugin` | LLM 网关（主模型 + 辅助模型路由） | `context.llm` | ✅ 可切换供应商 | 所有（基础设施） |
-| `memory-plugin` | 长期记忆引擎（VikingMemoryEngine） | `context.memory` | ✅ 可替换后端 | search_memories, save_memory |
-| `search-plugin` | 网络搜索（可替换供应商） | `context.search` | ✅ | web_search |
-| `company-data-plugin` | 企业工商数据 | `context.company` | ✅ | company_info |
-| `financial-data-plugin` | 上市公司财报 | `context.financial` | ✅ | financial_report |
-| `notification-plugin` | 推送通知（IM / 邮件 / 短信） | `context.notification` | ✅ | send_notification |
-| `document-parse-plugin` | 多模态文档解析（LKEAP / Tika / Unstructured 等） | `context.doc_parse` | ✅ | load_file_content |
-| `image-gen-plugin` | AI 生图（OpenAI / 字节豆包 / 百度文心一格 等供应商可替换） | `context.image_gen` | ✅ | generate_image |
-| `audit-plugin` | 审计日志（合规） | `context.audit` | ✅ | 所有中间件 |
+| `llm-middleware` | LLM 网关（主模型 + 辅助模型路由） | `context.llm` | ✅ 可切换供应商 | 所有（基础设施） |
+| `memory-middleware` | 长期记忆引擎（VikingMemoryEngine） | `context.memory` | ✅ 可替换后端 | search_memories, save_memory |
+| `search-middleware` | 网络搜索（可替换供应商） | `context.search` | ✅ | web_search |
+| `company-data-middleware` | 企业工商数据 | `context.company` | ✅ | company_info |
+| `financial-data-middleware` | 上市公司财报 | `context.financial` | ✅ | financial_report |
+| `notification-middleware` | 推送通知（IM / 邮件 / 短信） | `context.notification` | ✅ | send_notification |
+| `document-parse-middleware` | 多模态文档解析（LKEAP / Tika / Unstructured 等） | `context.doc_parse` | ✅ | load_file_content |
+| `image-gen-middleware` | AI 生图（OpenAI / 字节豆包 / 百度文心一格 等供应商可替换） | `context.image_gen` | ✅ | generate_image |
+| `audit-middleware` | 审计日志（合规） | `context.audit` | ✅ | 所有中间件 |
 
-#### 5.3.4 Plugin 生命周期
+#### 5.3.4 Middleware 生命周期
 
 ```
 启动阶段（租户初始化时）:
-  PluginRegistry.load(tenant_config)
-    → 读取租户的 Plugin 启用列表
+  MiddlewareRegistry.load(tenant_config)
+    → 读取租户的 Middleware 启用列表
     → 按依赖关系排序
-    → plugin.initialize(config)
-    → 注入 PluginContext
+    → middleware.initialize(config)
+    → 注入 MiddlewareContext
 
 运行阶段:
   Tool.call(input_data, context)
-    → 通过 context.xxx 访问 Plugin
-    → Plugin 接口调用
+    → 通过 context.xxx 访问 Middleware
+    → Middleware 接口调用
 
 关闭阶段（租户卸载 / 服务关停）:
-  按启动逆序 plugin.shutdown()
+  按启动逆序 middleware.shutdown()
     → 释放连接、清理缓存
 ```
 
-#### 5.3.5 Plugin 的权力边界
+#### 5.3.5 Middleware 的权力边界
 
 | 能做 | 不能做 |
 |:---|:---|
 | 提供基础设施接口（存储 / 检索 / 通知 …） | 直接注册 Tool（破坏 ToolRegistry 唯一真相源） |
-| 注入 Middleware（如 memory-plugin 注入 MemoryMiddleware） | 修改其他 Plugin 的状态 |
-| 订阅 Agent 生命周期事件 | 直接与 LLM 通信绕过 llm-plugin |
+| 注入 Middleware（如 memory-middleware 注入 MemoryMiddleware） | 修改其他 Middleware 的状态 |
+| 订阅 Agent 生命周期事件 | 直接与 LLM 通信绕过 llm-middleware |
 | 对外暴露管理 API（配额 / 开关 / 健康） | 跨租户共享状态 |
 
 ---
@@ -551,7 +552,7 @@ class Tool(ABC):
     search_hint: str | None                                # 延迟加载的搜索关键词
     should_defer: bool = False                             # 是否延迟加载
     tags: list[str]
-    def is_enabled(self, context) -> bool: ...             # 运行时开关（检查 Plugin）
+    def is_enabled(self, context) -> bool: ...             # 运行时开关（检查 Middleware）
 
     # ══ 安全与权限 ══
     def validate_input(self, input_data) -> ValidationResult: ...
@@ -571,7 +572,7 @@ class Tool(ABC):
 
 按用户业务场景组织（而非技术 API），底层通过 aPaaS 元数据驱动实现通用性：
 
-| 分类 | 工具名 | 典型用户表达 | 依赖 Plugin |
+| 分类 | 工具名 | 典型用户表达 | 依赖 Middleware |
 |:---|:---|:---|:---|
 | **查系统数据** | query_data | "查一下上个月的客户" | — |
 | | modify_data | "建一个新客户" / "删除测试数据" | — |
@@ -579,15 +580,15 @@ class Tool(ABC):
 | **管系统配置** | query_schema | "客户有哪些字段" | — |
 | | modify_schema | "加一个行业字段" | — |
 | | query_permission | "谁能看这些数据" | — |
-| **查外部信息** | web_search | "搜一下行业动态" | search-plugin |
-| | company_info | "查公司背景" | company-data-plugin |
-| | financial_report | "看财务状况" | financial-data-plugin |
+| **查外部信息** | web_search | "搜一下行业动态" | search-middleware |
+| | company_info | "查公司背景" | company-data-middleware |
+| | financial_report | "看财务状况" | financial-data-middleware |
 | **协作与记忆** | ask_user | "你想怎么分析？" | — |
-| | search_memories | "之前怎么解决的" | memory-plugin |
-| | save_memory | "记住这个偏好" | memory-plugin |
-| | send_notification | "通知销售经理" | notification-plugin |
-| **多模态** | load_file_content | "看看我刚上传的合同" / "这张截图里写的什么" | document-parse-plugin（文档）/ 直接走 VLM（图片） |
-| | generate_image | "画一个产品架构图" | image-gen-plugin |
+| | search_memories | "之前怎么解决的" | memory-middleware |
+| | save_memory | "记住这个偏好" | memory-middleware |
+| | send_notification | "通知销售经理" | notification-middleware |
+| **多模态** | load_file_content | "看看我刚上传的合同" / "这张截图里写的什么" | document-parse-middleware（文档）/ 直接走 VLM（图片） |
+| | generate_image | "画一个产品架构图" | image-gen-middleware |
 | **任务编排** | delegate_task | "帮我校验配置" | — |
 | | start_async_task | "后台调研竞品" | — |
 
@@ -699,20 +700,20 @@ class SkillDefinition:
 
 #### 5.5.2 12 个内置 Skill
 
-| Skill | 功能 | 模式 | 允许工具 | 依赖 Plugin |
+| Skill | 功能 | 模式 | 允许工具 | 依赖 Middleware |
 |:---|:---|:---:|:---|:---|
 | verify_config | 元数据配置校验 | inline | query_schema | — |
-| diagnose | 业务问题诊断 | fork | query_schema, query_data, query_permission, search_memories | memory-plugin |
+| diagnose | 业务问题诊断 | fork | query_schema, query_data, query_permission, search_memories | memory-middleware |
 | config_entity | 业务对象配置向导 | fork | query_schema, query_data, ask_user | — |
 | batch_data | 批量数据操作 | fork | query_data, modify_data, ask_user | — |
 | data_analysis | 业务数据分析 | fork | query_schema, query_data, analyze_data | — |
 | migration | 数据迁移 | fork | query_schema, modify_data, ask_user | — |
 | permission_audit | 权限审计 | fork | query_permission, query_data, query_schema | — |
 | skillify | 操作转技能 | fork | 全部 | — |
-| competitive_analysis | 竞品分析 | fork | web_search, company_info, financial_report, query_data | search/company/financial-plugin |
-| customer_onboarding | 客户入职引导 | fork | query_data, query_schema, ask_user, send_notification | notification-plugin |
-| deal_coaching | 商机辅导 | fork | query_data, analyze_data, search_memories | memory-plugin |
-| report_generation | 报告生成 | fork | query_data, analyze_data, web_search | search-plugin |
+| competitive_analysis | 竞品分析 | fork | web_search, company_info, financial_report, query_data | search/company/financial-middleware |
+| customer_onboarding | 客户入职引导 | fork | query_data, query_schema, ask_user, send_notification | notification-middleware |
+| deal_coaching | 商机辅导 | fork | query_data, analyze_data, search_memories | memory-middleware |
+| report_generation | 报告生成 | fork | query_data, analyze_data, web_search | search-middleware |
 
 #### 5.5.3 两种执行模式
 
@@ -779,7 +780,7 @@ timeout_ms: 45000
                             SkillGenerator 运行时写入
 4. 租户数据库技能（tenant）   ai_skill_definition 表存储，按租户加载
                             租户管理后台可配置，热更新
-5. Plugin 提供的技能         Plugin.initialize 阶段向 SkillRegistry 注册
+5. Middleware 提供的技能         Middleware.initialize 阶段向 SkillRegistry 注册
 ```
 
 #### 5.5.6 Skill 扩展路径（从简单到复杂）
@@ -835,18 +836,18 @@ SkillRegistry 监听配置变更事件 → 热更新
 
 适合：每个租户业务流程不同，需要独立配置的场景。
 
-**路径 D：Plugin 提供技能**（最重）
+**路径 D：Middleware 提供技能**（最重）
 
 ```python
-class MyPlugin(Plugin):
+class MyMiddleware(Middleware):
     async def initialize(self, config):
-        # Plugin 启动时向 SkillRegistry 注册一批技能
+        # Middleware 启动时向 SkillRegistry 注册一批技能
         from .skills import MY_SKILL_1, MY_SKILL_2
         config.skill_registry.register(MY_SKILL_1)
         config.skill_registry.register(MY_SKILL_2)
 ```
 
-适合：需要打包一组相关技能 + 配套 Tool + 基础设施的完整能力模块（如"财报分析 Plugin"同时提供 financial_report Tool + 3 个财报解读 Skill）。
+适合：需要打包一组相关技能 + 配套 Tool + 基础设施的完整能力模块（如"财报分析 Middleware"同时提供 financial_report Tool + 3 个财报解读 Skill）。
 
 #### 5.5.7 SOP 提示词编写指南
 
@@ -1022,7 +1023,7 @@ SkillGenerator.should_generate(messages)?  # tool_count >= 5
         │                      │                      │
         ▼                      ▼                      ▼
   ┌───────────┐          ┌───────────┐          ┌───────────┐
-  │   Tool    │          │   Skill   │          │  Plugin   │
+  │   Tool    │          │   Skill   │          │  Middleware   │
   │ (LLM直调) │          │(Agent SOP)│          │(基础设施) │
   └─────┬─────┘          └─────┬─────┘          └─────▲─────┘
         │                      │                      │
@@ -1031,7 +1032,7 @@ SkillGenerator.should_generate(messages)?  # tool_count >= 5
                                │
                                ▼
                      ┌──────────────────┐
-                     │   Plugin Context │
+                     │   Middleware Context │
                      │ (llm/memory/...)  │
                      └──────────────────┘
 ```
@@ -1040,7 +1041,7 @@ SkillGenerator.should_generate(messages)?  # tool_count >= 5
 
 ## 六、记忆系统（VikingMemoryEngine）
 
-> 由 memory-plugin 提供，详见《VikingMemoryEngine-长期记忆系统设计.md》《记忆提取与检索.md》《记忆遗忘与反思-设计方案.md》《记忆与系统数据一致性设计.md》。
+> 由 memory-middleware 提供，详见《VikingMemoryEngine-长期记忆系统设计.md》《记忆提取与检索.md》《记忆遗忘与反思-设计方案.md》《记忆与系统数据一致性设计.md》。
 
 ### 6.1 4 类分类体系
 
@@ -1483,7 +1484,7 @@ VLM 的视觉理解能力 + AG-UI 的流式推理事件 = 前端可以把"Agent 
 ### 9.2 继承与隔离
 
 ```
-继承: tenant_id / user_id / llm-plugin / memory-plugin / 审计日志
+继承: tenant_id / user_id / llm-middleware / memory-middleware / 审计日志
 隔离: messages（独立历史）/ session_id（派生）/ notification（不发）/ HITL（不弹）
 限制: 工具按 agent_type 裁剪 / max_llm_calls 独立 / depth ≤ 3
 ```
@@ -1904,13 +1905,13 @@ idx_message_ext_type       (message_id, type)
 before_step:
   1. 根据 state.tenant_id 加载租户配置
   2. 注入租户上下文到 system prompt（名称 / 行业 / 规模）
-  3. 按租户开关过滤 Tool / Skill / Plugin
+  3. 按租户开关过滤 Tool / Skill / Middleware
   4. 隔离记忆空间（所有查询加 tenant_id 过滤）
   5. 隔离审计日志
   6. 隔离上传文件（COS 路径按 tenant_id 分隔）
 ```
 
-### 13.2 审计日志（AuditMiddleware + audit-plugin）
+### 13.2 审计日志（AuditMiddleware + audit-middleware）
 
 记录维度：
 
@@ -1936,13 +1937,13 @@ before_step:
 
 ## 十四、核心设计原则
 
-1. **抽象层优先** — Router / Node / Middleware / Plugin 接口稳定，底层框架可替换
-2. **单向依赖** — Skill → Tool → Plugin，逆向禁止
-3. **ToolRegistry 唯一真相源** — 禁止 Plugin 直接注册 Tool，Tool 通过 `is_enabled()` 检查 Plugin
+1. **抽象层优先** — Router / Node / Middleware / Middleware 接口稳定，底层框架可替换
+2. **单向依赖** — Skill → Tool → Middleware，逆向禁止
+3. **ToolRegistry 唯一真相源** — 禁止 Middleware 直接注册 Tool，Tool 通过 `is_enabled()` 检查 Middleware
 4. **元数据驱动** — 业务对象、字段、权限全部走 aPaaS 元数据，Agent 不硬编码业务 Schema
 5. **租户隔离优先** — 所有存储、缓存、队列、索引、上传文件都按 tenant_id 分隔
 6. **多模态原生** — 图片 / 文档 / 语音 / 生成物作为一等公民，不绕弯子做文本转换
 7. **协议开放** — AG-UI + A2UI 标准化事件与组件协议，前端按协议对接即可，不锁定实现
-8. **优雅降级** — 审查 / 记忆 / Plugin / 文件解析失败不阻塞主流程
+8. **优雅降级** — 审查 / 记忆 / Middleware / 文件解析失败不阻塞主流程
 9. **可观测** — 从 LLM 调用到文件解析全链路 span 可追溯
 10. **渐进沉淀** — 会话 → 记忆 → 技能，用户行为持续反哺系统能力

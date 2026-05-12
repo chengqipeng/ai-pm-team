@@ -5,230 +5,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NeoAgent2.0 整体设计方案</title>
 <style>
-:root {
-  --bg: #ffffff;
-  --text: #1a1a2e;
-  --heading: #16213e;
-  --accent: #0f3460;
-  --border: #e0e0e0;
-  --code-bg: #f5f5f5;
-  --table-header: #f0f4f8;
-  --table-border: #d0d7de;
-  --link: #0969da;
-  --blockquote-bg: #f6f8fa;
-  --blockquote-border: #d0d7de;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  line-height: 1.75;
-  color: var(--text);
-  background: var(--bg);
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 40px 24px 80px;
-  font-size: 15px;
-}
-
-h1 {
-  font-size: 2em;
-  color: var(--heading);
-  border-bottom: 3px solid var(--accent);
-  padding-bottom: 12px;
-  margin-top: 48px;
-}
-
-h2 {
-  font-size: 1.5em;
-  color: var(--heading);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 8px;
-  margin-top: 48px;
-}
-
-h3 {
-  font-size: 1.25em;
-  color: var(--heading);
-  margin-top: 32px;
-}
-
-h4 {
-  font-size: 1.1em;
-  color: var(--heading);
-  margin-top: 24px;
-}
-
-h5, h6 {
-  font-size: 1em;
-  color: var(--heading);
-}
-
-a {
-  color: var(--link);
-  text-decoration: none;
-}
-
-a:hover {
-  text-decoration: underline;
-}
-
-p {
-  margin: 12px 0;
-}
-
-blockquote {
-  background: var(--blockquote-bg);
-  border-left: 4px solid var(--blockquote-border);
-  margin: 16px 0;
-  padding: 12px 20px;
-  color: #57606a;
-}
-
-blockquote p {
-  margin: 4px 0;
-}
-
-code {
-  font-family: "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.88em;
-  background: var(--code-bg);
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-pre {
-  background: #1e1e2e;
-  color: #cdd6f4;
-  padding: 20px;
-  border-radius: 8px;
-  overflow-x: auto;
-  line-height: 1.5;
-  margin: 16px 0;
-}
-
-pre code {
-  background: none;
-  padding: 0;
-  font-size: 0.85em;
-  color: inherit;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 16px 0;
-  font-size: 0.92em;
-}
-
-thead {
-  background: var(--table-header);
-}
-
-th, td {
-  border: 1px solid var(--table-border);
-  padding: 10px 14px;
-  text-align: left;
-}
-
-th {
-  font-weight: 600;
-  color: var(--heading);
-}
-
-tr:nth-child(even) {
-  background: #f9fafb;
-}
-
-ul, ol {
-  padding-left: 24px;
-  margin: 8px 0;
-}
-
-li {
-  margin: 4px 0;
-}
-
-hr {
-  border: none;
-  border-top: 2px solid var(--border);
-  margin: 40px 0;
-}
-
-strong {
-  color: var(--heading);
-}
-
-.headerlink {
-  font-size: 0.8em;
-  margin-left: 6px;
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-h1:hover .headerlink,
-h2:hover .headerlink,
-h3:hover .headerlink,
-h4:hover .headerlink {
-  opacity: 0.5;
-}
-
-.toc {
-  background: var(--blockquote-bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 20px 24px;
-  margin: 24px 0;
-}
-
-.toc ul {
-  list-style: none;
-  padding-left: 16px;
-}
-
-.toc > ul {
-  padding-left: 0;
-}
-
-.toc li {
-  margin: 4px 0;
-}
-
-@media print {
-  body {
-    max-width: 100%;
-    padding: 20px;
-    font-size: 12px;
-  }
-  pre {
-    background: #f5f5f5 !important;
-    color: #333 !important;
-    border: 1px solid #ddd;
-  }
-  h1, h2, h3 {
-    page-break-after: avoid;
-  }
-  table {
-    page-break-inside: avoid;
-  }
-}
-
-@media (max-width: 768px) {
-  body {
-    padding: 20px 16px;
-    font-size: 14px;
-  }
-  table {
-    display: block;
-    overflow-x: auto;
-  }
-  pre {
-    padding: 12px;
-  }
-}
+:root { --bg:#fff; --text:#1a1a2e; --heading:#16213e; --accent:#0f3460; --border:#e0e0e0; --code-bg:#f5f5f5; --table-header:#f0f4f8; --table-border:#d0d7de; --link:#0969da; --blockquote-bg:#f6f8fa; --blockquote-border:#d0d7de; }
+* { box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; line-height: 1.75; color: var(--text); background: var(--bg); max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; font-size: 15px; }
+h1 { font-size: 2em; color: var(--heading); border-bottom: 3px solid var(--accent); padding-bottom: 12px; margin-top: 48px; }
+h2 { font-size: 1.5em; color: var(--heading); border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-top: 48px; }
+h3 { font-size: 1.25em; color: var(--heading); margin-top: 32px; }
+h4 { font-size: 1.1em; color: var(--heading); margin-top: 24px; }
+h5, h6 { font-size: 1em; color: var(--heading); }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+p { margin: 12px 0; }
+blockquote { background: var(--blockquote-bg); border-left: 4px solid var(--blockquote-border); margin: 16px 0; padding: 12px 20px; color: #57606a; }
+blockquote p { margin: 4px 0; }
+code { font-family: "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace; font-size: 0.88em; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; }
+pre { background: #1e1e2e; color: #cdd6f4; padding: 20px; border-radius: 8px; overflow-x: auto; line-height: 1.5; margin: 16px 0; }
+pre code { background: none; padding: 0; font-size: 0.85em; color: inherit; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.92em; }
+thead { background: var(--table-header); }
+th, td { border: 1px solid var(--table-border); padding: 10px 14px; text-align: left; }
+th { font-weight: 600; color: var(--heading); }
+tr:nth-child(even) { background: #f9fafb; }
+ul, ol { padding-left: 24px; margin: 8px 0; }
+li { margin: 4px 0; }
+hr { border: none; border-top: 2px solid var(--border); margin: 40px 0; }
+strong { color: var(--heading); }
+.headerlink { font-size: 0.8em; margin-left: 6px; opacity: 0; transition: opacity 0.2s; }
+h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .headerlink { opacity: 0.5; }
+@media print { body { max-width: 100%; padding: 20px; font-size: 12px; } pre { background: #f5f5f5 !important; color: #333 !important; border: 1px solid #ddd; } h1, h2, h3 { page-break-after: avoid; } table { page-break-inside: avoid; } }
+@media (max-width: 768px) { body { padding: 20px 16px; font-size: 14px; } table { display: block; overflow-x: auto; } pre { padding: 12px; } }
 </style>
 </head>
 <body>
@@ -250,7 +55,7 @@ h4:hover .headerlink {
 <li><code>preferences</code> — 用户偏好与习惯（按语义 slug 拆分）</li>
 <li><code>agent_rules</code> — 用户对 Agent 的角色定义与行为准则</li>
 <li><code>entities</code> — 客户 / 联系人 / 商机 / 合同等第三方实体的信息与洞察</li>
-<li><strong>执行任务</strong> — 通过 Tool + Skill + Plugin 三层能力体系完成查询、分析、修改、配置、通知等任务</li>
+<li><strong>执行任务</strong> — 通过 Tool + Skill + Middleware 三层能力体系完成查询、分析、修改、配置、通知等任务</li>
 <li><strong>开放协议</strong> — 通过 <strong>AG-UI</strong>（Agent ↔ UI 事件协议）和 <strong>A2UI</strong>（Agent-to-UI 动态组件协议）让前端实时感知 Agent 执行、按需渲染专用业务组件</li>
 <li><strong>持续进化</strong> — 反思 + 遗忘机制保证记忆质量；工具与技能的执行统计沉淀在独立的指标存储中（非记忆体系），通过 SkillTracker / SkillOptimizer 驱动技能迭代</li>
 </ul>
@@ -289,7 +94,7 @@ h4:hover .headerlink {
 </tr>
 <tr>
 <td style="text-align: left;">可扩展性</td>
-<td style="text-align: left;">新增 Tool / Skill / Plugin 无需修改框架代码</td>
+<td style="text-align: left;">新增 Tool / Skill / Middleware 无需修改框架代码</td>
 </tr>
 <tr>
 <td style="text-align: left;">容错恢复</td>
@@ -364,7 +169,7 @@ h4:hover .headerlink {
 </tbody>
 </table>
 <h4 id="131-llm">1.3.1 LLM 多厂商支持<a class="headerlink" href="#131-llm" title="Permanent link">&para;</a></h4>
-<p>Agent 通过 <code>llm-plugin</code> 统一接入多家 LLM 厂商，租户可按需配置主模型与辅助模型：</p>
+<p>Agent 通过 <code>llm-middleware</code> 统一接入多家 LLM 厂商，租户可按需配置主模型与辅助模型：</p>
 <table>
 <thead>
 <tr>
@@ -468,7 +273,7 @@ h4:hover .headerlink {
 </tr>
 </tbody>
 </table>
-<p>租户级配置：可在 <code>llm-plugin</code> 配置中为每种 TaskType 指定厂商 + 具体模型，支持按租户 / 按会话覆盖。具体模型 ID 随厂商迭代演进，不在架构文档中固定。</p>
+<p>租户级配置：可在 <code>llm-middleware</code> 配置中为每种 TaskType 指定厂商 + 具体模型，支持按租户 / 按会话覆盖。具体模型 ID 随厂商迭代演进，不在架构文档中固定。</p>
 <blockquote>
 <p>底层 Agent 编排基于开源 Agent 框架构建（通过 <code>create_agent</code> 接口与中间件栈集成），但本文档保持<strong>框架无关的设计语言</strong>，聚焦抽象层与业务约束。</p>
 </blockquote>
@@ -506,7 +311,7 @@ h4:hover .headerlink {
 ┌──────────────────────────▼─────────────────────────────────┐
 │  能力层（三维度）                                            │
 │  ┌─────────────┐  ┌─────────────┐  ┌───────────────────┐   │
-│  │ ToolRegistry│  │SkillRegistry│  │  PluginRegistry   │   │
+│  │ ToolRegistry│  │SkillRegistry│  │  MiddlewareRegistry   │   │
 │  │ 15 个 CRM   │  │ 12 个业务    │  │  9 个基础设施     │   │
 │  │ 原子工具    │  │ 技能         │  │  可插拔能力       │   │
 │  └─────────────┘  └─────────────┘  └───────────────────┘   │
@@ -882,7 +687,7 @@ h4:hover .headerlink {
 <td style="text-align: center;">6</td>
 <td style="text-align: left;">MemoryMiddleware</td>
 <td style="text-align: left;">before_agent / after_agent</td>
-<td style="text-align: left;">记忆召回 + 提取写入（Plugin 提供）</td>
+<td style="text-align: left;">记忆召回 + 提取写入（Middleware 提供）</td>
 </tr>
 <tr>
 <td style="text-align: center;">7</td>
@@ -995,23 +800,23 @@ h4:hover .headerlink {
 <hr />
 <h2 id="_5">五、能力层（三维度）<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
 <blockquote>
-<p>核心原则：Tool 是 LLM 的手，Skill 是 Agent 的 SOP，Plugin 是系统的器官。三者单向依赖：Skill 编排 Tool → Tool 调用 Plugin 接口 → Plugin 不感知 Tool 存在。</p>
+<p>核心原则：Tool 是 LLM 的手，Skill 是 Agent 的 SOP，Middleware 是系统的器官。三者单向依赖：Skill 编排 Tool → Tool 调用 Middleware 接口 → Middleware 不感知 Tool 存在。</p>
 </blockquote>
 <h3 id="51">5.1 边界定义<a class="headerlink" href="#51" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code>┌─────────────────────────────────────────────────────────────┐
 │ Tool（工具）= LLM 的手                                       │
 │   一次原子操作，LLM 通过 function calling 直接调用。         │
 │   输入参数 → 执行 → 返回结果。无状态、单步、确定性。           │
-│   统一由 ToolRegistry 管理，不允许 Plugin 直接注册。          │
+│   统一由 ToolRegistry 管理，不允许 Middleware 直接注册。          │
 └─────────────────────────────────────────────────────────────┘
                               │
                               │ 调用
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ Plugin（插件）= 系统的器官                                   │
+│ Middleware（中间件）= 系统的器官                                   │
 │   可插拔基础设施能力：LLM / Memory / Search / Notification…  │
 │   有生命周期、有配置、有状态，影响 Agent 整体行为。            │
-│   通过 PluginContext 向 Tool / Middleware 提供能力。          │
+│   通过 MiddlewareContext 向 Tool / Middleware 提供能力。          │
 └─────────────────────────────────────────────────────────────┘
                               ▲
                               │ 编排
@@ -1028,55 +833,55 @@ h4:hover .headerlink {
 <p>对任一能力问三个问题就能定位：</p>
 <div class="highlight"><pre><span></span><code>Q1: LLM 能一次调用直接完成吗？   → 是 → Tool
 Q2: 需要多步推理、多次工具调用？ → 是 → Skill
-Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Plugin
+Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Middleware
 </code></pre></div>
 
 <hr />
-<h3 id="53-plugin-9">5.3 Plugin 维度（9 个基础设施插件）<a class="headerlink" href="#53-plugin-9" title="Permanent link">&para;</a></h3>
-<h4 id="531-plugin">5.3.1 Plugin 接口<a class="headerlink" href="#531-plugin" title="Permanent link">&para;</a></h4>
-<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Plugin</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
-    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>                              <span class="c1"># 插件唯一名称</span>
+<h3 id="53-middleware-9">5.3 Middleware 维度（9 个基础设施中间件）<a class="headerlink" href="#53-middleware-9" title="Permanent link">&para;</a></h3>
+<h4 id="531-middleware">5.3.1 Middleware 接口<a class="headerlink" href="#531-middleware" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Middleware</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>                              <span class="c1"># 中间件唯一名称</span>
     <span class="n">version</span><span class="p">:</span> <span class="nb">str</span>
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">initialize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>   <span class="c1"># 生命周期：启动</span>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>                   <span class="c1"># 生命周期：关闭</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">is_healthy</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span> <span class="o">...</span>                       <span class="c1"># 健康检查</span>
 
-    <span class="c1"># 向 PluginContext 暴露的接口由各 Plugin 自行定义</span>
-    <span class="c1"># 如 memory_plugin.recall() / search_plugin.search() / llm_plugin.complete()</span>
+    <span class="c1"># 向 MiddlewareContext 暴露的接口由各 Middleware 自行定义</span>
+    <span class="c1"># 如 memory_middleware.recall() / search_middleware.search() / llm_middleware.complete()</span>
 </code></pre></div>
 
-<h4 id="532-plugincontext-tool-plugin">5.3.2 PluginContext — Tool 访问 Plugin 的统一入口<a class="headerlink" href="#532-plugincontext-tool-plugin" title="Permanent link">&para;</a></h4>
+<h4 id="532-middlewarecontext-tool-middleware">5.3.2 MiddlewareContext — Tool 访问 Middleware 的统一入口<a class="headerlink" href="#532-middlewarecontext-tool-middleware" title="Permanent link">&para;</a></h4>
 <div class="highlight"><pre><span></span><code><span class="nd">@dataclass</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">PluginContext</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Tool 调用时传入的上下文，通过它访问所有已启用的 Plugin。</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">MiddlewareContext</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Tool 调用时传入的上下文，通过它访问所有已启用的 Middleware。</span>
 
-<span class="sd">    核心约束：Plugin 未启用时，context 对应字段为 None。</span>
+<span class="sd">    核心约束：Middleware 未启用时，context 对应字段为 None。</span>
 <span class="sd">    Tool 的 is_enabled() 据此判断是否在工具列表中暴露。</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">tenant_id</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">session_id</span><span class="p">:</span> <span class="nb">str</span>
 
-    <span class="n">llm</span><span class="p">:</span> <span class="n">LLMPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">memory</span><span class="p">:</span> <span class="n">MemoryPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">search</span><span class="p">:</span> <span class="n">SearchPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">company</span><span class="p">:</span> <span class="n">CompanyDataPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">financial</span><span class="p">:</span> <span class="n">FinancialDataPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">notification</span><span class="p">:</span> <span class="n">NotificationPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">doc_parse</span><span class="p">:</span> <span class="n">DocumentParsePlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">image_gen</span><span class="p">:</span> <span class="n">ImageGenPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">audit</span><span class="p">:</span> <span class="n">AuditPlugin</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">llm</span><span class="p">:</span> <span class="n">LLMMiddleware</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">memory</span><span class="p">:</span> <span class="n">MemoryMiddleware</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">search</span><span class="p">:</span> <span class="n">SearchMiddleware</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">company</span><span class="p">:</span> <span class="n">CompanyDataMiddleware</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">financial</span><span class="p">:</span> <span class="n">FinancialDataMiddleware</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">notification</span><span class="p">:</span> <span class="n">NotificationMiddleware</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">doc_parse</span><span class="p">:</span> <span class="n">DocumentParseMiddleware</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">image_gen</span><span class="p">:</span> <span class="n">ImageGenMiddleware</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">audit</span><span class="p">:</span> <span class="n">AuditMiddleware</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 
     <span class="n">tool_registry</span><span class="p">:</span> <span class="n">ToolRegistry</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">skill_registry</span><span class="p">:</span> <span class="n">SkillRegistry</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 </code></pre></div>
 
-<h4 id="533-7-plugin">5.3.3 7 个核心 Plugin<a class="headerlink" href="#533-7-plugin" title="Permanent link">&para;</a></h4>
+<h4 id="533-7-middleware">5.3.3 7 个核心 Middleware<a class="headerlink" href="#533-7-middleware" title="Permanent link">&para;</a></h4>
 <table>
 <thead>
 <tr>
-<th style="text-align: left;">Plugin</th>
+<th style="text-align: left;">Middleware</th>
 <th style="text-align: left;">职责</th>
 <th style="text-align: left;">向 Context 暴露</th>
 <th style="text-align: center;">替代性</th>
@@ -1085,63 +890,63 @@ Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Plugin
 </thead>
 <tbody>
 <tr>
-<td style="text-align: left;"><code>llm-plugin</code></td>
+<td style="text-align: left;"><code>llm-middleware</code></td>
 <td style="text-align: left;">LLM 网关（主模型 + 辅助模型路由）</td>
 <td style="text-align: left;"><code>context.llm</code></td>
 <td style="text-align: center;">✅ 可切换供应商</td>
 <td style="text-align: left;">所有（基础设施）</td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>memory-plugin</code></td>
+<td style="text-align: left;"><code>memory-middleware</code></td>
 <td style="text-align: left;">长期记忆引擎（VikingMemoryEngine）</td>
 <td style="text-align: left;"><code>context.memory</code></td>
 <td style="text-align: center;">✅ 可替换后端</td>
 <td style="text-align: left;">search_memories, save_memory</td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>search-plugin</code></td>
+<td style="text-align: left;"><code>search-middleware</code></td>
 <td style="text-align: left;">网络搜索（可替换供应商）</td>
 <td style="text-align: left;"><code>context.search</code></td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: left;">web_search</td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>company-data-plugin</code></td>
+<td style="text-align: left;"><code>company-data-middleware</code></td>
 <td style="text-align: left;">企业工商数据</td>
 <td style="text-align: left;"><code>context.company</code></td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: left;">company_info</td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>financial-data-plugin</code></td>
+<td style="text-align: left;"><code>financial-data-middleware</code></td>
 <td style="text-align: left;">上市公司财报</td>
 <td style="text-align: left;"><code>context.financial</code></td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: left;">financial_report</td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>notification-plugin</code></td>
+<td style="text-align: left;"><code>notification-middleware</code></td>
 <td style="text-align: left;">推送通知（IM / 邮件 / 短信）</td>
 <td style="text-align: left;"><code>context.notification</code></td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: left;">send_notification</td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>document-parse-plugin</code></td>
+<td style="text-align: left;"><code>document-parse-middleware</code></td>
 <td style="text-align: left;">多模态文档解析（LKEAP / Tika / Unstructured 等）</td>
 <td style="text-align: left;"><code>context.doc_parse</code></td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: left;">load_file_content</td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>image-gen-plugin</code></td>
+<td style="text-align: left;"><code>image-gen-middleware</code></td>
 <td style="text-align: left;">AI 生图（OpenAI / 字节豆包 / 百度文心一格 等供应商可替换）</td>
 <td style="text-align: left;"><code>context.image_gen</code></td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: left;">generate_image</td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>audit-plugin</code></td>
+<td style="text-align: left;"><code>audit-middleware</code></td>
 <td style="text-align: left;">审计日志（合规）</td>
 <td style="text-align: left;"><code>context.audit</code></td>
 <td style="text-align: center;">✅</td>
@@ -1149,25 +954,25 @@ Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Plugin
 </tr>
 </tbody>
 </table>
-<h4 id="534-plugin">5.3.4 Plugin 生命周期<a class="headerlink" href="#534-plugin" title="Permanent link">&para;</a></h4>
+<h4 id="534-middleware">5.3.4 Middleware 生命周期<a class="headerlink" href="#534-middleware" title="Permanent link">&para;</a></h4>
 <div class="highlight"><pre><span></span><code>启动阶段（租户初始化时）:
-  PluginRegistry.load(tenant_config)
-    → 读取租户的 Plugin 启用列表
+  MiddlewareRegistry.load(tenant_config)
+    → 读取租户的 Middleware 启用列表
     → 按依赖关系排序
-    → plugin.initialize(config)
-    → 注入 PluginContext
+    → middleware.initialize(config)
+    → 注入 MiddlewareContext
 
 运行阶段:
   Tool.call(input_data, context)
-    → 通过 context.xxx 访问 Plugin
-    → Plugin 接口调用
+    → 通过 context.xxx 访问 Middleware
+    → Middleware 接口调用
 
 关闭阶段（租户卸载 / 服务关停）:
-  按启动逆序 plugin.shutdown()
+  按启动逆序 middleware.shutdown()
     → 释放连接、清理缓存
 </code></pre></div>
 
-<h4 id="535-plugin">5.3.5 Plugin 的权力边界<a class="headerlink" href="#535-plugin" title="Permanent link">&para;</a></h4>
+<h4 id="535-middleware">5.3.5 Middleware 的权力边界<a class="headerlink" href="#535-middleware" title="Permanent link">&para;</a></h4>
 <table>
 <thead>
 <tr>
@@ -1181,12 +986,12 @@ Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Plugin
 <td style="text-align: left;">直接注册 Tool（破坏 ToolRegistry 唯一真相源）</td>
 </tr>
 <tr>
-<td style="text-align: left;">注入 Middleware（如 memory-plugin 注入 MemoryMiddleware）</td>
-<td style="text-align: left;">修改其他 Plugin 的状态</td>
+<td style="text-align: left;">注入 Middleware（如 memory-middleware 注入 MemoryMiddleware）</td>
+<td style="text-align: left;">修改其他 Middleware 的状态</td>
 </tr>
 <tr>
 <td style="text-align: left;">订阅 Agent 生命周期事件</td>
-<td style="text-align: left;">直接与 LLM 通信绕过 llm-plugin</td>
+<td style="text-align: left;">直接与 LLM 通信绕过 llm-middleware</td>
 </tr>
 <tr>
 <td style="text-align: left;">对外暴露管理 API（配额 / 开关 / 健康）</td>
@@ -1209,7 +1014,7 @@ Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Plugin
     <span class="n">search_hint</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>                                <span class="c1"># 延迟加载的搜索关键词</span>
     <span class="n">should_defer</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>                             <span class="c1"># 是否延迟加载</span>
     <span class="n">tags</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span> <span class="o">...</span>             <span class="c1"># 运行时开关（检查 Plugin）</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span> <span class="o">...</span>             <span class="c1"># 运行时开关（检查 Middleware）</span>
 
     <span class="c1"># ══ 安全与权限 ══</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">validate_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_data</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ValidationResult</span><span class="p">:</span> <span class="o">...</span>
@@ -1233,7 +1038,7 @@ Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Plugin
 <th style="text-align: left;">分类</th>
 <th style="text-align: left;">工具名</th>
 <th style="text-align: left;">典型用户表达</th>
-<th style="text-align: left;">依赖 Plugin</th>
+<th style="text-align: left;">依赖 Middleware</th>
 </tr>
 </thead>
 <tbody>
@@ -1277,19 +1082,19 @@ Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Plugin
 <td style="text-align: left;"><strong>查外部信息</strong></td>
 <td style="text-align: left;">web_search</td>
 <td style="text-align: left;">"搜一下行业动态"</td>
-<td style="text-align: left;">search-plugin</td>
+<td style="text-align: left;">search-middleware</td>
 </tr>
 <tr>
 <td style="text-align: left;"></td>
 <td style="text-align: left;">company_info</td>
 <td style="text-align: left;">"查公司背景"</td>
-<td style="text-align: left;">company-data-plugin</td>
+<td style="text-align: left;">company-data-middleware</td>
 </tr>
 <tr>
 <td style="text-align: left;"></td>
 <td style="text-align: left;">financial_report</td>
 <td style="text-align: left;">"看财务状况"</td>
-<td style="text-align: left;">financial-data-plugin</td>
+<td style="text-align: left;">financial-data-middleware</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>协作与记忆</strong></td>
@@ -1301,31 +1106,31 @@ Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Plugin
 <td style="text-align: left;"></td>
 <td style="text-align: left;">search_memories</td>
 <td style="text-align: left;">"之前怎么解决的"</td>
-<td style="text-align: left;">memory-plugin</td>
+<td style="text-align: left;">memory-middleware</td>
 </tr>
 <tr>
 <td style="text-align: left;"></td>
 <td style="text-align: left;">save_memory</td>
 <td style="text-align: left;">"记住这个偏好"</td>
-<td style="text-align: left;">memory-plugin</td>
+<td style="text-align: left;">memory-middleware</td>
 </tr>
 <tr>
 <td style="text-align: left;"></td>
 <td style="text-align: left;">send_notification</td>
 <td style="text-align: left;">"通知销售经理"</td>
-<td style="text-align: left;">notification-plugin</td>
+<td style="text-align: left;">notification-middleware</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>多模态</strong></td>
 <td style="text-align: left;">load_file_content</td>
 <td style="text-align: left;">"看看我刚上传的合同" / "这张截图里写的什么"</td>
-<td style="text-align: left;">document-parse-plugin（文档）/ 直接走 VLM（图片）</td>
+<td style="text-align: left;">document-parse-middleware（文档）/ 直接走 VLM（图片）</td>
 </tr>
 <tr>
 <td style="text-align: left;"></td>
 <td style="text-align: left;">generate_image</td>
 <td style="text-align: left;">"画一个产品架构图"</td>
-<td style="text-align: left;">image-gen-plugin</td>
+<td style="text-align: left;">image-gen-middleware</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>任务编排</strong></td>
@@ -1545,7 +1350,7 @@ Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Plugin
 <th style="text-align: left;">功能</th>
 <th style="text-align: center;">模式</th>
 <th style="text-align: left;">允许工具</th>
-<th style="text-align: left;">依赖 Plugin</th>
+<th style="text-align: left;">依赖 Middleware</th>
 </tr>
 </thead>
 <tbody>
@@ -1561,7 +1366,7 @@ Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Plugin
 <td style="text-align: left;">业务问题诊断</td>
 <td style="text-align: center;">fork</td>
 <td style="text-align: left;">query_schema, query_data, query_permission, search_memories</td>
-<td style="text-align: left;">memory-plugin</td>
+<td style="text-align: left;">memory-middleware</td>
 </tr>
 <tr>
 <td style="text-align: left;">config_entity</td>
@@ -1610,28 +1415,28 @@ Q3: 是基础设施，需初始化/配置/可替换？ → 是 → Plugin
 <td style="text-align: left;">竞品分析</td>
 <td style="text-align: center;">fork</td>
 <td style="text-align: left;">web_search, company_info, financial_report, query_data</td>
-<td style="text-align: left;">search/company/financial-plugin</td>
+<td style="text-align: left;">search/company/financial-middleware</td>
 </tr>
 <tr>
 <td style="text-align: left;">customer_onboarding</td>
 <td style="text-align: left;">客户入职引导</td>
 <td style="text-align: center;">fork</td>
 <td style="text-align: left;">query_data, query_schema, ask_user, send_notification</td>
-<td style="text-align: left;">notification-plugin</td>
+<td style="text-align: left;">notification-middleware</td>
 </tr>
 <tr>
 <td style="text-align: left;">deal_coaching</td>
 <td style="text-align: left;">商机辅导</td>
 <td style="text-align: center;">fork</td>
 <td style="text-align: left;">query_data, analyze_data, search_memories</td>
-<td style="text-align: left;">memory-plugin</td>
+<td style="text-align: left;">memory-middleware</td>
 </tr>
 <tr>
 <td style="text-align: left;">report_generation</td>
 <td style="text-align: left;">报告生成</td>
 <td style="text-align: center;">fork</td>
 <td style="text-align: left;">query_data, analyze_data, web_search</td>
-<td style="text-align: left;">search-plugin</td>
+<td style="text-align: left;">search-middleware</td>
 </tr>
 </tbody>
 </table>
@@ -1709,7 +1514,7 @@ max_tool_calls: 15                         # 最大工具调用数
                             SkillGenerator 运行时写入
 4. 租户数据库技能（tenant）   ai_skill_definition 表存储，按租户加载
                             租户管理后台可配置，热更新
-5. Plugin 提供的技能         Plugin.initialize 阶段向 SkillRegistry 注册
+5. Middleware 提供的技能         Middleware.initialize 阶段向 SkillRegistry 注册
 </code></pre></div>
 
 <h4 id="556-skill">5.5.6 Skill 扩展路径（从简单到复杂）<a class="headerlink" href="#556-skill" title="Permanent link">&para;</a></h4>
@@ -1754,16 +1559,16 @@ SkillRegistry 监听配置变更事件 → 热更新
 </code></pre></div>
 
 <p>适合：每个租户业务流程不同，需要独立配置的场景。</p>
-<p><strong>路径 D：Plugin 提供技能</strong>（最重）</p>
-<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">MyPlugin</span><span class="p">(</span><span class="n">Plugin</span><span class="p">):</span>
+<p><strong>路径 D：Middleware 提供技能</strong>（最重）</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">MyMiddleware</span><span class="p">(</span><span class="n">Middleware</span><span class="p">):</span>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">initialize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
-        <span class="c1"># Plugin 启动时向 SkillRegistry 注册一批技能</span>
+        <span class="c1"># Middleware 启动时向 SkillRegistry 注册一批技能</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">.skills</span><span class="w"> </span><span class="kn">import</span> <span class="n">MY_SKILL_1</span><span class="p">,</span> <span class="n">MY_SKILL_2</span>
         <span class="n">config</span><span class="o">.</span><span class="n">skill_registry</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">MY_SKILL_1</span><span class="p">)</span>
         <span class="n">config</span><span class="o">.</span><span class="n">skill_registry</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">MY_SKILL_2</span><span class="p">)</span>
 </code></pre></div>
 
-<p>适合：需要打包一组相关技能 + 配套 Tool + 基础设施的完整能力模块（如"财报分析 Plugin"同时提供 financial_report Tool + 3 个财报解读 Skill）。</p>
+<p>适合：需要打包一组相关技能 + 配套 Tool + 基础设施的完整能力模块（如"财报分析 Middleware"同时提供 financial_report Tool + 3 个财报解读 Skill）。</p>
 <h4 id="557-sop">5.5.7 SOP 提示词编写指南<a class="headerlink" href="#557-sop" title="Permanent link">&para;</a></h4>
 <p>好的 Skill prompt 本质上是一份<strong>给 LLM 看的 SOP</strong>，有固定模板：</p>
 <div class="highlight"><pre><span></span><code>你的身份定位: &quot;你是一位资深 XX 专家&quot;（设定角色，影响回复风格）
@@ -1992,7 +1797,7 @@ SkillGenerator.should_generate(messages)?  # tool_count &gt;= 5
         │                      │                      │
         ▼                      ▼                      ▼
   ┌───────────┐          ┌───────────┐          ┌───────────┐
-  │   Tool    │          │   Skill   │          │  Plugin   │
+  │   Tool    │          │   Skill   │          │  Middleware   │
   │ (LLM直调) │          │(Agent SOP)│          │(基础设施) │
   └─────┬─────┘          └─────┬─────┘          └─────▲─────┘
         │                      │                      │
@@ -2001,7 +1806,7 @@ SkillGenerator.should_generate(messages)?  # tool_count &gt;= 5
                                │
                                ▼
                      ┌──────────────────┐
-                     │   Plugin Context │
+                     │   Middleware Context │
                      │ (llm/memory/...)  │
                      └──────────────────┘
 </code></pre></div>
@@ -2009,7 +1814,7 @@ SkillGenerator.should_generate(messages)?  # tool_count &gt;= 5
 <hr />
 <h2 id="vikingmemoryengine">六、记忆系统（VikingMemoryEngine）<a class="headerlink" href="#vikingmemoryengine" title="Permanent link">&para;</a></h2>
 <blockquote>
-<p>由 memory-plugin 提供，详见《VikingMemoryEngine-长期记忆系统设计.md》《记忆提取与检索.md》《记忆遗忘与反思-设计方案.md》《记忆与系统数据一致性设计.md》。</p>
+<p>由 memory-middleware 提供，详见《VikingMemoryEngine-长期记忆系统设计.md》《记忆提取与检索.md》《记忆遗忘与反思-设计方案.md》《记忆与系统数据一致性设计.md》。</p>
 </blockquote>
 <h3 id="61-4">6.1 4 类分类体系<a class="headerlink" href="#61-4" title="Permanent link">&para;</a></h3>
 <p>记忆统一为 <strong>4 类</strong>，全部由 LLM 四路并行从用户对话中提取：</p>
@@ -2778,7 +2583,7 @@ Artifact 流式 → CUSTOM &quot;artifact_updated&quot; (content_delta)
 </tbody>
 </table>
 <h3 id="92">9.2 继承与隔离<a class="headerlink" href="#92" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code>继承: tenant_id / user_id / llm-plugin / memory-plugin / 审计日志
+<div class="highlight"><pre><span></span><code>继承: tenant_id / user_id / llm-middleware / memory-middleware / 审计日志
 隔离: messages（独立历史）/ session_id（派生）/ notification（不发）/ HITL（不弹）
 限制: 工具按 agent_type 裁剪 / max_llm_calls 独立 / depth ≤ 3
 </code></pre></div>
@@ -3357,13 +3162,13 @@ data: {&quot;name&quot;:&quot;attachment_added&quot;,&quot;value&quot;:{
 <div class="highlight"><pre><span></span><code>before_step:
   1. 根据 state.tenant_id 加载租户配置
   2. 注入租户上下文到 system prompt（名称 / 行业 / 规模）
-  3. 按租户开关过滤 Tool / Skill / Plugin
+  3. 按租户开关过滤 Tool / Skill / Middleware
   4. 隔离记忆空间（所有查询加 tenant_id 过滤）
   5. 隔离审计日志
   6. 隔离上传文件（COS 路径按 tenant_id 分隔）
 </code></pre></div>
 
-<h3 id="132-auditmiddleware-audit-plugin">13.2 审计日志（AuditMiddleware + audit-plugin）<a class="headerlink" href="#132-auditmiddleware-audit-plugin" title="Permanent link">&para;</a></h3>
+<h3 id="132-auditmiddleware-audit-middleware">13.2 审计日志（AuditMiddleware + audit-middleware）<a class="headerlink" href="#132-auditmiddleware-audit-middleware" title="Permanent link">&para;</a></h3>
 <p>记录维度：</p>
 <table>
 <thead>
@@ -3410,14 +3215,14 @@ data: {&quot;name&quot;:&quot;attachment_added&quot;,&quot;value&quot;:{
 <hr />
 <h2 id="_10">十四、核心设计原则<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h2>
 <ol>
-<li><strong>抽象层优先</strong> — Router / Node / Middleware / Plugin 接口稳定，底层框架可替换</li>
-<li><strong>单向依赖</strong> — Skill → Tool → Plugin，逆向禁止</li>
-<li><strong>ToolRegistry 唯一真相源</strong> — 禁止 Plugin 直接注册 Tool，Tool 通过 <code>is_enabled()</code> 检查 Plugin</li>
+<li><strong>抽象层优先</strong> — Router / Node / Middleware / Middleware 接口稳定，底层框架可替换</li>
+<li><strong>单向依赖</strong> — Skill → Tool → Middleware，逆向禁止</li>
+<li><strong>ToolRegistry 唯一真相源</strong> — 禁止 Middleware 直接注册 Tool，Tool 通过 <code>is_enabled()</code> 检查 Middleware</li>
 <li><strong>元数据驱动</strong> — 业务对象、字段、权限全部走 aPaaS 元数据，Agent 不硬编码业务 Schema</li>
 <li><strong>租户隔离优先</strong> — 所有存储、缓存、队列、索引、上传文件都按 tenant_id 分隔</li>
 <li><strong>多模态原生</strong> — 图片 / 文档 / 语音 / 生成物作为一等公民，不绕弯子做文本转换</li>
 <li><strong>协议开放</strong> — AG-UI + A2UI 标准化事件与组件协议，前端按协议对接即可，不锁定实现</li>
-<li><strong>优雅降级</strong> — 审查 / 记忆 / Plugin / 文件解析失败不阻塞主流程</li>
+<li><strong>优雅降级</strong> — 审查 / 记忆 / Middleware / 文件解析失败不阻塞主流程</li>
 <li><strong>可观测</strong> — 从 LLM 调用到文件解析全链路 span 可追溯</li>
 <li><strong>渐进沉淀</strong> — 会话 → 记忆 → 技能，用户行为持续反哺系统能力</li>
 </ol>
