@@ -370,6 +370,12 @@ let currentDocuments = [];
 let pendingFiles = [];
 let activePolls = new Map();  // task_id → intervalId
 
+// ── 分页 & 搜索状态 ──
+let docPage = 1;
+let docPageSize = 20;
+let docTotal = 0;
+let docSearch = '';
+
 function tenantId(){ return document.getElementById('tenantInput').value || '292193'; }
 
 // 与对话页保持一致：优先从 /api/auth/me 获取真实 tenant_id 和 user_id
@@ -453,6 +459,9 @@ function selectKb(id){
   currentKb = kbs.find(k => String(k.id) === String(id));
   if (!currentKb) return;
   renderKbList();
+  // 重置分页和搜索状态
+  docPage = 1;
+  docSearch = '';
   // 更新头部
   document.getElementById('kbTitle').textContent = currentKb.name;
   document.getElementById('kbSubtitle').textContent = `${currentKb.api_key} · ${currentKb.description || '暂无描述'}`;
@@ -503,8 +512,12 @@ async function loadDocuments(){
   const list = document.getElementById('docList');
   list.innerHTML = `<div class="text-center text-gray-400 text-sm py-10">加载中...</div>`;
   try {
-    const data = await apiGet(`/api/knowledge/documents?tenant_id=${tenantId()}&knowledge_base_id=${currentKb.id}&limit=100`);
+    const offset = (docPage - 1) * docPageSize;
+    let url = `/api/knowledge/documents?tenant_id=${tenantId()}&knowledge_base_id=${currentKb.id}&limit=${docPageSize}&offset=${offset}`;
+    if (docSearch) url += `&search=${encodeURIComponent(docSearch)}`;
+    const data = await apiGet(url);
     currentDocuments = data.items || [];
+    docTotal = data.total || 0;
     renderDocs();
   } catch (e) {
     list.innerHTML = `<div class="text-center text-red-500 text-sm py-10">加载失败: ${esc(e.message)}</div>`;
@@ -513,17 +526,38 @@ async function loadDocuments(){
 
 function renderDocs(){
   const list = document.getElementById('docList');
+  // 搜索栏（始终显示）
+  const searchBar = `
+    <div class="flex items-center gap-3 mb-3">
+      <div class="relative flex-1 max-w-sm">
+        <input id="docSearchInput" type="text" value="${esc(docSearch)}" placeholder="搜索文档名称..."
+          class="w-full pl-9 pr-8 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 transition-all"
+          onkeydown="if(event.key==='Enter') doDocSearch()" />
+        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        ${docSearch ? `<button onclick="clearDocSearch()" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm leading-none">✕</button>` : ''}
+      </div>
+      <button onclick="doDocSearch()" class="px-3 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-colors">搜索</button>
+      <span class="text-[10px] text-gray-400">共 ${docTotal} 条</span>
+    </div>
+  `;
+
   if (!currentDocuments.length) {
-    list.innerHTML = `
+    const emptyMsg = docSearch
+      ? `<p class="font-medium mb-1">未找到匹配「${esc(docSearch)}」的文档</p><p class="text-xs opacity-70">尝试其他关键词</p>`
+      : `<p class="font-medium mb-1">此知识库暂无文档</p><p class="text-xs opacity-70">点击右上角「上传文档」开始</p>`;
+    list.innerHTML = searchBar + `
       <div class="text-center text-gray-400 text-sm py-20">
-        <div class="text-5xl mb-4">📥</div>
-        <p class="font-medium mb-1">此知识库暂无文档</p>
-        <p class="text-xs opacity-70">点击右上角「上传文档」开始</p>
+        <div class="text-5xl mb-4">${docSearch ? '🔍' : '📥'}</div>
+        ${emptyMsg}
       </div>
     `;
     return;
   }
-  list.innerHTML = `
+
+  // 分页计算
+  const totalPages = Math.ceil(docTotal / docPageSize);
+
+  list.innerHTML = searchBar + `
     <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
       <table class="w-full text-sm">
         <thead class="bg-gray-50 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
@@ -542,7 +576,74 @@ function renderDocs(){
         </tbody>
       </table>
     </div>
+    <!-- 分页控件 -->
+    ${renderDocPagination(totalPages)}
   `;
+}
+
+function renderDocPagination(totalPages) {
+  const pages = [];
+  const maxVisible = 7;
+  let start = Math.max(1, docPage - Math.floor(maxVisible / 2));
+  let end = Math.min(totalPages, start + maxVisible - 1);
+  if (end - start < maxVisible - 1) start = Math.max(1, end - maxVisible + 1);
+
+  if (start > 1) { pages.push(1); if (start > 2) pages.push('...'); }
+  for (let p = start; p <= end; p++) pages.push(p);
+  if (end < totalPages) { if (end < totalPages - 1) pages.push('...'); pages.push(totalPages); }
+
+  return `
+    <div class="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-white rounded-b-2xl">
+      <div class="text-[10px] text-gray-400">
+        第 ${(docPage - 1) * docPageSize + 1}-${Math.min(docPage * docPageSize, docTotal)} 条，共 ${docTotal} 条
+      </div>
+      ${totalPages > 1 ? `
+      <div class="flex items-center gap-1">
+        <button onclick="goDocPage(${docPage - 1})" ${docPage <= 1 ? 'disabled' : ''}
+          class="px-2 py-1 text-[10px] rounded border border-gray-200 ${docPage <= 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-50'}">‹ 上一页</button>
+        ${pages.map(p => p === '...'
+          ? `<span class="px-1.5 py-1 text-[10px] text-gray-400">…</span>`
+          : `<button onclick="goDocPage(${p})" class="px-2 py-1 text-[10px] rounded border ${p === docPage ? 'bg-blue-600 text-white border-blue-600 font-bold' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}">${p}</button>`
+        ).join('')}
+        <button onclick="goDocPage(${docPage + 1})" ${docPage >= totalPages ? 'disabled' : ''}
+          class="px-2 py-1 text-[10px] rounded border border-gray-200 ${docPage >= totalPages ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-50'}">下一页 ›</button>
+      </div>
+      ` : '<div></div>'}
+      <div class="flex items-center gap-1.5">
+        <span class="text-[10px] text-gray-400">每页</span>
+        <select onchange="changeDocPageSize(this.value)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-600">
+          ${[10, 20, 50, 100].map(s => `<option value="${s}" ${s === docPageSize ? 'selected' : ''}>${s}</option>`).join('')}
+        </select>
+        <span class="text-[10px] text-gray-400">条</span>
+      </div>
+    </div>
+  `;
+}
+
+function doDocSearch() {
+  const input = document.getElementById('docSearchInput');
+  docSearch = (input ? input.value : '').trim();
+  docPage = 1;
+  loadDocuments();
+}
+
+function clearDocSearch() {
+  docSearch = '';
+  docPage = 1;
+  loadDocuments();
+}
+
+function goDocPage(page) {
+  const totalPages = Math.ceil(docTotal / docPageSize);
+  if (page < 1 || page > totalPages) return;
+  docPage = page;
+  loadDocuments();
+}
+
+function changeDocPageSize(size) {
+  docPageSize = parseInt(size, 10) || 20;
+  docPage = 1;
+  loadDocuments();
 }
 
 function renderDocRow(d){
@@ -1571,6 +1672,15 @@ function renderPipelinePanel(data){
               const gBorderColor = gn.status === 'success' ? 'border-l-green-400' : gn.status === 'skipped' ? 'border-l-gray-300' : gn.status === 'partial' ? 'border-l-yellow-400' : 'border-l-red-400';
               const gBgColor = gn.status === 'failed' ? 'bg-red-50/50' : gn.status === 'partial' ? 'bg-yellow-50/30' : 'bg-white';
               const stepLabel = gn.sub_step ? `Step ${gn.step}${gn.sub_step}` : `Step ${gn.step}`;
+              // 从 output_data 中提取条数 badge
+              let gCountBadge = '';
+              if (gn.output_data) {
+                const god = gn.output_data;
+                const gCountVal = god.targeted_chunk_hits ?? god['命中切片数'] ?? god['命中文档数'] ?? god.hydrated_chunks ?? god.result_count ?? god.recovered_doc_count ?? null;
+                if (gCountVal !== null && gCountVal !== undefined) {
+                  gCountBadge = `<span class="text-[9px] text-gray-400">${gCountVal} 条</span>`;
+                }
+              }
               return `
               <details class="group" open>
                 <summary class="cursor-pointer ${gBgColor} border border-gray-100 border-l-4 ${gBorderColor} rounded-lg px-2.5 py-1.5 flex items-center justify-between hover:bg-gray-50/80 transition-all list-none">
@@ -1580,6 +1690,7 @@ function renderPipelinePanel(data){
                     <span class="text-[10px] text-gray-600 truncate">${esc(gn.name)}</span>
                   </div>
                   <div class="flex items-center gap-1.5 shrink-0">
+                    ${gCountBadge}
                     ${gn.duration_ms ? `<span class="text-[9px] text-gray-400">${gn.duration_ms}ms</span>` : ''}
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-gray-400 group-open:rotate-90 transition-transform"><polyline points="9 18 15 12 9 6"/></svg>
                   </div>
@@ -1617,6 +1728,16 @@ function renderPipelinePanel(data){
     const indentClass = node.parent_node ? 'ml-4' : '';
     const stepLabel = node.sub_step ? `Step ${node.step}${node.sub_step}` : `Step ${node.step}`;
 
+    // 从 output_data 中提取可显示的条数 badge
+    let countBadge = '';
+    if (node.output_data) {
+      const od = node.output_data;
+      const countVal = od.targeted_chunk_hits ?? od['命中切片数'] ?? od['命中文档数'] ?? od.hydrated_chunks ?? od.result_count ?? od.recovered_doc_count ?? null;
+      if (countVal !== null && countVal !== undefined) {
+        countBadge = `<span class="text-[10px] text-gray-400">${countVal} 条</span>`;
+      }
+    }
+
     html += `
       <details class="mb-2 group ${indentClass}" ${node.step === 4 || node.step === 5 || node.status === 'failed' ? 'open' : ''}>
         <summary class="cursor-pointer ${bgColor} border border-gray-100 border-l-4 ${borderColor} rounded-lg px-3 py-2 flex items-center justify-between hover:bg-gray-50/80 transition-all list-none">
@@ -1626,6 +1747,7 @@ function renderPipelinePanel(data){
             <span class="text-[11px] text-gray-600 truncate">${esc(node.name)}</span>
           </div>
           <div class="flex items-center gap-2 shrink-0">
+            ${countBadge}
             ${node.duration_ms ? `<span class="text-[10px] text-gray-400">${node.duration_ms}ms</span>` : ''}
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-gray-400 group-open:rotate-90 transition-transform"><polyline points="9 18 15 12 9 6"/></svg>
           </div>

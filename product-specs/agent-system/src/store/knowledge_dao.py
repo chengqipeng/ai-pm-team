@@ -352,16 +352,46 @@ class KnowledgeDocumentDAO:
 
     @staticmethod
     def list_by_kb(tenant_id: int, knowledge_base_id: int,
-                   limit: int = 50, offset: int = 0) -> list[KnowledgeDocumentRow]:
+                   limit: int = 50, offset: int = 0,
+                   search: str = "") -> list[KnowledgeDocumentRow]:
         with get_conn() as conn:
             cur = conn.cursor()
-            cur.execute("""
-                SELECT * FROM ai_knowledge_document
-                WHERE tenant_id=%s AND knowledge_base_id=%s AND delete_flg=0
-                ORDER BY created_at DESC LIMIT %s OFFSET %s
-            """, (tenant_id, knowledge_base_id, limit, offset))
+            if search:
+                like_pattern = f"%{search}%"
+                cur.execute("""
+                    SELECT * FROM ai_knowledge_document
+                    WHERE tenant_id=%s AND knowledge_base_id=%s AND delete_flg=0
+                      AND (title ILIKE %s OR file_name ILIKE %s)
+                    ORDER BY created_at DESC LIMIT %s OFFSET %s
+                """, (tenant_id, knowledge_base_id, like_pattern, like_pattern, limit, offset))
+            else:
+                cur.execute("""
+                    SELECT * FROM ai_knowledge_document
+                    WHERE tenant_id=%s AND knowledge_base_id=%s AND delete_flg=0
+                    ORDER BY created_at DESC LIMIT %s OFFSET %s
+                """, (tenant_id, knowledge_base_id, limit, offset))
             return [_row_to_model(cur.description, r, KnowledgeDocumentRow)
                     for r in cur.fetchall()]
+
+    @staticmethod
+    def count_by_kb(tenant_id: int, knowledge_base_id: int,
+                    search: str = "") -> int:
+        """返回文档总数（支持按名称搜索过滤）"""
+        with get_conn() as conn:
+            cur = conn.cursor()
+            if search:
+                like_pattern = f"%{search}%"
+                cur.execute("""
+                    SELECT COUNT(*) FROM ai_knowledge_document
+                    WHERE tenant_id=%s AND knowledge_base_id=%s AND delete_flg=0
+                      AND (title ILIKE %s OR file_name ILIKE %s)
+                """, (tenant_id, knowledge_base_id, like_pattern, like_pattern))
+            else:
+                cur.execute("""
+                    SELECT COUNT(*) FROM ai_knowledge_document
+                    WHERE tenant_id=%s AND knowledge_base_id=%s AND delete_flg=0
+                """, (tenant_id, knowledge_base_id))
+            return cur.fetchone()[0]
 
     @staticmethod
     def update_parse_status(doc_id: str, parse_status: str,

@@ -218,12 +218,16 @@ async def list_documents(
     knowledge_base_id: int = Query(..., gt=0),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    search: str = Query("", max_length=200, description="按文档名称模糊搜索"),
 ):
     """文档列表（直接走 DAO，不依赖 provider）"""
-    rows = KnowledgeDocumentDAO.list_by_kb(tenant_id, knowledge_base_id, limit, offset)
+    rows = KnowledgeDocumentDAO.list_by_kb(tenant_id, knowledge_base_id, limit, offset, search)
+    total = KnowledgeDocumentDAO.count_by_kb(tenant_id, knowledge_base_id, search)
     return {
         "items": [_doc_row_to_dict(r) for r in rows],
-        "total": len(rows),
+        "total": total,
+        "limit": limit,
+        "offset": offset,
     }
 
 
