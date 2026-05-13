@@ -30,7 +30,12 @@ class SkillDefinitionDAO:
         "risk_level, requires_confirmation, max_tool_calls, timeout_ms, idempotent_flg, "
         "version, status, published_at, "
         "exec_count, success_count, avg_duration_ms, ext_info, "
-        "delete_flg, created_at, created_by, updated_at, updated_by"
+        "delete_flg, created_at, created_by, updated_at, updated_by, "
+        "COALESCE(enabled_flg, CASE WHEN status='published' THEN 1 ELSE 0 END) AS enabled_flg, "
+        "COALESCE(category, '') AS category, "
+        "COALESCE(tags, '[]') AS tags, "
+        "COALESCE(icon, '') AS icon, "
+        "COALESCE(sort_num, 0) AS sort_num"
     )
 
     # ── 查询 ──
@@ -38,7 +43,7 @@ class SkillDefinitionDAO:
     @staticmethod
     def list_active(tenant_id: int | None = None,
                      include_platform: bool = True) -> list[SkillDefinitionRow]:
-        """列出 status='published' 且未删除的技能
+        """列出 enabled_flg=1 且未删除的技能（兼容旧 status='published'）
 
         Args:
             tenant_id: 目标租户；None 表示读所有租户
@@ -46,7 +51,8 @@ class SkillDefinitionDAO:
         """
         sql = (
             f"SELECT {SkillDefinitionDAO._ALL_COLUMNS} "
-            f"FROM ai_skill_definition WHERE delete_flg=0 AND status='published'"
+            f"FROM ai_skill_definition WHERE delete_flg=0 "
+            f"AND (enabled_flg=1 OR (enabled_flg IS NULL AND status='published'))"
         )
         params: list[Any] = []
         if tenant_id is not None:
@@ -165,6 +171,36 @@ class SkillDefinitionDAO:
             )
         logger.info("Skill upserted: tenant=%d api_key=%s version=%s status=%s",
                     row.tenant_id, row.api_key, row.version, row.status)
+
+    @staticmethod
+    def update_fields(tenant_id: int, api_key: str, fields: dict) -> None:
+        """按字段名动态更新（供 SkillService 使用）"""
+        if not fields:
+            return
+        # 白名单：只允许更新这些字段
+        allowed = {
+            "name", "description", "when_to_use", "owner", "context", "agent",
+            "model", "allowed_tools", "arguments", "prompt", "risk_level",
+            "requires_confirmation", "max_tool_calls", "timeout_ms", "idempotent_flg",
+            "version", "status", "published_at", "ext_info",
+            "updated_at", "updated_by",
+        }
+        set_clauses = []
+        params = []
+        for col, val in fields.items():
+            if col not in allowed:
+                continue
+            set_clauses.append(f"{col} = %s")
+            params.append(val)
+        if not set_clauses:
+            return
+        params.extend([tenant_id, api_key])
+        sql = (
+            f"UPDATE ai_skill_definition SET {', '.join(set_clauses)} "
+            f"WHERE tenant_id = %s AND api_key = %s AND delete_flg = 0"
+        )
+        with get_conn() as conn:
+            conn.cursor().execute(sql, params)
 
     @staticmethod
     def soft_delete(tenant_id: int, api_key: str, updated_by: int = 0) -> None:

@@ -44,7 +44,7 @@ class SkillDefinitionRow:
     timeout_ms: int = 60000
     idempotent_flg: int = 1
     version: str = "1.0.0"
-    status: str = "draft"               # draft | published | deprecated
+    status: str = "published"           # 兼容旧字段
     published_at: int = 0
     exec_count: int = 0
     success_count: int = 0
@@ -55,6 +55,12 @@ class SkillDefinitionRow:
     created_by: int = 0
     updated_at: int = 0
     updated_by: int = 0
+    # 新增字段
+    enabled_flg: int = 1                # 1=启用, 0=禁用
+    category: str = ""                  # 分类
+    tags: str = "[]"                    # JSON 标签数组
+    icon: str = ""                      # 图标
+    sort_num: int = 0                   # 排序权重
 
     def __post_init__(self):
         if not self.id:

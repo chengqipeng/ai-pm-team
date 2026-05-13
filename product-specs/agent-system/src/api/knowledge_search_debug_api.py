@@ -968,6 +968,16 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         for did, title in pg_doc_titles.items():
             if did not in doc_titles and title:
                 doc_titles[did] = title
+        # 补充：对 doc_chunks 中仍缺 title 的文档再查一次 PG
+        missing_title_doc_ids = [did for did in doc_chunks.keys() if did not in doc_titles]
+        if missing_title_doc_ids:
+            try:
+                extra_pg_docs = KnowledgeDocumentDAO.get_by_doc_ids(missing_title_doc_ids)
+                for d in extra_pg_docs:
+                    if d.doc_id not in doc_titles:
+                        doc_titles[d.doc_id] = d.title or d.file_name or ""
+            except Exception:
+                pass
 
         for did in doc_chunks.keys():
             na = doc_norm_a.get(did, 0.0)
@@ -1240,6 +1250,12 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                 }
             except Exception:
                 pass
+
+        # 统计每个文档的切片命中数（从 chunk_hits 中聚合）
+        doc_chunk_counts: dict[str, int] = {}
+        for ch in chunk_hits:
+            doc_chunk_counts[ch.doc_id] = doc_chunk_counts.get(ch.doc_id, 0) + 1
+
         for rank, r in enumerate(doc_meta_hybrid):
             did = r.get("id", "")
             if not did:
@@ -1250,6 +1266,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                 "doc_id": did,
                 "title": title,
                 "score": round(float(r.get("score", 0)), 4),
+                "chunk_count": doc_chunk_counts.get(did, 0),
             })
 
     return SearchDebugResponse(

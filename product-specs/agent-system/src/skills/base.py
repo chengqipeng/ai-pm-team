@@ -124,7 +124,7 @@ class SkillRegistry:
 
     def load_from_db(self, tenant_id: int = 0, *, clear: bool = True,
                       include_platform: bool = True) -> int:
-        """从 ai_skill_definition 表加载 status='published' 的技能
+        """从 ai_skill_definition 表加载 enabled_flg=1 的技能
 
         Args:
             tenant_id: 目标租户；0 表示仅加载平台级
@@ -143,6 +143,10 @@ class SkillRegistry:
         )
         loaded = 0
         for row in rows:
+            # 只加载启用的技能（兼容：enabled_flg 字段可能不存在时 fallback 到 status）
+            enabled = getattr(row, "enabled_flg", None)
+            if enabled is not None and enabled != 1:
+                continue
             try:
                 skill = SkillDefinition.from_db_row(row)
                 self._skills[skill.name] = skill

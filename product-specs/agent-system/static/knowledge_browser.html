@@ -1648,6 +1648,7 @@ function renderSearchResult(query, data){
         <div class="px-3 pb-2 space-y-0.5 max-h-64 overflow-y-auto">
           ${docList.map((doc, i) => {
             const docName = doc.title || doc.doc_id;
+            const isRealTitle = doc.title && doc.title !== doc.doc_id;
             const score = doc.score || 0;
             const scoreColor = score >= 0.7 ? 'text-green-600' : score >= 0.5 ? 'text-blue-600' : score >= 0.3 ? 'text-orange-600' : 'text-gray-500';
             const chunkInfo = doc.chunk_count ? `${doc.chunk_count}切片` : '';
@@ -1655,7 +1656,7 @@ function renderSearchResult(query, data){
             <div class="flex items-center justify-between py-1 border-b border-blue-100/50 last:border-0">
               <div class="flex items-center gap-1.5 min-w-0 flex-1">
                 <span class="text-[9px] text-blue-400 font-bold shrink-0 w-4 text-right">${doc.rank || i + 1}</span>
-                <span class="text-[10px] text-gray-700 truncate">${esc(docName)}</span>
+                <span class="text-[10px] ${isRealTitle ? 'text-blue-600 hover:text-blue-800 underline decoration-blue-200 hover:decoration-blue-400 cursor-pointer' : 'text-gray-700 hover:text-blue-600 cursor-pointer'} truncate transition-colors" onclick="openDocDetail('${esc(doc.doc_id)}')" title="点击查看文档详情和切片信息">${esc(docName)}</span>
               </div>
               <div class="flex items-center gap-2 shrink-0 ml-2">
                 ${chunkInfo ? `<span class="text-[9px] text-gray-400">${chunkInfo}</span>` : ''}
