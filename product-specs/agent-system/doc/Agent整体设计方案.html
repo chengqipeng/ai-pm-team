@@ -997,7 +997,179 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 三者不可能同时满足。解法不是"砍数据"，而是<strong>"分层存储 + 按需加载 + 渐进式压缩"</strong>。</p>
 </blockquote>
 
-<h3 id="ctx-how">2.2 上下文压缩的实现逻辑</h3>
+<h3 id="ctx-pipeline">2.2 上下文压缩完整链路图<a class="headerlink" href="#ctx-pipeline" title="Permanent link">&para;</a></h3>
+
+<div style="font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Consolas, monospace; font-size: 0.78rem; line-height: 1.7; background: #1e293b; color: #e2e8f0; padding: 1.5rem 2rem; border-radius: 10px; overflow-x: auto; margin: 1rem 0;">
+
+<div style="text-align:center;color:#94a3b8;font-size:0.7rem;margin-bottom:1rem;">═══ 上下文压缩完整链路图（场景：销售经理竞品调研，8 轮对话）═══</div>
+
+<!-- Layer 4: 历史上下文构建 -->
+<div style="color:#f472b6;font-weight:600;margin-bottom:0.3rem;">📥 Layer 4 · 历史上下文构建（每次新对话开始时，执行 1 次）</div>
+<div style="padding-left:1rem;border-left:2px solid #f472b6;margin-bottom:1rem;">
+<div><span style="color:#94a3b8;">[1]</span> <span style="color:#e2e8f0;">加载对话历史</span> — <span style="color:#94a3b8;">从 DB 加载最近 5 轮 answerSummary → conversation_history</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">轮次1 answer 800字 → answerSummary 50字 | 轮次2 answer 1200字 → answerSummary 60字 | ...</div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">5 轮完整 answer 合计 ~9300 字符 → 5 条 answerSummary 合计 ~500 字符（节省 94.6%）</div>
+<div><span style="color:#94a3b8;">[2]</span> <span style="color:#e2e8f0;">注入 sessionSummary</span> — <span style="color:#94a3b8;">从 Redis 加载会话级结构化摘要 → 注入 SystemMessage</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">包含: Active Task / 已完成操作 / 关键数据 / 涉及实体（~400 tokens）</div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">关键: 即使轮次1已超出5轮窗口，sessionSummary 仍保留其关键数据</div>
+<div><span style="color:#94a3b8;">[3]</span> <span style="color:#e2e8f0;">构建虚拟文件视图</span> — <span style="color:#94a3b8;">file_list 保留完整 answer 供意图识别按需引用</span></div>
+<div><span style="color:#94a3b8;">[4]</span> <span style="color:#e2e8f0;">Prompt Cache</span> — <span style="color:#94a3b8;">设置 4 个 cache_control 断点，System Prompt 前缀匹配命中</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">输入 token 计费降低 ~75%（Anthropic 模型）</div>
+</div>
+<div style="text-align:center;color:#475569;margin-bottom:0.5rem;">▼ 上下文就绪: SystemPrompt(5K) + sessionSummary(400) + history(250) + 当前消息 ≈ 6K tokens</div>
+
+<!-- Layer 1: 源头隔离 — 工具执行时 -->
+<div style="color:#4ade80;font-weight:600;margin-bottom:0.3rem;">🛡️ Layer 1 · 源头隔离（每次工具执行完毕时，100% 触发）</div>
+<div style="padding-left:1rem;border-left:2px solid #4ade80;margin-bottom:1rem;">
+
+<div style="color:#e2e8f0;font-weight:500;margin:0.5rem 0 0.2rem;">场景 A：查询返回大量结构化数据（100 条商机 Pipeline）</div>
+<div style="padding-left:1rem;">
+<div><span style="color:#94a3b8;">[5]</span> <span style="color:#38bdf8;">工具执行</span> — <span style="color:#94a3b8;">query_data(entity="opportunity") → 返回 100 条记录，35K 字符</span></div>
+<div><span style="color:#94a3b8;">[6]</span> <span style="color:#4ade80;">前端组件分流</span> — <span style="color:#94a3b8;">neo_ai_emit_custom(pipeline_dashboard) → 前端渲染仪表盘卡片</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">用户立即在界面看到完整 Pipeline 数据，不依赖 LLM 上下文</div>
+<div><span style="color:#94a3b8;">[7]</span> <span style="color:#4ade80;">动态阈值判断</span> — <span style="color:#94a3b8;">查询类阈值 300 字符，35K >> 300 → 触发摘要</span></div>
+<div><span style="color:#94a3b8;">[8]</span> <span style="color:#4ade80;">第一层: 代码规则提取</span> — <span style="color:#94a3b8;">extract_from_json() → "100条商机, 总金额$3.6M, prospecting 25/..."</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">成功! 零 LLM 成本，延迟 &lt;1ms</div>
+<div><span style="color:#94a3b8;">[9]</span> <span style="color:#4ade80;">虚拟文件保留原文</span> — <span style="color:#94a3b8;">FileInfo(content=35K原文, summary=90字摘要)</span></div>
+<div style="padding-left:1.5rem;color:#4ade80;font-size:0.7rem;">✅ 进入上下文: 90 字 ≈ 40 tokens（原文 35K ≈ 8,750 tokens，节省 99.5%）</div>
+</div>
+
+<div style="color:#e2e8f0;font-weight:500;margin:0.8rem 0 0.2rem;">场景 B：搜索返回非结构化文本（竞品调研）</div>
+<div style="padding-left:1rem;">
+<div><span style="color:#94a3b8;">[10]</span> <span style="color:#38bdf8;">工具执行</span> — <span style="color:#94a3b8;">web_search("华为 2025 竞品对比") → AI answer + 5条结果，2100 字符</span></div>
+<div><span style="color:#94a3b8;">[11]</span> <span style="color:#4ade80;">动态阈值判断</span> — <span style="color:#94a3b8;">搜索类阈值 500 字符，2100 > 500 → 触发摘要</span></div>
+<div><span style="color:#94a3b8;">[12]</span> <span style="color:#4ade80;">第一层: 代码规则提取</span> — <span style="color:#94a3b8;">非 JSON、非 CustomContent → 返回 None</span></div>
+<div><span style="color:#94a3b8;">[13]</span> <span style="color:#fbbf24;">第二层: 快速模型摘要</span> <span style="color:#64748b;">· 1200ms</span> — <span style="color:#94a3b8;">gemini-flash 生成 150 字摘要</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">摘要保留精确数字: "华为营收8809亿/研发21.8%/净利680亿"</div>
+<div style="padding-left:1.5rem;color:#4ade80;font-size:0.7rem;">✅ 进入上下文: 150 字 ≈ 75 tokens（原文 2100 字符 ≈ 525 tokens，节省 86%）</div>
+</div>
+
+<div style="color:#e2e8f0;font-weight:500;margin:0.8rem 0 0.2rem;">场景 C：报价/财务数据（精确数字不能丢）</div>
+<div style="padding-left:1rem;">
+<div><span style="color:#94a3b8;">[14]</span> <span style="color:#38bdf8;">工具执行</span> — <span style="color:#94a3b8;">financial_report("华为") → 利润表完整数据，3500 字符</span></div>
+<div><span style="color:#94a3b8;">[15]</span> <span style="color:#4ade80;">动态阈值判断</span> — <span style="color:#94a3b8;">报价/财务类阈值 1500 字符，3500 > 1500 → 触发摘要</span></div>
+<div><span style="color:#94a3b8;">[16]</span> <span style="color:#fbbf24;">快速模型摘要</span> <span style="color:#64748b;">· 1500ms</span> — <span style="color:#94a3b8;">摘要 Prompt 要求保留所有精确数字</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">"营收8809亿(+2.2%) / 净利680亿(+8.6%) / 研发1923亿(占21.8%) / 毛利率38.4%"</div>
+<div style="padding-left:1.5rem;color:#4ade80;font-size:0.7rem;">✅ 进入上下文: 300 字 ≈ 150 tokens（原文 3500 字符 ≈ 875 tokens，节省 83%）</div>
+</div>
+
+<div style="color:#e2e8f0;font-weight:500;margin:0.8rem 0 0.2rem;">场景 D：短结果不触发摘要</div>
+<div style="padding-left:1rem;">
+<div><span style="color:#94a3b8;">[17]</span> <span style="color:#38bdf8;">工具执行</span> — <span style="color:#94a3b8;">modify_data(entity="opportunity", action="update") → "修改成功"，150 字符</span></div>
+<div><span style="color:#94a3b8;">[18]</span> <span style="color:#4ade80;">动态阈值判断</span> — <span style="color:#94a3b8;">150 &lt; 300（查询类阈值）→ 不触发摘要，原文完整保留</span></div>
+<div style="padding-left:1.5rem;color:#4ade80;font-size:0.7rem;">✅ 进入上下文: 原文 150 字符完整保留</div>
+</div>
+
+</div>
+<div style="text-align:center;color:#475569;margin-bottom:0.5rem;">▼ 工具结果已在入口处完成体积控制</div>
+
+<!-- Layer 2: 当前轮次裁剪 -->
+<div style="color:#60a5fa;font-weight:600;margin-bottom:0.3rem;">✂️ Layer 2 · 当前轮次裁剪（reasoning 循环中，仅多步复杂任务触发）</div>
+<div style="padding-left:1rem;border-left:2px solid #60a5fa;margin-bottom:1rem;">
+
+<div style="color:#e2e8f0;font-weight:500;margin:0.5rem 0 0.2rem;">触发条件检查（每轮 LLM 调用前）</div>
+<div style="padding-left:1rem;">
+<div><span style="color:#94a3b8;">[19]</span> <span style="color:#60a5fa;">条件判断</span> — <span style="color:#94a3b8;">ToolMessage 数量 ≥5? 总字符数 >3000?</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">短对话（3步）: ToolMessage=2, 总量=800 → <span style="color:#f87171;">不触发，跳过 Layer 2</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">竞品调研（第8轮）: ToolMessage=7, 总量=4200 → <span style="color:#4ade80;">触发 Layer 2</span></div>
+</div>
+
+<div style="color:#e2e8f0;font-weight:500;margin:0.8rem 0 0.2rem;">Pass 1: MD5 去重</div>
+<div style="padding-left:1rem;">
+<div><span style="color:#94a3b8;">[20]</span> <span style="color:#60a5fa;">哈希计算</span> — <span style="color:#94a3b8;">从末尾向前遍历所有 ToolMessage，计算内容 MD5 前12位</span></div>
+<div><span style="color:#94a3b8;">[21]</span> <span style="color:#60a5fa;">去重替换</span> — <span style="color:#94a3b8;">发现 Turn 1 与 Turn 6 查询了相同客户 → Turn 1 替换为引用标记</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">Turn 1: "PT Sentosa Jaya, 制造业, 200人..." (800字) → "[重复结果 — 与最近一次相同查询结果一致]" (40字)</div>
+<div style="padding-left:1.5rem;color:#4ade80;font-size:0.7rem;">节省: 760 字符</div>
+</div>
+
+<div style="color:#e2e8f0;font-weight:500;margin:0.8rem 0 0.2rem;">Pass 2: 保护区外信息摘要替换</div>
+<div style="padding-left:1rem;">
+<div><span style="color:#94a3b8;">[22]</span> <span style="color:#60a5fa;">确定保护区</span> — <span style="color:#94a3b8;">从末尾向前累积 ~20K tokens → Turn 5-7 在保护区内，完整保留</span></div>
+<div><span style="color:#94a3b8;">[23]</span> <span style="color:#60a5fa;">规则摘要替换</span> — <span style="color:#94a3b8;">保护区外的 Turn 1-4 旧 ToolMessage → 一行信息摘要</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">Turn 2: "[web_search] 搜索 '华为 2025 公司概况' (2,100 chars)"</div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">Turn 3: "[financial_report] 华为 财报 (3,500 chars)"</div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">Turn 4: "[company_info] 华为技术有限公司 工商信息 (1,800 chars)"</div>
+<div style="padding-left:1.5rem;color:#4ade80;font-size:0.7rem;">节省: Turn 1-4 原文 ~8,200 字符 → 摘要 ~300 字符（节省 96%）</div>
+</div>
+
+<div style="color:#e2e8f0;font-weight:500;margin:0.8rem 0 0.2rem;">Pass 3: tool_call 参数截断</div>
+<div style="padding-left:1rem;">
+<div><span style="color:#94a3b8;">[24]</span> <span style="color:#60a5fa;">参数检查</span> — <span style="color:#94a3b8;">保护区外 Turn 3 的 modify_data arguments = 4000 字符 > 500</span></div>
+<div><span style="color:#94a3b8;">[25]</span> <span style="color:#60a5fa;">截断</span> — <span style="color:#94a3b8;">截断到 200 字符 + "...[truncated]"</span></div>
+<div style="padding-left:1.5rem;color:#4ade80;font-size:0.7rem;">节省: 3,800 字符</div>
+</div>
+
+</div>
+<div style="text-align:center;color:#475569;margin-bottom:0.5rem;">▼ 当前轮次上下文已精简，LLM 开始推理</div>
+
+<!-- Layer 3: 回复摘要回写 -->
+<div style="color:#c084fc;font-weight:600;margin-bottom:0.3rem;">💾 Layer 3 · 回复摘要回写（每轮回复结束后，异步执行）</div>
+<div style="padding-left:1rem;border-left:2px solid #c084fc;margin-bottom:1rem;">
+
+<div style="color:#e2e8f0;font-weight:500;margin:0.5rem 0 0.2rem;">answerSummary 生成</div>
+<div style="padding-left:1rem;">
+<div><span style="color:#94a3b8;">[26]</span> <span style="color:#e2e8f0;">回复长度检查</span> — <span style="color:#94a3b8;">最终回复 2000 字符 > 500 → 触发摘要</span></div>
+<div><span style="color:#94a3b8;">[27]</span> <span style="color:#4ade80;">流式推送完成</span> — <span style="color:#94a3b8;">neo_ai_emit_message_finish() → 前端立即显示"完成"</span></div>
+<div><span style="color:#94a3b8;">[28]</span> <span style="color:#fbbf24;">异步摘要</span> <span style="color:#64748b;">· 后台 1500ms</span> — <span style="color:#94a3b8;">asyncio.create_task → gemini-flash 生成 75 字摘要</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">不阻塞前端! 用户已看到完整回复，摘要在后台生成</div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">"华为2025营收8809亿/净利680亿/研发21.8%，对比中兴营收1252亿/净利88亿"</div>
+<div><span style="color:#94a3b8;">[29]</span> <span style="color:#c084fc;">写入 DB</span> — <span style="color:#94a3b8;">message_.answerSummary = "..." → 下次加载历史时使用</span></div>
+</div>
+
+<div style="color:#e2e8f0;font-weight:500;margin:0.8rem 0 0.2rem;">sessionSummary 迭代更新</div>
+<div style="padding-left:1rem;">
+<div><span style="color:#94a3b8;">[30]</span> <span style="color:#c084fc;">加载上次摘要</span> — <span style="color:#94a3b8;">从 Redis 读取 session_summary:conv_12345</span></div>
+<div><span style="color:#94a3b8;">[31]</span> <span style="color:#fbbf24;">迭代更新</span> <span style="color:#64748b;">· 后台 2000ms</span> — <span style="color:#94a3b8;">PRESERVE 旧内容 + ADD 新操作 + MOVE 状态变化</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">已完成操作: +1 "搜索华为竞品对比 — 华为/中兴/爱立信三方对比"</div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">关键数据: +1 "华为营收8809亿, 中兴1252亿, 爱立信~2300亿"</div>
+<div><span style="color:#94a3b8;">[32]</span> <span style="color:#c084fc;">写入 Redis</span> — <span style="color:#94a3b8;">session_summary:conv_12345 = 更新后的结构化摘要</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">下次对话开始时 Layer 4 会加载此摘要注入上下文</div>
+</div>
+
+<div style="color:#e2e8f0;font-weight:500;margin:0.8rem 0 0.2rem;">容错场景</div>
+<div style="padding-left:1rem;">
+<div><span style="color:#94a3b8;">[33]</span> <span style="color:#f87171;">摘要失败</span> — <span style="color:#94a3b8;">gemini-flash 超时 30s → answerSummary = None</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">fallback: 下次加载历史时使用完整 answer（上下文稍大但不影响功能）</div>
+<div><span style="color:#94a3b8;">[34]</span> <span style="color:#f87171;">冷却机制</span> — <span style="color:#94a3b8;">设置 Redis key summary_cooldown = 60s → 冷却期间跳过摘要</span></div>
+</div>
+
+</div>
+<div style="text-align:center;color:#475569;margin-bottom:0.5rem;">▼ 回复已送达用户，摘要已异步持久化，为下次对话做好准备</div>
+
+<!-- 压缩触发策略 -->
+<div style="color:#fbbf24;font-weight:600;margin-bottom:0.3rem;">⚡ 压缩触发策略（贯穿全流程的三道防线）</div>
+<div style="padding-left:1rem;border-left:2px solid #fbbf24;margin-bottom:1rem;">
+<div><span style="color:#94a3b8;">[A]</span> <span style="color:#4ade80;">第一道: 事前控制</span> — <span style="color:#94a3b8;">每个工具 max_result_size_chars 限制 + 默认分页 + Schema 分层返回</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">大部分场景永远不需要压缩（工具返回已被控制在合理范围）</div>
+<div><span style="color:#94a3b8;">[B]</span> <span style="color:#60a5fa;">第二道: 规则压缩</span> — <span style="color:#94a3b8;">ratio ≤50% 不压缩 | 50-70% 轻度裁剪 | 70-85% 中度裁剪 | >85% 极端裁剪</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">纯内存操作，~5ms，用户无感知</div>
+<div><span style="color:#94a3b8;">[C]</span> <span style="color:#f472b6;">第三道: 异步摘要</span> — <span style="color:#94a3b8;">ratio >85% 时: 极端裁剪立即生效(~10ms) + 后台 LLM 摘要(下轮生效)</span></div>
+<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">对比旧方案同步摘要阻塞 3-5s → 新方案任何情况下用户零感知</div>
+<div><span style="color:#94a3b8;">[D]</span> <span style="color:#fbbf24;">反抖动</span> — <span style="color:#94a3b8;">连续 2 次压缩节省 &lt;10% → 跳过后续压缩（避免无效调用）</span></div>
+</div>
+
+<!-- 最终效果 -->
+<div style="border:1px solid #475569;border-radius:8px;padding:0.8rem 1rem;margin-top:0.5rem;background:rgba(71,85,105,0.2);">
+<div style="color:#4ade80;font-weight:600;margin-bottom:0.3rem;">📊 压缩效果（本场景: 8 轮竞品调研）</div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;margin-top:0.5rem;">
+<div style="text-align:center;">
+<div style="color:#f87171;font-size:1.1rem;font-weight:600;">~40K tokens</div>
+<div style="color:#94a3b8;font-size:0.7rem;">无压缩时上下文占用</div>
+</div>
+<div style="text-align:center;">
+<div style="color:#fbbf24;font-size:1.5rem;">→</div>
+</div>
+<div style="text-align:center;">
+<div style="color:#4ade80;font-size:1.1rem;font-weight:600;">~5K tokens</div>
+<div style="color:#94a3b8;font-size:0.7rem;">压缩后上下文占用</div>
+</div>
+</div>
+<div style="text-align:center;color:#94a3b8;font-size:0.72rem;margin-top:0.5rem;">节省 87% · 关键业务数据零丢失 · 用户零感知延迟</div>
+</div>
+
+</div>
+
+<h3 id="ctx-how">2.3 上下文压缩的实现逻辑</h3>
 
 <h4>整体思路：四层递进式压缩</h4>
 
@@ -1183,7 +1355,7 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 </tbody>
 </table>
 
-<h3 id="ctx-trigger">2.3 压缩触发策略</h3>
+<h3 id="ctx-trigger">2.4 压缩触发策略</h3>
 
 <p>压缩的触发遵循<strong>"永远不在用户等待的关键路径上调用 LLM 做摘要"</strong>的原则，通过三道防线实现：</p>
 
@@ -1213,7 +1385,7 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 
 <p>对比旧方案（同步 LLM 摘要阻塞 3-5 秒），新方案在任何情况下都不会让用户感知到压缩带来的延迟。</p>
 
-<h3 id="ctx-auxiliary">2.4 辅助机制</h3>
+<h3 id="ctx-auxiliary">2.5 辅助机制</h3>
 
 <table>
 <thead><tr><th>机制</th><th>说明</th></tr></thead>
@@ -1237,7 +1409,7 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 </tbody>
 </table>
 
-<h3 id="ctx-effect">2.5 压缩效果总览</h3>
+<h3 id="ctx-effect">2.6 压缩效果总览</h3>
 
 <table>
 <thead><tr><th>场景</th><th>无压缩时上下文占用</th><th>压缩后上下文占用</th><th>节省比例</th></tr></thead>

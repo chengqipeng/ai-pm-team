@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from src.store.knowledge_dao import (
     KnowledgeBaseDAO,
+    KnowledgeDocumentDAO,
     KnowledgeSchemaDAO,
 )
 
@@ -107,6 +108,7 @@ class SearchDebugResponse(BaseModel):
     pipeline_nodes: list[PipelineNode]
     chunk_hits: list[ChunkHit]
     rrf_details: list[RRFDetail]
+    hit_documents: list[dict] = Field(default_factory=list, description="路B命中的所有文档列表(doc_id + title)")
     final_answer_context: str = ""
     summary: str = ""
 
@@ -261,8 +263,8 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
     t0 = time.time()
     global_chunk_filter = retriever._build_chunk_filter(req.knowledge_base_id, {})  # 全局不带元数据 filter
     doc_filter = retriever._build_doc_filter(req.knowledge_base_id, extracted_filters)
-    chunk_limit = max(req.top_k * 5, 30)
-    doc_limit = max(req.top_k * 5, 50)
+    chunk_limit = max(req.top_k * 10, 50)
+    doc_limit = max(req.top_k * 10, 50)
 
     # Embedding
     query_vec: list[float] = []
@@ -817,13 +819,30 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
     chunks = await retriever._hydrate_and_expand(chunk_results, req.tenant_id)
     hydrate_ms = int((time.time() - t0) * 1000)
 
+    # 补充 document_title：如果 VDB 未返回 title，从 PG 批量拉取
+    doc_ids_missing_title = list({
+        c.document_id for c in chunks
+        if c.document_id and not c.document_title
+    })
+    pg_doc_titles: dict[str, str] = {}
+    if doc_ids_missing_title:
+        try:
+            pg_docs = KnowledgeDocumentDAO.get_by_doc_ids(doc_ids_missing_title)
+            pg_doc_titles = {
+                d.doc_id: (d.title or d.file_name or "")
+                for d in pg_docs
+            }
+        except Exception as exc:
+            logger.debug("Fallback load doc titles from PG failed: %s", exc)
+
     # 构建命中分片列表（含原始分数）
     chunk_hits: list[ChunkHit] = []
     for c in chunks:
+        title = c.document_title or pg_doc_titles.get(c.document_id, "")
         chunk_hits.append(ChunkHit(
             chunk_id=c.chunk_id,
             doc_id=c.document_id,
-            document_title=c.document_title,
+            document_title=title,
             content=c.content[:500],  # 截断避免响应过大
             section_title=c.section_title,
             chunk_type=c.chunk_type,
@@ -945,6 +964,10 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         for c in chunks:
             if c.document_id and c.document_title:
                 doc_titles[c.document_id] = c.document_title
+        # 合并 PG fallback 标题（VDB 未返回 title 的文档）
+        for did, title in pg_doc_titles.items():
+            if did not in doc_titles and title:
+                doc_titles[did] = title
 
         for did in doc_chunks.keys():
             na = doc_norm_a.get(did, 0.0)
@@ -1201,12 +1224,41 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
     ]
     summary = " | ".join(p for p in summary_parts if p)
 
+    # 构建路B命中文档汇总（包含所有文档级召回结果）
+    hit_documents: list[dict] = []
+    if doc_meta_hybrid:
+        # 从路B结果中提取 doc_id 和 title
+        route_b_doc_ids = [r.get("id", "") for r in doc_meta_hybrid if r.get("id")]
+        # 从 PG 批量获取标题（路B VDB 可能没有返回 title）
+        route_b_titles: dict[str, str] = {}
+        if route_b_doc_ids:
+            try:
+                pg_docs_for_route_b = KnowledgeDocumentDAO.get_by_doc_ids(route_b_doc_ids)
+                route_b_titles = {
+                    d.doc_id: (d.title or d.file_name or "")
+                    for d in pg_docs_for_route_b
+                }
+            except Exception:
+                pass
+        for rank, r in enumerate(doc_meta_hybrid):
+            did = r.get("id", "")
+            if not did:
+                continue
+            title = r.get("title") or route_b_titles.get(did, "") or did
+            hit_documents.append({
+                "rank": rank + 1,
+                "doc_id": did,
+                "title": title,
+                "score": round(float(r.get("score", 0)), 4),
+            })
+
     return SearchDebugResponse(
         trace_id=trace_id,
         total_duration_ms=total_ms,
         pipeline_nodes=nodes,
         chunk_hits=chunk_hits,
         rrf_details=rrf_details,
+        hit_documents=hit_documents,
         final_answer_context=answer_context,
         summary=summary,
     )

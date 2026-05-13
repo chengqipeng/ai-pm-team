@@ -496,7 +496,7 @@ class KnowledgeVectorStore:
             results = self._doc_meta_coll.hybrid_search(
                 ann=[ann], match=match_list, rerank=rerank,
                 limit=top_k, filter=Filter(filter_expr),
-                output_fields=["id", "tenant_id"],
+                output_fields=["id", "tenant_id", "title"],
             )
             return self._parse_results(results)
         except Exception as exc:
