@@ -120,7 +120,7 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
                 <div style="font-size:0.65rem;color:#64748b;">原子操作</div>
               </div>
               <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.35rem;text-align:center;">
-                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">🔌 Plugin</div>
+                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">🔌 Middleware</div>
                 <div style="font-size:0.65rem;color:#64748b;">可插拔基础设施</div>
               </div>
               <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.35rem;text-align:center;">
@@ -226,7 +226,7 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;margin-top:0.5rem;">
               <div style="background:#fff;border:1px solid #c7d2fe;border-radius:5px;padding:0.4rem;">
                 <div style="font-weight:600;font-size:0.72rem;color:#4338ca;">🇨🇳 国内模型</div>
-                <div style="font-size:0.65rem;color:#64748b;">通义千问 / 文心 / 豆包<br>DeepSeek / Kimi / 智谱</div>
+                <div style="font-size:0.65rem;color:#64748b;">混元、通义千问 、豆包<br>DeepSeek</div>
               </div>
               <div style="background:#fff;border:1px solid #c7d2fe;border-radius:5px;padding:0.4rem;">
                 <div style="font-weight:600;font-size:0.72rem;color:#4338ca;">🌏 国际模型</div>
@@ -514,7 +514,7 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 <div style="color:#64748b;font-size:0.6rem;">inline: 注入SOP<br>fork: 子Agent</div>
 </div>
 <div style="background:#1e293b;border:1px solid #4ade80;border-radius:5px;padding:0.3rem;text-align:center;">
-<div style="color:#4ade80;font-weight:600;font-size:0.72rem;">🔌 Plugin</div>
+<div style="color:#4ade80;font-weight:600;font-size:0.72rem;">🔌 Middleware</div>
 <div style="color:#64748b;font-size:0.6rem;">memory<br>search<br>notification</div>
 </div>
 <div style="background:#1e293b;border:1px solid #fb923c;border-radius:5px;padding:0.3rem;text-align:center;">
@@ -535,6 +535,16 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 </div>
 <div style="text-align:center;color:#475569;">▼</div>
 
+<!-- 输出转换层（流式输出前） -->
+<div style="border:1.5px solid #f472b6;border-radius:8px;padding:0.8rem 1rem;margin:0.5rem 0;background:rgba(244,114,182,0.05);">
+<div style="color:#f472b6;font-weight:600;margin-bottom:0.4rem;">🔄 输出转换层（流式输出前，执行 1 次）</div>
+<div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
+<span style="background:#1e293b;border:1px solid #f472b6;padding:0.3rem 0.6rem;border-radius:5px;">OutputRender Middleware<br><span style="color:#64748b;font-size:0.65rem;">PII还原 + 格式化 + UI组件映射</span></span>
+<span style="background:#1e293b;border:1px solid #f472b6;padding:0.3rem 0.6rem;border-radius:5px;">StreamPIIRestorer<br><span style="color:#64748b;font-size:0.65rem;">流式占位符→原始值（before SSE push）</span></span>
+</div>
+</div>
+<div style="text-align:center;color:#475569;">▼</div>
+
 <!-- 回复输出 -->
 <div style="border:1.5px solid #4ade80;border-radius:8px;padding:0.6rem 1rem;margin:0.5rem 0;background:rgba(74,222,128,0.05);">
 <div style="color:#4ade80;font-weight:600;">✅ 回复输出</div>
@@ -544,9 +554,8 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 
 <!-- 后处理层 -->
 <div style="border:1.5px solid #c084fc;border-radius:8px;padding:0.8rem 1rem;margin:0.5rem 0;background:rgba(192,132,252,0.05);">
-<div style="color:#c084fc;font-weight:600;margin-bottom:0.4rem;">💾 后处理层（after_agent 中间件，执行 1 次）</div>
+<div style="color:#c084fc;font-weight:600;margin-bottom:0.4rem;">💾 后处理层（after_agent 中间件，异步执行，不阻塞回复）</div>
 <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
-<span style="background:#1e293b;border:1px solid #c084fc;padding:0.3rem 0.6rem;border-radius:5px;">OutputRender Middleware<br><span style="color:#64748b;font-size:0.65rem;">PII还原 + 格式化</span></span>
 <span style="background:#1e293b;border:1px solid #c084fc;padding:0.3rem 0.6rem;border-radius:5px;">记忆提取<br><span style="color:#64748b;font-size:0.65rem;">4路并行提取</span></span>
 <span style="background:#1e293b;border:1px solid #c084fc;padding:0.3rem 0.6rem;border-radius:5px;">记忆合并<br><span style="color:#64748b;font-size:0.65rem;">语义去重 [异步]</span></span>
 <span style="background:#1e293b;border:1px solid #c084fc;padding:0.3rem 0.6rem;border-radius:5px;">记忆反思<br><span style="color:#64748b;font-size:0.65rem;">冲突检测 [异步]</span></span>
@@ -901,17 +910,23 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 
 </div>
 
+<!-- 输出转换（流式输出前） -->
+<div style="color:#f472b6;font-weight:600;margin-bottom:0.3rem;">🔄 输出转换（流式输出前）</div>
+<div style="padding-left:1rem;border-left:2px solid #f472b6;margin-bottom:1rem;">
+<div><span style="color:#94a3b8;">[41]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ StreamPIIRestorer</span> <span style="color:#64748b;">· 逐token</span> — <span style="color:#94a3b8;">PII 占位符还原为原始值（before SSE push）</span></div>
+</div>
+
 <!-- 回复输出 -->
 <div style="color:#4ade80;font-weight:600;margin-bottom:0.3rem;">✅ 回复输出</div>
 <div style="padding-left:1rem;border-left:2px solid #4ade80;margin-bottom:1rem;">
-<div><span style="color:#94a3b8;">[41]</span> <span style="color:#e2e8f0;">回复完成</span> — <span style="color:#94a3b8;">SSE 流式推送最终回复（前端 type=done 事件）</span></div>
+<div><span style="color:#94a3b8;">[42]</span> <span style="color:#e2e8f0;">回复完成</span> — <span style="color:#94a3b8;">SSE 流式推送最终回复（前端 type=done 事件）</span></div>
 </div>
 
 <!-- 后处理 -->
-<div style="color:#c084fc;font-weight:600;margin-bottom:0.3rem;">💾 后处理 (after_agent，执行 1 次)</div>
+<div style="color:#c084fc;font-weight:600;margin-bottom:0.3rem;">💾 后处理 (after_agent，异步执行，不阻塞回复)</div>
 <div style="padding-left:1rem;border-left:2px solid #c084fc;">
-<div><span style="color:#94a3b8;">[42]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ OutputRenderMiddleware</span> <span style="color:#64748b;">· 5ms</span> — <span style="color:#94a3b8;">PII 还原 + 输出格式化: Markdown 清理</span></div>
-<div><span style="color:#94a3b8;">[43]</span> <span style="color:#e2e8f0;">记忆提取</span> <span style="color:#64748b;">· 3500ms</span> — <span style="color:#94a3b8;">提取 3 条新记忆</span></div>
+<div><span style="color:#94a3b8;">[43]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ OutputRenderMiddleware</span> <span style="color:#64748b;">· 5ms</span> — <span style="color:#94a3b8;">PII 还原 fallback（非流式场景）+ state 持久化</span></div>
+<div><span style="color:#94a3b8;">[44]</span> <span style="color:#e2e8f0;">记忆提取</span> <span style="color:#64748b;">· 3500ms</span> — <span style="color:#94a3b8;">提取 3 条新记忆</span></div>
 <div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">（MemoryMiddleware.aafter_agent → engine.extract_and_update）</div>
 <div style="margin-top:0.4rem;padding-left:1rem;">
 <div><span style="color:#94a3b8;">├─</span> <span style="color:#64748b;">[异步]</span> <span style="color:#e2e8f0;">记忆合并</span> — <span style="color:#94a3b8;">LLM 语义去重 + 分类合并策略</span></div>
@@ -922,6 +937,321 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 </div>
 
 </div>
+
+<h2 id="context-compression">二、上下文压缩设计<a class="headerlink" href="#context-compression" title="Permanent link">&para;</a></h2>
+
+<blockquote>
+<p>详细设计见独立文档：<a href="上下文压缩设计.md">上下文压缩设计.md</a><br>
+本节阐述上下文压缩的技术必要性与实现逻辑。</p>
+</blockquote>
+
+<h3 id="ctx-why">2.1 为什么需要上下文压缩</h3>
+
+<h4>LLM 上下文窗口的物理约束</h4>
+
+<p>大语言模型的上下文窗口是有限的物理资源。当前主流模型的有效窗口在 64K-200K tokens 之间，但实际可用空间远小于标称值：</p>
+
+<table>
+<thead><tr><th>占用项</th><th>典型大小</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>System Prompt + 工具定义</td><td>5K-8K tokens</td><td>固定开销，每次调用都存在</td></tr>
+<tr><td>输出预留空间</td><td>4K-8K tokens</td><td>LLM 生成回复需要的空间</td></tr>
+<tr><td>记忆注入</td><td>1K-3K tokens</td><td>长期记忆、用户画像、偏好</td></tr>
+<tr><td>对话历史</td><td>动态增长</td><td>每轮对话累积 500-2000 tokens</td></tr>
+<tr><td>工具执行结果</td><td>动态增长</td><td>单次工具返回 500-10K tokens</td></tr>
+</tbody>
+</table>
+
+<p>以 64K tokens 窗口为例，固定开销约 15K tokens，实际可用空间约 49K tokens。一个 5 轮对话 + 3 次工具调用就可能消耗 20K-30K tokens，留给后续推理的空间急剧缩小。</p>
+
+<h4>CRM 场景的数据量级远超编码场景</h4>
+
+<p>与编码辅助场景不同，CRM 业务场景的数据量级呈现以下特征：</p>
+
+<table>
+<thead><tr><th>数据源</th><th>典型数据量</th><th>业务不可裁剪的原因</th></tr></thead>
+<tbody>
+<tr><td>商机列表查询（Pipeline）</td><td>100-500 条记录，15K-75K 字符</td><td>管理层需要全局视角，Top10 无法替代全量分析</td></tr>
+<tr><td>大文本字段（需求描述/会议纪要）</td><td>单字段 2K-20K 字符</td><td>销售写的客户背景是核心业务信息</td></tr>
+<tr><td>跨实体关联查询（客户画像）</td><td>4-8 实体，20K-120K 字符</td><td>拜访准备需要完整画像</td></tr>
+<tr><td>搜索全文（竞品定价/案例）</td><td>单页 10K-80K 字符</td><td>snippet 拿不到定价表和功能对比矩阵</td></tr>
+<tr><td>财报/工商数据</td><td>单次 10K-30K 字符</td><td>精确数字不能丢失</td></tr>
+<tr><td>元数据 Schema 定义</td><td>单实体 5K-20K 字符</td><td>Agent 构建查询需要完整字段定义</td></tr>
+</tbody>
+</table>
+
+<p>一次"帮我调研华为并生成竞品分析报告"的任务，可能涉及 3 次搜索 + 2 次财报查询 + 1 次工商查询，工具结果总量轻松超过 50K 字符（约 12K tokens），单次任务就占满可用空间的 25%。</p>
+
+<h4>不压缩的三个后果</h4>
+
+<ol>
+<li><strong>上下文溢出</strong>：超出窗口限制后 LLM 直接报错，任务中断</li>
+<li><strong>注意力稀释</strong>：即使未溢出，过长的上下文导致 LLM 对关键信息的注意力下降（"Lost in the Middle" 现象），推理质量显著降低</li>
+<li><strong>成本线性增长</strong>：LLM 按 token 计费，冗余内容直接增加每次调用的成本</li>
+</ol>
+
+<h4>核心矛盾</h4>
+
+<blockquote>
+<p>业务需要完整数据才能做出准确判断，但上下文窗口放不下所有数据，而压缩如果依赖 LLM 摘要又会引入 3-5 秒额外延迟。<br>
+三者不可能同时满足。解法不是"砍数据"，而是<strong>"分层存储 + 按需加载 + 渐进式压缩"</strong>。</p>
+</blockquote>
+
+<h3 id="ctx-how">2.2 上下文压缩的实现逻辑</h3>
+
+<h4>整体思路：四层递进式压缩</h4>
+
+<p>压缩不是一次性动作，而是贯穿数据生命周期的四个阶段。每一层解决不同阶段的问题，层层递进：</p>
+
+<div style="margin:1.5rem 0;">
+<div style="display:flex;flex-direction:column;gap:0;align-items:stretch;">
+
+<!-- Layer 1 -->
+<div style="border:2px solid #4ade80;border-radius:12px 12px 0 0;padding:1rem 1.5rem;background:linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%);position:relative;">
+<div style="position:absolute;top:-12px;left:20px;background:#16a34a;color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">Layer 1 · 源头隔离</div>
+<div style="font-size:0.85rem;color:#166534;margin-top:0.5rem;font-weight:500;">时机：每次工具执行完毕时 · 覆盖 100% 对话</div>
+<div style="font-size:0.82rem;color:#1a1a2e;margin-top:0.5rem;">
+<strong>核心逻辑</strong>：在数据"进入"上下文之前就控制体积。<br>
+① 结构化数据通过前端 UI 组件直接渲染给用户，不进入 LLM 上下文<br>
+② 超过动态阈值的工具结果，先尝试代码规则提取摘要（零 LLM 成本），失败再调用快速模型生成摘要<br>
+③ 原文保留在虚拟文件中，后续推理如需细节可按需引用
+</div>
+<div style="font-size:0.78rem;color:#64748b;margin-top:0.5rem;">典型效果：100 条商机 35K 字符 → 上下文中只有 80 字摘要，节省 99.5%</div>
+</div>
+
+<!-- 连接 -->
+<div style="width:2px;height:16px;background:#94a3b8;margin-left:40px;"></div>
+
+<!-- Layer 2 -->
+<div style="border:2px solid #60a5fa;border-radius:0;padding:1rem 1.5rem;background:linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%);position:relative;">
+<div style="position:absolute;top:-12px;left:20px;background:#2563eb;color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">Layer 2 · 当前轮次裁剪</div>
+<div style="font-size:0.85rem;color:#1e40af;margin-top:0.5rem;font-weight:500;">时机：reasoning 循环中调用 LLM 前 · 仅多步复杂任务触发（约 20-30%）</div>
+<div style="font-size:0.82rem;color:#1a1a2e;margin-top:0.5rem;">
+<strong>核心逻辑</strong>：清理已在上下文中但不再需要完整保留的旧消息。<br>
+① MD5 去重：LLM 重复调用同一工具时，只保留最新一份结果，旧副本替换为引用标记<br>
+② 信息摘要替换：保护区（最近 N 条）外的旧工具结果，用规则模板生成一行摘要替换<br>
+③ 参数截断：保护区外的 tool_call 大参数截断到固定长度
+</div>
+<div style="font-size:0.78rem;color:#64748b;margin-top:0.5rem;">典型效果：10 轮竞品调研中，早期 6 轮工具结果 14,700 字符 → 400 字符摘要，节省 97%</div>
+</div>
+
+<!-- 连接 -->
+<div style="width:2px;height:16px;background:#94a3b8;margin-left:40px;"></div>
+
+<!-- Layer 3 -->
+<div style="border:2px solid #c084fc;border-radius:0;padding:1rem 1.5rem;background:linear-gradient(135deg,#faf5ff 0%,#f3e8ff 100%);position:relative;">
+<div style="position:absolute;top:-12px;left:20px;background:#7c3aed;color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">Layer 3 · 回复摘要回写</div>
+<div style="font-size:0.85rem;color:#5b21b6;margin-top:0.5rem;font-weight:500;">时机：每轮回复结束时 · 回复 >500 字符时触发（约 60-70%）</div>
+<div style="font-size:0.82rem;color:#1a1a2e;margin-top:0.5rem;">
+<strong>核心逻辑</strong>：为下次对话加载历史做准备，将长回复浓缩为精简摘要。<br>
+① answerSummary：异步生成当轮回复的摘要，写入数据库，不阻塞前端响应<br>
+② sessionSummary：维护一份结构化的会话级摘要（包含已完成操作、关键数据、待处理事项），存入 Redis，每轮迭代更新而非重新生成
+</div>
+<div style="font-size:0.78rem;color:#64748b;margin-top:0.5rem;">典型效果：2000 字竞品分析报告 → 75 字 answerSummary，下次加载历史时节省 96%</div>
+</div>
+
+<!-- 连接 -->
+<div style="width:2px;height:16px;background:#94a3b8;margin-left:40px;"></div>
+
+<!-- Layer 4 -->
+<div style="border:2px solid #f472b6;border-radius:0 0 12px 12px;padding:1rem 1.5rem;background:linear-gradient(135deg,#fdf2f8 0%,#fce7f3 100%);position:relative;">
+<div style="position:absolute;top:-12px;left:20px;background:#db2777;color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">Layer 4 · 历史上下文构建</div>
+<div style="font-size:0.85rem;color:#9d174d;margin-top:0.5rem;font-weight:500;">时机：每次新对话开始时 · 覆盖所有非首轮对话（100%）</div>
+<div style="font-size:0.82rem;color:#1a1a2e;margin-top:0.5rem;">
+<strong>核心逻辑</strong>：用最小的 token 开销重建完整的对话上下文。<br>
+① 双套视图：reasoning 节点使用 answerSummary 构建精简历史，意图识别节点使用虚拟文件按需引用完整内容<br>
+② sessionSummary 注入：作为 SystemMessage 注入推理循环，确保跨轮次的关键信息不丢失<br>
+③ Prompt Cache：利用前缀匹配缓存机制，减少重复 token 的计费
+</div>
+<div style="font-size:0.78rem;color:#64748b;margin-top:0.5rem;">典型效果：8 轮对话完整消息链 25K tokens → 压缩后 3.1K tokens，节省 87%</div>
+</div>
+
+</div>
+</div>
+
+<h4>主路径与辅助路径</h4>
+
+<p>大部分 CRM 交互是 3-5 步的短对话（查客户→查商机→回复），只走主路径：</p>
+
+<div style="margin:1rem 0;padding:0.8rem 1.2rem;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;">
+<strong style="color:#166534;">主路径（所有对话）：</strong> Layer 1（源头隔离）→ Layer 3（回复摘要）→ Layer 4（历史构建）
+</div>
+
+<p>只有多步复杂任务（报价谈判、竞品调研、客户交接等，约 20-30% 的对话）才会触发辅助路径：</p>
+
+<div style="margin:1rem 0;padding:0.8rem 1.2rem;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;">
+<strong style="color:#1e40af;">辅助路径（多步复杂任务）：</strong> Layer 1 → <strong>Layer 2（当前轮次裁剪）</strong> → Layer 3 → Layer 4
+</div>
+
+<h4>Layer 1 源头隔离的实现逻辑</h4>
+
+<p>Layer 1 是最关键的一层，因为它在数据进入上下文之前就完成了体积控制，避免了后续压缩的被动局面。</p>
+
+<table>
+<thead><tr><th>处理环节</th><th>逻辑说明</th><th>适用场景</th></tr></thead>
+<tbody>
+<tr>
+<td><strong>前端组件分流</strong></td>
+<td>工具返回的结构化数据（列表、图表、卡片）通过 AG-UI 协议推送给前端渲染为 UI 组件，用户直接在界面上看到完整数据。LLM 上下文中只注入一行统计摘要（如"100 条商机，总金额 $3.6M"）。</td>
+<td>所有返回结构化数据的工具调用</td>
+</tr>
+<tr>
+<td><strong>动态摘要阈值</strong></td>
+<td>不同工具类型设置不同的摘要触发阈值。查询类工具阈值低（300 字符），因为列表数据信息密度低；报价/财务类工具阈值高（1500 字符），因为精确数字不能丢失。低于阈值的结果完整保留，高于阈值的触发摘要流程。</td>
+<td>所有工具结果的入口判断</td>
+</tr>
+<tr>
+<td><strong>两层摘要策略</strong></td>
+<td>第一层：用代码规则从结构化数据中提取关键信息（如从 JSON 列表提取记录数和名称，从已知组件类型提取关键字段），零 LLM 成本，毫秒级完成。第二层：代码规则无法处理时（如非结构化文本），调用快速模型生成摘要。CRM 场景中代码规则能覆盖 60-70% 的情况。</td>
+<td>超过阈值的工具结果</td>
+</tr>
+<tr>
+<td><strong>虚拟文件保留原文</strong></td>
+<td>摘要后的原文不丢弃，而是存入虚拟文件（FileInfo）。后续推理如果需要某个具体字段值或细节，可以从虚拟文件中按需引用，不需要重新调用工具。</td>
+<td>所有被摘要的工具结果</td>
+</tr>
+</tbody>
+</table>
+
+<h4>Layer 2 当前轮次裁剪的实现逻辑</h4>
+
+<p>Layer 2 只在多步复杂任务中触发（ToolMessage 数量 ≥5 且总字符数 >3000）。它处理的是"已经在上下文中但价值衰减"的旧消息。</p>
+
+<table>
+<thead><tr><th>处理环节</th><th>逻辑说明</th></tr></thead>
+<tbody>
+<tr>
+<td><strong>保护区机制</strong></td>
+<td>从消息列表末尾向前累积，最近 ~20K tokens 范围内的消息属于"保护区"，不做任何裁剪。只有保护区之外的旧消息才会被处理。这确保 LLM 当前正在使用的信息不受影响。</td>
+</tr>
+<tr>
+<td><strong>Pass 1: MD5 去重</strong></td>
+<td>对所有 ToolMessage 内容计算哈希值，从末尾向前遍历。相同内容只保留最新一份（最靠近末尾的），旧副本替换为"[重复结果 — 与最近一次相同查询结果一致]"。解决 LLM 重复调用同一工具（如反复查询同一客户）导致的冗余。</td>
+</tr>
+<tr>
+<td><strong>Pass 2: 信息摘要替换</strong></td>
+<td>保护区外的旧 ToolMessage，用规则模板生成一行信息摘要替换。摘要保留工具名、关键参数、数据量等元信息（如"[query_data] 查询 opportunity，返回 8 条记录"），让 LLM 知道"之前做过什么"但不占用大量空间。</td>
+</tr>
+<tr>
+<td><strong>Pass 3: 参数截断</strong></td>
+<td>保护区外的 assistant 消息中，tool_call 的 arguments 如果超过 500 字符则截断到 200 字符。大参数（如 modify_data 写入的长文本字段）在执行完毕后不再需要完整保留。</td>
+</tr>
+</tbody>
+</table>
+
+<h4>Layer 3 回复摘要回写的实现逻辑</h4>
+
+<p>Layer 3 的核心目标是为 Layer 4（下次对话加载历史）做准备。它在当前轮次结束后异步执行，不影响用户体验。</p>
+
+<table>
+<thead><tr><th>处理环节</th><th>逻辑说明</th></tr></thead>
+<tbody>
+<tr>
+<td><strong>answerSummary 异步生成</strong></td>
+<td>当轮回复超过 500 字符时，后台异步调用快速模型生成摘要，写入数据库的 answerSummary 字段。前端响应不等待摘要完成。下次加载历史时，conversation_history 使用 answerSummary（~100 字）而非完整 answer（可能 2000+ 字）。</td>
+</tr>
+<tr>
+<td><strong>sessionSummary 迭代更新</strong></td>
+<td>维护一份结构化的会话级摘要，包含 7 个固定 section：Active Task / 客户上下文 / 已完成操作 / 关键数据 / 已回答问题 / 待处理 / 涉及实体。每轮结束后迭代更新（保留旧内容 + 追加新内容 + 移动状态变化），而非每次重新生成。存入 Redis，适配 SaaS 无状态架构。</td>
+</tr>
+<tr>
+<td><strong>容错与降级</strong></td>
+<td>摘要生成失败时不影响主流程：answerSummary 为空则 fallback 使用完整 answer；连续失败触发冷却机制（60s/600s），冷却期间跳过摘要生成；摘要模型不可用时自动降级到主模型重试。</td>
+</tr>
+</tbody>
+</table>
+
+<h4>Layer 4 历史上下文构建的实现逻辑</h4>
+
+<p>Layer 4 在每次新对话开始时执行，用最小的 token 开销重建完整的对话上下文。</p>
+
+<table>
+<thead><tr><th>处理环节</th><th>逻辑说明</th></tr></thead>
+<tbody>
+<tr>
+<td><strong>双套历史视图</strong></td>
+<td>从数据库加载最近 5 轮历史，构建两套视图：① conversation_history 使用 answerSummary 构建精简的 user/assistant 交替序列，传给 reasoning 节点；② file_list 虚拟文件保留完整 answer 在 content 字段中，传给意图识别节点按需引用。</td>
+</tr>
+<tr>
+<td><strong>sessionSummary 注入</strong></td>
+<td>从 Redis 加载 sessionSummary，作为 SystemMessage 注入推理循环。即使早期对话已超出 5 轮历史窗口，sessionSummary 中仍保留了关键数据（如第 1 轮查到的"Andi 8 个商机 $280K"在第 15 轮仍然可见）。这是长对话信息不丢失的关键机制。</td>
+</tr>
+<tr>
+<td><strong>Prompt Cache</strong></td>
+<td>对支持缓存的模型（如 Anthropic），在消息列表中设置 4 个 cache_control 断点。System prompt 跨轮稳定，前缀匹配命中率高，输入 token 计费降低约 75%。</td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="ctx-trigger">2.3 压缩触发策略</h3>
+
+<p>压缩的触发遵循<strong>"永远不在用户等待的关键路径上调用 LLM 做摘要"</strong>的原则，通过三道防线实现：</p>
+
+<table>
+<thead><tr><th>防线</th><th>触发条件</th><th>处理方式</th><th>延迟影响</th></tr></thead>
+<tbody>
+<tr>
+<td><strong>第一道：事前控制</strong></td>
+<td>每次工具调用（100%）</td>
+<td>每个工具的返回大小已被 max_result_size_chars 限制；搜索只返回摘要+snippet；查询默认分页（page_size=20）；Schema 分层返回概览</td>
+<td>0ms（工具内部逻辑）</td>
+</tr>
+<tr>
+<td><strong>第二道：规则压缩</strong></td>
+<td>上下文占比超过阈值</td>
+<td>纯内存操作：裁剪历史消息、清除旧工具结果、MD5 去重。按占比分级：50% 轻度裁剪 → 70% 中度裁剪 → 85% 极端裁剪</td>
+<td>~5ms（毫秒级，用户无感知）</td>
+</tr>
+<tr>
+<td><strong>第三道：异步摘要</strong></td>
+<td>上下文占比 >85%</td>
+<td>先用极端裁剪立即降到安全线，同时后台启动 LLM 摘要任务。摘要完成后下一轮生效。摘要失败则保持裁剪状态。</td>
+<td>~10ms（极端裁剪）+ 后台异步</td>
+</tr>
+</tbody>
+</table>
+
+<p>对比旧方案（同步 LLM 摘要阻塞 3-5 秒），新方案在任何情况下都不会让用户感知到压缩带来的延迟。</p>
+
+<h3 id="ctx-auxiliary">2.4 辅助机制</h3>
+
+<table>
+<thead><tr><th>机制</th><th>说明</th></tr></thead>
+<tbody>
+<tr>
+<td><strong>辅助 LLM 路由</strong></td>
+<td>摘要类任务（answerSummary、sessionSummary、工具结果摘要）使用便宜快速模型（如 gemini-flash），与主推理模型分离。摘要质量要求低于推理，用低成本模型即可满足。</td>
+</tr>
+<tr>
+<td><strong>反抖动保护</strong></td>
+<td>连续 2 次压缩节省率 <10% 时，跳过后续压缩。避免在上下文中大部分是保护区内容时反复触发无效压缩。</td>
+</tr>
+<tr>
+<td><strong>Scratchpad 外部工作区</strong></td>
+<td>完整数据存储在 Agent 可访问的外部工作区（内存 SQLite），不占上下文空间。上下文中只放提取物/统计视图，Agent 需要细节时从 Scratchpad 按需读取。适用于百级商机列表、大文本字段等超大数据源。</td>
+</tr>
+<tr>
+<td><strong>语义提取层</strong></td>
+<td>大文本字段（需求描述、会议纪要）进入上下文前，先用专用提取 Prompt 做结构化提取（核心需求、决策链、预算信号、关键原话等）。提取物进上下文（原文体积的 15%），原文留在 Scratchpad 供按需回读。</td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="ctx-effect">2.5 压缩效果总览</h3>
+
+<table>
+<thead><tr><th>场景</th><th>无压缩时上下文占用</th><th>压缩后上下文占用</th><th>节省比例</th></tr></thead>
+<tbody>
+<tr><td>短对话（查客户→查商机→修改，3 步）</td><td>~8K tokens</td><td>~2.5K tokens</td><td>69%</td></tr>
+<tr><td>Pipeline Review（8 轮对话）</td><td>~25K tokens</td><td>~3.1K tokens</td><td>87%</td></tr>
+<tr><td>竞品调研报告（10 轮，含搜索+财报）</td><td>~40K tokens</td><td>~5K tokens</td><td>87%</td></tr>
+<tr><td>20 轮 Coaching 长对话</td><td>~60K tokens（溢出）</td><td>~8K tokens</td><td>87%</td></tr>
+</tbody>
+</table>
+
+<p>核心收益：在不丢失业务关键信息的前提下，将上下文占用控制在可用空间的 10-20% 以内，为后续推理留出充足空间。</p>
+
+<hr>
 
 </body>
 </html>

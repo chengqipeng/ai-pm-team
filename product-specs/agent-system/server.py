@@ -681,6 +681,25 @@ async def chat_stream(req: ChatRequest):
     trace_id = trace.trace_id
     trace_writer.on_trace_start(trace)
 
+    def _record_model_phase_middlewares(phase: str, tid: str):
+        """记录 before_model/after_model 阶段的中间件 span
+
+        LangGraph create_react_agent 不自动调用 middleware 的 before_model/after_model，
+        这里在 on_chat_model_start/end 事件时手动记录已知的中间件。
+        """
+        from src.middleware.tracing import tracing_middleware
+        # 已知的 before_model / after_model 中间件
+        MW_BY_PHASE = {
+            "before_model": ["SummarizationMiddleware"],
+            "after_model": ["SubagentLimitMiddleware", "LoopDetectionMiddleware", "OutputValidationMiddleware"],
+        }
+        mw_list = MW_BY_PHASE.get(phase, [])
+        for mw_name in mw_list:
+            tracing_middleware.record_middleware_execution(
+                mw_name, phase, 0,
+                has_effect=False,
+            )
+
     async def event_generator():
         config = {
             "configurable": {
@@ -698,14 +717,10 @@ async def chat_stream(req: ChatRequest):
         current_tool_span = None
         # 增量推送中间件 spans
         from src.middleware.tracing import tracing_middleware
-        from src.core.stream_filter import StreamAnalysisFilter
+        from src.core.stream_pii_restorer import StreamPIIRestorer
         last_mw_idx = 0
-        # 流式过滤器 — 去除 LLM 输出中的 NLU 分析片段
-        stream_filter = StreamAnalysisFilter()
-        logger.warning("[stream_filter] 已启用 NLU 分析片段过滤（thread=%s）", thread_id)
-        # 统计过滤前后的差异
-        _raw_content = []
-        _filtered_content = []
+        # 流式 PII 还原器 — 在推送给前端前将占位符还原为原始值
+        pii_restorer = StreamPIIRestorer(config["configurable"].get("input_metadata", {}))
 
         def flush_mw_spans():
             """检查并推送新的中间件 spans"""
@@ -735,14 +750,15 @@ async def chat_stream(req: ChatRequest):
                             content = "".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
                         if content:
                             full_content += content
-                            _raw_content.append(content)
-                            # 流式过滤 NLU 分析片段
-                            filtered = stream_filter.feed(content)
-                            if filtered:
-                                _filtered_content.append(filtered)
-                                yield f"data: {json.dumps({'type': 'token', 'content': filtered}, ensure_ascii=False)}\n\n"
+                            # 流式 PII 还原：在推送前将占位符还原为原始值
+                            restored = pii_restorer.feed(content)
+                            if restored:
+                                yield f"data: {json.dumps({'type': 'token', 'content': restored}, ensure_ascii=False)}\n\n"
 
                 elif kind == "on_chat_model_start":
+                    # 记录 before_model 中间件执行（LangGraph 不自动调用 middleware.before_model）
+                    _record_model_phase_middlewares("before_model", thread_id)
+
                     tracer.increment_iteration(trace_id)
                     iter_num = trace.iteration_count
                     span = tracer.start_span(trace_id, SpanType.LLM_CALL, f"第 {iter_num} 轮思考",
@@ -822,6 +838,9 @@ async def chat_stream(req: ChatRequest):
                             s.finish("success", token_info)
                             yield f"data: {json.dumps({'type': 'llm_end', 'duration_ms': round(s.duration_ms), 'tokens': token_info, 'output': ai_content[:2000] if ai_content else '', 'tool_calls': tool_calls, 'is_final': is_final}, ensure_ascii=False)}\n\n"
                             break
+
+                    # 记录 after_model 中间件执行
+                    _record_model_phase_middlewares("after_model", thread_id)
 
                 elif kind == "on_tool_start":
                     tracer.increment_tool(trace_id)
@@ -904,45 +923,20 @@ async def chat_stream(req: ChatRequest):
             err_span = tracer.start_span(trace_id, SpanType.ERROR, "error",
                                          input_data={"error": str(exc)})
             err_span.finish("error")
-            # 刷新流式过滤器 buffer
-            tail = stream_filter.flush()
-            if tail:
-                yield f"data: {json.dumps({'type': 'token', 'content': tail}, ensure_ascii=False)}\n\n"
+            # 刷新 PII 还原器 buffer
+            pii_tail = pii_restorer.flush()
+            if pii_tail:
+                yield f"data: {json.dumps({'type': 'token', 'content': pii_tail}, ensure_ascii=False)}\n\n"
             tracer.finish_trace(trace_id, "error", full_content)
             trace_writer.on_trace_finish(tracer.get_trace(trace_id))
             yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'trace_id': trace_id}, ensure_ascii=False)}\n\n"
             return
 
-        # 刷新流式过滤器 buffer（stream 正常结束）
-        tail = stream_filter.flush()
-        if tail:
-            _filtered_content.append(tail)
-            yield f"data: {json.dumps({'type': 'token', 'content': tail}, ensure_ascii=False)}\n\n"
-
-        # 过滤器诊断日志：对比原始 LLM 输出 vs 过滤后输出
-        _raw_all = "".join(_raw_content)
-        _filtered_all = "".join(_filtered_content)
-        if _raw_all != _filtered_all:
-            diff_len = len(_raw_all) - len(_filtered_all)
-            logger.warning(
-                "[stream_filter] 过滤生效: 原始=%d字符, 过滤后=%d字符, 剥离=%d字符\n  RAW: %s\n  OUT: %s",
-                len(_raw_all), len(_filtered_all), diff_len,
-                _raw_all[:300], _filtered_all[:300],
-            )
-            # 兜底：如果过滤后为空但原始内容非空，说明整段回复被误过滤
-            if not _filtered_all.strip() and _raw_all.strip():
-                logger.error(
-                    "[stream_filter] ⚠️ 整段回复被过滤为空！回退输出原始内容（去除 NLU 标记行）"
-                )
-                # 使用 OutputValidationMiddleware 的清理逻辑做最后兜底
-                from src.middleware.output_validation import OutputValidationMiddleware
-                fallback = OutputValidationMiddleware._strip_internal_analysis(_raw_all)
-                if fallback.strip():
-                    yield f"data: {json.dumps({'type': 'token', 'content': fallback}, ensure_ascii=False)}\n\n"
-                    _filtered_content.append(fallback)
-        else:
-            logger.info("[stream_filter] 无需过滤: %d字符", len(_raw_all))
+        # 刷新 PII 还原器 buffer（处理可能残留的不完整占位符）
+        pii_flush = pii_restorer.flush()
+        if pii_flush:
+            yield f"data: {json.dumps({'type': 'token', 'content': pii_flush}, ensure_ascii=False)}\n\n"
 
         tracer.finish_trace(trace_id, "success", full_content)
 
@@ -1221,10 +1215,12 @@ async def get_trace(trace_id: str):
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
+    from fastapi.responses import HTMLResponse as _HR
     html_path = os.path.join(os.path.dirname(__file__), "static", "frontend.html")
     if os.path.exists(html_path):
         with open(html_path, encoding="utf-8") as f:
-            return f.read()
+            content = f.read()
+        return _HR(content=content, headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"})
     return "<h1>DeepAgent API</h1>"
 
 

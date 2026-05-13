@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <title>DeepAgent AI</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -198,11 +200,32 @@ body { margin: 0; }
 .trace-phase-post { border-left-color: #f43f5e; }
 
 /* 文本链路风格 */
-.trace-phase { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', monospace; }
-.trace-line { word-break: break-all; }
-.trace-line-mw { word-break: break-all; }
+.trace-phase { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; }
+.trace-line { word-break: break-word; overflow-wrap: anywhere; }
+.trace-line-mw { word-break: break-word; overflow-wrap: anywhere; }
 .trace-loop { position: relative; }
 #traceContent { font-size: 11px; line-height: 1.7; }
+/* 中间件名称 */
+.trace-mw-name { font-weight: 600; }
+/* 描述文本自然换行 */
+.trace-desc { word-break: break-word; overflow-wrap: break-word; }
+/* 普通节点名称 */
+.trace-step-name { white-space: nowrap; }
+/* 序号列固定宽度 */
+.trace-seq { min-width: 28px; width: 28px; text-align: right; margin-right: 4px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+/* 中间件折叠组 */
+.trace-mw-group summary { list-style: none; }
+.trace-mw-group summary::-webkit-details-marker { display: none; }
+.trace-mw-group summary::marker { display: none; }
+.trace-mw-group[open] .trace-mw-chevron { transform: rotate(180deg); }
+.trace-mw-group summary:hover { background: rgba(59, 130, 246, 0.04); border-radius: 6px; }
+/* 输入/输出展开区域 */
+.trace-io-details summary { list-style: none; }
+.trace-io-details summary::-webkit-details-marker { display: none; }
+.trace-io-details summary::marker { display: none; }
+.trace-io-details[open] .trace-io-chevron { transform: rotate(180deg); }
+.trace-io-pre { margin: 2px 0; padding: 4px 8px; background: #f8fafc; border-radius: 4px; font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 10px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; color: #334155; }
+.trace-io-chevron { transition: transform 0.2s; }
 
 /* 背景装饰球 */
 .top-\[-10\%\] { top: -10%; }
@@ -799,23 +822,29 @@ function renderTraceNode(span, idx, seqNum) {
   // ═══ 构建详细描述文本 ═══
   const descText = _buildStepDescription(span, md, detail);
 
-  // ═══ 中间件节点：紧凑单行 [N] · ⚙️ Name · Xms — desc ═══
+  // ═══ 构建输入/输出展开区域 ═══
+  const ioHtml = _buildIOSection(span);
+
+  // ═══ 中间件节点：紧凑布局 [N] · ⚙️ Name · Xms — desc ═══
   if (isMiddleware) {
     const mwName = md.middleware_name || stepName;
     const checkPrefix = isComplete ? '✓' : (isActive ? '⏳' : '·');
     return `
-      <div class="trace-line-mw flex items-start py-[2px] text-[10.5px] leading-[1.6] font-mono ${isActive ? 'text-blue-500' : 'text-gray-500'}">
-        <span class="text-gray-400 shrink-0 w-[30px] text-right mr-1 select-none">[${stepNum}]</span>
-        <span>${checkPrefix} ⚙️ <span class="font-semibold">${esc(mwName)}</span></span>
-        ${durationText ? `<span class="text-gray-400 ml-1">· ${durationText}</span>` : ''}
-        ${descText ? `<span class="text-gray-400 ml-1">— ${descText}</span>` : ''}
+      <div class="trace-line-mw flex items-start py-[2px] text-[10.5px] leading-[1.6] ${isActive ? 'text-blue-500' : 'text-gray-500'}">
+        <span class="trace-seq text-gray-400 shrink-0 select-none">[${stepNum}]</span>
+        <div class="flex-1 min-w-0">
+          <span>${checkPrefix} ⚙️ <span class="trace-mw-name">${esc(mwName)}</span></span>
+          ${durationText ? `<span class="text-gray-400 ml-1">· ${durationText}</span>` : ''}
+          ${descText ? `<span class="trace-desc text-gray-400 ml-1">— ${descText}</span>` : ''}
+          ${ioHtml}
+        </div>
       </div>`;
   }
 
   // ═══ 普通节点：[N] 步骤名 · Xms — 详细描述 ═══
   let subAgentHtml = '';
   if (hasSubAgent) {
-    subAgentHtml = `<div class="ml-[30px] pl-4 my-0.5 border-l-2 border-indigo-200 text-[10px] font-mono text-indigo-500 leading-[1.7]">`;
+    subAgentHtml = `<div class="ml-[32px] pl-4 my-0.5 border-l-2 border-indigo-200 text-[10px] font-mono text-indigo-500 leading-[1.7]">`;
     subAgentHtml += `<div>┌─ 子 Agent Loop (depth=${md.depth || 2}, thread=${esc(md.sub_thread_id || 'skill-*')}) ──┐</div>`;
     span.sub_agent_spans.forEach((sub, si) => {
       subAgentHtml += `<div>│  子循环 ${si + 1}: ${esc(sub.label || sub.name || '')}</div>`;
@@ -834,16 +863,70 @@ function renderTraceNode(span, idx, seqNum) {
 
   return `
     <div class="trace-line flex items-start py-[3px] text-[11px] leading-[1.7] ${isActive ? 'bg-blue-50/60 rounded px-1 -mx-1' : ''}">
-      <span class="text-gray-400 font-mono shrink-0 w-[30px] text-right mr-1 select-none">[${stepNum}]</span>
+      <span class="trace-seq text-gray-400 shrink-0 select-none">[${stepNum}]</span>
       <div class="flex-1 min-w-0">
-        <span class="font-semibold text-gray-800">${esc(stepName)}${skillSuffix}${finalMark}</span>
+        <span class="trace-step-name font-semibold text-gray-800">${esc(stepName)}${skillSuffix}${finalMark}</span>
         ${durationText ? `<span class="text-gray-400 ml-1">· ${durationText}</span>` : ''}
-        ${descText ? `<span class="text-gray-500 ml-1">— ${descText}</span>` : ''}
+        ${descText ? `<br/><span class="trace-desc text-gray-500 text-[10.5px]">${descText}</span>` : ''}
         ${isFinalResponse ? ' ✅' : ''}
         ${isActive ? ' <span class="inline-block w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse align-middle"></span>' : ''}
+        ${ioHtml}
       </div>
     </div>
     ${subAgentHtml}`;
+}
+
+// ═══ 构建输入/输出可展开区域 ═══
+function _buildIOSection(span) {
+  const inputData = span.input_data || {};
+  const outputData = span.output_data || {};
+  const md = span.metadata || {};
+
+  // 判断是否有有意义的输入/输出数据
+  const inputStr = _formatIOData(inputData);
+  const outputStr = _formatIOData(outputData);
+
+  if (!inputStr && !outputStr) return '';
+
+  let content = '';
+  if (inputStr) {
+    content += `<div class="mb-1"><span class="text-blue-600 font-semibold">输入:</span><pre class="trace-io-pre">${esc(inputStr)}</pre></div>`;
+  }
+  if (outputStr) {
+    content += `<div><span class="text-green-600 font-semibold">输出:</span><pre class="trace-io-pre">${esc(outputStr)}</pre></div>`;
+  }
+
+  return `
+    <details class="trace-io-details mt-0.5">
+      <summary class="cursor-pointer text-[10px] text-blue-500 hover:text-blue-700 select-none inline-flex items-center gap-0.5">
+        <svg class="trace-io-chevron w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        <span>查看输入/输出</span>
+      </summary>
+      <div class="trace-io-content mt-1 p-2 rounded-lg bg-gray-50/80 border border-gray-200/60 text-[10px] leading-[1.5]">
+        ${content}
+      </div>
+    </details>`;
+}
+
+function _formatIOData(data) {
+  if (!data || typeof data !== 'object') return '';
+  const keys = Object.keys(data);
+  if (keys.length === 0) return '';
+  // 过滤掉空值和内部字段
+  const filtered = {};
+  for (const k of keys) {
+    if (data[k] === null || data[k] === undefined || data[k] === '') continue;
+    if (k.startsWith('_')) continue;
+    filtered[k] = data[k];
+  }
+  if (Object.keys(filtered).length === 0) return '';
+  try {
+    const str = JSON.stringify(filtered, null, 2);
+    // 截断过长的内容
+    return str.length > 2000 ? str.slice(0, 2000) + '\n... (已截断)' : str;
+  } catch (e) {
+    return String(data);
+  }
 }
 
 // ═══ 为每种步骤类型生成详细技术描述 ═══
@@ -879,21 +962,26 @@ function _buildStepDescription(span, md, fallbackDetail) {
       const tokens = md.estimated_tokens || outputData.estimated_tokens || 0;
       let desc = `构建 LLM 上下文: ${msgCount}条消息`;
       if (tokens) desc += `, 预估 ${tokens} tokens`;
-      desc += '（TracingMiddleware.before_agent：统计消息数、token 估算、消息摘要）';
       return desc;
     }
     case 'memory_retrieval': {
       const hitCount = md.hit_count != null ? md.hit_count : (outputData.hit_count != null ? outputData.hit_count : '?');
-      const query = md.query_used || inputData.query || '';
-      let desc = `命中 ${hitCount} 条（MemoryMiddleware.abefore_agent：检索记忆 → 注入 SystemMessage 到 state）`;
-      return desc;
+      return `命中 ${hitCount} 条记忆 → 注入 SystemMessage`;
     }
     case 'middleware': {
       const mwName = md.middleware_name || span.step_name || '';
       if (mwName.includes('DanglingToolCall')) return '无悬挂 tool_calls';
+      if (mwName.includes('FileProcess')) {
+        const changed = md.changed || outputData.changed;
+        return changed ? '文件已处理' : '无文件需处理';
+      }
       if (mwName.includes('InputTransform')) {
         const changed = md.changed || outputData.changed;
-        return `敏感词(fallback) + PII脱敏 → ${changed ? '已变更' : '无变更'}`;
+        return `敏感词 + PII脱敏 → ${changed ? '已变更' : '无变更'}`;
+      }
+      if (mwName.includes('MultimodalInject')) {
+        const changed = md.changed || outputData.changed;
+        return changed ? '多模态内容已注入' : '无变更';
       }
       if (mwName.includes('Summarization')) {
         const before = md.before_count || '';
@@ -912,7 +1000,7 @@ function _buildStepDescription(span, md, fallbackDetail) {
       }
       if (mwName.includes('ToolErrorHandling')) return '异常兜底';
       if (mwName.includes('Clarification')) return '透传';
-      if (mwName.includes('OutputRender')) return 'PII 还原 + 输出格式化: Markdown 清理';
+      if (mwName.includes('OutputRender')) return 'PII 还原 + Markdown 格式化';
       return fallbackDetail || '';
     }
     case 'llm_call': {
@@ -945,8 +1033,15 @@ function _buildStepDescription(span, md, fallbackDetail) {
       const count = md.extracted_count || outputData.extracted_count || '?';
       return `提取 ${count} 条新记忆（MemoryMiddleware.aafter_agent → engine.extract_and_update）`;
     }
-    case 'response_complete': {
+    case 'response_complete':
+    case 'response': {
       return 'SSE 流式推送最终回复（前端 type=done 事件）';
+    }
+    case 'stream_pii_restore': {
+      return '流式 PII 占位符还原为原始值（逐 token，before SSE push）';
+    }
+    case 'output_render': {
+      return 'PII 还原 fallback + 输出格式化: Markdown 清理 + UI 组件映射';
     }
     default:
       return fallbackDetail || '';
@@ -1004,17 +1099,66 @@ function refreshTrace() {
     // 上下文准备
     if (['context_build', 'memory_retrieval', 'user_input'].includes(typeKey)) return 'context';
     // Agent Loop
-    if (['llm_call', 'tool_call', 'skill_execution', 'clarification', 'hierarchical_search', 'error'].includes(typeKey)) return 'reasoning';
+    if (['llm_call', 'tool_call', 'skill_execution', 'hierarchical_search', 'error'].includes(typeKey)) return 'reasoning';
     // 回复输出
-    if (typeKey === 'response_complete') return 'output';
+    if (['response_complete', 'response', 'stream_pii_restore', 'output_render'].includes(typeKey)) return 'output';
     // 后处理
     if (typeKey === 'memory_extract') return 'post';
-    // 中间件：根据 metadata.phase 判断
+    // 中间件：根据设计归属阶段 + 实际执行阶段联合判断
+    // 设计原则：每个中间件有唯一的"设计归属阶段"（见 Agent整体设计方案.md 架构图）
+    //   - before_agent 层：Tracing / DanglingToolCall / FileProcess / InputTransform / MultimodalInject / Memory
+    //   - before_model 层：Summarization
+    //   - after_model 层：SubagentLimit / LoopDetection / OutputValidation
+    //   - wrap_tool_call 层：Guardrail / ToolErrorHandling / Clarification
+    //   - 输出转换层：OutputRender
+    //   - after_agent 层：Memory（记忆提取）
+    // 规则：只有当 metadata.phase 匹配中间件的设计归属阶段时才显示，否则隐藏
     if (typeKey === 'middleware') {
+      const mwName = (span.metadata && span.metadata.middleware_name) || span.step_name || '';
       const mwPhase = (span.metadata && span.metadata.phase) || '';
-      if (mwPhase === 'after_agent') return 'post';
+
+      // 中间件 → 设计归属阶段映射
+      // key: 中间件名称片段
+      // value: { allow: 允许显示的执行阶段列表, display: 显示在哪个前端阶段 }
+      const MW_DESIGN_PHASE = {
+        // before_agent 层（上下文准备）
+        'DanglingToolCall':   { allow: ['before_agent'], display: 'context' },
+        'FileProcess':        { allow: ['before_agent'], display: 'context' },
+        'InputTransform':     { allow: ['before_agent'], display: 'context' },
+        'MultimodalInject':   { allow: ['before_agent'], display: 'context' },
+        // before_model 层（Agent Loop - LLM 调用前）
+        'Summarization':      { allow: ['before_model'], display: 'reasoning' },
+        // after_model 层（Agent Loop - LLM 返回后）
+        'SubagentLimit':      { allow: ['after_model'], display: 'reasoning' },
+        'LoopDetection':      { allow: ['after_model'], display: 'reasoning' },
+        'OutputValidation':   { allow: ['after_model'], display: 'reasoning' },
+        // wrap_tool_call 层（Agent Loop - 工具调用时）
+        'Guardrail':          { allow: ['wrap_tool_call'], display: 'reasoning' },
+        'ToolErrorHandling':  { allow: ['wrap_tool_call'], display: 'reasoning' },
+        'Clarification':      { allow: ['wrap_tool_call'], display: 'reasoning' },
+        // 输出转换层（after_agent 执行，但语义归属"回复输出"）
+        'OutputRender':       { allow: ['after_agent'], display: 'output' },
+        'StreamPIIRestor':    { allow: ['after_agent'], display: 'output' },
+      };
+
+      // 查找该中间件的设计归属阶段
+      let designEntry = null;
+      for (const [nameFragment, entry] of Object.entries(MW_DESIGN_PHASE)) {
+        if (mwName.includes(nameFragment)) { designEntry = entry; break; }
+      }
+
+      // 如果找到设计归属且执行阶段匹配 → 使用指定的显示阶段
+      if (designEntry) {
+        if (designEntry.allow.includes(mwPhase)) {
+          return designEntry.display;
+        }
+        // 执行阶段不匹配设计归属 → 隐藏（无实际作用的空执行）
+        return '_hidden';
+      }
+
+      // fallback：未在映射表中的中间件，按执行阶段映射
       if (mwPhase === 'before_agent') return 'context';
-      // before_model / after_model / wrap_tool_call 都属于 reasoning
+      if (mwPhase === 'after_agent') return 'post';
       if (mwPhase === 'before_model' || mwPhase === 'after_model' || mwPhase === 'wrap_tool_call') return 'reasoning';
       // 无 phase 标记的中间件，默认跟随当前阶段（不触发切换）
       return null;
@@ -1030,7 +1174,7 @@ function refreshTrace() {
   let llmCallCount = 0;
   let totalLoopCount = 0; // 全局循环计数（不因阶段切换重置）
 
-  const HIDDEN_SPAN_TYPES = new Set(['llm_input', 'intent_analysis', 'request']);
+  const HIDDEN_SPAN_TYPES = new Set(['llm_input', 'intent_analysis', 'request', 'clarification']);
 
   // 预扫描：统计 Agent Loop 中有多少轮 LLM 调用
   const totalLlmCalls = liveSpans.filter(s => {
@@ -1059,28 +1203,85 @@ function refreshTrace() {
     }
   }
 
+  // 获取中间件 span 的原始执行阶段（before_agent / before_model / after_model / wrap_tool_call）
+  function getMwRawPhase(s) {
+    // 优先 metadata.phase（后端原始值），其次 input_data.phase
+    // 不使用顶层 s.phase（那是前端映射后的值如 context/reasoning）
+    return (s.metadata && s.metadata.phase)
+      || (s.input_data && s.input_data.phase)
+      || '';
+  }
+
+  // 渲染一组中间件为折叠块
+  function renderMwGroup(spans) {
+    console.log('[Trace] renderMwGroup called, count:', spans.length, 'phase:', getMwRawPhase(spans[0]), 'names:', spans.map(s => (s.metadata||{}).middleware_name || s.step_name));
+    const total = spans.length;
+    const failed = spans.filter(s => s.status === 'error' || s.status === 'failed').length;
+    const totalDur = spans.reduce((sum, s) => sum + (s.duration_ms || 0), 0);
+    const phaseLabel = getMwRawPhase(spans[0]) || '';
+    const statusIcon = failed > 0 ? '⚠️' : '✓';
+    const statusText = failed > 0
+      ? `${total} 个 ${phaseLabel} 中间件，<span class="text-red-500 font-semibold">${failed} 个异常</span>`
+      : `${total} 个 ${phaseLabel} 中间件，全部通过`;
+    const durText = totalDur ? ` · ${Math.round(totalDur)}ms` : '';
+
+    const mwNodesHtml = spans.map(s => {
+      seqNum++;
+      return renderTraceNode(s, seqNum - 1, seqNum);
+    }).join('');
+
+    return `
+      <details class="trace-mw-group my-1">
+        <summary class="cursor-pointer select-none py-[3px] px-1 text-[10.5px] leading-[1.6] text-gray-500 hover:text-gray-700 transition-colors">
+          <span class="inline-flex items-center gap-1">
+            <span>${statusIcon}</span>
+            <span>⚙️ ${statusText}${durText}</span>
+            <svg class="trace-mw-chevron w-3 h-3 text-gray-400 transition-transform duration-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </span>
+        </summary>
+        <div class="pl-3 border-l-2 border-gray-200/60 ml-3 mt-1 mb-1 space-y-0">
+          ${mwNodesHtml}
+        </div>
+      </details>`;
+  }
+
+  // ═══ 渲染主循环（保持原始 span 顺序，中间件参与阶段切换但延迟渲染） ═══
+  let mwBuffer = [];
+  let mwBufferPhase = '';
+
+  function flushMwBuffer() {
+    if (mwBuffer.length > 0) {
+      html += renderMwGroup(mwBuffer);
+      mwBuffer = [];
+      mwBufferPhase = '';
+    }
+  }
+
   for (const s of liveSpans) {
     const spanTypeKey = s.step_name_en || s.type || '';
     if (HIDDEN_SPAN_TYPES.has(spanTypeKey)) continue;
 
     // 确定该 span 应归属的阶段
     let targetPhase = getNaturalPhase(s);
+    if (targetPhase === '_hidden') continue;
+
+    const isMiddleware = spanTypeKey === 'middleware' || (s.metadata && s.metadata.is_middleware === true);
 
     // 核心规则：阶段只能前进，不能回退
     if (targetPhase === null) {
-      // 无法确定阶段的 span，归属当前阶段
       targetPhase = currentPhaseId || 'context';
     }
     const targetIdx = PHASE_ORDER.indexOf(targetPhase);
     if (targetIdx < currentPhaseIdx) {
-      // 不允许回退：该 span 归属当前阶段
       targetPhase = currentPhaseId;
     }
 
-    // ── 阶段切换：仅在前进时触发 ──
+    // ── 阶段切换：仅在前进时触发（中间件和非中间件都参与） ──
     if (targetPhase !== currentPhaseId) {
+      // flush 中间件缓冲（属于上一个阶段）
+      flushMwBuffer();
       // 关闭上一个循环容器
-      if (currentPhaseId === 'reasoning' && currentLoopNum > 0) {
+      if (currentPhaseId === 'reasoning' && currentLoopNum > 0 && isMultiLoop) {
         html += '</div>';
       }
       // 关闭上一个阶段容器
@@ -1117,6 +1318,22 @@ function refreshTrace() {
       }
     }
 
+    // ── 中间件：收集到缓冲区（不渲染，但已参与阶段切换） ──
+    if (isMiddleware) {
+      const rawPhase = getMwRawPhase(s);
+      console.log('[Trace] MW buffered:', (s.metadata||{}).middleware_name || s.step_name, 'rawPhase:', rawPhase, 'targetPhase:', targetPhase);
+      // 如果原始阶段变了，先 flush 上一组
+      if (mwBuffer.length > 0 && rawPhase !== mwBufferPhase) {
+        flushMwBuffer();
+      }
+      mwBuffer.push(s);
+      mwBufferPhase = rawPhase;
+      continue;
+    }
+
+    // ── 非中间件：先 flush 缓冲区，再处理当前 span ──
+    flushMwBuffer();
+
     // ── Agent Loop 内部：LLM 调用触发新循环 ──
     if (currentPhaseId === 'reasoning') {
       const stepEn = s.step_name_en || s.type || '';
@@ -1146,6 +1363,9 @@ function refreshTrace() {
     seqNum++;
     html += renderTraceNode(s, seqNum - 1, seqNum);
   }
+
+  // flush 末尾残留的中间件
+  flushMwBuffer();
 
   // 关闭容器
   if (currentPhaseId === 'reasoning' && currentLoopNum > 0 && isMultiLoop) {
@@ -1373,6 +1593,9 @@ const SPAN_LABELS = {
   memory_extract: '记忆提取',
   title_generation: '标题生成',
   response_complete: '回复完成',
+  response: '回复完成',
+  stream_pii_restore: 'PII 还原',
+  output_render: '输出渲染',
   error: '执行错误',
 };
 
@@ -1523,6 +1746,19 @@ async function send() {
 
             // ── LLM 开始 ──
             else if (evt.type === 'llm_start') {
+              // 插入 before_model 中间件 span（上下文压缩检查）
+              addLiveSpan({
+                status: 'complete',
+                step_name: 'SummarizationMiddleware',
+                step_name_en: 'middleware',
+                phase: 'reasoning',
+                duration_ms: 0,
+                detail: '',
+                input_data: { phase: 'before_model' },
+                output_data: { has_effect: false },
+                metadata: { middleware_name: 'SummarizationMiddleware', phase: 'before_model', has_effect: false },
+              });
+
               iterCount = evt.iteration || iterCount + 1;
               const title = `第 ${iterCount} 轮思考`;
               addLiveSpan({
@@ -1579,6 +1815,22 @@ async function send() {
               if (currentLlmStepId) {
                 updateStep(currentLlmStepId, 'done', evt.duration_ms);
                 currentLlmStepId = null;
+              }
+
+              // 插入 after_model 中间件 spans（循环检测、输出校验等）
+              const afterModelMws = ['SubagentLimitMiddleware', 'LoopDetectionMiddleware', 'OutputValidationMiddleware'];
+              for (const mwName of afterModelMws) {
+                addLiveSpan({
+                  status: 'complete',
+                  step_name: mwName,
+                  step_name_en: 'middleware',
+                  phase: 'reasoning',
+                  duration_ms: 0,
+                  detail: '',
+                  input_data: { phase: 'after_model' },
+                  output_data: { has_effect: false },
+                  metadata: { middleware_name: mwName, phase: 'after_model', has_effect: false },
+                });
               }
             }
 
@@ -1784,6 +2036,44 @@ async function send() {
 
     // 完成所有 trace
     liveSpans.forEach(s => { if (s.status === 'active') s.status = 'complete'; });
+    // 添加 StreamPIIRestorer 节点（非中间件，后端不会推送，前端补充）
+    const hasStreamPII = liveSpans.some(s => (s.step_name_en === 'stream_pii_restore') || ((s.metadata || {}).middleware_name || '').includes('StreamPIIRestor'));
+    if (!hasStreamPII) {
+      addLiveSpan({
+        status: 'complete',
+        icon: getSpanIcon('done'),
+        title: 'StreamPIIRestorer',
+        step_name: 'StreamPIIRestorer',
+        step_name_en: 'stream_pii_restore',
+        phase: 'output',
+        detail: '流式 PII 占位符还原为原始值（逐 token，before SSE push）',
+        desc: '流式 PII 占位符还原为原始值（逐 token，before SSE push）',
+        time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
+        children: [],
+        input_data: {},
+        output_data: {},
+        metadata: { is_middleware: true, middleware_name: 'StreamPIIRestorer' },
+      });
+    }
+    // 添加 OutputRenderMiddleware 节点（后端可能已推送 middleware span，去重）
+    const hasOutputRender = liveSpans.some(s => (s.step_name_en === 'output_render') || ((s.metadata || {}).middleware_name || '').includes('OutputRender'));
+    if (!hasOutputRender) {
+      addLiveSpan({
+        status: 'complete',
+        icon: getSpanIcon('done'),
+        title: 'OutputRenderMiddleware',
+        step_name: 'OutputRenderMiddleware',
+        step_name_en: 'output_render',
+        phase: 'output',
+        detail: 'PII 还原 fallback + 输出格式化: Markdown 清理 + UI 组件映射',
+        desc: 'PII 还原 fallback + 输出格式化: Markdown 清理 + UI 组件映射',
+        time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
+        children: [],
+        input_data: {},
+        output_data: {},
+        metadata: { is_middleware: true, middleware_name: 'OutputRenderMiddleware' },
+      });
+    }
     // 添加完成节点
     addLiveSpan({
       status: 'complete',

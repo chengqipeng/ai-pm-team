@@ -63,7 +63,7 @@
   <div class="two-col">
     <div class="box box-agent">
       <strong style="color:var(--agent)">Agent 平台（NeoAgent）</strong><br>
-      三大独立维度协同的智能中台：<strong>Agent 框架</strong>（Tool/Plugin/Skill/记忆/反思）+ <strong>知识库</strong>（管理/检索/业务线通用接入）+ <strong>提示词模板</strong>（平台/开发者/流程智能）。<br>
+      三大独立维度协同的智能中台：<strong>Agent 框架</strong>（Tool/Middleware/Skill/记忆/反思）+ <strong>知识库</strong>（管理/检索/业务线通用接入）+ <strong>提示词模板</strong>（平台/开发者/流程智能）。<br>
       底层由 <strong>大模型网关平台</strong>（国内/国际模型统一接入）与 <strong>基础原子能力平台</strong>（文档解析/OCR/ASR/向量库）共同支撑。<br><br>
       <strong>本质：智能决策层</strong> — 决定做什么、怎么做
     </div>
@@ -156,7 +156,7 @@
                 <div style="font-size:0.65rem;color:#64748b;">原子操作</div>
               </div>
               <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.35rem;text-align:center;">
-                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">🔌 Plugin</div>
+                <div style="font-weight:600;font-size:0.75rem;color:var(--agent);">🔌 Middleware</div>
                 <div style="font-size:0.65rem;color:#64748b;">可插拔基础设施</div>
               </div>
               <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.35rem;text-align:center;">
@@ -262,7 +262,7 @@
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;margin-top:0.5rem;">
               <div style="background:#fff;border:1px solid #c7d2fe;border-radius:5px;padding:0.4rem;">
                 <div style="font-weight:600;font-size:0.72rem;color:#4338ca;">🇨🇳 国内模型</div>
-                <div style="font-size:0.65rem;color:#64748b;">通义千问 / 文心 / 豆包<br>DeepSeek / Kimi / 智谱</div>
+                <div style="font-size:0.65rem;color:#64748b;">混元、通义千问 、豆包<br>DeepSeek</div>
               </div>
               <div style="background:#fff;border:1px solid #c7d2fe;border-radius:5px;padding:0.4rem;">
                 <div style="font-weight:600;font-size:0.72rem;color:#4338ca;">🌏 国际模型</div>
@@ -401,7 +401,7 @@
       <span style="font-size:0.82rem;color:#64748b;">智能体核心引擎，围绕任务执行闭环组织能力</span>
       <ul style="margin-top:0.4rem;">
         <li>Tool · 原子操作</li>
-        <li>Plugin · 可插拔基础设施</li>
+        <li>Middleware · 可插拔基础设施</li>
         <li>Skill · 多步 SOP 编排</li>
         <li>MCP · 外部工具/数据源接入</li>
         <li>记忆 · 长期/短期/向量 · 遗忘</li>
@@ -441,9 +441,9 @@
         <td><strong>部分封装 aPaaS API</strong>（query_data → paas-entity-service），部分完全独立（web_search）</td>
       </tr>
       <tr>
-        <td><strong>Plugin</strong><br><span class="badge b-agent">系统器官</span></td>
+        <td><strong>Middleware</strong><br><span class="badge b-agent">系统器官</span></td>
         <td>可插拔基础设施，有生命周期、有配置</td>
-        <td>llm-plugin / memory-plugin / search-plugin / document-parse-plugin / image-gen-plugin</td>
+        <td>llm-middleware / memory-middleware / search-middleware / document-parse-middleware / image-gen-middleware</td>
         <td>完全独立于 aPaaS，Agent 内部消费</td>
       </tr>
       <tr>
@@ -603,14 +603,14 @@
       <tr>
         <td><strong>大模型网关平台</strong><br><span class="badge b-agent">统一 LLM 入口</span></td>
         <td>屏蔽不同模型厂商差异，提供统一的调用、路由与治理能力</td>
-        <td>国内模型接入（通义千问 / 文心 / 豆包 / DeepSeek / Kimi / 智谱等）<br>国际模型接入（OpenAI / Claude / Gemini / LLaMA 等）<br>统一协议适配 / 智能路由 / 负载均衡 / 失败降级 / Token 计费 / 流量治理 / 敏感词前置拦截</td>
+        <td>国内模型接入（混元 / 通义千问 / 豆包 / DeepSeek 等）<br>国际模型接入（OpenAI / Claude / Gemini / LLaMA 等）<br>统一协议适配 / 智能路由 / 负载均衡 / 失败降级 / Token 计费 / 流量治理 / 敏感词前置拦截</td>
         <td>Agent 框架 / 知识库 / 提示词模板 / 开发者平台</td>
       </tr>
       <tr>
         <td><strong>基础原子能力平台</strong><br><span class="badge b-agent">多模态 & 向量</span></td>
         <td>沉淀可复用的原子 AI 能力，统一服务上层业务</td>
         <td>文档解析（PDF / Word / Excel / PPT / HTML / Markdown）<br>OCR（图片文字识别 / 版式还原 / 表格抽取）<br>ASR（语音转文字 / 实时/离线 / 多语种）<br>向量库（Embedding 生成 / 向量存储 / 相似度检索 / 重排）</td>
-        <td>知识库（文档入库/切片）、Agent 框架（Plugin/Tool）、业务线应用</td>
+        <td>知识库（文档入库/切片）、Agent 框架（Middleware/Tool）、业务线应用</td>
       </tr>
     </tbody>
   </table>
@@ -637,7 +637,7 @@
         <div style="font-size:0.8rem;color:var(--agent);margin:0.3rem 0 0.6rem;font-weight:600;">智能决策层 · 决定做什么、怎么做</div>
         <div style="font-size:0.75rem;color:#64748b;line-height:1.8;">
           · 意图理解 / 任务规划 / 反思优化<br>
-          · Tool / Skill / Plugin / MCP 执行<br>
+          · Tool / Skill / Middleware / MCP 执行<br>
           · 记忆沉淀 + 知识库 + RAG 检索<br>
           · 提示词模板治理<br>
           · 大模型网关 + 基础原子能力<br>

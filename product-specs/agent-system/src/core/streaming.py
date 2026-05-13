@@ -9,8 +9,6 @@ from typing import Any, AsyncGenerator
 
 from langgraph.graph.state import CompiledStateGraph
 
-from .stream_filter import StreamAnalysisFilter
-
 logger = logging.getLogger(__name__)
 
 VALID_EVENT_TYPES = frozenset({"token", "tool_call", "tool_result", "subagent_start", "subagent_result", "done"})
@@ -37,10 +35,8 @@ async def stream_agent_response(
     input_data: dict[str, Any],
     config: dict[str, Any] | None = None,
 ) -> AsyncGenerator[SSEEvent, None]:
-    """将 LangGraph astream_events 转换为 SSE 事件流 — 含 NLU 分析片段过滤"""
+    """将 LangGraph astream_events 转换为 SSE 事件流"""
     config = config or {}
-    # 流式过滤器：去除 LLM 输出中的"改写：/实体：/代词：/业务概念：" 等 NLU 分析片段
-    stream_filter = StreamAnalysisFilter()
 
     try:
         async for event in agent.astream_events(input_data, config=config, version="v2"):
@@ -57,9 +53,7 @@ async def stream_agent_response(
                     if isinstance(content, list):
                         content = "".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
                     if content:
-                        filtered = stream_filter.feed(content)
-                        if filtered:
-                            yield SSEEvent(event="token", data={"content": filtered})
+                        yield SSEEvent(event="token", data={"content": content})
                 continue
 
             sse = _map_event(event)
@@ -67,20 +61,10 @@ async def stream_agent_response(
                 yield sse
     except Exception as exc:
         logger.exception("Agent streaming error")
-        # 刷新过滤器 buffer
-        tail = stream_filter.flush()
-        if tail:
-            yield SSEEvent(event="token", data={"content": tail})
         yield SSEEvent(event="done", data={"error": str(exc), "finished": True})
         return
 
-    # 刷新过滤器 buffer
-    tail = stream_filter.flush()
-    if tail:
-        yield SSEEvent(event="token", data={"content": tail})
     yield SSEEvent(event="done", data={"finished": True})
-
-    # 注意：如果整个流没有产出任何 token（全被过滤），调用方应检查 full_content 做兜底
 
 
 def _map_event(event: dict[str, Any]) -> SSEEvent | None:

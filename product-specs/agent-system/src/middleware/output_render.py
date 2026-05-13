@@ -96,6 +96,8 @@ class OutputRenderMiddleware(AgentMiddleware):
         changed = False
 
         # ── PII 还原：将 Agent 输出中的占位符还原为原始值 ──
+        # 注意：流式场景下 PII 还原已由 StreamPIIRestorer 在 SSE 推送前完成，
+        # 此处作为 fallback，覆盖非流式调用（如 ainvoke）和 state 持久化场景。
         pii_placeholders = configurable.get("pii_placeholders", {})
         if not pii_placeholders:
             # 也尝试从 input_metadata 中获取（InputTransformMiddleware 写入）

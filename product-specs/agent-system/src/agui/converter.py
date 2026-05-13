@@ -17,7 +17,6 @@ import uuid
 from typing import Any, AsyncGenerator
 
 from . import models as m
-from ..core.stream_filter import StreamAnalysisFilter
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +53,6 @@ class AGUIConverter:
         # 文本流
         self._text_active = False
         self._text_message_id = ""
-        # 流式过滤器（去除 LLM 可能输出的 NLU 分析片段，如 "改写：/实体：/代词：" 等）
-        self._text_filter = StreamAnalysisFilter()
         # 推理流
         self._reasoning_active = False
         self._reasoning_msg_active = False
@@ -212,13 +209,8 @@ class AGUIConverter:
             self._text_active = True
             self._text_message_id = uuid.uuid4().hex[:12]
             yield m.text_message_start(self._text_message_id)
-            # 为新的文本消息重置过滤器
-            self._text_filter = StreamAnalysisFilter()
 
-        # 流式过滤：去除 LLM 输出中的 NLU 分析片段
-        filtered = self._text_filter.feed(content)
-        if filtered:
-            yield m.text_message_content(self._text_message_id, filtered)
+        yield m.text_message_content(self._text_message_id, content)
 
     async def _emit_reasoning(self, text: str) -> AsyncGenerator[m.AGUIEvent, None]:
         if not text:
@@ -415,10 +407,6 @@ class AGUIConverter:
 
     async def _close_text_stream(self) -> AsyncGenerator[m.AGUIEvent, None]:
         if self._text_active:
-            # 刷新过滤器 buffer 中剩余的内容
-            remaining = self._text_filter.flush()
-            if remaining:
-                yield m.text_message_content(self._text_message_id, remaining)
             self._text_active = False
             yield m.text_message_end(self._text_message_id)
 
