@@ -2281,206 +2281,135 @@ async function loadChat(chatId) {
 }
 
 // 恢复历史对话时，在对话气泡之间渲染内联推理步骤
-// 复用右侧面板的分阶段逻辑，但不显示输入/输出详情
+// 只显示核心步骤（不含中间件），中间件细节在右侧面板查看
 function renderInlineSteps(spans) {
   const inner = document.getElementById('chatInner');
   if (!spans || !spans.length) return;
 
-  // ═══ 阶段定义（与 refreshTrace 一致）═══
-  const PHASE_ORDER = ['entry', 'context', 'reasoning', 'output', 'post'];
-  const PHASE_META = {
-    'entry': { label: '入口预处理', icon: '🚀' },
-    'context': { label: '上下文准备', icon: '📦' },
-    'reasoning': { label: '模型推理 Agent Loop', icon: '⚡' },
-    'output': { label: '回复输出', icon: '✅' },
-    'post': { label: '后处理', icon: '💾' },
-  };
+  // 只保留核心步骤类型
+  const CORE_TYPES = new Set([
+    'title_generation', 'query_rewrite', 'content_review', 'content_review_input',
+    'context_build', 'memory_retrieval',
+    'llm_call', 'tool_call', 'skill_execution', 'hierarchical_search',
+    'response_complete', 'response', 'memory_extract',
+  ]);
 
-  const HIDDEN_SPAN_TYPES = new Set(['llm_input', 'intent_analysis', 'request', 'user_input', 'clarification']);
-
-  // 复用 getNaturalPhase 逻辑
-  function getNaturalPhase(s) {
-    const typeKey = s.step_name_en || s.type || '';
-    if (['content_review', 'content_review_input', 'content_review_output', 'query_rewrite', 'title_generation'].includes(typeKey)) return 'entry';
-    if (['context_build', 'memory_retrieval'].includes(typeKey)) return 'context';
-    if (['llm_call', 'tool_call', 'skill_execution', 'hierarchical_search', 'error'].includes(typeKey)) return 'reasoning';
-    if (['response_complete', 'response', 'stream_pii_restore', 'output_render'].includes(typeKey)) return 'output';
-    if (typeKey === 'memory_extract') return 'post';
-    if (typeKey === 'middleware') {
-      const mwName = (s.metadata && s.metadata.middleware_name) || s.step_name || '';
-      const rawPhaseFromInput = (s.input_data && s.input_data.phase) || (s.input && s.input.phase) || '';
-      const metaPhase = (s.metadata && s.metadata.phase) || '';
-      const MAPPED_PHASES = ['context', 'reasoning', 'output', 'post', 'entry'];
-      const mwPhase = (rawPhaseFromInput && !MAPPED_PHASES.includes(rawPhaseFromInput))
-        ? rawPhaseFromInput
-        : (!MAPPED_PHASES.includes(metaPhase) ? metaPhase : rawPhaseFromInput || metaPhase);
-      const MW_DESIGN = {
-        'DanglingToolCall': { allow: ['before_agent'], display: 'context' },
-        'FileProcess': { allow: ['before_agent'], display: 'context' },
-        'InputTransform': { allow: ['before_agent'], display: 'context' },
-        'MultimodalInject': { allow: ['before_agent'], display: 'context' },
-        'Summarization': { allow: ['before_model'], display: 'reasoning' },
-        'SubagentLimit': { allow: ['after_model'], display: 'reasoning' },
-        'LoopDetection': { allow: ['after_model'], display: 'reasoning' },
-        'OutputValidation': { allow: ['after_model'], display: 'reasoning' },
-        'Guardrail': { allow: ['wrap_tool_call'], display: 'reasoning' },
-        'ToolErrorHandling': { allow: ['wrap_tool_call'], display: 'reasoning' },
-        'Clarification': { allow: ['wrap_tool_call'], display: 'reasoning' },
-        'OutputRender': { allow: ['after_agent'], display: 'output' },
-        'StreamPIIRestor': { allow: ['after_agent'], display: 'output' },
-      };
-      for (const [frag, entry] of Object.entries(MW_DESIGN)) {
-        if (mwName.includes(frag)) {
-          if (entry.allow.includes(mwPhase)) return entry.display;
-          if (mwPhase === 'before_model' || mwPhase === 'after_model') return 'reasoning';
-          return '_hidden';
-        }
-      }
-      if (mwPhase === 'before_agent') return 'context';
-      if (mwPhase === 'after_agent') return 'post';
-      if (mwPhase === 'before_model' || mwPhase === 'after_model' || mwPhase === 'wrap_tool_call') return 'reasoning';
-      return null;
-    }
-    return null;
-  }
-
-  // 过滤 spans
-  const visibleSpans = spans.filter(s => {
+  const coreSpans = spans.filter(s => {
     const t = s.step_name_en || s.type || s.span_type || '';
-    if (HIDDEN_SPAN_TYPES.has(t)) return false;
-    return getNaturalPhase(s) !== '_hidden';
+    return CORE_TYPES.has(t);
   });
-  if (!visibleSpans.length) return;
+  if (!coreSpans.length) return;
 
   // 计算总耗时
-  const totalDuration = visibleSpans.reduce((sum, s) => sum + (s.duration_ms || 0), 0);
+  const totalDuration = coreSpans.reduce((sum, s) => sum + (s.duration_ms || 0), 0);
   const durationText = totalDuration > 0 ? ` · ${totalDuration}ms` : '';
   const collapseId = 'inline-trace-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
 
-  // ═══ 构建分阶段 HTML ═══
-  let bodyHtml = '';
-  let currentPhaseId = null;
-  let currentPhaseIdx = -1;
-  let mwBuffer = [];
-  let mwBufferPhase = '';
-  let seqNum = 0;
+  // ═══ 分阶段构建 ═══
+  const PHASES = [
+    { types: ['title_generation', 'query_rewrite', 'content_review', 'content_review_input'], label: '入口预处理', icon: '🚀' },
+    { types: ['context_build', 'memory_retrieval'], label: '上下文准备', icon: '📦' },
+    { types: ['llm_call', 'tool_call', 'skill_execution', 'hierarchical_search'], label: '模型推理 Agent Loop', icon: '⚡' },
+    { types: ['response_complete', 'response'], label: '回复输出', icon: '✅' },
+    { types: ['memory_extract'], label: '后处理', icon: '💾' },
+  ];
 
-  function getMwRawPhase(s) {
-    return (s.metadata && s.metadata.phase) || (s.input_data && s.input_data.phase) || '';
-  }
-
-  function flushMwBuffer() {
-    if (mwBuffer.length === 0) return;
-    const total = mwBuffer.length;
-    const totalDur = mwBuffer.reduce((sum, s) => sum + (s.duration_ms || 0), 0);
-    const phaseLabel = getMwRawPhase(mwBuffer[0]) || '';
-    const durText = totalDur ? ` · ${Math.round(totalDur)}ms` : '';
-
-    let mwItems = '';
-    for (const s of mwBuffer) {
-      seqNum++;
-      const mwName = (s.metadata && s.metadata.middleware_name) || s.step_name || (s.name || '').replace(/^mw:/, '') || '';
-      const cnName = getMwCnName(mwName);
-      const dur = s.duration_ms ? `${Math.round(s.duration_ms)}ms` : '';
-      mwItems += `<div class="flex items-center gap-1 py-[1px] text-[10px] text-gray-400"><span>✓ ⚙️ ${esc(cnName !== mwName ? cnName : mwName)}</span>${dur ? `<span class="ml-auto text-gray-300">${dur}</span>` : ''}</div>`;
+  function getPhaseIdx(spanType) {
+    for (let i = 0; i < PHASES.length; i++) {
+      if (PHASES[i].types.includes(spanType)) return i;
     }
-
-    bodyHtml += `
-      <details class="my-0.5">
-        <summary class="cursor-pointer select-none text-[10px] text-gray-400 hover:text-gray-600 py-[1px] flex items-center gap-1">
-          <svg class="w-2.5 h-2.5 text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-          <span>⚙️ ${total} 个 ${phaseLabel} 中间件${durText}</span>
-        </summary>
-        <div class="pl-4 mt-0.5">${mwItems}</div>
-      </details>`;
-    mwBuffer = [];
-    mwBufferPhase = '';
+    return 2; // 默认归入 reasoning
   }
 
-  function renderNode(s) {
-    seqNum++;
+  function renderCoreNode(s) {
     const spanType = s.step_name_en || s.type || '';
     const dur = s.duration_ms ? `${Math.round(s.duration_ms)}ms` : '';
     const status = s.status || 'complete';
     const dotClass = status === 'complete' || status === 'success' ? 'bg-green-500' :
                      status === 'error' ? 'bg-red-500' : 'bg-blue-500';
     const md = s.metadata || {};
-
-    // 构建显示内容：保持右侧面板的紧凑格式
     let label = '';
-    let detail = '';
+    let desc = '';
 
     if (spanType === 'tool_call') {
+      // 格式对齐右侧面板：工具调用: skills_tool(account-insight)
       const toolName = md.display_name || md.tool_name || '';
-      // 格式：tool_call -> toolName(subName)
       if (toolName) {
         const subName = md.sub_action || md.skill_name || '';
-        label = `tool_call → ${toolName}${subName ? '(' + subName + ')' : ''}`;
+        label = `工具调用: ${toolName}${subName ? '(' + subName + ')' : ''}`;
       } else {
-        label = 'tool_call';
+        label = '工具调用';
       }
     } else if (spanType === 'skill_execution') {
+      // 格式：技能执行: account-insight
       const skillName = md.skill_name || '';
-      label = skillName ? `skill_execution → ${skillName}` : 'skill_execution';
+      label = skillName ? `技能执行: ${skillName}` : '技能执行';
     } else if (spanType === 'llm_call') {
+      // 格式对齐右侧面板：模型推理 + 描述
+      label = '模型推理';
       const toolCalls = md.tool_calls || (s.output_data && s.output_data.tool_calls) || [];
       if (toolCalls.length > 0) {
         const first = typeof toolCalls[0] === 'string' ? toolCalls[0] : (toolCalls[0].name || toolCalls[0].tool_name || '');
-        label = `llm_call → ${first}`;
+        desc = `调用 ${first}`;
       } else if (md.is_final || (s.output_data && s.output_data.is_final)) {
-        label = 'llm_call → 生成回复';
-      } else {
-        label = 'llm_call';
+        desc = '生成最终回复';
       }
     } else {
-      // 其他类型：用中文标签
       const cnLabel = getSpanLabel(spanType);
-      label = (cnLabel && cnLabel !== spanType) ? `${cnLabel}（${spanType}）` : (s.step_name || s.title || s.name || spanType);
+      label = (cnLabel && cnLabel !== spanType) ? cnLabel : spanType;
       if (spanType === 'memory_retrieval' && md.hit_count != null) {
-        detail = `命中 ${md.hit_count} 条`;
+        desc = `命中 ${md.hit_count} 条`;
       }
     }
 
-    return `
-      <div class="flex items-center gap-1.5 py-[2px] text-[11px] text-gray-600">
-        <div class="w-1.5 h-1.5 rounded-full ${dotClass} shrink-0"></div>
-        <span class="font-medium">${esc(label)}</span>
-        ${detail ? `<span class="text-gray-400 text-[10px]">${esc(detail)}</span>` : ''}
-        ${dur ? `<span class="text-[10px] text-gray-300 ml-auto">${dur}</span>` : ''}
-      </div>`;
+    return `<div class="flex items-center gap-1.5 py-[2px] text-[11px] text-gray-600"><div class="w-1.5 h-1.5 rounded-full ${dotClass} shrink-0"></div><span class="font-medium">${esc(label)}</span>${desc ? `<span class="text-gray-400 text-[10px] ml-1">${esc(desc)}</span>` : ''}${dur ? `<span class="text-[10px] text-gray-300 ml-auto">${dur}</span>` : ''}</div>`;
   }
 
-  for (const s of visibleSpans) {
-    const spanTypeKey = s.step_name_en || s.type || '';
-    let targetPhase = getNaturalPhase(s);
-    if (targetPhase === null) targetPhase = currentPhaseId || 'context';
-    const targetIdx = PHASE_ORDER.indexOf(targetPhase);
-    if (targetIdx < currentPhaseIdx) targetPhase = currentPhaseId;
-    const isMiddleware = spanTypeKey === 'middleware' || (s.metadata && s.metadata.is_middleware === true);
+  // 按阶段分组渲染
+  let bodyHtml = '';
+  let currentPhaseIdx = -1;
+  let llmCount = 0;
 
-    if (targetPhase !== currentPhaseId) {
-      flushMwBuffer();
-      if (currentPhaseId !== null) bodyHtml += '</div></div>';
-      currentPhaseId = targetPhase;
-      currentPhaseIdx = PHASE_ORDER.indexOf(targetPhase);
-      const meta = PHASE_META[targetPhase] || { label: '其他', icon: '📌' };
-      bodyHtml += `<div class="mt-2 first:mt-0"><div class="text-[10px] font-bold text-gray-500 mb-0.5">${meta.icon} ${meta.label}</div><div class="pl-2 border-l border-gray-200">`;
+  // 预扫描 llm_call 数量，判断是否需要循环标记
+  const llmSpans = coreSpans.filter(s => (s.step_name_en || s.type || '') === 'llm_call');
+  const isMultiLoop = llmSpans.length > 1;
+  let loopNum = 0;
+
+  for (const s of coreSpans) {
+    const spanType = s.step_name_en || s.type || '';
+    const phaseIdx = getPhaseIdx(spanType);
+
+    // 阶段切换
+    if (phaseIdx > currentPhaseIdx) {
+      if (currentPhaseIdx >= 0) bodyHtml += '</div></div>';
+      currentPhaseIdx = phaseIdx;
+      const phase = PHASES[phaseIdx];
+      bodyHtml += `<div class="mt-2 first:mt-0"><div class="text-[10px] font-bold text-gray-500 mb-0.5">${phase.icon} ${phase.label}</div><div class="pl-2 border-l border-gray-200">`;
+      loopNum = 0;
     }
 
-    if (isMiddleware) {
-      const rawPhase = getMwRawPhase(s);
-      if (mwBuffer.length > 0 && rawPhase !== mwBufferPhase) flushMwBuffer();
-      mwBuffer.push(s);
-      mwBufferPhase = rawPhase;
-      continue;
+    // Agent Loop 中的循环标记
+    if (spanType === 'llm_call' && isMultiLoop && currentPhaseIdx === 2) {
+      loopNum++;
+      const md = s.metadata || {};
+      const toolCalls = md.tool_calls || (s.output_data && s.output_data.tool_calls) || [];
+      let loopDesc = '';
+      if (md.is_final || (s.output_data && s.output_data.is_final)) {
+        loopDesc = 'LLM 整合结果生成最终回复';
+      } else if (toolCalls.length > 0) {
+        const first = typeof toolCalls[0] === 'string' ? toolCalls[0] : (toolCalls[0].name || toolCalls[0].tool_name || '');
+        loopDesc = `LLM 决定调用 ${first}`;
+      }
+      if (loopNum > 1) bodyHtml += '</div>'; // 关闭上一个循环
+      bodyHtml += `<div class="pl-2 border-l-2 border-violet-200 mt-1 mb-1"><div class="text-[10px] text-violet-600 font-semibold mb-0.5">├─ 循环 ${loopNum}${loopDesc ? `（${esc(loopDesc)}）` : ''}</div>`;
     }
 
-    flushMwBuffer();
-    bodyHtml += renderNode(s);
+    bodyHtml += renderCoreNode(s);
   }
 
-  flushMwBuffer();
-  if (currentPhaseId !== null) bodyHtml += '</div></div>';
+  // 关闭循环和阶段容器
+  if (isMultiLoop && loopNum > 0) bodyHtml += '</div>';
+  if (currentPhaseIdx >= 0) bodyHtml += '</div></div>';
 
   // ═══ 组装容器 ═══
   const container = document.createElement('div');
@@ -2494,7 +2423,7 @@ function renderInlineSteps(spans) {
           <polyline points="9 18 15 12 9 6"/>
         </svg>
         <span class="text-xs font-medium text-gray-500">⚡ 推理链路</span>
-        <span class="text-[10px] text-gray-400">${visibleSpans.length} 步${durationText}</span>
+        <span class="text-[10px] text-gray-400">${coreSpans.length} 步${durationText}</span>
       </div>
       <div id="${collapseId}" class="hidden px-3 pb-2">${bodyHtml}</div>
     </div>`;
