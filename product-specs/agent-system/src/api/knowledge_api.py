@@ -1118,6 +1118,20 @@ async def resync_vectors(
         pending_chunks = [c for c in chunks if c.vector_synced != 1]
         # 如果所有 chunks 都已同步，检查 VDB 中是否真的有数据
         if not pending_chunks:
+            # 所有 chunks 已标记同步，确保文档状态也是 indexed
+            if doc.chunk_status != "indexed":
+                try:
+                    KnowledgeDocumentDAO.update_chunk_status(
+                        current_doc_id, "indexed",
+                        chunk_count=len(chunks),
+                        segment_count=doc.segment_count or 0,
+                    )
+                    logger.warning("resync: fixed chunk_status for doc=%s (was %s)", current_doc_id, doc.chunk_status)
+                except Exception:
+                    pass
+                total_docs_processed += 1
+                continue
+
             # 验证 VDB 中是否存在
             try:
                 from tcvectordb.model.document import Filter
@@ -1138,16 +1152,6 @@ async def resync_vectors(
                 vdb_has_data = False
 
             if vdb_has_data:
-                # VDB 中确实有数据，确保文档状态也是 indexed
-                if doc.chunk_status != "indexed":
-                    try:
-                        KnowledgeDocumentDAO.update_chunk_status(
-                            current_doc_id, "indexed",
-                            chunk_count=len(chunks),
-                            segment_count=doc.segment_count or 0,
-                        )
-                    except Exception:
-                        pass
                 total_docs_processed += 1
                 continue  # VDB 中确实有数据，跳过
             else:

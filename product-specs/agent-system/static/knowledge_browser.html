@@ -590,10 +590,10 @@ function renderDocs(){
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
-          <tr id="selectAllBanner" style="display:none;"><td colspan="8" class="px-4 py-2 bg-blue-50 text-center text-xs text-blue-700"></td></tr>
           ${currentDocuments.map(d => renderDocRow(d)).join('')}
         </tbody>
       </table>
+      <div id="selectAllBanner" style="display:none;" class="bg-blue-50 text-center text-xs text-blue-700 py-2 border-b border-blue-100"></div>
     </div>
     <!-- 分页控件 -->
     ${renderDocPagination(totalPages)}
@@ -1113,6 +1113,8 @@ async function resyncSingleDoc(docId){
     }
     // 重新加载文档详情页（刷新切片同步状态）
     await openDocDetail(docId);
+    // 同时刷新文档列表（更新状态列）
+    loadDocuments();
   } catch(e) {
     toast('同步请求失败: ' + e.message, 'error');
   }
@@ -1171,7 +1173,6 @@ function onDocCheckChange() {
   const bar = document.getElementById('batchDeleteBar');
   const countEl = document.getElementById('batchSelectedCount');
   const selectAllCb = document.getElementById('docSelectAll');
-  const selectAllBanner = document.getElementById('selectAllBanner');
 
   if (selected.length > 0 || _selectAllPages) {
     bar.style.display = 'flex';
@@ -1186,18 +1187,23 @@ function onDocCheckChange() {
 
   // 更新全选框状态
   const allCheckboxes = document.querySelectorAll('.doc-select-checkbox');
-  if (selectAllCb) {
+  if (selectAllCb && !_selectAllPages) {
     selectAllCb.checked = allCheckboxes.length > 0 && selected.length === allCheckboxes.length;
     selectAllCb.indeterminate = selected.length > 0 && selected.length < allCheckboxes.length;
   }
 
-  // 显示/隐藏"选择全部"提示
-  if (selectAllBanner) {
-    if (selectAllCb && selectAllCb.checked && docTotal > allCheckboxes.length && !_selectAllPages) {
-      selectAllBanner.style.display = 'block';
-      selectAllBanner.innerHTML = `当前页已全选 ${allCheckboxes.length} 项。<a href="javascript:void(0)" onclick="selectAllPages()" class="text-blue-600 font-bold underline ml-1">选择全部 ${docTotal} 项</a>`;
+  // 显示/隐藏"选择全部"提示（当前页全选且总数大于当前页数量时）
+  const banner = document.getElementById('selectAllBanner');
+  if (banner) {
+    const currentPageAllSelected = allCheckboxes.length > 0 && selected.length === allCheckboxes.length;
+    if (currentPageAllSelected && docTotal > allCheckboxes.length && !_selectAllPages) {
+      banner.style.display = 'block';
+      banner.innerHTML = `当前页已全选 ${allCheckboxes.length} 项。<a href="javascript:void(0)" onclick="selectAllPages()" class="text-blue-600 font-bold underline ml-1">选择全部 ${docTotal} 项</a>`;
+    } else if (_selectAllPages) {
+      banner.style.display = 'block';
+      banner.innerHTML = `已选择全部 ${docTotal} 个文档。<a href="javascript:void(0)" onclick="clearDocSelection()" class="text-gray-500 underline ml-1">取消</a>`;
     } else {
-      selectAllBanner.style.display = 'none';
+      banner.style.display = 'none';
     }
   }
 }
@@ -1205,7 +1211,10 @@ function onDocCheckChange() {
 function toggleSelectAllDocs(checked) {
   const checkboxes = document.querySelectorAll('.doc-select-checkbox');
   checkboxes.forEach(cb => { cb.checked = checked; });
-  if (!checked) {
+  if (checked && docTotal > checkboxes.length) {
+    // 总数大于当前页：直接进入全选模式
+    _selectAllPages = true;
+  } else if (!checked) {
     _selectAllPages = false;
   }
   onDocCheckChange();

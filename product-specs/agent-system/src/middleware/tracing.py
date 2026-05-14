@@ -708,10 +708,44 @@ class MiddlewareTracingWrapper(AgentMiddleware):
     def inner(self) -> AgentMiddleware:
         return self._inner
 
+    # 中间件 → 设计归属阶段映射
+    # 只有在设计归属阶段执行时才记录，避免所有中间件都出现在每个阶段
+    _MW_DESIGN_PHASES: dict[str, set[str]] = {
+        # before_agent 层
+        'DanglingToolCallMiddleware': {'before_agent'},
+        'FileProcessMiddleware': {'before_agent'},
+        'InputTransformMiddleware': {'before_agent'},
+        'MultimodalInjectMiddleware': {'before_agent'},
+        'MemoryMiddleware': {'before_agent', 'after_agent'},
+        # before_model 层
+        'SummarizationMiddleware': {'before_model'},
+        # after_model 层
+        'SubagentLimitMiddleware': {'after_model'},
+        'LoopDetectionMiddleware': {'after_model'},
+        'OutputValidationMiddleware': {'after_model'},
+        # wrap_tool_call 层
+        'GuardrailMiddleware': {'wrap_tool_call'},
+        'ToolErrorHandlingMiddleware': {'wrap_tool_call'},
+        'ClarificationMiddleware': {'wrap_tool_call'},
+        # after_agent 输出层
+        'OutputRenderMiddleware': {'after_agent'},
+        'StreamPIIRestorer': {'after_agent'},
+    }
+
     def _should_trace(self, phase: str, has_effect: bool) -> bool:
-        """判断是否需要追踪 — 所有执行过的中间件都记录"""
+        """判断是否需要追踪 — 只记录设计上属于该阶段的中间件
+
+        每个中间件有明确的设计归属阶段（如 SummarizationMiddleware 归属 before_model）。
+        LangGraph 会在所有阶段调用所有中间件，但大部分是空操作。
+        只记录设计归属阶段的执行，避免 12 个中间件都出现在 before_model 组中。
+        """
         if self._name in self._SELF_TRACING_NAMES:
             return False
+        # 查找该中间件的设计归属阶段
+        allowed_phases = self._MW_DESIGN_PHASES.get(self._name)
+        if allowed_phases is not None:
+            return phase in allowed_phases
+        # 未在映射表中的中间件：所有阶段都记录
         return True
 
     def before_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
