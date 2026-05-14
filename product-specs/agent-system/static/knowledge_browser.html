@@ -573,20 +573,20 @@ function renderDocs(){
 
   list.innerHTML = searchBar + `
     <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
-      <table class="w-full text-sm">
+      <table class="w-full text-sm table-fixed">
         <thead class="bg-gray-50 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
           <tr>
-            <th class="px-3 py-3 text-left w-8">
+            <th class="px-3 py-3 text-left w-9">
               <input type="checkbox" id="docSelectAll" onchange="toggleSelectAllDocs(this.checked)"
                 class="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
             </th>
-            <th class="px-4 py-3 text-left">文档</th>
-            <th class="px-4 py-3 text-left">状态</th>
-            <th class="px-4 py-3 text-left">切片</th>
-            <th class="px-4 py-3 text-left">质量</th>
-            <th class="px-4 py-3 text-left">大小</th>
-            <th class="px-4 py-3 text-left">创建时间</th>
-            <th class="px-4 py-3 text-right">操作</th>
+            <th class="px-3 py-3 text-left" style="width:35%">文档</th>
+            <th class="px-3 py-3 text-left w-[70px]">状态</th>
+            <th class="px-3 py-3 text-left w-[80px]">切片</th>
+            <th class="px-3 py-3 text-left w-[90px]">质量</th>
+            <th class="px-3 py-3 text-left w-[60px]">大小</th>
+            <th class="px-3 py-3 text-left w-[100px]">创建时间</th>
+            <th class="px-3 py-3 text-right w-[110px]">操作</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
@@ -670,25 +670,25 @@ function renderDocRow(d){
   const quality = d.quality_score ? renderQualityBar(d.quality_score) : '<span class="text-gray-300 text-xs">—</span>';
   return `
     <tr class="hover:bg-blue-50/30 transition-colors">
-      <td class="px-3 py-3 w-8">
+      <td class="px-3 py-3 w-9">
         <input type="checkbox" class="doc-select-checkbox w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
           data-doc-id="${esc(d.doc_id)}" onchange="onDocCheckChange()" />
       </td>
-      <td class="px-4 py-3">
-        <div class="flex items-center gap-2">
-          <span class="text-lg">${fileEmoji(d.file_type)}</span>
-          <div class="min-w-0">
-            <div class="text-xs font-bold text-gray-900 truncate max-w-[240px]">${esc(d.title || d.file_name)}</div>
-            <div class="text-[10px] text-gray-400 truncate max-w-[240px]">${esc(d.file_name)}</div>
+      <td class="px-3 py-3">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-lg shrink-0">${fileEmoji(d.file_type)}</span>
+          <div class="min-w-0 overflow-hidden">
+            <div class="text-xs font-bold text-gray-900 truncate">${esc(d.title || d.file_name)}</div>
+            <div class="text-[10px] text-gray-400 truncate">${esc(d.file_name)}</div>
           </div>
         </div>
       </td>
-      <td class="px-4 py-3">${status}</td>
-      <td class="px-4 py-3 text-xs text-gray-700">${d.chunk_count || 0} / ${d.segment_count || 0}<span class="text-[10px] text-gray-400 ml-1">切/章</span></td>
-      <td class="px-4 py-3">${quality}</td>
-      <td class="px-4 py-3 text-xs text-gray-500">${fmtSize(d.file_size)}</td>
-      <td class="px-4 py-3 text-xs text-gray-500">${fmtTime(d.created_at)}</td>
-      <td class="px-4 py-3 text-right whitespace-nowrap">
+      <td class="px-3 py-3 whitespace-nowrap">${status}</td>
+      <td class="px-3 py-3 text-xs text-gray-700 whitespace-nowrap">${d.chunk_count || 0} / ${d.segment_count || 0} <span class="text-[10px] text-gray-400">切/章</span></td>
+      <td class="px-3 py-3">${quality}</td>
+      <td class="px-3 py-3 text-xs text-gray-500 whitespace-nowrap">${fmtSize(d.file_size)}</td>
+      <td class="px-3 py-3 text-xs text-gray-500 whitespace-nowrap">${fmtTime(d.created_at)}</td>
+      <td class="px-3 py-3 text-right whitespace-nowrap">
         <button onclick="previewDoc('${esc(d.doc_id)}')" class="text-xs text-green-600 hover:text-green-700 font-bold mr-2" title="查看原文档">原文</button>
         <button onclick="openDocDetail('${esc(d.doc_id)}')" class="text-xs text-blue-600 hover:text-blue-700 font-bold mr-2">详情</button>
         <button onclick="deleteDoc('${esc(d.doc_id)}')" class="text-xs text-red-500 hover:text-red-600 font-bold">删除</button>

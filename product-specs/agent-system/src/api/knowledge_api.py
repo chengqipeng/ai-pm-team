@@ -1116,47 +1116,18 @@ async def resync_vectors(
 
         # 3. 筛选需要同步的 chunks（vector_synced != 1，或者强制全量重建）
         pending_chunks = [c for c in chunks if c.vector_synced != 1]
-        # 如果所有 chunks 都已同步，检查 VDB 中是否真的有数据
+
+        # 如果所有 chunks 都已同步，直接修正文档状态
         if not pending_chunks:
-            # 所有 chunks 已标记同步，确保文档状态也是 indexed
             if doc.chunk_status != "indexed":
-                try:
-                    KnowledgeDocumentDAO.update_chunk_status(
-                        current_doc_id, "indexed",
-                        chunk_count=len(chunks),
-                        segment_count=doc.segment_count or 0,
-                    )
-                    logger.warning("resync: fixed chunk_status for doc=%s (was %s)", current_doc_id, doc.chunk_status)
-                except Exception:
-                    pass
-                total_docs_processed += 1
-                continue
-
-            # 验证 VDB 中是否存在
-            try:
-                from tcvectordb.model.document import Filter
-                vdb._ensure_collections()
-                check_filter = (
-                    f'tenant_id = "{tenant_id}" and doc_id = "{current_doc_id}" and status = "active"'
+                KnowledgeDocumentDAO.update_chunk_status(
+                    current_doc_id, "indexed",
+                    chunk_count=len(chunks),
+                    segment_count=doc.segment_count or 0,
                 )
-                check_result = vdb._chunk_coll.query(
-                    filter=Filter(check_filter),
-                    output_fields=["id"],
-                    limit=1,
-                )
-                vdb_has_data = bool(check_result) and (
-                    len(check_result) > 0 if isinstance(check_result, list)
-                    else len(vdb._parse_results(check_result)) > 0
-                )
-            except Exception:
-                vdb_has_data = False
-
-            if vdb_has_data:
-                total_docs_processed += 1
-                continue  # VDB 中确实有数据，跳过
-            else:
-                # VDB 中没有但 PG 标记已同步 → 需要全量重建
-                pending_chunks = chunks
+                logger.warning("resync: fixed chunk_status for doc=%s (was %s)", current_doc_id, doc.chunk_status)
+            total_docs_processed += 1
+            continue
 
         # 4. 对 pending_chunks 执行 embedding + 写入 VDB
         try:
