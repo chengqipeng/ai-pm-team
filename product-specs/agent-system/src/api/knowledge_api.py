@@ -1013,6 +1013,7 @@ async def resync_vectors(
     tenant_id: int = Query(..., gt=0),
     knowledge_base_id: int = Query(..., gt=0),
     doc_id: str = Query("", description="指定单个文档 ID（留空则处理整个知识库）"),
+    doc_ids: str = Query("", description="批量文档 ID，逗号分隔（优先于 doc_id）"),
 ):
     """向量补偿 — 对 PG 中已有切片但 VDB 中缺失的文档重新执行 Phase 4（向量化+写入VDB）
 
@@ -1028,8 +1029,8 @@ async def resync_vectors(
     4. 重建 doc_metadata（摘要向量 + BM25 文本）
     """
     logger.warning(
-        "resync-vectors start: tenant=%s kb=%s doc_id=%s",
-        tenant_id, knowledge_base_id, doc_id or "(all)",
+        "resync-vectors start: tenant=%s kb=%s doc_id=%s doc_ids=%s",
+        tenant_id, knowledge_base_id, doc_id or "(none)", doc_ids[:100] if doc_ids else "(none)",
     )
     import asyncio
 
@@ -1073,8 +1074,16 @@ async def resync_vectors(
         else:
             raise HTTPException(503, "Embedding 服务未配置（embedding_fn 和 lkeap 均为 None）")
 
-    # 1. 查该 KB 下的所有文档（或指定单个文档）
-    if doc_id:
+    # 1. 查该 KB 下的文档（支持单个/批量/全量）
+    if doc_ids:
+        # 批量模式：逗号分隔的 doc_id 列表
+        id_list = [d.strip() for d in doc_ids.split(",") if d.strip()]
+        docs = []
+        for did in id_list:
+            d = KnowledgeDocumentDAO.get_by_doc_id(did)
+            if d is not None:
+                docs.append(d)
+    elif doc_id:
         single_doc = KnowledgeDocumentDAO.get_by_doc_id(doc_id)
         if single_doc is None:
             raise HTTPException(404, f"文档 {doc_id} 不存在")
@@ -1129,6 +1138,17 @@ async def resync_vectors(
                 vdb_has_data = False
 
             if vdb_has_data:
+                # VDB 中确实有数据，确保文档状态也是 indexed
+                if doc.chunk_status != "indexed":
+                    try:
+                        KnowledgeDocumentDAO.update_chunk_status(
+                            current_doc_id, "indexed",
+                            chunk_count=len(chunks),
+                            segment_count=doc.segment_count or 0,
+                        )
+                    except Exception:
+                        pass
+                total_docs_processed += 1
                 continue  # VDB 中确实有数据，跳过
             else:
                 # VDB 中没有但 PG 标记已同步 → 需要全量重建
@@ -1254,6 +1274,17 @@ async def resync_vectors(
                     pass
 
                 await asyncio.to_thread(vdb.upsert_doc_metadata, [doc_meta_record])
+
+            # 更新文档状态为 indexed（修复之前 Phase 4 失败留下的 "failed" 状态）
+            if doc.chunk_status != "indexed":
+                try:
+                    KnowledgeDocumentDAO.update_chunk_status(
+                        current_doc_id, "indexed",
+                        chunk_count=len(chunks),
+                        segment_count=doc.segment_count or 0,
+                    )
+                except Exception as exc:
+                    logger.warning("resync: update chunk_status failed for %s: %s", current_doc_id, exc)
 
             total_docs_processed += 1
 

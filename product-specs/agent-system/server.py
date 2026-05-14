@@ -1057,8 +1057,8 @@ async def chat_stream(req: ChatRequest):
                     span.metadata["step_name"] = mw_span["step_name"]
                 if mw_span.get("step_name_en"):
                     span.metadata["step_name_en"] = mw_span["step_name_en"]
-                if mw_span.get("phase"):
-                    span.metadata["phase"] = mw_span["phase"]
+                # phase: 保留 metadata 中的原始值（before_model/after_model 等），
+                # 不用顶层映射后的 display_phase 覆盖
                 if mw_span.get("children"):
                     span.metadata["children"] = mw_span["children"]
 
@@ -1227,6 +1227,72 @@ async def delete_conversation(thread_id: str):
     except Exception as e:
         logger.error("delete_conversation failed: %s", e)
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/conversations/{thread_id}/messages")
+async def get_conversation_messages(thread_id: str):
+    """获取对话的完整消息列表（含每条消息的推理链路 spans）
+
+    前端刷新后恢复对话时调用，一次性返回所有消息和对应的 trace spans，
+    避免 N 次 API 调用。
+    """
+    try:
+        # 1. 获取该 thread 的所有 traces（按时间排序）
+        mem_traces = tracer.get_all_traces(200)
+        thread_traces = [t for t in mem_traces if t.thread_id == thread_id]
+
+        # 合并 PG 中的 traces
+        db_traces = trace_writer.read_traces(200)
+        mem_trace_ids = {t.trace_id for t in thread_traces}
+        for dt in db_traces:
+            if dt.get("thread_id") == thread_id and dt["trace_id"] not in mem_trace_ids:
+                thread_traces.append(dt)
+
+        if not thread_traces:
+            return {"messages": []}
+
+        # 2. 按 start_time 排序
+        def _get_start_time(t):
+            if hasattr(t, 'start_time'):
+                return t.start_time or 0
+            return (t.get("start_time") or 0) / 1000 if isinstance(t.get("start_time"), int) and t.get("start_time", 0) > 1e12 else t.get("start_time", 0)
+
+        thread_traces.sort(key=_get_start_time)
+
+        # 3. 构建消息列表（含 spans）
+        messages = []
+        for t in thread_traces:
+            # 兼容内存 Trace 对象和 PG dict
+            if hasattr(t, 'trace_id'):
+                trace_id = t.trace_id
+                user_input = t.user_input or ""
+                agent_output = getattr(t, 'agent_output', '') or ""
+                spans_raw = [s.to_dict() if hasattr(s, 'to_dict') else s for s in (t.spans or [])]
+            else:
+                trace_id = t.get("trace_id", "")
+                user_input = t.get("user_input", "") or ""
+                agent_output = t.get("agent_output", "") or ""
+                spans_raw = []
+
+            # 如果内存中没有 spans，从 PG 加载
+            if not spans_raw and trace_id:
+                detail = trace_writer.read_trace_detail(trace_id)
+                if detail:
+                    spans_raw = detail.get("spans", [])
+                    if not agent_output:
+                        agent_output = detail.get("agent_output", "") or ""
+
+            messages.append({
+                "trace_id": trace_id,
+                "user_input": user_input,
+                "agent_output": agent_output,
+                "spans": spans_raw,
+            })
+
+        return {"messages": messages}
+    except Exception as e:
+        logger.error("get_conversation_messages failed: %s", e)
+        return {"messages": []}
 
 
 @app.get("/api/traces")

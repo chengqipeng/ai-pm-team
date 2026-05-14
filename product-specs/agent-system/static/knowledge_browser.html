@@ -542,6 +542,10 @@ function renderDocs(){
       <span class="text-[10px] text-gray-400">共 ${docTotal} 条</span>
       <div id="batchDeleteBar" class="ml-auto flex items-center gap-2" style="display:none;">
         <span id="batchSelectedCount" class="text-xs text-gray-600 font-medium"></span>
+        <button onclick="batchResyncVectors()" class="px-3 py-1.5 bg-blue-500 text-white text-xs font-bold rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-1">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          同步向量
+        </button>
         <button onclick="batchDeleteDocs()" class="px-3 py-1.5 bg-red-500 text-white text-xs font-bold rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
           批量删除
@@ -586,6 +590,7 @@ function renderDocs(){
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
+          <tr id="selectAllBanner" style="display:none;"><td colspan="8" class="px-4 py-2 bg-blue-50 text-center text-xs text-blue-700"></td></tr>
           ${currentDocuments.map(d => renderDocRow(d)).join('')}
         </tbody>
       </table>
@@ -1106,8 +1111,8 @@ async function resyncSingleDoc(docId){
     } else {
       toast(`同步完成但无切片写入 (docs_processed=${data.docs_processed}, status=${data.status})`, 'warning');
     }
-    // 重新验证
-    await verifyVdbSync(docId);
+    // 重新加载文档详情页（刷新切片同步状态）
+    await openDocDetail(docId);
   } catch(e) {
     toast('同步请求失败: ' + e.message, 'error');
   }
@@ -1151,8 +1156,10 @@ async function deleteDoc(docId){
 }
 
 // ═══════════════════════════════════════════════════════════
-// 批量删除
+// 批量操作
 // ═══════════════════════════════════════════════════════════
+
+let _selectAllPages = false;  // 是否选中所有页的全部数据
 
 function getSelectedDocIds() {
   const checkboxes = document.querySelectorAll('.doc-select-checkbox:checked');
@@ -1164,10 +1171,15 @@ function onDocCheckChange() {
   const bar = document.getElementById('batchDeleteBar');
   const countEl = document.getElementById('batchSelectedCount');
   const selectAllCb = document.getElementById('docSelectAll');
+  const selectAllBanner = document.getElementById('selectAllBanner');
 
-  if (selected.length > 0) {
+  if (selected.length > 0 || _selectAllPages) {
     bar.style.display = 'flex';
-    countEl.textContent = `已选 ${selected.length} 项`;
+    if (_selectAllPages) {
+      countEl.textContent = `已选全部 ${docTotal} 项`;
+    } else {
+      countEl.textContent = `已选 ${selected.length} 项`;
+    }
   } else {
     bar.style.display = 'none';
   }
@@ -1178,49 +1190,141 @@ function onDocCheckChange() {
     selectAllCb.checked = allCheckboxes.length > 0 && selected.length === allCheckboxes.length;
     selectAllCb.indeterminate = selected.length > 0 && selected.length < allCheckboxes.length;
   }
+
+  // 显示/隐藏"选择全部"提示
+  if (selectAllBanner) {
+    if (selectAllCb && selectAllCb.checked && docTotal > allCheckboxes.length && !_selectAllPages) {
+      selectAllBanner.style.display = 'block';
+      selectAllBanner.innerHTML = `当前页已全选 ${allCheckboxes.length} 项。<a href="javascript:void(0)" onclick="selectAllPages()" class="text-blue-600 font-bold underline ml-1">选择全部 ${docTotal} 项</a>`;
+    } else {
+      selectAllBanner.style.display = 'none';
+    }
+  }
 }
 
 function toggleSelectAllDocs(checked) {
   const checkboxes = document.querySelectorAll('.doc-select-checkbox');
   checkboxes.forEach(cb => { cb.checked = checked; });
+  if (!checked) {
+    _selectAllPages = false;
+  }
+  onDocCheckChange();
+}
+
+function selectAllPages() {
+  _selectAllPages = true;
+  const checkboxes = document.querySelectorAll('.doc-select-checkbox');
+  checkboxes.forEach(cb => { cb.checked = true; });
   onDocCheckChange();
 }
 
 function clearDocSelection() {
+  _selectAllPages = false;
   toggleSelectAllDocs(false);
 }
 
 async function batchDeleteDocs() {
-  const docIds = getSelectedDocIds();
-  if (!docIds.length) { toast('请先选择要删除的文档', 'error'); return; }
+  if (!currentKb) return;
 
-  if (!confirm(`确定批量删除选中的 ${docIds.length} 个文档？\n（包含所有切片和向量，不可恢复）`)) return;
+  if (_selectAllPages) {
+    // 全选模式：需要先获取所有文档 ID
+    if (!confirm(`确定删除该知识库下全部 ${docTotal} 个文档？\n（包含所有切片和向量，不可恢复）`)) return;
+    toast(`正在删除全部 ${docTotal} 个文档...`, 'info');
+    try {
+      // 分页获取所有 doc_id
+      const allDocs = await apiGet(`/api/knowledge/documents?tenant_id=${tenantId()}&knowledge_base_id=${currentKb.id}&limit=200&offset=0`);
+      const allDocIds = (allDocs.items || []).map(d => d.doc_id);
+      if (!allDocIds.length) { toast('无文档可删除', 'info'); return; }
+      const resp = await apiPost('/api/knowledge/documents/batch-delete', {
+        tenant_id: tenantId(),
+        doc_ids: allDocIds,
+      });
+      toast(`已删除 ${resp.success} 个文档${resp.failed > 0 ? `，${resp.failed} 个失败` : ''}`, resp.failed > 0 ? 'warning' : 'success');
+    } catch (e) {
+      toast('批量删除失败: ' + e.message, 'error');
+    }
+  } else {
+    const docIds = getSelectedDocIds();
+    if (!docIds.length) { toast('请先选择要删除的文档', 'error'); return; }
+    if (!confirm(`确定批量删除选中的 ${docIds.length} 个文档？\n（包含所有切片和向量，不可恢复）`)) return;
+    try {
+      const resp = await apiPost('/api/knowledge/documents/batch-delete', {
+        tenant_id: tenantId(),
+        doc_ids: docIds,
+      });
+      const { success, failed } = resp;
+      if (failed > 0) {
+        toast(`批量删除完成：成功 ${success} 个，失败 ${failed} 个`, 'warning');
+      } else {
+        toast(`已成功删除 ${success} 个文档`, 'success');
+      }
+    } catch (e) {
+      toast('批量删除失败: ' + e.message, 'error');
+    }
+  }
+
+  // 刷新列表和统计
+  _selectAllPages = false;
+  const prevKbId = currentKb ? String(currentKb.id) : null;
+  await loadKbs();
+  if (prevKbId) {
+    const still = kbs.find(k => String(k.id) === prevKbId);
+    if (still) {
+      currentKb = still;
+      renderKbList();
+      renderStats();
+      loadDocuments();
+    }
+  }
+}
+
+async function batchResyncVectors() {
+  if (!currentKb) return;
+
+  let params;
+  let countLabel;
+
+  if (_selectAllPages) {
+    // 全选模式：不传 doc_ids，后端处理整个知识库
+    params = new URLSearchParams({
+      tenant_id: tenantId(),
+      knowledge_base_id: currentKb.id,
+    });
+    countLabel = `全部 ${docTotal}`;
+  } else {
+    const docIds = getSelectedDocIds();
+    if (!docIds.length) { toast('请先选择要同步的文档', 'error'); return; }
+    params = new URLSearchParams({
+      tenant_id: tenantId(),
+      knowledge_base_id: currentKb.id,
+      doc_ids: docIds.join(','),
+    });
+    countLabel = docIds.length;
+  }
+
+  toast(`正在批量同步 ${countLabel} 个文档的向量，请稍候...`, 'info');
 
   try {
-    const resp = await apiPost('/api/knowledge/documents/batch-delete', {
-      tenant_id: tenantId(),
-      doc_ids: docIds,
-    });
-    const { success, failed } = resp;
-    if (failed > 0) {
-      toast(`批量删除完成：成功 ${success} 个，失败 ${failed} 个`, 'warning');
+    const resp = await fetch(`${API}/api/knowledge/maintenance/resync-vectors?${params}`, {method: 'POST'});
+    if (!resp.ok) {
+      const errText = await resp.text();
+      toast(`批量同步失败 (${resp.status}): ${errText}`, 'error');
+      return;
+    }
+    const data = await resp.json();
+    if (data.errors && data.errors.length > 0) {
+      toast(`批量同步部分失败: ${data.chunks_synced} 切片成功, ${data.errors.length} 个文档失败`, 'warning');
+    } else if (data.chunks_synced > 0) {
+      toast(`批量同步完成: ${data.docs_processed} 文档, ${data.chunks_synced} 切片已写入向量库`, 'success');
+    } else if (data.docs_processed > 0) {
+      toast(`${data.docs_processed} 个文档已是最新，无需重新同步`, 'success');
     } else {
-      toast(`已成功删除 ${success} 个文档`, 'success');
+      toast(`无文档需要同步`, 'info');
     }
-    // 刷新列表和统计
-    const prevKbId = currentKb ? String(currentKb.id) : null;
-    await loadKbs();
-    if (prevKbId) {
-      const still = kbs.find(k => String(k.id) === prevKbId);
-      if (still) {
-        currentKb = still;
-        renderKbList();
-        renderStats();
-        loadDocuments();
-      }
-    }
+    // 刷新文档列表
+    loadDocuments();
   } catch (e) {
-    toast('批量删除失败: ' + e.message, 'error');
+    toast('批量同步失败: ' + e.message, 'error');
   }
 }
 

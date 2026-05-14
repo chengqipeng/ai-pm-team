@@ -1116,7 +1116,15 @@ function refreshTrace() {
     // 规则：只有当 metadata.phase 匹配中间件的设计归属阶段时才显示，否则隐藏
     if (typeKey === 'middleware') {
       const mwName = (span.metadata && span.metadata.middleware_name) || span.step_name || '';
-      const mwPhase = (span.metadata && span.metadata.phase) || '';
+      // 优先取 input_data/input 中的原始 phase（before_model/after_model），
+      // metadata.phase 可能被映射后的值覆盖（历史数据兼容）
+      const rawPhaseFromInput = (span.input_data && span.input_data.phase) || (span.input && span.input.phase) || '';
+      const metaPhase = (span.metadata && span.metadata.phase) || '';
+      // 如果 metaPhase 是映射后的值（context/reasoning/post），优先用 input 中的原始值
+      const MAPPED_PHASES = ['context', 'reasoning', 'output', 'post', 'entry'];
+      const mwPhase = (rawPhaseFromInput && !MAPPED_PHASES.includes(rawPhaseFromInput))
+        ? rawPhaseFromInput
+        : (!MAPPED_PHASES.includes(metaPhase) ? metaPhase : rawPhaseFromInput || metaPhase);
 
       // 中间件 → 设计归属阶段映射
       // key: 中间件名称片段
@@ -1210,11 +1218,18 @@ function refreshTrace() {
 
   // 获取中间件 span 的原始执行阶段（before_agent / before_model / after_model / wrap_tool_call）
   function getMwRawPhase(s) {
-    // 优先 metadata.phase（后端原始值），其次 input_data.phase
-    // 不使用顶层 s.phase（那是前端映射后的值如 context/reasoning）
-    return (s.metadata && s.metadata.phase)
-      || (s.input_data && s.input_data.phase)
-      || '';
+    // 优先从 input_data / input 中取原始 phase（后端写入时保留了原始值）
+    // metadata.phase 可能被映射后的值覆盖（历史 bug 兼容）
+    const fromInput = (s.input_data && s.input_data.phase) || (s.input && s.input.phase) || '';
+    const fromMeta = (s.metadata && s.metadata.phase) || '';
+    // 映射后的值列表（这些不是原始 phase）
+    const MAPPED = ['context', 'reasoning', 'output', 'post', 'entry'];
+    // 优先用 input 中的值（一定是原始值）
+    if (fromInput && !MAPPED.includes(fromInput)) return fromInput;
+    // metadata.phase 如果不是映射后的值，也可以用
+    if (fromMeta && !MAPPED.includes(fromMeta)) return fromMeta;
+    // fallback: 返回 metadata.phase（即使是映射后的值，也比空好）
+    return fromMeta || fromInput || '';
   }
 
   // 渲染一组中间件为折叠块
@@ -1545,15 +1560,19 @@ function createStepsContainer() {
   return stepsContainer;
 }
 
-function addStep(label, status) {
+function addStep(label, status, opts) {
   if (!stepsContainer) createStepsContainer();
+  const isChild = opts && opts.indent;
   const dotClass = status === 'done' ? 'bg-green-500' :
                    status === 'run' ? 'bg-blue-500 animate-pulse' :
                    status === 'err' ? 'bg-red-500' : 'bg-gray-300';
   const id = 'step-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
+  const indent = isChild ? 'pl-4' : '';
+  const dotSize = isChild ? 'w-1 h-1' : 'w-1.5 h-1.5';
+  const textColor = isChild ? 'text-gray-400' : 'text-gray-500';
   stepsContainer.insertAdjacentHTML('beforeend', `
-    <div id="${id}" class="flex items-center gap-2 py-0.5 text-xs text-gray-500">
-      <div class="w-1.5 h-1.5 rounded-full ${dotClass} shrink-0"></div>
+    <div id="${id}" class="flex items-center gap-2 py-0.5 text-xs ${textColor} ${indent}">
+      <div class="${dotSize} rounded-full ${dotClass} shrink-0"></div>
       <span>${esc(label)}</span>
       <span class="step-dur text-[10px] text-gray-300 ml-auto"></span>
     </div>`);
@@ -1586,6 +1605,8 @@ const SPAN_ICONS = {
 
 const SPAN_LABELS = {
   content_review: '内容审查',
+  content_review_input: '输入审查',
+  content_review_output: '输出审查',
   query_rewrite: '查询改写',
   user_input: '用户输入',
   context_build: '上下文构建',
@@ -1814,12 +1835,18 @@ async function send() {
                 metadata: meta,
               });
 
-              // 添加到对话区步骤（中间件用折叠组，其他用普通步骤）
+              // 添加到对话区步骤（只显示关键节点，中间件按阶段过滤）
               if (spanType === 'middleware' || meta.is_middleware) {
                 const mwName = meta.middleware_name || sp.step_name || spanName;
-                const cnName = getMwCnName(mwName);
-                const mwLabel = cnName !== mwName ? `${cnName} ${mwName}` : mwName;
-                addMwStep(mwLabel + (sp.duration_ms ? ` ${Math.round(sp.duration_ms)}ms` : ''), 'done');
+                const mwPhase = meta.phase || (sp.input_data && sp.input_data.phase) || '';
+                // 只有 before_agent 阶段的中间件才在对话区显示（折叠）
+                // before_model / after_model / wrap_tool_call 阶段的中间件只在推理链路中显示
+                if (mwPhase === 'before_agent' || mwPhase === '') {
+                  const cnName = getMwCnName(mwName);
+                  const mwLabel = cnName !== mwName ? `${cnName} ${mwName}` : mwName;
+                  addMwStep(mwLabel + (sp.duration_ms ? ` ${Math.round(sp.duration_ms)}ms` : ''), 'done');
+                }
+                // 其他阶段的中间件不在对话区显示
               } else {
                 const stepLabel = (sp.step_name || spanName) + (meta.hit_count != null ? ` (${meta.hit_count} 条)` : '') + (sp.duration_ms ? ` ${Math.round(sp.duration_ms)}ms` : '');
                 addStep(stepLabel, 'done');
@@ -1948,7 +1975,7 @@ async function send() {
                 output: '',
                 metadata: { tool_name: toolName, display_name: displayName },
               });
-              currentToolStepId = addStep(`调用 ${displayName}...`, 'run');
+              currentToolStepId = addStep(`调用 ${displayName}...`, 'run', {indent: true});
             }
 
             // ── 工具调用结束 ──
@@ -2232,27 +2259,261 @@ async function loadChat(chatId) {
   inner.innerHTML = '<div class="text-center text-gray-400 text-xs py-10">加载中...</div>';
 
   try {
-    const r = await (await fetch(API + '/api/traces?limit=100')).json();
-    const traces = (r.traces || []).filter(t => t.thread_id === chatId).sort((a, b) => (a.start_time || 0) - (b.start_time || 0));
-    if (!traces.length) { inner.innerHTML = '<div class="text-center text-gray-400 text-xs py-10">暂无消息</div>'; return; }
+    // 使用新 API 一次性获取消息 + spans
+    const r = await (await fetch(API + '/api/conversations/' + chatId + '/messages')).json();
+    const messages = r.messages || [];
+    if (!messages.length) { inner.innerHTML = '<div class="text-center text-gray-400 text-xs py-10">暂无消息</div>'; return; }
     inner.innerHTML = '';
-    for (const t of traces) {
-      if (t.user_input) { addUserBubble(t.user_input); hist.push({ role: 'user', content: t.user_input }); }
-      if (t.agent_output) { addAIBubble(t.agent_output); hist.push({ role: 'assistant', content: t.agent_output }); }
+    for (const msg of messages) {
+      if (msg.user_input) { addUserBubble(msg.user_input); hist.push({ role: 'user', content: msg.user_input }); }
+      // 恢复内联推理步骤
+      if (msg.spans && msg.spans.length > 0) {
+        renderInlineSteps(msg.spans);
+      }
+      if (msg.agent_output) { addAIBubble(msg.agent_output); hist.push({ role: 'assistant', content: msg.agent_output }); }
     }
-    // 加载最后一次 trace 的完整推理链路到右侧面板
-    const lastTrace = traces[traces.length - 1];
-    if (lastTrace && lastTrace.trace_id) {
-      try {
-        const td = await (await fetch(API + '/api/traces/' + lastTrace.trace_id)).json();
-        const traceObj = td.trace || td;
-        const spans = traceObj.spans || [];
-        if (spans.length) {
-          renderHistoricalTrace(spans);
-        }
-      } catch(e) { /* 静默失败：不影响对话显示 */ }
+    // 加载最后一条消息的完整推理链路到右侧面板
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.spans && lastMsg.spans.length) {
+      renderHistoricalTrace(lastMsg.spans);
     }
   } catch(e) { inner.innerHTML = '<div class="text-center text-gray-400 text-xs py-10">加载失败</div>'; }
+}
+
+// 恢复历史对话时，在对话气泡之间渲染内联推理步骤
+// 复用右侧面板的分阶段逻辑，但不显示输入/输出详情
+function renderInlineSteps(spans) {
+  const inner = document.getElementById('chatInner');
+  if (!spans || !spans.length) return;
+
+  // ═══ 阶段定义（与 refreshTrace 一致）═══
+  const PHASE_ORDER = ['entry', 'context', 'reasoning', 'output', 'post'];
+  const PHASE_META = {
+    'entry': { label: '入口预处理', icon: '🚀' },
+    'context': { label: '上下文准备', icon: '📦' },
+    'reasoning': { label: '模型推理 Agent Loop', icon: '⚡' },
+    'output': { label: '回复输出', icon: '✅' },
+    'post': { label: '后处理', icon: '💾' },
+  };
+
+  const HIDDEN_SPAN_TYPES = new Set(['llm_input', 'intent_analysis', 'request', 'user_input', 'clarification']);
+
+  // 复用 getNaturalPhase 逻辑
+  function getNaturalPhase(s) {
+    const typeKey = s.step_name_en || s.type || '';
+    if (['content_review', 'content_review_input', 'content_review_output', 'query_rewrite', 'title_generation'].includes(typeKey)) return 'entry';
+    if (['context_build', 'memory_retrieval'].includes(typeKey)) return 'context';
+    if (['llm_call', 'tool_call', 'skill_execution', 'hierarchical_search', 'error'].includes(typeKey)) return 'reasoning';
+    if (['response_complete', 'response', 'stream_pii_restore', 'output_render'].includes(typeKey)) return 'output';
+    if (typeKey === 'memory_extract') return 'post';
+    if (typeKey === 'middleware') {
+      const mwName = (s.metadata && s.metadata.middleware_name) || s.step_name || '';
+      const rawPhaseFromInput = (s.input_data && s.input_data.phase) || (s.input && s.input.phase) || '';
+      const metaPhase = (s.metadata && s.metadata.phase) || '';
+      const MAPPED_PHASES = ['context', 'reasoning', 'output', 'post', 'entry'];
+      const mwPhase = (rawPhaseFromInput && !MAPPED_PHASES.includes(rawPhaseFromInput))
+        ? rawPhaseFromInput
+        : (!MAPPED_PHASES.includes(metaPhase) ? metaPhase : rawPhaseFromInput || metaPhase);
+      const MW_DESIGN = {
+        'DanglingToolCall': { allow: ['before_agent'], display: 'context' },
+        'FileProcess': { allow: ['before_agent'], display: 'context' },
+        'InputTransform': { allow: ['before_agent'], display: 'context' },
+        'MultimodalInject': { allow: ['before_agent'], display: 'context' },
+        'Summarization': { allow: ['before_model'], display: 'reasoning' },
+        'SubagentLimit': { allow: ['after_model'], display: 'reasoning' },
+        'LoopDetection': { allow: ['after_model'], display: 'reasoning' },
+        'OutputValidation': { allow: ['after_model'], display: 'reasoning' },
+        'Guardrail': { allow: ['wrap_tool_call'], display: 'reasoning' },
+        'ToolErrorHandling': { allow: ['wrap_tool_call'], display: 'reasoning' },
+        'Clarification': { allow: ['wrap_tool_call'], display: 'reasoning' },
+        'OutputRender': { allow: ['after_agent'], display: 'output' },
+        'StreamPIIRestor': { allow: ['after_agent'], display: 'output' },
+      };
+      for (const [frag, entry] of Object.entries(MW_DESIGN)) {
+        if (mwName.includes(frag)) {
+          if (entry.allow.includes(mwPhase)) return entry.display;
+          if (mwPhase === 'before_model' || mwPhase === 'after_model') return 'reasoning';
+          return '_hidden';
+        }
+      }
+      if (mwPhase === 'before_agent') return 'context';
+      if (mwPhase === 'after_agent') return 'post';
+      if (mwPhase === 'before_model' || mwPhase === 'after_model' || mwPhase === 'wrap_tool_call') return 'reasoning';
+      return null;
+    }
+    return null;
+  }
+
+  // 过滤 spans
+  const visibleSpans = spans.filter(s => {
+    const t = s.step_name_en || s.type || s.span_type || '';
+    if (HIDDEN_SPAN_TYPES.has(t)) return false;
+    return getNaturalPhase(s) !== '_hidden';
+  });
+  if (!visibleSpans.length) return;
+
+  // 计算总耗时
+  const totalDuration = visibleSpans.reduce((sum, s) => sum + (s.duration_ms || 0), 0);
+  const durationText = totalDuration > 0 ? ` · ${totalDuration}ms` : '';
+  const collapseId = 'inline-trace-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
+
+  // ═══ 构建分阶段 HTML ═══
+  let bodyHtml = '';
+  let currentPhaseId = null;
+  let currentPhaseIdx = -1;
+  let mwBuffer = [];
+  let mwBufferPhase = '';
+  let seqNum = 0;
+
+  function getMwRawPhase(s) {
+    return (s.metadata && s.metadata.phase) || (s.input_data && s.input_data.phase) || '';
+  }
+
+  function flushMwBuffer() {
+    if (mwBuffer.length === 0) return;
+    const total = mwBuffer.length;
+    const totalDur = mwBuffer.reduce((sum, s) => sum + (s.duration_ms || 0), 0);
+    const phaseLabel = getMwRawPhase(mwBuffer[0]) || '';
+    const durText = totalDur ? ` · ${Math.round(totalDur)}ms` : '';
+
+    let mwItems = '';
+    for (const s of mwBuffer) {
+      seqNum++;
+      const mwName = (s.metadata && s.metadata.middleware_name) || s.step_name || (s.name || '').replace(/^mw:/, '') || '';
+      const cnName = getMwCnName(mwName);
+      const dur = s.duration_ms ? `${Math.round(s.duration_ms)}ms` : '';
+      mwItems += `<div class="flex items-center gap-1 py-[1px] text-[10px] text-gray-400"><span>✓ ⚙️ ${esc(cnName !== mwName ? cnName : mwName)}</span>${dur ? `<span class="ml-auto text-gray-300">${dur}</span>` : ''}</div>`;
+    }
+
+    bodyHtml += `
+      <details class="my-0.5">
+        <summary class="cursor-pointer select-none text-[10px] text-gray-400 hover:text-gray-600 py-[1px] flex items-center gap-1">
+          <svg class="w-2.5 h-2.5 text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          <span>⚙️ ${total} 个 ${phaseLabel} 中间件${durText}</span>
+        </summary>
+        <div class="pl-4 mt-0.5">${mwItems}</div>
+      </details>`;
+    mwBuffer = [];
+    mwBufferPhase = '';
+  }
+
+  function renderNode(s) {
+    seqNum++;
+    const spanType = s.step_name_en || s.type || '';
+    const dur = s.duration_ms ? `${Math.round(s.duration_ms)}ms` : '';
+    const status = s.status || 'complete';
+    const dotClass = status === 'complete' || status === 'success' ? 'bg-green-500' :
+                     status === 'error' ? 'bg-red-500' : 'bg-blue-500';
+    const md = s.metadata || {};
+
+    // 构建显示内容：保持右侧面板的紧凑格式
+    let label = '';
+    let detail = '';
+
+    if (spanType === 'tool_call') {
+      const toolName = md.display_name || md.tool_name || '';
+      // 格式：tool_call -> toolName(subName)
+      if (toolName) {
+        const subName = md.sub_action || md.skill_name || '';
+        label = `tool_call → ${toolName}${subName ? '(' + subName + ')' : ''}`;
+      } else {
+        label = 'tool_call';
+      }
+    } else if (spanType === 'skill_execution') {
+      const skillName = md.skill_name || '';
+      label = skillName ? `skill_execution → ${skillName}` : 'skill_execution';
+    } else if (spanType === 'llm_call') {
+      const toolCalls = md.tool_calls || (s.output_data && s.output_data.tool_calls) || [];
+      if (toolCalls.length > 0) {
+        const first = typeof toolCalls[0] === 'string' ? toolCalls[0] : (toolCalls[0].name || toolCalls[0].tool_name || '');
+        label = `llm_call → ${first}`;
+      } else if (md.is_final || (s.output_data && s.output_data.is_final)) {
+        label = 'llm_call → 生成回复';
+      } else {
+        label = 'llm_call';
+      }
+    } else {
+      // 其他类型：用中文标签
+      const cnLabel = getSpanLabel(spanType);
+      label = (cnLabel && cnLabel !== spanType) ? `${cnLabel}（${spanType}）` : (s.step_name || s.title || s.name || spanType);
+      if (spanType === 'memory_retrieval' && md.hit_count != null) {
+        detail = `命中 ${md.hit_count} 条`;
+      }
+    }
+
+    return `
+      <div class="flex items-center gap-1.5 py-[2px] text-[11px] text-gray-600">
+        <div class="w-1.5 h-1.5 rounded-full ${dotClass} shrink-0"></div>
+        <span class="font-medium">${esc(label)}</span>
+        ${detail ? `<span class="text-gray-400 text-[10px]">${esc(detail)}</span>` : ''}
+        ${dur ? `<span class="text-[10px] text-gray-300 ml-auto">${dur}</span>` : ''}
+      </div>`;
+  }
+
+  for (const s of visibleSpans) {
+    const spanTypeKey = s.step_name_en || s.type || '';
+    let targetPhase = getNaturalPhase(s);
+    if (targetPhase === null) targetPhase = currentPhaseId || 'context';
+    const targetIdx = PHASE_ORDER.indexOf(targetPhase);
+    if (targetIdx < currentPhaseIdx) targetPhase = currentPhaseId;
+    const isMiddleware = spanTypeKey === 'middleware' || (s.metadata && s.metadata.is_middleware === true);
+
+    if (targetPhase !== currentPhaseId) {
+      flushMwBuffer();
+      if (currentPhaseId !== null) bodyHtml += '</div></div>';
+      currentPhaseId = targetPhase;
+      currentPhaseIdx = PHASE_ORDER.indexOf(targetPhase);
+      const meta = PHASE_META[targetPhase] || { label: '其他', icon: '📌' };
+      bodyHtml += `<div class="mt-2 first:mt-0"><div class="text-[10px] font-bold text-gray-500 mb-0.5">${meta.icon} ${meta.label}</div><div class="pl-2 border-l border-gray-200">`;
+    }
+
+    if (isMiddleware) {
+      const rawPhase = getMwRawPhase(s);
+      if (mwBuffer.length > 0 && rawPhase !== mwBufferPhase) flushMwBuffer();
+      mwBuffer.push(s);
+      mwBufferPhase = rawPhase;
+      continue;
+    }
+
+    flushMwBuffer();
+    bodyHtml += renderNode(s);
+  }
+
+  flushMwBuffer();
+  if (currentPhaseId !== null) bodyHtml += '</div></div>';
+
+  // ═══ 组装容器 ═══
+  const container = document.createElement('div');
+  container.className = 'ml-12 mb-2';
+  container.innerHTML = `
+    <div class="border border-gray-100 rounded-xl bg-gray-50/50 overflow-hidden">
+      <div class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none hover:bg-gray-100/60 transition-colors"
+           onclick="toggleInlineTrace('${collapseId}')">
+        <svg id="${collapseId}-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+             class="text-gray-400 transition-transform duration-200" style="transform: rotate(0deg);">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+        <span class="text-xs font-medium text-gray-500">⚡ 推理链路</span>
+        <span class="text-[10px] text-gray-400">${visibleSpans.length} 步${durationText}</span>
+      </div>
+      <div id="${collapseId}" class="hidden px-3 pb-2">${bodyHtml}</div>
+    </div>`;
+  inner.appendChild(container);
+}
+
+// 折叠/展开内联推理链路
+function toggleInlineTrace(id) {
+  const content = document.getElementById(id);
+  const arrow = document.getElementById(id + '-arrow');
+  if (!content) return;
+  const isHidden = content.classList.contains('hidden');
+  if (isHidden) {
+    content.classList.remove('hidden');
+    if (arrow) arrow.style.transform = 'rotate(90deg)';
+  } else {
+    content.classList.add('hidden');
+    if (arrow) arrow.style.transform = 'rotate(0deg)';
+  }
 }
 
 // 将历史 trace spans 渲染到推理链路面板
