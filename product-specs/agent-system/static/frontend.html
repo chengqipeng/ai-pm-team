@@ -1017,7 +1017,9 @@ function _buildStepDescription(span, md, fallbackDetail) {
     case 'tool_call': {
       const toolName = md.display_name || md.tool_name || '';
       const output = md.output || (outputData.result) || '';
+      const ctxMode = md.skill_context_mode || '';
       let desc = toolName || '';
+      if (ctxMode) desc += ` [${ctxMode}]`;
       if (output) desc += ` → ${esc(truncStr(String(output), 50))}`;
       return desc || fallbackDetail || '';
     }
@@ -2032,7 +2034,7 @@ async function send() {
                 output_data: {},
                 input: evt.input_full || evt.input || '',
                 output: '',
-                metadata: { tool_name: toolName, display_name: displayName },
+                metadata: { tool_name: toolName, display_name: displayName, skill_context_mode: evt.skill_context_mode || '' },
               });
               currentToolStepId = addStep(`调用 ${displayName}...`, 'run', {indent: true});
             }
@@ -2393,11 +2395,13 @@ function renderInlineSteps(spans) {
     let desc = '';
 
     if (spanType === 'tool_call') {
-      // 格式对齐右侧面板：工具调用: skills_tool(account-insight)
+      // 格式对齐右侧面板：工具调用: skills_tool(account-insight) [inline]
       const toolName = md.display_name || md.tool_name || '';
+      const ctxMode = md.skill_context_mode || '';
       if (toolName) {
         const subName = md.sub_action || md.skill_name || '';
         label = `工具调用: ${toolName}${subName ? '(' + subName + ')' : ''}`;
+        if (ctxMode) label += ` [${ctxMode}]`;
       } else {
         label = '工具调用';
       }

@@ -1059,6 +1059,7 @@ async def chat_stream(req: ChatRequest):
 
                     # 对 skills_tool / agent_tool 等路由型工具，抽取真实调用目标
                     sub_name = ""
+                    skill_context_mode = ""
                     if tool_name in ("skills_tool", "agent_tool"):
                         try:
                             parsed_in = raw_input if isinstance(raw_input, dict) else json.loads(tool_input_full)
@@ -1068,6 +1069,17 @@ async def chat_stream(req: ChatRequest):
                                     or parsed_in.get("agent_name")
                                     or ""
                                 )
+                                # 查询 skill 的 context_mode（inline/fork）
+                                if sub_name and tool_name == "skills_tool":
+                                    try:
+                                        from src.skills.base import SkillRegistry
+                                        _sr = skill_reg if 'skill_reg' in dir() else None
+                                        if _sr:
+                                            _sk = _sr.get(sub_name)
+                                            if _sk:
+                                                skill_context_mode = getattr(_sk, 'context_mode', '') or 'inline'
+                                    except Exception:
+                                        pass
                         except (json.JSONDecodeError, TypeError, ValueError):
                             sub_name = ""
 
@@ -1080,6 +1092,7 @@ async def chat_stream(req: ChatRequest):
                             "sub_name": sub_name,
                             "display_name": display_name,
                             "input": tool_input_full[:200],
+                            "skill_context_mode": skill_context_mode,
                         },
                     )
                     tool_start_payload = {
@@ -1091,6 +1104,8 @@ async def chat_stream(req: ChatRequest):
                     if sub_name:
                         tool_start_payload["sub_name"] = sub_name
                         tool_start_payload["display_name"] = display_name
+                    if skill_context_mode:
+                        tool_start_payload["skill_context_mode"] = skill_context_mode
                     yield f"data: {json.dumps(tool_start_payload, ensure_ascii=False)}\n\n"
                     _exec_tools.append(display_name)
 
