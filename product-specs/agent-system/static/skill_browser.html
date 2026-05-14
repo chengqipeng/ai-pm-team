@@ -54,6 +54,9 @@
       <div class="side-menu-item active" data-page="skills" onclick="switchPage('skills')">
         <span>📋</span><span>技能列表</span>
       </div>
+      <div class="side-menu-item" data-page="tools" onclick="switchPage('tools')">
+        <span>🔧</span><span>工具管理</span>
+      </div>
       <div class="side-menu-item" data-page="categories" onclick="switchPage('categories')">
         <span>🏷️</span><span>分类管理</span>
       </div>
@@ -121,6 +124,22 @@
         <div id="categoryList"></div>
       </div>
       <p class="text-xs text-gray-400 mt-3">💡 系统预置分类（🔒）不可删除，仅可编辑名称/图标/颜色</p>
+    </div>
+
+    <!-- 工具管理页 -->
+    <div id="page-tools" class="p-6 hidden">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-gray-800">工具管理</h2>
+        <div class="flex items-center gap-3">
+          <input id="toolSearchInput" type="text" placeholder="搜索工具..."
+                 class="w-52 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200"
+                 oninput="renderToolList()">
+          <span id="toolCount" class="text-sm text-gray-500">共 0 个工具</span>
+        </div>
+      </div>
+      <p class="text-xs text-gray-400 mb-4">以下为系统已注册的工具，技能的"允许工具"字段从此列表中选择。工具由代码定义，此处仅供查看。</p>
+      <div id="toolList" class="space-y-2"></div>
+      <div id="toolEmpty" class="hidden text-center py-12 text-gray-400 text-sm">Agent 未初始化，暂无工具数据。请先发起一次对话以触发 Agent 加载。</div>
     </div>
   </main>
 </div>
@@ -303,10 +322,12 @@ function switchPage(page) {
     el.classList.toggle('active', el.dataset.page === page);
   });
   document.getElementById('page-skills').classList.toggle('hidden', page !== 'skills');
+  document.getElementById('page-tools').classList.toggle('hidden', page !== 'tools');
   document.getElementById('page-categories').classList.toggle('hidden', page !== 'categories');
 
   if (page === 'categories') loadCategories();
   if (page === 'skills') loadSkills();
+  if (page === 'tools') loadTools();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -736,6 +757,78 @@ async function testSkill() {
       prompt = prompt.replaceAll(`{${k}}`, `<mark>${v}</mark>`);
     }
     output.innerHTML = marked.parse(prompt || '(空)');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 工具管理
+// ═══════════════════════════════════════════════════════════
+const TOOL_API = '/api/tools';
+let allTools = [];
+
+async function loadTools() {
+  try {
+    const res = await fetch(TOOL_API);
+    const data = await res.json();
+    allTools = data.items || [];
+    renderToolList();
+  } catch (e) {
+    console.error('加载工具失败:', e);
+    allTools = [];
+    renderToolList();
+  }
+}
+
+function renderToolList() {
+  const container = document.getElementById('toolList');
+  const empty = document.getElementById('toolEmpty');
+  const keyword = (document.getElementById('toolSearchInput')?.value || '').toLowerCase();
+
+  const filtered = keyword
+    ? allTools.filter(t => t.name.toLowerCase().includes(keyword) || (t.description || '').toLowerCase().includes(keyword))
+    : allTools;
+
+  document.getElementById('toolCount').textContent = `共 ${filtered.length} 个工具`;
+
+  if (!filtered.length) {
+    container.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  container.innerHTML = filtered.map(t => {
+    const readOnlyBadge = t.read_only
+      ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-green-50 text-green-700">只读</span>'
+      : '<span class="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">可写</span>';
+    const aliases = t.aliases && t.aliases.length
+      ? `<span class="text-xs text-gray-400 ml-2">别名: ${t.aliases.join(', ')}</span>`
+      : '';
+    return `
+      <div class="bg-white rounded-lg border border-gray-200 px-4 py-3 hover:shadow-sm transition-shadow fade-in">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <code class="text-sm font-semibold text-gray-800 bg-gray-50 px-2 py-0.5 rounded">${t.name}</code>
+            ${readOnlyBadge}
+            ${aliases}
+          </div>
+          <button onclick="showToolDetail('${t.name}')" class="text-xs text-blue-600 hover:text-blue-800">详情</button>
+        </div>
+        ${t.description ? `<p class="text-sm text-gray-500 mt-1">${t.description}</p>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+async function showToolDetail(name) {
+  try {
+    const res = await fetch(`${TOOL_API}/${name}`);
+    const t = await res.json();
+    const schema = t.input_schema ? JSON.stringify(t.input_schema, null, 2) : '(无)';
+    const prompt = t.prompt || '(无)';
+    alert(`工具: ${t.name}\n\n描述: ${t.description || '(无)'}\n\n输入 Schema:\n${schema}\n\nPrompt:\n${prompt}`);
+  } catch (e) {
+    alert('加载失败: ' + e.message);
   }
 }
 

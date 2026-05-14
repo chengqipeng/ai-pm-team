@@ -298,7 +298,39 @@ CREATE INDEX IF NOT EXISTS idx_skill_def_risk
 CREATE INDEX IF NOT EXISTS idx_skill_def_owner
     ON ai_skill_definition(owner) WHERE delete_flg = 0;
 
--- 9b. Skill 分类表（可维护的动态分类）
+-- 9b. Tool 工具定义表（可维护的动态工具注册）
+CREATE TABLE IF NOT EXISTS ai_tool_definition (
+    id              BIGINT PRIMARY KEY,
+    api_key         VARCHAR(100) NOT NULL,
+    tenant_id       BIGINT NOT NULL DEFAULT 0,
+    name            VARCHAR(200) NOT NULL DEFAULT '',
+    description     VARCHAR(1000) NOT NULL DEFAULT '',
+    input_schema    TEXT NOT NULL DEFAULT '{}',
+    prompt          TEXT NOT NULL DEFAULT '',
+    category        VARCHAR(50) DEFAULT '',
+    tags            TEXT DEFAULT '[]',
+    icon            VARCHAR(100) DEFAULT '',
+    read_only_flg   SMALLINT NOT NULL DEFAULT 1,
+    destructive_flg SMALLINT NOT NULL DEFAULT 0,
+    enabled_flg     SMALLINT NOT NULL DEFAULT 1,
+    system_flg      SMALLINT NOT NULL DEFAULT 0,
+    sort_num        INT NOT NULL DEFAULT 0,
+    ext_info        TEXT DEFAULT '{}',
+    delete_flg      SMALLINT NOT NULL DEFAULT 0,
+    created_at      BIGINT NOT NULL,
+    created_by      BIGINT NOT NULL DEFAULT 0,
+    updated_at      BIGINT NOT NULL,
+    updated_by      BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_tool_def_apikey
+    ON ai_tool_definition(tenant_id, api_key) WHERE delete_flg = 0;
+CREATE INDEX IF NOT EXISTS idx_tool_def_category
+    ON ai_tool_definition(tenant_id, category) WHERE delete_flg = 0;
+CREATE INDEX IF NOT EXISTS idx_tool_def_enabled
+    ON ai_tool_definition(tenant_id, enabled_flg) WHERE delete_flg = 0;
+
+-- 9c. Skill 分类表（可维护的动态分类）
 CREATE TABLE IF NOT EXISTS ai_skill_category (
     id              BIGINT PRIMARY KEY,
     api_key         VARCHAR(50) NOT NULL,

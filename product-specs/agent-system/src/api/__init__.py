@@ -4,6 +4,7 @@ from .a2ui_routes import a2ui_router
 from .metarepo_api import router as metarepo_router
 from .skill_api import router as skill_router
 from .skill_category_api import router as skill_category_router
+from .tool_api import router as tool_router
 
 __all__ = [
     "knowledge_router",
@@ -11,4 +12,5 @@ __all__ = [
     "metarepo_router",
     "skill_router",
     "skill_category_router",
+    "tool_router",
 ]
