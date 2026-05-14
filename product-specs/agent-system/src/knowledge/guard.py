@@ -69,8 +69,9 @@ class IngestionGuard:
         """按 file_hash 查是否已入库。
 
         行为：
-            - 完全相同且已索引完成 → 返回该 document 行，调用方应复用 doc_id
-            - 相同但正在入库 → 抛 DuplicateIngestionError（避免并发重复入库）
+            - 完全相同且已索引完成（未删除）→ 返回该 document 行，调用方应复用 doc_id
+            - 相同但正在入库（未删除）→ 抛 DuplicateIngestionError（避免并发重复入库）
+            - 已软删除 → 物理删除旧行，释放唯一约束，返回 None（允许重新入库）
             - 不存在 → 返回 None
 
         本方法走只读查询，不加锁，性能最优。在入队后的 Worker 环节
@@ -81,6 +82,21 @@ class IngestionGuard:
 
         row = KnowledgeDocumentDAO.find_by_hash(tenant_id, knowledge_base_id, file_hash)
         if row is None:
+            return None
+
+        # 已软删除 → 物理删除旧行，释放 uk_doc_hash 唯一约束，允许重新入库
+        if getattr(row, 'delete_flg', 0) == 1:
+            logger.info(
+                "Dedup: found soft-deleted doc for hash=%s, hard-deleting doc_id=%s to allow re-ingest",
+                file_hash[:8], row.doc_id,
+            )
+            try:
+                KnowledgeDocumentDAO.hard_delete(row.doc_id)
+            except Exception as exc:
+                logger.warning(
+                    "hard_delete failed for doc_id=%s (will retry insert): %s",
+                    row.doc_id, exc,
+                )
             return None
 
         # 已完成 → 可复用
@@ -97,12 +113,24 @@ class IngestionGuard:
                 status=row.parse_status,
             )
 
-        # 解析失败的情况 → 允许重新入库（调用方决定是否软删旧行）
+        # 解析失败的情况 → 物理删除旧行，允许重新入库
         logger.info(
-            "Found stale document for hash=%s (parse_status=%s)，allowing re-ingest",
-            file_hash[:8], row.parse_status,
+            "Found failed document for hash=%s (parse_status=%s), "
+            "hard-deleting doc_id=%s to allow re-ingest",
+            file_hash[:8], row.parse_status, row.doc_id,
         )
-        return row
+        try:
+            KnowledgeDocumentDAO.hard_delete(row.doc_id)
+        except Exception as exc:
+            logger.warning(
+                "hard_delete failed for stale doc_id=%s: %s", row.doc_id, exc,
+            )
+            # 如果物理删除失败，尝试软删除后再继续
+            try:
+                KnowledgeDocumentDAO.soft_delete(row.doc_id)
+            except Exception:
+                pass
+        return None
 
     # ── LKEAP 并发限流 ──
 

@@ -336,9 +336,11 @@ function fmtSize(bytes){if(!bytes)return'—';const u=['B','KB','MB','GB'];let i
 function toast(msg, type='info'){
   const el = document.getElementById('toast');
   el.textContent = msg;
-  el.className = `fixed bottom-6 left-1/2 -translate-x-1/2 text-white text-sm px-4 py-2 rounded-xl shadow-lg z-[100] animate-fade-in ${type==='error'?'bg-red-600':type==='success'?'bg-green-600':'bg-gray-900'}`;
+  el.className = `fixed bottom-6 left-1/2 -translate-x-1/2 text-white text-sm px-4 py-2 rounded-xl shadow-lg z-[100] animate-fade-in max-w-[80vw] text-center ${type==='error'?'bg-red-600':type==='success'?'bg-green-600':type==='warning'?'bg-orange-500':'bg-gray-900'}`;
   el.classList.remove('hidden');
-  setTimeout(()=>el.classList.add('hidden'), 2500);
+  // 错误信息显示更久
+  const duration = type === 'error' ? 6000 : type === 'warning' ? 4000 : 2500;
+  setTimeout(()=>el.classList.add('hidden'), duration);
 }
 
 async function apiGet(path){
@@ -1086,16 +1088,28 @@ async function verifyVdbSync(docId){
 
 async function resyncSingleDoc(docId){
   if (!currentKb) return;
-  toast('正在同步向量...', 'info');
+  toast('正在同步向量，请稍候...', 'info');
   try {
-    const resp = await fetch(`${API}/api/knowledge/maintenance/resync-vectors?tenant_id=${tenantId()}&knowledge_base_id=${currentKb.id}`, {method: 'POST'});
-    if (!resp.ok) throw new Error(await resp.text());
+    const resp = await fetch(`${API}/api/knowledge/maintenance/resync-vectors?tenant_id=${tenantId()}&knowledge_base_id=${currentKb.id}&doc_id=${docId}`, {method: 'POST'});
+    if (!resp.ok) {
+      const errText = await resp.text();
+      toast(`同步失败 (${resp.status}): ${errText}`, 'error');
+      return;
+    }
     const data = await resp.json();
-    toast(`同步完成: ${data.chunks_synced} 切片已写入向量库`, 'success');
+    if (data.errors && data.errors.length > 0) {
+      toast(`同步失败: ${data.errors[0]}`, 'error');
+    } else if (data.chunks_synced > 0) {
+      toast(`同步完成: ${data.chunks_synced} 切片已写入向量库`, 'success');
+    } else if (data.status === 'no_docs') {
+      toast('文档不存在或无切片数据', 'warning');
+    } else {
+      toast(`同步完成但无切片写入 (docs_processed=${data.docs_processed}, status=${data.status})`, 'warning');
+    }
     // 重新验证
     await verifyVdbSync(docId);
   } catch(e) {
-    toast('同步失败: ' + e.message, 'error');
+    toast('同步请求失败: ' + e.message, 'error');
   }
 }
 
@@ -2136,16 +2150,24 @@ async function resyncVectors(){
   btn.textContent = '⏳ 同步中...';
   try {
     const resp = await fetch(`${API}/api/knowledge/maintenance/resync-vectors?tenant_id=${tenantId()}&knowledge_base_id=${currentKb.id}`, {method: 'POST'});
-    if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`${resp.status}: ${errText}`);
+    }
     const data = await resp.json();
-    if (data.status === 'success' || data.status === 'partial') {
+    if (data.errors && data.errors.length > 0) {
+      toast(`同步部分失败: ${data.chunks_synced} 切片成功, ${data.errors.length} 个错误: ${data.errors[0]}`, 'warning');
+      btn.textContent = '⚠️ 部分失败，请查看日志';
+      btn.disabled = false;
+    } else if (data.chunks_synced > 0) {
       toast(`向量同步完成: ${data.docs_processed} 文档, ${data.chunks_synced} 切片已同步`, 'success');
       btn.textContent = '✅ 同步完成，请重新检索';
       btn.classList.remove('from-orange-500', 'to-red-500');
       btn.classList.add('from-green-500', 'to-green-600');
     } else {
-      toast(`同步结果: ${data.message || JSON.stringify(data)}`, 'info');
-      btn.textContent = '完成';
+      toast(`同步完成但无切片写入 (status=${data.status}, docs=${data.docs_processed})`, 'warning');
+      btn.textContent = '完成（无变化）';
+      btn.disabled = false;
     }
   } catch(e) {
     toast('同步失败: ' + e.message, 'error');

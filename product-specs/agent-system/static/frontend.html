@@ -1535,6 +1535,8 @@ function createStepsContainer() {
   div.innerHTML = '<div class="steps-list space-y-1"></div>';
   inner.appendChild(div);
   stepsContainer = div.querySelector('.steps-list');
+  mwGroupEl = null;
+  mwGroupCount = 0;
   scrollToBottom();
   return stepsContainer;
 }
@@ -1599,6 +1601,74 @@ const SPAN_LABELS = {
   output_render: '输出渲染',
   error: '执行错误',
 };
+
+// 中间件英文名 → 中文名映射
+const MW_CN_NAMES = {
+  'DanglingToolCallMiddleware': '悬挂调用检测',
+  'FileProcessMiddleware': '文件处理',
+  'InputTransformMiddleware': '输入转换',
+  'MultimodalInjectMiddleware': '多模态注入',
+  'SummarizationMiddleware': '上下文压缩',
+  'SubagentLimitMiddleware': '子Agent限制',
+  'GuardrailMiddleware': '安全护栏',
+  'LoopDetectionMiddleware': '循环检测',
+  'ToolErrorHandlingMiddleware': '工具错误处理',
+  'ClarificationMiddleware': '澄清确认',
+  'OutputValidationMiddleware': '输出校验',
+  'OutputRenderMiddleware': '输出渲染',
+  'StreamPIIRestorer': 'PII脱敏还原',
+};
+
+function getMwCnName(enName) {
+  return MW_CN_NAMES[enName] || enName;
+}
+
+// 中间件步骤折叠组管理
+let mwGroupEl = null;
+let mwGroupCount = 0;
+
+function addMwStep(label, status) {
+  if (!stepsContainer) createStepsContainer();
+  // 如果还没有折叠组，创建一个
+  if (!mwGroupEl || !stepsContainer.contains(mwGroupEl)) {
+    mwGroupCount = 0;
+    const groupId = 'mw-group-' + Date.now();
+    stepsContainer.insertAdjacentHTML('beforeend', `
+      <div id="${groupId}" class="mw-collapse-group">
+        <div class="mw-collapse-header flex items-center gap-2 py-0.5 text-xs text-gray-400 cursor-pointer select-none hover:text-gray-600" onclick="toggleMwGroup(this)">
+          <svg class="mw-arrow w-3 h-3 transition-transform -rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          <span class="mw-collapse-title">中间件处理</span>
+          <span class="mw-collapse-count text-[10px] text-gray-300 ml-1"></span>
+        </div>
+        <div class="mw-collapse-body hidden pl-4 space-y-0.5"></div>
+      </div>`);
+    mwGroupEl = document.getElementById(groupId);
+  }
+  mwGroupCount++;
+  const body = mwGroupEl.querySelector('.mw-collapse-body');
+  const countEl = mwGroupEl.querySelector('.mw-collapse-count');
+  countEl.textContent = `(${mwGroupCount})`;
+
+  const dotClass = status === 'done' ? 'bg-green-500' : status === 'err' ? 'bg-red-500' : 'bg-gray-300';
+  body.insertAdjacentHTML('beforeend', `
+    <div class="flex items-center gap-2 py-0.5 text-xs text-gray-400">
+      <div class="w-1 h-1 rounded-full ${dotClass} shrink-0"></div>
+      <span>${esc(label)}</span>
+    </div>`);
+  scrollToBottom();
+}
+
+function toggleMwGroup(headerEl) {
+  const body = headerEl.nextElementSibling;
+  const arrow = headerEl.querySelector('.mw-arrow');
+  if (body.classList.contains('hidden')) {
+    body.classList.remove('hidden');
+    arrow.classList.remove('-rotate-90');
+  } else {
+    body.classList.add('hidden');
+    arrow.classList.add('-rotate-90');
+  }
+}
 
 function getSpanIcon(type) { return SPAN_ICONS[type] || SPAN_ICONS['done']; }
 function getSpanLabel(type) { return SPAN_LABELS[type] || type; }
@@ -1740,9 +1810,16 @@ async function send() {
                 metadata: meta,
               });
 
-              // 添加到对话区步骤
-              const stepLabel = (sp.step_name || spanName) + (meta.hit_count != null ? ` (${meta.hit_count} 条)` : '') + (sp.duration_ms ? ` ${Math.round(sp.duration_ms)}ms` : '');
-              addStep(stepLabel, 'done');
+              // 添加到对话区步骤（中间件用折叠组，其他用普通步骤）
+              if (spanType === 'middleware' || meta.is_middleware) {
+                const mwName = meta.middleware_name || sp.step_name || spanName;
+                const cnName = getMwCnName(mwName);
+                const mwLabel = cnName !== mwName ? `${cnName} ${mwName}` : mwName;
+                addMwStep(mwLabel + (sp.duration_ms ? ` ${Math.round(sp.duration_ms)}ms` : ''), 'done');
+              } else {
+                const stepLabel = (sp.step_name || spanName) + (meta.hit_count != null ? ` (${meta.hit_count} 条)` : '') + (sp.duration_ms ? ` ${Math.round(sp.duration_ms)}ms` : '');
+                addStep(stepLabel, 'done');
+              }
             }
 
             // ── LLM 开始 ──

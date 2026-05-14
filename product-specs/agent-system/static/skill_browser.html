@@ -830,13 +830,106 @@ async function saveSkill() {
 async function testSkill() {
   const apiKey = editingKey || document.getElementById('f_api_key').value.trim();
   const args = getArgumentNames();
-  const testArgs = {};
-  args.forEach(a => { testArgs[a] = `<测试_${a}>`; });
+  const argDescs = getArgumentDescriptions();
+  const argConfig = getArgumentConfig();
 
+  if (!args.length) {
+    _executeTest(apiKey, {});
+    return;
+  }
+
+  // 构建参数输入弹框
+  const modal = document.createElement('div');
+  modal.className = 'fixed inset-0 z-[200] flex items-center justify-center';
+  modal.id = 'testArgModal';
+
+  let fieldsHtml = '';
+  for (const arg of args) {
+    const desc = argDescs[arg] || arg;
+    const cfg = argConfig[arg] || skillArgumentConfig[arg] || {};
+    const argType = cfg.type || 'text';
+
+    if (argType === 'select' && cfg.data_source === 'knowledge_bases') {
+      fieldsHtml += `
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">${desc}</label>
+          <select id="test_arg_${arg}" class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
+            <option value="">${cfg.empty_label || '全部'}</option>
+          </select>
+          <span class="text-[10px] text-gray-400" id="test_arg_${arg}_loading">加载中...</span>
+        </div>`;
+    } else {
+      fieldsHtml += `
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">${desc}</label>
+          <input id="test_arg_${arg}" type="text" placeholder="输入 ${desc}"
+                 class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none">
+        </div>`;
+    }
+  }
+
+  modal.innerHTML = `
+    <div class="absolute inset-0 bg-black/30 backdrop-blur-sm" onclick="document.getElementById('testArgModal').remove()"></div>
+    <div class="relative bg-white rounded-xl shadow-2xl w-[420px] z-10">
+      <div class="flex items-center justify-between px-6 py-4 border-b">
+        <h3 class="font-semibold text-gray-800">输入参数</h3>
+        <button onclick="document.getElementById('testArgModal').remove()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+      </div>
+      <div class="px-6 py-4 space-y-4">${fieldsHtml}</div>
+      <div class="flex justify-end gap-2 px-6 py-4 border-t">
+        <button onclick="document.getElementById('testArgModal').remove()" class="px-4 py-1.5 text-sm border rounded-lg hover:bg-gray-50">取消</button>
+        <button onclick="_submitTestArgs('${apiKey}')" class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">执行测试</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  // 异步加载知识库下拉选项
+  for (const arg of args) {
+    const cfg = argConfig[arg] || skillArgumentConfig[arg] || {};
+    if (cfg.type === 'select' && cfg.data_source === 'knowledge_bases') {
+      _loadKnowledgeBaseOptions(arg, cfg);
+    }
+  }
+}
+
+async function _loadKnowledgeBaseOptions(argName, cfg) {
+  const select = document.getElementById(`test_arg_${argName}`);
+  const loading = document.getElementById(`test_arg_${argName}_loading`);
+  if (!select) return;
+  try {
+    const res = await fetch('/api/knowledge?tenant_id=292193');
+    const data = await res.json();
+    const items = data.items || data;
+    const labelField = cfg.option_label_field || 'name';
+    const valueField = cfg.option_value_field || 'id';
+    items.forEach(item => {
+      const opt = document.createElement('option');
+      opt.value = item[valueField];
+      opt.textContent = item[labelField];
+      select.appendChild(opt);
+    });
+    if (loading) loading.textContent = `${items.length} 个知识库`;
+  } catch (e) {
+    if (loading) loading.textContent = '加载失败';
+  }
+}
+
+function _submitTestArgs(apiKey) {
+  const args = getArgumentNames();
+  const testArgs = {};
+  args.forEach(a => {
+    const el = document.getElementById(`test_arg_${a}`);
+    if (el) testArgs[a] = el.value || '';
+  });
+  document.getElementById('testArgModal').remove();
+  _executeTest(apiKey, testArgs);
+}
+
+async function _executeTest(apiKey, testArgs) {
   const section = document.getElementById('testOutputSection');
   const output = document.getElementById('testOutput');
   section.classList.remove('hidden');
-
   if (editingKey) {
     try {
       const res = await fetch(`${SKILL_API}/${apiKey}/test`, {
@@ -852,7 +945,7 @@ async function testSkill() {
   } else {
     let prompt = document.getElementById('f_prompt').value;
     for (const [k, v] of Object.entries(testArgs)) {
-      prompt = prompt.replaceAll(`{${k}}`, `<mark>${v}</mark>`);
+      prompt = prompt.replaceAll(`{${k}}`, `<mark>${v || '(空)'}</mark>`);
     }
     output.innerHTML = marked.parse(prompt || '(空)');
   }
@@ -1073,10 +1166,25 @@ function renderArguments() {
       ${typeOptions.map(o => `<option value="${o.value}" ${argType === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
     </select>`;
 
-    // 如果是 select 类型，显示数据源配置
+    // 描述字段：如果是 select 类型且数据源是 knowledge_bases，渲染为下拉框
+    let descField = '';
     let extraConfig = '';
+
     if (argType === 'select') {
       const ds = config.data_source || '';
+      if (ds === 'knowledge_bases') {
+        // 渲染为真正的下拉框，从知识库列表加载选项
+        descField = `<select id="arg_select_${idx}" 
+                       onchange="skillArguments[${idx}].description = this.options[this.selectedIndex].text"
+                       class="flex-1 px-2 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none">
+                       <option value="">全部知识库</option>
+                     </select>`;
+      } else {
+        descField = `<input type="text" value="${arg.description}" placeholder="参数描述"
+                       onchange="skillArguments[${idx}].description = this.value.trim()"
+                       class="flex-1 px-2 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none">`;
+      }
+
       const dsOptions = [
         { value: 'knowledge_bases', label: '知识库列表' },
         { value: 'custom', label: '自定义选项' },
@@ -1088,10 +1196,14 @@ function renderArguments() {
             ${dsOptions.map(o => `<option value="${o.value}" ${ds === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
           </select>
           <label class="flex items-center gap-1 text-[10px] text-gray-400">
-            <input type="checkbox" ${config.allow_empty ? 'checked' : ''} onchange="updateArgConfig(${idx}, 'allow_empty', this.checked)" class="w-3 h-3 rounded">
+            <input type="checkbox" ${config.allow_empty !== false ? 'checked' : ''} onchange="updateArgConfig(${idx}, 'allow_empty', this.checked)" class="w-3 h-3 rounded">
             允许为空
           </label>
         </div>`;
+    } else {
+      descField = `<input type="text" value="${arg.description}" placeholder="参数描述（如：客户 ID）"
+                     onchange="skillArguments[${idx}].description = this.value.trim()"
+                     class="flex-1 px-2 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none">`;
     }
 
     return `
@@ -1100,9 +1212,7 @@ function renderArguments() {
           <input type="text" value="${arg.name}" placeholder="参数名（如 account_id）"
                  onchange="skillArguments[${idx}].name = this.value.trim(); syncArgConfig(${idx})"
                  class="w-40 px-2 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none font-mono">
-          <input type="text" value="${arg.description}" placeholder="参数描述（如：客户 ID）"
-                 onchange="skillArguments[${idx}].description = this.value.trim()"
-                 class="flex-1 px-2 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none">
+          ${descField}
           ${typeSelect}
           <button type="button" onclick="removeArgument(${idx})" class="text-red-400 hover:text-red-600 text-sm px-1">✕</button>
         </div>
@@ -1110,6 +1220,35 @@ function renderArguments() {
       </div>
     `;
   }).join('');
+
+  // 渲染完成后，异步加载知识库下拉选项
+  skillArguments.forEach((arg, idx) => {
+    const config = skillArgumentConfig[arg.name] || {};
+    if (config.type === 'select' && config.data_source === 'knowledge_bases') {
+      _loadArgKnowledgeBases(idx);
+    }
+  });
+}
+
+async function _loadArgKnowledgeBases(idx) {
+  const select = document.getElementById(`arg_select_${idx}`);
+  if (!select) return;
+  try {
+    const res = await fetch('/api/knowledge?tenant_id=292193');
+    const data = await res.json();
+    const items = data.items || data;
+    items.forEach(item => {
+      const opt = document.createElement('option');
+      opt.value = item.id;
+      opt.textContent = item.name;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '(加载知识库失败)';
+    select.appendChild(opt);
+  }
 }
 
 function updateArgConfig(idx, key, value) {

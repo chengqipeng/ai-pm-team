@@ -876,23 +876,27 @@ async def list_knowledge_bases(
     """列出租户下的所有知识库
 
     不依赖 provider — 直接走 DAO，便于前端在 provider 未初始化时也可读。
+    document_count 返回实时统计（含所有未删除文档），确保删除后前端立即看到变化。
+    chunk_count 使用缓存值（仅统计已入库成功的切片）。
     """
     _require_tenant(tenant_id)
     kbs = KnowledgeBaseDAO.list_by_tenant(tenant_id)
-    return {
-        "items": [
-            {
-                "id": str(kb.id),
-                "api_key": kb.api_key,
-                "name": kb.name,
-                "description": kb.description,
-                "default_top_k": kb.default_top_k,
-                "document_count": kb.document_count,
-                "chunk_count": kb.chunk_count,
-            }
-            for kb in kbs
-        ],
-    }
+    items = []
+    for kb in kbs:
+        # 实时查询文档总数（包含处理中的），确保删除后前端立即看到变化
+        real_doc_count = KnowledgeDocumentDAO.count_by_kb(tenant_id, kb.id)
+        # 实时查询切片总数（从文档表 SUM chunk_count）
+        real_chunk_count = KnowledgeDocumentDAO.sum_chunks_by_kb(tenant_id, kb.id)
+        items.append({
+            "id": str(kb.id),
+            "api_key": kb.api_key,
+            "name": kb.name,
+            "description": kb.description,
+            "default_top_k": kb.default_top_k,
+            "document_count": real_doc_count,
+            "chunk_count": real_chunk_count,
+        })
+    return {"items": items}
 
 
 @router.get("/{kb_id}")
@@ -1008,6 +1012,7 @@ async def resync_vectors(
     request: Request,
     tenant_id: int = Query(..., gt=0),
     knowledge_base_id: int = Query(..., gt=0),
+    doc_id: str = Query("", description="指定单个文档 ID（留空则处理整个知识库）"),
 ):
     """向量补偿 — 对 PG 中已有切片但 VDB 中缺失的文档重新执行 Phase 4（向量化+写入VDB）
 
@@ -1017,11 +1022,17 @@ async def resync_vectors(
     - Phase 4 曾经失败（vector_synced=0/2/3）
 
     流程：
-    1. 查 PG 中该 KB 下所有文档
+    1. 查 PG 中该 KB 下所有文档（或指定单个文档）
     2. 对每个文档的 chunks 检查 vector_synced 状态
     3. 对未同步的 chunks 重新 embedding + 写入 VDB
     4. 重建 doc_metadata（摘要向量 + BM25 文本）
     """
+    logger.warning(
+        "resync-vectors start: tenant=%s kb=%s doc_id=%s",
+        tenant_id, knowledge_base_id, doc_id or "(all)",
+    )
+    import asyncio
+
     provider = _get_provider(request)
     vdb = provider._vdb
 
@@ -1031,8 +1042,10 @@ async def resync_vectors(
     lkeap = retriever._lkeap
 
     async def embed_texts(texts: list[str]) -> list[list[float]]:
-        """批量 embedding"""
-        import asyncio
+        """批量 embedding — 分批处理避免超时"""
+        if not texts:
+            return []
+
         if embedding_fn:
             if asyncio.iscoroutinefunction(embedding_fn):
                 results = []
@@ -1045,25 +1058,50 @@ async def resync_vectors(
                     results.append(await asyncio.to_thread(embedding_fn, t))
                 return results
         elif lkeap:
-            return await asyncio.to_thread(lkeap.get_embedding, texts)
+            # LKEAP 单次只接受 1 个 Input，逐条调用但用有界并发加速
+            concurrency = 2
+            sem = asyncio.Semaphore(concurrency)
+            results: list[list[float]] = [None] * len(texts)  # type: ignore
+
+            async def _embed_one(idx: int, text: str):
+                async with sem:
+                    vecs = await asyncio.to_thread(lkeap.get_embedding, [text])
+                    results[idx] = vecs[0] if vecs and vecs[0] else []
+
+            await asyncio.gather(*(_embed_one(i, t) for i, t in enumerate(texts)))
+            return results
         else:
             raise HTTPException(503, "Embedding 服务未配置（embedding_fn 和 lkeap 均为 None）")
 
-    import asyncio
-
-    # 1. 查该 KB 下的所有文档
-    docs = KnowledgeDocumentDAO.list_by_kb(tenant_id, knowledge_base_id, limit=200, offset=0)
+    # 1. 查该 KB 下的所有文档（或指定单个文档）
+    if doc_id:
+        single_doc = KnowledgeDocumentDAO.get_by_doc_id(doc_id)
+        if single_doc is None:
+            raise HTTPException(404, f"文档 {doc_id} 不存在")
+        docs = [single_doc]
+    else:
+        docs = KnowledgeDocumentDAO.list_by_kb(tenant_id, knowledge_base_id, limit=200, offset=0)
     if not docs:
         return {"status": "no_docs", "message": "该知识库无文档", "synced": 0}
+
+    logger.warning("resync-vectors: found %d docs to process", len(docs))
+
+    # 预检：验证 VDB 连接可用
+    try:
+        vdb._ensure_collections()
+        logger.warning("resync-vectors: VDB connection OK")
+    except Exception as exc:
+        logger.exception("resync-vectors: VDB connection failed: %s", exc)
+        raise HTTPException(503, f"向量数据库连接失败: {type(exc).__name__}: {exc}")
 
     total_chunks_synced = 0
     total_docs_processed = 0
     errors: list[str] = []
 
     for doc in docs:
-        doc_id = doc.doc_id
+        current_doc_id = doc.doc_id
         # 2. 查该文档的所有 chunks
-        chunks = KnowledgeChunkDAO.list_by_doc(doc_id)
+        chunks = KnowledgeChunkDAO.list_by_doc(current_doc_id)
         if not chunks:
             continue
 
@@ -1076,7 +1114,7 @@ async def resync_vectors(
                 from tcvectordb.model.document import Filter
                 vdb._ensure_collections()
                 check_filter = (
-                    f'tenant_id = "{tenant_id}" and doc_id = "{doc_id}" and status = "active"'
+                    f'tenant_id = "{tenant_id}" and doc_id = "{current_doc_id}" and status = "active"'
                 )
                 check_result = vdb._chunk_coll.query(
                     filter=Filter(check_filter),
@@ -1098,6 +1136,10 @@ async def resync_vectors(
 
         # 4. 对 pending_chunks 执行 embedding + 写入 VDB
         try:
+            logger.warning(
+                "resync-vectors: processing doc=%s chunks=%d (pending=%d)",
+                current_doc_id, len(chunks), len(pending_chunks),
+            )
             texts = [c.content[:2000] for c in pending_chunks]
             vectors = await embed_texts(texts)
 
@@ -1128,7 +1170,11 @@ async def resync_vectors(
                 synced_ids.append(c.chunk_id)
 
             if chunk_records:
-                await asyncio.to_thread(vdb.upsert_chunks, chunk_records)
+                # 分批写入 VDB（每批 20 条，避免单次请求过大超时）
+                batch_size = 20
+                for batch_start in range(0, len(chunk_records), batch_size):
+                    batch = chunk_records[batch_start:batch_start + batch_size]
+                    await asyncio.to_thread(vdb.upsert_chunks, batch)
                 # 更新 PG 中的 vector_synced 状态
                 dim = len(vectors[0]) if vectors and vectors[0] else 0
                 await asyncio.to_thread(
@@ -1174,7 +1220,7 @@ async def resync_vectors(
                 toc = " > ".join(toc_parts) if toc_parts else ""
 
                 doc_meta_record = {
-                    "id": doc_id,
+                    "id": current_doc_id,
                     "vector": summary_vec,
                     "tenant_id": str(tenant_id),
                     "knowledge_base_id": str(knowledge_base_id),
@@ -1212,9 +1258,9 @@ async def resync_vectors(
             total_docs_processed += 1
 
         except Exception as exc:
-            err_msg = f"doc={doc_id} ({doc.title}): {type(exc).__name__}: {exc}"
+            err_msg = f"doc={current_doc_id} ({doc.title}): {type(exc).__name__}: {exc}"
             errors.append(err_msg)
-            logger.warning("resync-vectors failed for %s: %s", doc_id, exc)
+            logger.exception("resync-vectors failed for %s: %s", current_doc_id, exc)
 
     result = {
         "status": "success" if not errors else "partial",
@@ -1223,7 +1269,7 @@ async def resync_vectors(
         "chunks_synced": total_chunks_synced,
         "errors": errors[:10],  # 最多返回 10 条错误
     }
-    logger.info(
+    logger.warning(
         "resync-vectors done: tenant=%s kb=%s docs=%d chunks=%d errors=%d",
         tenant_id, knowledge_base_id, total_docs_processed, total_chunks_synced, len(errors),
     )

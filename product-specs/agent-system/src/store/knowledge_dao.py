@@ -316,7 +316,10 @@ class KnowledgeDocumentDAO:
     @staticmethod
     def find_by_hash(tenant_id: int, knowledge_base_id: int,
                      file_hash: str) -> KnowledgeDocumentRow | None:
-        """按 file_hash 查找（走 uk_doc_hash 唯一索引）"""
+        """按 file_hash 查找（走 uk_doc_hash 唯一索引）
+
+        包含已软删除的行 — 调用方根据 delete_flg 决定是否复用/清理。
+        """
         if not file_hash:
             return None
         with get_conn() as conn:
@@ -324,10 +327,21 @@ class KnowledgeDocumentDAO:
             cur.execute("""
                 SELECT * FROM ai_knowledge_document
                 WHERE tenant_id=%s AND knowledge_base_id=%s
-                  AND file_hash=%s AND delete_flg=0
+                  AND file_hash=%s
+                ORDER BY delete_flg ASC
+                LIMIT 1
             """, (tenant_id, knowledge_base_id, file_hash))
             row = cur.fetchone()
             return _row_to_model(cur.description, row, KnowledgeDocumentRow) if row else None
+
+    @staticmethod
+    def hard_delete(doc_id: str) -> None:
+        """物理删除文档行（用于清理已软删除或失败的重复 hash 行，释放唯一约束）"""
+        with get_conn() as conn:
+            conn.cursor().execute(
+                "DELETE FROM ai_knowledge_document WHERE doc_id=%s",
+                (doc_id,),
+            )
 
     @staticmethod
     def lock_by_hash_nowait(tenant_id: int, knowledge_base_id: int,
@@ -391,6 +405,17 @@ class KnowledgeDocumentDAO:
                     SELECT COUNT(*) FROM ai_knowledge_document
                     WHERE tenant_id=%s AND knowledge_base_id=%s AND delete_flg=0
                 """, (tenant_id, knowledge_base_id))
+            return cur.fetchone()[0]
+
+    @staticmethod
+    def sum_chunks_by_kb(tenant_id: int, knowledge_base_id: int) -> int:
+        """返回知识库下所有未删除文档的切片总数（实时统计）"""
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT COALESCE(SUM(chunk_count), 0) FROM ai_knowledge_document
+                WHERE tenant_id=%s AND knowledge_base_id=%s AND delete_flg=0
+            """, (tenant_id, knowledge_base_id))
             return cur.fetchone()[0]
 
     @staticmethod

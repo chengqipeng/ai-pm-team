@@ -71,14 +71,15 @@ AUTO_TAG_PROMPT = """你是一个文档分类专家。请根据以下文档内�
     "productService": "从 Schema 枚举值中选择",
     "datePublished": "从文档中提取日期，格式 YYYY-MM-DD，无则 null"
   }},
-  "summary": "200-300 字的文档摘要，概括核心内容和关键信息，尽量覆盖候选关键词中的专业术语",
-  "keywords": ["从候选关键词中精选最重要的 + 补充遗漏的核心词，最多 10 个"]
+  "summary": "200-300字的文档摘要，概括核心内容和关键信息",
+  "keywords": ["最多 10 个关键词"]
 }}
 
 注意：
 1. 元数据值必须从 Schema 枚举值中选择，无法匹配时设为 null
-2. 摘要要包含文档的核心主题、关键数据点、适用场景
-3. keywords 优先从候选关键词中精选，可补充候选词未覆盖的核心概念，最多 10 个
+2. summary 控制在 200-300 字，概括文档核心主题、关键数据点、适用场景
+3. keywords 优先从候选关键词中精选，可补充遗漏的核心概念，最多 10 个
+4. 确保输出是完整合法的 JSON，不要被截断
 """
 
 
@@ -280,6 +281,7 @@ def _extract_json_object(text: str) -> dict | None:
         - fenced code block: ```json\\n{...}\\n```
         - 带前言: "Sure, here's the result:\\n```json\\n{...}\\n```"
         - JSON 前后有冗余说明
+        - 截断的 JSON（尝试补齐括号）
     """
     if not text:
         return None
@@ -330,7 +332,69 @@ def _extract_json_object(text: str) -> dict | None:
                     return json.loads(stripped[start:i + 1])
                 except json.JSONDecodeError:
                     return None
+
+    # Step 4: JSON 被截断 — 尝试暴力补齐
+    if depth > 0:
+        fragment = stripped[start:]
+        # 如果截断在字符串内，先关闭字符串
+        if in_string:
+            fragment += '"'
+        # 补齐所有未关闭的括号
+        # 重新扫描确定需要补什么
+        close_chars = _calc_close_brackets(fragment)
+        candidate = fragment + close_chars
+        try:
+            result = json.loads(candidate)
+            if isinstance(result, dict):
+                return result
+        except json.JSONDecodeError:
+            pass
+
+        # 最后手段：截断到最后一个完整的逗号位置再补齐
+        last_comma = fragment.rfind(",")
+        if last_comma > 0:
+            trimmed = fragment[:last_comma]
+            # 关闭可能未闭合的字符串
+            q_count = sum(1 for c in trimmed if c == '"') - sum(1 for i, c in enumerate(trimmed) if c == '"' and i > 0 and trimmed[i-1] == '\\')
+            if q_count % 2 != 0:
+                trimmed += '"'
+            close_chars = _calc_close_brackets(trimmed)
+            candidate = trimmed + close_chars
+            try:
+                result = json.loads(candidate)
+                if isinstance(result, dict):
+                    return result
+            except json.JSONDecodeError:
+                pass
+
     return None
+
+
+def _calc_close_brackets(text: str) -> str:
+    """扫描文本，返回需要补齐的闭合括号字符串"""
+    stack: list[str] = []
+    in_string = False
+    escape = False
+    for ch in text:
+        if escape:
+            escape = False
+            continue
+        if ch == '\\':
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == '{':
+            stack.append('}')
+        elif ch == '[':
+            stack.append(']')
+        elif ch in ('}', ']'):
+            if stack and stack[-1] == ch:
+                stack.pop()
+    return ''.join(reversed(stack))
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1494,14 +1558,17 @@ class DocumentIngestionPipeline:
             )
             raise RuntimeError("所有切片的 embedding 向量都为空")
 
-        # 写 VDB
+        # 写 VDB（分批，每批 20 条，避免单次请求过大超时）
         try:
             logger.info(
                 "Phase4 VDB upsert: doc=%s records=%d dim=%d",
                 doc_id, len(chunk_records),
                 len(vectors[0]) if vectors and vectors[0] else 0,
             )
-            await asyncio.to_thread(self._vdb.upsert_chunks, chunk_records)
+            batch_size = 20
+            for batch_start in range(0, len(chunk_records), batch_size):
+                batch = chunk_records[batch_start:batch_start + batch_size]
+                await asyncio.to_thread(self._vdb.upsert_chunks, batch)
             await asyncio.to_thread(
                 KnowledgeChunkDAO.mark_vector_synced,
                 synced_ids,
@@ -1624,7 +1691,8 @@ class DocumentIngestionPipeline:
         """批量向量化 — 优先用注入的 embedding_fn，否则用 LKEAP
 
         LKEAP GetEmbedding 单次只接受 1 个 Input，所以只能逐条调用。
-        用有界并发（默认 4）平衡吞吐和 QPS 限制。
+        使用有界并发（2）平衡吞吐和连接池限制（max=10）。
+        不走全局 guard 信号量（那个只保护重量级的 parse 操作）。
         """
         if not texts:
             return []
@@ -1642,8 +1710,8 @@ class DocumentIngestionPipeline:
                 )
                 raise
 
-        # 默认走 LKEAP — 逐条调用 + 有界并发（保持顺序）
-        concurrency = 4
+        # 默认走 LKEAP — 逐条调用 + 有界并发（2 并发，避免打满连接池）
+        concurrency = 2
         sem = asyncio.Semaphore(concurrency)
         results: list[list[float]] = [None] * len(texts)  # type: ignore[assignment]
 

@@ -385,7 +385,7 @@ class StandaloneKnowledgeProvider:
         )
 
     async def delete_document(self, tenant_id: int, doc_id: str) -> bool:
-        """软删文档 + 级联切片 + 删 VDB 向量"""
+        """软删文档 + 级联切片 + 删 VDB 向量 + 更新 KB 统计"""
         row = KnowledgeDocumentDAO.get_by_doc_id(doc_id)
         if row is None or row.tenant_id != tenant_id:
             return False
@@ -415,8 +415,13 @@ class StandaloneKnowledgeProvider:
                 tenant_id, doc_id, row.knowledge_base_id, row.chunk_count,
             )
         else:
+            # 未入库成功的文档也需要重算统计（确保前端显示一致）
+            try:
+                KnowledgeBaseDAO.recompute_stats(row.knowledge_base_id)
+            except Exception as exc:
+                logger.warning("recompute_stats after delete failed (non-fatal): %s", exc)
             logger.info(
-                "Document deleted (not indexed, no stats change): "
+                "Document deleted (not indexed, stats recomputed): "
                 "tenant=%s doc_id=%s kb=%s chunk_status=%s",
                 tenant_id, doc_id, row.knowledge_base_id, row.chunk_status,
             )

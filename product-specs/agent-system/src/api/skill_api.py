@@ -246,10 +246,11 @@ async def create_skill(body: CreateSkillBody, tenant_id: int = Query(0)):
     )
     try:
         result = service.create(req, tenant_id=tenant_id)
-        # 存储 argument_descriptions 到 ext_info
-        if body.argument_descriptions:
-            _save_argument_descriptions(tenant_id, body.api_key, body.argument_descriptions)
+        # 存储 argument_descriptions 和 argument_config 到 ext_info
+        if body.argument_descriptions or body.argument_config:
+            _save_argument_ext(tenant_id, body.api_key, body.argument_descriptions, body.argument_config)
             result["argument_descriptions"] = body.argument_descriptions
+            result["argument_config"] = body.argument_config
         return result
     except SkillServiceError as e:
         raise HTTPException(status_code=400, detail={"message": str(e), "code": e.code})
@@ -285,10 +286,13 @@ async def update_skill(api_key: str, body: UpdateSkillBody, tenant_id: int = Que
     )
     try:
         result = service.update(api_key, req, tenant_id=tenant_id)
-        # 存储 argument_descriptions 到 ext_info
-        if body.argument_descriptions is not None:
-            _save_argument_descriptions(tenant_id, api_key, body.argument_descriptions)
-            result["argument_descriptions"] = body.argument_descriptions
+        # 存储 argument_descriptions 和 argument_config 到 ext_info
+        if body.argument_descriptions is not None or body.argument_config is not None:
+            _save_argument_ext(tenant_id, api_key, body.argument_descriptions, body.argument_config)
+            if body.argument_descriptions is not None:
+                result["argument_descriptions"] = body.argument_descriptions
+            if body.argument_config is not None:
+                result["argument_config"] = body.argument_config
         return result
     except SkillServiceError as e:
         status = 404 if e.code == "NOT_FOUND" else 400
@@ -415,8 +419,10 @@ def _row_to_detail(row) -> dict:
     return d
 
 
-def _save_argument_descriptions(tenant_id: int, api_key: str, descriptions: dict[str, str]) -> None:
-    """将 argument_descriptions 存入 ext_info JSON 字段"""
+def _save_argument_ext(tenant_id: int, api_key: str,
+                       descriptions: dict[str, str] | None,
+                       config: dict[str, Any] | None) -> None:
+    """将 argument_descriptions 和 argument_config 存入 ext_info JSON 字段"""
     from src.store.pg_pool import get_conn
 
     with get_conn() as conn:
@@ -431,10 +437,17 @@ def _save_argument_descriptions(tenant_id: int, api_key: str, descriptions: dict
             return
 
         ext = _safe_json_loads(row[0], {})
-        ext["argument_descriptions"] = descriptions
+        if descriptions is not None:
+            ext["argument_descriptions"] = descriptions
+        if config is not None:
+            ext["argument_config"] = config
 
         # 写回
         cur.execute(
             "UPDATE ai_skill_definition SET ext_info = %s WHERE tenant_id = %s AND api_key = %s AND delete_flg = 0",
             (json.dumps(ext, ensure_ascii=False), tenant_id, api_key),
         )
+
+
+# 保留旧函数名兼容（manage_skill_tool.py 中有引用）
+_save_argument_descriptions = lambda tid, ak, descs: _save_argument_ext(tid, ak, descs, None)
