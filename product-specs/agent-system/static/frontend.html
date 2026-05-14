@@ -857,7 +857,7 @@ function renderTraceNode(span, idx, seqNum) {
   }
 
   // 技能后缀
-  const skillSuffix = isSkillExec ? ` (${md.skill_mode || 'inline'})` : '';
+  const skillSuffix = isSkillExec ? ` (${md.skill_mode || md.context_mode || 'inline'})` : '';
   // 最终回复标记
   const finalMark = isFinalResponse ? ' → 生成回复' : '';
 
@@ -1023,10 +1023,17 @@ function _buildStepDescription(span, md, fallbackDetail) {
     }
     case 'skill_execution': {
       const skillName = md.skill_name || '';
-      const mode = md.skill_mode || 'inline';
+      const mode = md.skill_mode || md.context_mode || 'inline';
       let desc = skillName || '';
-      if (mode === 'inline') desc += ' → 返回 SOP prompt，LLM 下一轮按步骤执行';
-      if (md.skill_result_desc) desc = `${skillName} → ${esc(truncStr(md.skill_result_desc, 50))}`;
+      if (md.skill_result_desc) {
+        desc = `${skillName} [${mode}] → ${esc(truncStr(md.skill_result_desc, 50))}`;
+      } else if (mode === 'inline') {
+        desc += ' [inline] → 返回 SOP prompt，LLM 下一轮按步骤执行';
+      } else if (mode === 'fork') {
+        desc += ' [fork] → 启动子 Agent 独立执行，返回结果';
+      } else {
+        desc += ` [${mode}]`;
+      }
       return desc || fallbackDetail || '';
     }
     case 'memory_extract': {
@@ -2395,9 +2402,16 @@ function renderInlineSteps(spans) {
         label = '工具调用';
       }
     } else if (spanType === 'skill_execution') {
-      // 格式：技能执行: account-insight
+      // 格式：技能执行: account-insight [inline/fork]
       const skillName = md.skill_name || '';
-      label = skillName ? `技能执行: ${skillName}` : '技能执行';
+      const mode = md.skill_mode || md.context_mode || 'inline';
+      if (skillName) {
+        label = `技能执行: ${skillName} [${mode}]`;
+        if (mode === 'inline') desc = '返回 SOP prompt';
+        else if (mode === 'fork') desc = '子 Agent 独立执行';
+      } else {
+        label = '技能执行';
+      }
     } else if (spanType === 'llm_call') {
       // 格式对齐右侧面板：模型推理 + 描述
       label = '模型推理';

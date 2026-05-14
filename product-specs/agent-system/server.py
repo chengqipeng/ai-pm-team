@@ -180,16 +180,72 @@ async def _get_agent(multimodal: bool = False):
 
 import re
 
+
+def _extract_json_object(text: str) -> dict | None:
+    """从文本中提取第一个 JSON 对象（简化版）"""
+    if not text:
+        return None
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        lines = stripped.split("\n")
+        if lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        stripped = "\n".join(lines).strip()
+    try:
+        return json.loads(stripped)
+    except (json.JSONDecodeError, ValueError):
+        pass
+    start = stripped.find("{")
+    if start < 0:
+        return None
+    # 找匹配的 }
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(stripped)):
+        ch = stripped[i]
+        if esc:
+            esc = False
+            continue
+        if ch == '\\':
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(stripped[start:i + 1])
+                except (json.JSONDecodeError, ValueError):
+                    return None
+    return None
+
+
 def _detect_document(content: str) -> dict | None:
     """检测内容是否为结构化文档（报告/分析），返回文档元信息或 None。
 
-    判断条件：
+    纯规则兜底判断（当 LLM 判断不可用时使用）：
     - 长文本（>= 800字）+ 2个以上标题 → 文档
     - 中等文本（400-800字）+ 3个以上标题 → 文档
     - 排除短文本模板（请假条、邮件等）
     - 排除纯代码块
+    - 排除知识库检索结果
     """
     if not content or len(content) < 400:
+        return None
+
+    # 排除知识库检索结果（Skill 输出的结构化回答，不应被当作报告）
+    first_200 = content[:200]
+    retrieval_markers = ["📚 检索结果", "检索结果：", "核心发现", "📄 来源：", "未找到直接相关的文档"]
+    if any(marker in first_200 for marker in retrieval_markers):
         return None
 
     # 排除短文本模板
@@ -233,6 +289,84 @@ def _detect_document(content: str) -> dict | None:
         "size": len(content),
         "sections": heading_count,
     }
+
+
+# ═══════════════════════════════════════════════════════════
+# LLM 输出形式判断
+# ═══════════════════════════════════════════════════════════
+
+_OUTPUT_FORMAT_PROMPT = """你是一个输出格式判断器。根据用户问题、Agent执行过程和最终输出内容，判断这次回答应该以什么形式展示给用户。
+
+## 用户问题
+{user_query}
+
+## 执行过程摘要
+{execution_summary}
+
+## 输出内容（前1000字）
+{content_preview}
+
+## 判断规则
+- "document"：输出是完整的分析报告、数据洞察、对比分析等需要独立阅读的长文档（通常 > 800字，有明确的章节结构）
+- "inline"：输出是直接回答用户问题的内容，包括知识库检索结果、简短回答、确认信息、追问澄清等
+- "confirm"：Agent需要用户确认或补充信息才能继续（如缺少参数、多个选项需要选择）
+- "empty"：没有找到有效结果，需要告知用户
+
+## 输出要求
+只输出一个JSON（不要其他文字）：
+{{"format": "document|inline|confirm|empty", "title": "如果是document则给出标题，否则为空字符串"}}
+"""
+
+
+async def _llm_detect_output_format(
+    user_query: str,
+    content: str,
+    execution_summary: str,
+    llm=None,
+) -> dict | None:
+    """使用 LLM 判断输出形式
+
+    Returns:
+        None: 普通内联输出（不触发文档模式）
+        dict: {"title": "...", "format": "markdown", ...} 触发文档下载
+    """
+    if llm is None:
+        # LLM 不可用，降级到规则判断
+        return _detect_document(content)
+
+    # 短内容直接返回 inline，不浪费 LLM 调用
+    if not content or len(content) < 300:
+        return None
+
+    prompt = _OUTPUT_FORMAT_PROMPT.format(
+        user_query=user_query[:200],
+        execution_summary=execution_summary[:500],
+        content_preview=content[:1000],
+    )
+
+    try:
+        resp = await llm.ainvoke(prompt)
+        text = getattr(resp, "content", None) or str(resp)
+        # 解析 JSON
+        parsed = _extract_json_object(text)
+        if parsed is None:
+            # LLM 返回无法解析，降级规则
+            return _detect_document(content)
+
+        fmt = parsed.get("format", "inline")
+        if fmt == "document":
+            title = parsed.get("title", "").strip() or "分析报告"
+            return {
+                "title": title,
+                "format": "markdown",
+                "size": len(content),
+                "sections": len(re.findall(r'^#{1,3}\s+.+', content, re.MULTILINE)),
+            }
+        # inline / confirm / empty → 不触发文档模式
+        return None
+    except Exception as exc:
+        logger.warning("LLM output format detection failed, fallback to rules: %s", exc)
+        return _detect_document(content)
 
 
 # 产出文档的技能名称集合（调用这些技能时，最终输出必然是报告/文档）
@@ -788,6 +922,8 @@ async def chat_stream(req: ChatRequest):
         last_mw_idx = 0
         # 流式 PII 还原器 — 在推送给前端前将占位符还原为原始值
         pii_restorer = StreamPIIRestorer(config["configurable"].get("input_metadata", {}))
+        # 执行过程追踪（用于 LLM 输出形式判断）
+        _exec_tools: list[str] = []  # 记录执行过的工具/技能名称
 
         def flush_mw_spans():
             """检查并推送新的中间件 spans"""
@@ -956,6 +1092,7 @@ async def chat_stream(req: ChatRequest):
                         tool_start_payload["sub_name"] = sub_name
                         tool_start_payload["display_name"] = display_name
                     yield f"data: {json.dumps(tool_start_payload, ensure_ascii=False)}\n\n"
+                    _exec_tools.append(display_name)
 
                     # 提前检测文档类技能 → 发送 doc_start 信号
                     doc_prediction = _is_document_skill(tool_name, raw_input)
@@ -1067,8 +1204,33 @@ async def chat_stream(req: ChatRequest):
         if trace_final:
             trace_writer.on_trace_finish(trace_final)
 
-        # 检测最终内容是否为可下载文档
-        doc_meta = _detect_document(full_content)
+        # 检测最终内容是否为可下载文档（LLM 判断 + 规则兜底）
+        # 构建执行摘要
+        exec_summary = f"调用工具: {', '.join(_exec_tools)}" if _exec_tools else "无工具调用，直接回答"
+
+        # 获取 LLM 实例（复用 Agent 初始化时的 aux_llm）
+        _format_llm = getattr(app.state, '_format_detect_llm', None)
+        if _format_llm is None:
+            # 首次使用时初始化一个轻量 LLM（低 max_tokens，快速响应）
+            try:
+                from langchain_openai import ChatOpenAI
+                _format_llm = ChatOpenAI(
+                    model="doubao-seed-2-0-lite-260215",
+                    api_key=os.environ.get("DOUBAO_API_KEY", ""),
+                    base_url="https://ark.cn-beijing.volces.com/api/v3/",
+                    max_tokens=100,
+                    request_timeout=5,  # 5 秒超时，不能让用户等太久
+                )
+                app.state._format_detect_llm = _format_llm
+            except Exception:
+                _format_llm = None
+
+        doc_meta = await _llm_detect_output_format(
+            user_query=req.message,
+            content=full_content,
+            execution_summary=exec_summary,
+            llm=_format_llm,
+        )
         done_payload = {'type': 'done', 'trace_id': trace_id}
         if doc_meta:
             done_payload['document'] = doc_meta
