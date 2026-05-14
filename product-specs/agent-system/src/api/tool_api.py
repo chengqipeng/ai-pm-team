@@ -3,162 +3,241 @@
 路由前缀：/api/tools
 
 提供：
-    - GET    /api/tools              工具列表（从 ToolRegistry 读取已注册工具）
-    - GET    /api/tools/{name}       工具详情
+    - GET    /api/tools              工具列表
+    - GET    /api/tools/{api_key}    工具详情
+    - POST   /api/tools              创建工具
+    - PUT    /api/tools/{api_key}    编辑工具
+    - PUT    /api/tools/{api_key}/toggle  启用/禁用
+    - DELETE /api/tools/{api_key}    删除工具
 """
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any
+import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from src.store.tool_dao import ToolDefinitionDAO, ToolDefinitionRow
+from src.store.snowflake import next_id
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tools", tags=["tools"])
 
-# 全局引用，由 server.py 启动后注入
-_tool_registry = None
+
+# ═══════════════════════════════════════════════════════════
+# Pydantic 请求模型
+# ═══════════════════════════════════════════════════════════
+
+class CreateToolBody(BaseModel):
+    api_key: str = Field(..., min_length=2, max_length=100)
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(default="", max_length=1000)
+    input_schema: dict = Field(default_factory=dict)
+    prompt: str = Field(default="")
+    category: str = Field(default="", max_length=50)
+    tags: list[str] = Field(default_factory=list)
+    icon: str = Field(default="", max_length=100)
+    read_only: bool = Field(default=True)
+    destructive: bool = Field(default=False)
 
 
-def set_tool_registry(registry) -> None:
-    global _tool_registry
-    _tool_registry = registry
+class UpdateToolBody(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
+    description: str | None = Field(default=None, max_length=1000)
+    input_schema: dict | None = None
+    prompt: str | None = None
+    category: str | None = Field(default=None, max_length=50)
+    tags: list[str] | None = None
+    icon: str | None = Field(default=None, max_length=100)
+    read_only: bool | None = None
+    destructive: bool | None = None
 
 
-def _get_registry():
-    """获取 ToolRegistry（兼容 ToolLoader 和 ToolRegistry 两种实现）"""
-    if _tool_registry is None:
-        return None
-    return _tool_registry
+class ToggleToolBody(BaseModel):
+    enabled: bool
 
 
 # ═══════════════════════════════════════════════════════════
-# 工具列表
+# 列表
 # ═══════════════════════════════════════════════════════════
 
 @router.get("")
-async def list_tools():
-    """列出所有已注册的工具"""
-    registry = _get_registry()
-    if registry is None:
-        return {"items": [], "message": "ToolRegistry 未初始化"}
-
-    tools = []
-    # 兼容 ToolRegistry（自定义 Tool 类）和 ToolLoader（LangChain BaseTool）
-    if hasattr(registry, 'all_tools'):
-        for tool in registry.all_tools:
-            tools.append(_tool_to_dict(tool))
-    elif hasattr(registry, '_registry'):
-        # ToolLoader 模式
-        for name, tool in registry._registry.items():
-            tools.append(_lc_tool_to_dict(name, tool))
-
-    # 按名称排序
-    tools.sort(key=lambda t: t["name"])
-    return {"items": tools, "total": len(tools)}
+async def list_tools(tenant_id: int = Query(0), category: str = Query("")):
+    """列出所有工具"""
+    rows = ToolDefinitionDAO.list_all(tenant_id=tenant_id)
+    if category:
+        rows = [r for r in rows if r.category == category]
+    return {"items": [_row_to_dict(r) for r in rows], "total": len(rows)}
 
 
 # ═══════════════════════════════════════════════════════════
-# 工具详情
+# 详情
 # ═══════════════════════════════════════════════════════════
 
-@router.get("/{name}")
-async def get_tool(name: str):
+@router.get("/{api_key}")
+async def get_tool(api_key: str, tenant_id: int = Query(0)):
     """获取工具详情"""
-    registry = _get_registry()
-    if registry is None:
-        raise HTTPException(status_code=503, detail="ToolRegistry 未初始化")
-
-    tool = None
-    if hasattr(registry, 'find_by_name'):
-        tool = registry.find_by_name(name)
-    elif hasattr(registry, '_registry'):
-        tool = registry._registry.get(name)
-
-    if tool is None:
-        raise HTTPException(status_code=404, detail=f"工具 '{name}' 未找到")
-
-    if hasattr(tool, 'input_schema') and callable(tool.input_schema):
-        return _tool_to_detail(tool)
-    else:
-        return _lc_tool_to_detail(name, tool)
+    row = ToolDefinitionDAO.get_by_api_key(tenant_id, api_key)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"工具 '{api_key}' 不存在")
+    return _row_to_detail(row)
 
 
 # ═══════════════════════════════════════════════════════════
-# 序列化 — 自定义 Tool 类
+# 创建
 # ═══════════════════════════════════════════════════════════
 
-def _tool_to_dict(tool) -> dict:
-    """将自定义 Tool 实例转为摘要字典"""
+@router.post("", status_code=201)
+async def create_tool(body: CreateToolBody, tenant_id: int = Query(0)):
+    """创建工具"""
+    existing = ToolDefinitionDAO.get_by_api_key(tenant_id, body.api_key)
+    if existing is not None:
+        raise HTTPException(status_code=400, detail={
+            "message": f"工具 '{body.api_key}' 已存在", "code": "DUPLICATE_KEY"
+        })
+
+    now = int(time.time() * 1000)
+    row = ToolDefinitionRow(
+        id=next_id(),
+        api_key=body.api_key,
+        tenant_id=tenant_id,
+        name=body.name,
+        description=body.description,
+        input_schema=json.dumps(body.input_schema, ensure_ascii=False),
+        prompt=body.prompt,
+        category=body.category,
+        tags=json.dumps(body.tags, ensure_ascii=False),
+        icon=body.icon,
+        read_only_flg=1 if body.read_only else 0,
+        destructive_flg=1 if body.destructive else 0,
+        enabled_flg=1,
+        system_flg=0,
+        sort_num=0,
+        delete_flg=0,
+        created_at=now,
+        updated_at=now,
+    )
+    ToolDefinitionDAO.create(row)
+    return _row_to_dict(row)
+
+
+# ═══════════════════════════════════════════════════════════
+# 编辑
+# ═══════════════════════════════════════════════════════════
+
+@router.put("/{api_key}")
+async def update_tool(api_key: str, body: UpdateToolBody, tenant_id: int = Query(0)):
+    """编辑工具"""
+    existing = ToolDefinitionDAO.get_by_api_key(tenant_id, api_key)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"工具 '{api_key}' 不存在")
+
+    now = int(time.time() * 1000)
+    updates: dict = {"updated_at": now}
+
+    if body.name is not None:
+        updates["name"] = body.name
+    if body.description is not None:
+        updates["description"] = body.description
+    if body.input_schema is not None:
+        updates["input_schema"] = json.dumps(body.input_schema, ensure_ascii=False)
+    if body.prompt is not None:
+        updates["prompt"] = body.prompt
+    if body.category is not None:
+        updates["category"] = body.category
+    if body.tags is not None:
+        updates["tags"] = json.dumps(body.tags, ensure_ascii=False)
+    if body.icon is not None:
+        updates["icon"] = body.icon
+    if body.read_only is not None:
+        updates["read_only_flg"] = 1 if body.read_only else 0
+    if body.destructive is not None:
+        updates["destructive_flg"] = 1 if body.destructive else 0
+
+    ToolDefinitionDAO.update_fields(tenant_id, api_key, updates)
+
+    row = ToolDefinitionDAO.get_by_api_key(tenant_id, api_key)
+    return _row_to_dict(row)
+
+
+# ═══════════════════════════════════════════════════════════
+# 启用/禁用
+# ═══════════════════════════════════════════════════════════
+
+@router.put("/{api_key}/toggle")
+async def toggle_tool(api_key: str, body: ToggleToolBody, tenant_id: int = Query(0)):
+    """启用/禁用工具"""
+    existing = ToolDefinitionDAO.get_by_api_key(tenant_id, api_key)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"工具 '{api_key}' 不存在")
+
+    now = int(time.time() * 1000)
+    ToolDefinitionDAO.update_fields(tenant_id, api_key, {
+        "enabled_flg": 1 if body.enabled else 0,
+        "updated_at": now,
+    })
+    action = "启用" if body.enabled else "禁用"
+    return {"api_key": api_key, "enabled": body.enabled, "message": f"工具已{action}"}
+
+
+# ═══════════════════════════════════════════════════════════
+# 删除
+# ═══════════════════════════════════════════════════════════
+
+@router.delete("/{api_key}")
+async def delete_tool(api_key: str, tenant_id: int = Query(0)):
+    """删除工具（系统预置不可删）"""
+    existing = ToolDefinitionDAO.get_by_api_key(tenant_id, api_key)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"工具 '{api_key}' 不存在")
+    if existing.system_flg == 1:
+        raise HTTPException(status_code=400, detail={
+            "message": f"系统预置工具 '{api_key}' 不可删除", "code": "SYSTEM_TOOL"
+        })
+
+    now = int(time.time() * 1000)
+    ToolDefinitionDAO.soft_delete(tenant_id, api_key, now=now)
+    return {"message": f"工具 '{api_key}' 已删除"}
+
+
+# ═══════════════════════════════════════════════════════════
+# 序列化
+# ═══════════════════════════════════════════════════════════
+
+def _safe_json(s, default=None):
+    try:
+        return json.loads(s) if s else default
+    except (json.JSONDecodeError, TypeError):
+        return default
+
+
+def _row_to_dict(row: ToolDefinitionRow) -> dict:
     return {
-        "name": tool.name,
-        "description": _get_tool_description(tool),
-        "tags": getattr(tool, 'tags', []) if hasattr(tool, 'tags') else [],
-        "read_only": tool.is_read_only({}) if hasattr(tool, 'is_read_only') else True,
-        "aliases": tool.aliases if hasattr(tool, 'aliases') else [],
+        "api_key": row.api_key,
+        "name": row.name,
+        "description": row.description,
+        "category": row.category,
+        "tags": _safe_json(row.tags, []),
+        "icon": row.icon,
+        "read_only": bool(row.read_only_flg),
+        "destructive": bool(row.destructive_flg),
+        "enabled": bool(row.enabled_flg),
+        "system": bool(row.system_flg),
+        "sort_num": row.sort_num,
+        "tenant_id": row.tenant_id,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
     }
 
 
-def _tool_to_detail(tool) -> dict:
-    """将自定义 Tool 实例转为详情字典"""
-    d = _tool_to_dict(tool)
-    schema = tool.input_schema() if callable(getattr(tool, 'input_schema', None)) else {}
+def _row_to_detail(row: ToolDefinitionRow) -> dict:
+    d = _row_to_dict(row)
     d.update({
-        "input_schema": schema,
-        "prompt": tool.prompt() if hasattr(tool, 'prompt') and callable(tool.prompt) else "",
-        "max_result_size_chars": getattr(tool, 'max_result_size_chars', 50000),
-        "should_defer": getattr(tool, 'should_defer', False),
+        "input_schema": _safe_json(row.input_schema, {}),
+        "prompt": row.prompt,
+        "ext_info": _safe_json(row.ext_info, {}),
     })
     return d
-
-
-# ═══════════════════════════════════════════════════════════
-# 序列化 — LangChain BaseTool
-# ═══════════════════════════════════════════════════════════
-
-def _lc_tool_to_dict(name: str, tool) -> dict:
-    """将 LangChain BaseTool 实例转为摘要字典"""
-    return {
-        "name": getattr(tool, 'name', name),
-        "description": getattr(tool, 'description', ''),
-        "tags": [],
-        "read_only": True,
-        "aliases": [],
-    }
-
-
-def _lc_tool_to_detail(name: str, tool) -> dict:
-    """将 LangChain BaseTool 实例转为详情字典"""
-    d = _lc_tool_to_dict(name, tool)
-    schema = {}
-    if hasattr(tool, 'args_schema') and tool.args_schema:
-        try:
-            schema = tool.args_schema.model_json_schema()
-        except Exception:
-            pass
-    d.update({
-        "input_schema": schema,
-        "prompt": "",
-        "max_result_size_chars": 50000,
-        "should_defer": False,
-    })
-    return d
-
-
-def _get_tool_description(tool) -> str:
-    """获取工具描述"""
-    if hasattr(tool, 'description'):
-        desc = tool.description
-        if callable(desc):
-            try:
-                # description(input_data) 需要参数，用空 dict
-                import asyncio
-                result = desc({})
-                if asyncio.iscoroutine(result):
-                    return ""
-                return result
-            except Exception:
-                return ""
-        return desc if isinstance(desc, str) else ""
-    return ""

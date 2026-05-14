@@ -96,13 +96,48 @@ class Tool(ABC):
 
 
 class ToolRegistry:
-    """工具注册表 — 工具的唯一真相源"""
+    """工具注册表 — 工具的唯一真相源
 
-    def __init__(self):
+    注册时结合数据库 ai_tool_definition 表进行验证：
+    - 只有数据库中存在且 enabled_flg=1 的工具才会被注册
+    - 数据库中不存在的工具会被跳过并记录警告
+    - 支持 skip_db_check 模式（测试或无数据库环境）
+    """
+
+    def __init__(self, skip_db_check: bool = False):
         self._tools: dict[str, Tool] = {}
         self._alias_map: dict[str, str] = {}
+        self._skip_db_check = skip_db_check
+        self._db_enabled_tools: set[str] | None = None
+
+    def _load_db_config(self) -> set[str]:
+        """从数据库加载已启用的工具 api_key 集合（只加载一次）"""
+        if self._db_enabled_tools is not None:
+            return self._db_enabled_tools
+        try:
+            from src.store.tool_dao import ToolDefinitionDAO
+            rows = ToolDefinitionDAO.list_all(tenant_id=0, enabled_only=True)
+            self._db_enabled_tools = {r.api_key for r in rows}
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "ToolRegistry: 无法加载数据库工具配置，将允许所有工具注册: %s", e
+            )
+            self._db_enabled_tools = None  # 标记为加载失败
+            self._skip_db_check = True  # 降级为不检查
+        return self._db_enabled_tools or set()
 
     def register(self, tool: Tool) -> None:
+        """注册工具 — 结合数据库验证"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if not self._skip_db_check:
+            enabled_tools = self._load_db_config()
+            if enabled_tools and tool.name not in enabled_tools:
+                logger.info("ToolRegistry: 跳过工具 '%s'（数据库中未启用或不存在）", tool.name)
+                return
+
         self._tools[tool.name] = tool
         for alias in tool.aliases:
             self._alias_map[alias] = tool.name
@@ -121,3 +156,8 @@ class ToolRegistry:
     @property
     def all_tools(self) -> list[Tool]:
         return list(self._tools.values())
+
+    def reload_db_config(self) -> None:
+        """重新加载数据库配置（启用/禁用工具后调用）"""
+        self._db_enabled_tools = None
+        self._load_db_config()

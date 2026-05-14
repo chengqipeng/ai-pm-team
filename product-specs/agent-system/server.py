@@ -146,13 +146,6 @@ async def _get_agent(multimodal: bool = False):
             _agent = built
             logger.warning("文本 Agent 初始化完成 (model=%s)", model_name)
 
-        # 注入 ToolRegistry 到 Tool 管理 API
-        try:
-            from src.api.tool_api import set_tool_registry
-            set_tool_registry(reg)
-        except Exception:
-            pass
-
         return built
 
 
@@ -463,25 +456,12 @@ except ImportError as exc:
 # ── 挂载 Tool 工具管理 API ──
 try:
     from src.api import tool_router
-    from src.api.tool_api import set_tool_registry
     app.include_router(tool_router)
-
-    # 启动时立即注册工具（不依赖 Agent 懒加载）
-    from src.tools.base import ToolRegistry
-    from src.tools.crm_tools import register_crm_tools
-    from src.tools.crm_backend import CrmSimulatedBackend
-    _startup_tool_reg = ToolRegistry()
-    _startup_crm_backend = CrmSimulatedBackend()
-    register_crm_tools(_startup_tool_reg, _startup_crm_backend)
-    # 移除不需要展示的工具
-    _startup_tool_reg.unregister("query_metadata")
-    _startup_tool_reg.unregister("query_schema")
-    set_tool_registry(_startup_tool_reg)
-    logger.info("已挂载 Tool 工具管理 API: /api/tools/* (已注册 %d 个工具)", len(_startup_tool_reg.all_tools))
+    logger.info("已挂载 Tool 工具管理 API: /api/tools/*")
 except ImportError as exc:
     logger.warning("Tool 工具管理 API 未启用: %s", exc)
 except Exception as exc:
-    logger.warning("Tool 工具注册失败: %s", exc)
+    logger.warning("Tool 工具管理 API 挂载失败: %s", exc)
 
 
 # ── API 路由 ──

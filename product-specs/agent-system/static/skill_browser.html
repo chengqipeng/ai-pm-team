@@ -139,7 +139,7 @@
       </div>
       <p class="text-xs text-gray-400 mb-4">以下为系统已注册的工具，技能的"允许工具"字段从此列表中选择。工具由代码定义，此处仅供查看。</p>
       <div id="toolList" class="space-y-2"></div>
-      <div id="toolEmpty" class="hidden text-center py-12 text-gray-400 text-sm">Agent 未初始化，暂无工具数据。请先发起一次对话以触发 Agent 加载。</div>
+      <div id="toolEmpty" class="hidden text-center py-12 text-gray-400 text-sm">暂无工具数据</div>
     </div>
   </main>
 </div>
@@ -785,7 +785,7 @@ function renderToolList() {
   const keyword = (document.getElementById('toolSearchInput')?.value || '').toLowerCase();
 
   const filtered = keyword
-    ? allTools.filter(t => t.name.toLowerCase().includes(keyword) || (t.description || '').toLowerCase().includes(keyword))
+    ? allTools.filter(t => t.api_key.toLowerCase().includes(keyword) || t.name.toLowerCase().includes(keyword) || (t.description || '').toLowerCase().includes(keyword))
     : allTools;
 
   document.getElementById('toolCount').textContent = `共 ${filtered.length} 个工具`;
@@ -801,32 +801,88 @@ function renderToolList() {
     const readOnlyBadge = t.read_only
       ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-green-50 text-green-700">只读</span>'
       : '<span class="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">可写</span>';
-    const aliases = t.aliases && t.aliases.length
-      ? `<span class="text-xs text-gray-400 ml-2">别名: ${t.aliases.join(', ')}</span>`
+    const destructiveBadge = t.destructive
+      ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-700">危险</span>'
       : '';
+    const categoryBadge = t.category
+      ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">${t.category}</span>`
+      : '';
+    const enabledClass = t.enabled ? '' : 'opacity-50';
     return `
-      <div class="bg-white rounded-lg border border-gray-200 px-4 py-3 hover:shadow-sm transition-shadow fade-in">
+      <div class="bg-white rounded-lg border border-gray-200 px-4 py-3 hover:shadow-sm transition-shadow fade-in ${enabledClass}">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <code class="text-sm font-semibold text-gray-800 bg-gray-50 px-2 py-0.5 rounded">${t.name}</code>
+            <code class="text-sm font-semibold text-gray-800 bg-gray-50 px-2 py-0.5 rounded">${t.api_key}</code>
+            <span class="text-sm text-gray-600">${t.name}</span>
             ${readOnlyBadge}
-            ${aliases}
+            ${destructiveBadge}
+            ${categoryBadge}
           </div>
-          <button onclick="showToolDetail('${t.name}')" class="text-xs text-blue-600 hover:text-blue-800">详情</button>
+          <div class="flex items-center gap-2">
+            ${!t.enabled ? '<span class="text-[10px] text-gray-400">已禁用</span>' : ''}
+            <button onclick="showToolDetail('${t.api_key}')" class="text-xs text-blue-600 hover:text-blue-800">详情</button>
+          </div>
         </div>
-        ${t.description ? `<p class="text-sm text-gray-500 mt-1">${t.description}</p>` : ''}
+        ${t.description ? `<p class="text-xs text-gray-500 mt-1">${t.description}</p>` : ''}
       </div>
     `;
   }).join('');
 }
 
-async function showToolDetail(name) {
+async function showToolDetail(apiKey) {
   try {
-    const res = await fetch(`${TOOL_API}/${name}`);
+    const res = await fetch(`${TOOL_API}/${apiKey}`);
     const t = await res.json();
-    const schema = t.input_schema ? JSON.stringify(t.input_schema, null, 2) : '(无)';
-    const prompt = t.prompt || '(无)';
-    alert(`工具: ${t.name}\n\n描述: ${t.description || '(无)'}\n\n输入 Schema:\n${schema}\n\nPrompt:\n${prompt}`);
+
+    // 构建参数表格
+    let paramsHtml = '<p class="text-gray-400 text-sm">无参数定义</p>';
+    const schema = t.input_schema;
+    if (schema && schema.properties) {
+      const required = schema.required || [];
+      const rows = Object.entries(schema.properties).map(([key, prop]) => {
+        const isReq = required.includes(key);
+        const typeStr = prop.enum ? prop.enum.join(' | ') : (prop.type || '');
+        return `<tr class="border-b border-gray-100">
+          <td class="py-1.5 pr-3 font-mono text-sm text-gray-800">${key}${isReq ? ' <span class="text-red-500">*</span>' : ''}</td>
+          <td class="py-1.5 pr-3 text-xs text-gray-500">${typeStr}</td>
+          <td class="py-1.5 text-xs text-gray-600">${prop.description || ''}</td>
+        </tr>`;
+      }).join('');
+      paramsHtml = `<table class="w-full"><thead><tr class="text-xs text-gray-400 border-b">
+        <th class="text-left py-1 pr-3">参数名</th><th class="text-left py-1 pr-3">类型</th><th class="text-left py-1">描述</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    // 显示弹框
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 z-[200] flex items-center justify-center';
+    modal.innerHTML = `
+      <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" onclick="this.parentElement.remove()"></div>
+      <div class="relative bg-white rounded-xl shadow-2xl w-[600px] max-h-[80vh] overflow-y-auto z-10">
+        <div class="flex items-center justify-between px-6 py-4 border-b sticky top-0 bg-white">
+          <div>
+            <h3 class="font-semibold text-gray-800">${t.name}</h3>
+            <code class="text-xs text-gray-400">${t.api_key}</code>
+          </div>
+          <button onclick="this.closest('.fixed').remove()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+        </div>
+        <div class="px-6 py-4 space-y-4">
+          <div>
+            <label class="text-xs font-medium text-gray-500">描述</label>
+            <p class="text-sm text-gray-700 mt-1">${t.description || '(无)'}</p>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-500">参数定义</label>
+            <div class="mt-2">${paramsHtml}</div>
+          </div>
+          ${t.prompt ? `<div>
+            <label class="text-xs font-medium text-gray-500">使用说明 (Prompt)</label>
+            <pre class="mt-1 text-xs text-gray-600 bg-gray-50 rounded-lg p-3 whitespace-pre-wrap max-h-48 overflow-y-auto">${t.prompt}</pre>
+          </div>` : ''}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
   } catch (e) {
     alert('加载失败: ' + e.message);
   }
