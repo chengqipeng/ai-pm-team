@@ -102,6 +102,13 @@ async def _get_agent(multimodal: bool = False):
         except Exception as exc:
             logger.warning("从 DB 加载 Skill 失败（Agent 将跳过技能）: %s", exc)
 
+        # 注入 skill_registry 到 SkillService（热加载支持）
+        try:
+            from src.api.skill_api import get_skill_service
+            get_skill_service()._skill_registry = skill_reg
+        except Exception:
+            pass
+
         aux_llm = ChatOpenAI(model="doubao-seed-2-0-lite-260215", api_key=os.environ["DOUBAO_API_KEY"],
                              base_url="https://ark.cn-beijing.volces.com/api/v3/", max_tokens=2048)
         memory_engine = VikingMemoryEngine(
@@ -428,10 +435,22 @@ except ImportError as exc:
 # ── 挂载 Skill 管理 API ──
 try:
     from src.api import skill_router
+    from src.api.skill_api import set_skill_service
+    from src.skills.service import SkillService
     app.include_router(skill_router)
+    # SkillService 初始化（skill_registry 在 Agent 首次加载后注入）
+    set_skill_service(SkillService())
     logger.info("已挂载 Skill 管理 API: /api/skills/*")
 except ImportError as exc:
     logger.warning("Skill 管理 API 未启用: %s", exc)
+
+# ── 挂载 Skill 分类管理 API ──
+try:
+    from src.api import skill_category_router
+    app.include_router(skill_category_router)
+    logger.info("已挂载 Skill 分类管理 API: /api/skill-categories/*")
+except ImportError as exc:
+    logger.warning("Skill 分类管理 API 未启用: %s", exc)
 
 
 # ── API 路由 ──

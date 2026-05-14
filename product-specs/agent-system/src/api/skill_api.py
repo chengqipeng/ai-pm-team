@@ -159,15 +159,21 @@ async def list_skills(
 
 @router.get("/categories")
 async def list_categories():
-    """获取所有分类及其技能数量"""
-    categories = [
-        {"key": "crm", "label": "CRM 业务", "icon": "team"},
-        {"key": "metarepo", "label": "元数据管理", "icon": "database"},
-        {"key": "analysis", "label": "数据分析", "icon": "bar-chart"},
-        {"key": "automation", "label": "自动化", "icon": "robot"},
-        {"key": "custom", "label": "自定义", "icon": "tool"},
+    """获取所有分类及其技能数量（从 ai_skill_category 表动态读取）"""
+    from src.store.skill_category_dao import SkillCategoryDAO
+    rows = SkillCategoryDAO.list_all(tenant_id=0)
+    return [
+        {
+            "key": r.api_key,
+            "label": r.name,
+            "icon": r.icon,
+            "color": r.color,
+            "enabled": bool(r.enabled_flg),
+            "system": bool(r.system_flg),
+            "skill_count": r.skill_count,
+        }
+        for r in rows
     ]
-    return categories
 
 
 # ═══════════════════════════════════════════════════════════

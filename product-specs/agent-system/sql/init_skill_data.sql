@@ -645,3 +645,21 @@ query_metadata(metamodel_api_key="pickOption", entity_api_key="{entity_api_key}"
     0, 0, 0, '{"tags":["metarepo","entity"]}',
     0, 1746489600000, 0, 1746489600000, 0
 ) ON CONFLICT (tenant_id, api_key) WHERE delete_flg = 0 DO NOTHING;
+
+
+-- ═══════════════════════════════════════════════════════════
+-- Skill 分类预置数据
+-- 平台级（tenant_id=0），system_flg=1 不可删除
+-- ═══════════════════════════════════════════════════════════
+
+INSERT INTO ai_skill_category (
+    id, api_key, tenant_id, name, name_key, description, icon, color,
+    sort_num, enabled_flg, system_flg,
+    delete_flg, created_at, created_by, updated_at, updated_by
+) VALUES
+(2000000000000001, 'crm', 0, 'CRM 业务', 'skill.category.crm', 'CRM 业务相关技能，如客户分析、商机管理', '📊', '#1890ff', 10, 1, 1, 0, 1746489600000, 0, 1746489600000, 0),
+(2000000000000002, 'metarepo', 0, '元数据管理', 'skill.category.metarepo', '元模型检查、配置校验、列映射反查等', '🗂️', '#52c41a', 20, 1, 1, 0, 1746489600000, 0, 1746489600000, 0),
+(2000000000000003, 'analysis', 0, '数据分析', 'skill.category.analysis', '多维数据分析、统计报表、趋势洞察', '📈', '#faad14', 30, 1, 1, 0, 1746489600000, 0, 1746489600000, 0),
+(2000000000000004, 'automation', 0, '自动化操作', 'skill.category.automation', '批量处理、定时任务、数据清理等自动化技能', '⚙️', '#f5222d', 40, 1, 1, 0, 1746489600000, 0, 1746489600000, 0),
+(2000000000000005, 'custom', 0, '自定义', 'skill.category.custom', '租户自行创建的技能分类', '🔧', '#722ed1', 100, 1, 1, 0, 1746489600000, 0, 1746489600000, 0)
+ON CONFLICT (tenant_id, api_key) WHERE delete_flg = 0 DO NOTHING;

@@ -298,6 +298,31 @@ CREATE INDEX IF NOT EXISTS idx_skill_def_risk
 CREATE INDEX IF NOT EXISTS idx_skill_def_owner
     ON ai_skill_definition(owner) WHERE delete_flg = 0;
 
+-- 9b. Skill 分类表（可维护的动态分类）
+CREATE TABLE IF NOT EXISTS ai_skill_category (
+    id              BIGINT PRIMARY KEY,
+    api_key         VARCHAR(50) NOT NULL,
+    tenant_id       BIGINT NOT NULL DEFAULT 0,
+    name            VARCHAR(100) NOT NULL DEFAULT '',
+    name_key        VARCHAR(100) NOT NULL DEFAULT '',
+    description     VARCHAR(500) DEFAULT '',
+    icon            VARCHAR(100) DEFAULT '',
+    color           VARCHAR(20) DEFAULT '',
+    sort_num        INT NOT NULL DEFAULT 0,
+    enabled_flg     SMALLINT NOT NULL DEFAULT 1,
+    system_flg      SMALLINT NOT NULL DEFAULT 0,
+    delete_flg      SMALLINT NOT NULL DEFAULT 0,
+    created_at      BIGINT NOT NULL,
+    created_by      BIGINT NOT NULL DEFAULT 0,
+    updated_at      BIGINT NOT NULL,
+    updated_by      BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_skill_category_key
+    ON ai_skill_category(tenant_id, api_key) WHERE delete_flg = 0;
+CREATE INDEX IF NOT EXISTS idx_skill_category_sort
+    ON ai_skill_category(tenant_id, enabled_flg, sort_num) WHERE delete_flg = 0;
+
 -- 10. Skill 版本历史
 CREATE TABLE IF NOT EXISTS ai_skill_version (
     id              BIGINT PRIMARY KEY,

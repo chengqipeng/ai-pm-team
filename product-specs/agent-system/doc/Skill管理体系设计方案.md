@@ -75,9 +75,9 @@ CREATE TABLE IF NOT EXISTS ai_skill_definition (
     sort_num              INT DEFAULT 0,               -- 排序权重
 
     -- 执行配置
-    context               VARCHAR(20) NOT NULL DEFAULT 'inline',  -- inline | fork
-    agent                 VARCHAR(100) DEFAULT '',      -- fork 模式子 Agent
-    model                 VARCHAR(100) DEFAULT '',      -- 指定模型（空=继承）
+    context               VARCHAR(20) NOT NULL DEFAULT 'inline',  -- 系统默认，前端不暴露（inline | fork）
+    agent                 VARCHAR(100) DEFAULT '',      -- 系统默认，前端不暴露（fork 模式子 Agent）
+    model                 VARCHAR(100) DEFAULT '',      -- 系统默认，前端不暴露（指定模型，空=继承）
     allowed_tools         TEXT NOT NULL DEFAULT '[]',   -- JSON: 允许的工具列表
     arguments             TEXT NOT NULL DEFAULT '[]',   -- JSON: 参数名列表
     prompt                TEXT NOT NULL DEFAULT '',     -- Markdown 提示词
@@ -110,15 +110,129 @@ CREATE TABLE IF NOT EXISTS ai_skill_definition (
 );
 ```
 
-### 3.3 Skill 分类体系
+### 3.3 Skill 分类表（ai_skill_category）
 
-| category | 说明 | 示例 |
-|----------|------|------|
-| crm | CRM 业务技能 | customer_360, pipeline_analysis |
-| metarepo | 元数据管理技能 | inspect_metamodel, verify_config |
-| analysis | 数据分析技能 | data_analysis, diagnose |
-| automation | 自动化操作技能 | batch_cleanup |
-| custom | 租户自定义技能 | （用户创建的） |
+分类不再硬编码为枚举值，而是独立存储在 `ai_skill_category` 表中，支持动态维护（增删改排序）。
+
+```sql
+CREATE TABLE IF NOT EXISTS ai_skill_category (
+    -- 主键 & 标识
+    id              BIGINT PRIMARY KEY,
+    api_key         VARCHAR(50) NOT NULL,            -- 分类唯一标识（如 crm / metarepo / analysis）
+    tenant_id       BIGINT NOT NULL DEFAULT 0,       -- 0=平台级预置分类，>0=租户自定义分类
+
+    -- 基本信息
+    name            VARCHAR(100) NOT NULL DEFAULT '', -- 分类展示名（如 "CRM 业务"）
+    name_key        VARCHAR(100) NOT NULL DEFAULT '', -- 国际化 key
+    description     VARCHAR(500) DEFAULT '',          -- 分类说明
+    icon            VARCHAR(100) DEFAULT '',          -- 图标标识（如 antd icon name 或 emoji）
+    color           VARCHAR(20) DEFAULT '',           -- 标签颜色（如 #1890ff）
+
+    -- 控制
+    sort_num        INT NOT NULL DEFAULT 0,          -- 排序权重（越小越靠前）
+    enabled_flg     SMALLINT NOT NULL DEFAULT 1,     -- 1=启用, 0=禁用（禁用后前端筛选栏不展示）
+    system_flg      SMALLINT NOT NULL DEFAULT 0,     -- 1=系统预置（不可删除），0=用户创建
+
+    -- BaseEntity
+    delete_flg      SMALLINT NOT NULL DEFAULT 0,
+    created_at      BIGINT NOT NULL,
+    created_by      BIGINT NOT NULL DEFAULT 0,
+    updated_at      BIGINT NOT NULL,
+    updated_by      BIGINT NOT NULL DEFAULT 0
+);
+
+-- 同一租户下 api_key 唯一
+CREATE UNIQUE INDEX IF NOT EXISTS uk_skill_category_key
+    ON ai_skill_category(tenant_id, api_key) WHERE delete_flg = 0;
+
+-- 排序查询
+CREATE INDEX IF NOT EXISTS idx_skill_category_sort
+    ON ai_skill_category(tenant_id, enabled_flg, sort_num) WHERE delete_flg = 0;
+```
+
+#### 字段说明
+
+| 字段 | 说明 |
+|------|------|
+| api_key | 分类唯一标识，与 ai_skill_definition.category 关联（外键语义，不建物理外键） |
+| tenant_id | 0=平台预置分类（所有租户可见），>0=该租户私有分类 |
+| name | 前端展示名，如 "CRM 业务"、"元数据管理" |
+| icon | 前端图标，支持 Ant Design Icon name 或 emoji |
+| color | 分类标签颜色，用于列表页 Tag 展示 |
+| sort_num | 控制前端筛选 Tab 的排列顺序 |
+| enabled_flg | 禁用后该分类不出现在筛选栏和下拉选项中，但已关联该分类的 Skill 不受影响 |
+| system_flg | 系统预置分类不允许删除，只能编辑名称/图标/排序 |
+
+#### 与 ai_skill_definition 的关系
+
+`ai_skill_definition.category` 存储的是 `ai_skill_category.api_key`，为字符串软关联：
+- 查询 Skill 列表时，前端先调用分类列表接口获取可用分类，再按 category 筛选
+- Skill 创建/编辑时，分类下拉框的选项来自分类列表接口
+- 如果某个分类被删除，已关联该分类的 Skill 的 category 字段不会自动清空（展示为"未分类"）
+
+#### 预置分类初始数据
+
+| api_key | name | icon | sort_num | system_flg |
+|---------|------|------|----------|------------|
+| crm | CRM 业务 | 📊 | 10 | 1 |
+| metarepo | 元数据管理 | 🗂️ | 20 | 1 |
+| analysis | 数据分析 | 📈 | 30 | 1 |
+| automation | 自动化操作 | ⚙️ | 40 | 1 |
+| custom | 自定义 | 🔧 | 100 | 1 |
+
+#### 分类 REST API
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/skill-categories | 分类列表（含排序，前端筛选栏 + 下拉选项共用） |
+| POST | /api/skill-categories | 创建分类 |
+| PUT | /api/skill-categories/{api_key} | 编辑分类（名称/图标/颜色/排序） |
+| DELETE | /api/skill-categories/{api_key} | 删除分类（system_flg=1 不可删） |
+| PUT | /api/skill-categories/sort | 批量更新排序 |
+
+#### 列表响应示例
+
+```json
+GET /api/skill-categories
+
+{
+  "items": [
+    {
+      "api_key": "crm",
+      "name": "CRM 业务",
+      "icon": "📊",
+      "color": "#1890ff",
+      "sort_num": 10,
+      "enabled": true,
+      "system": true,
+      "skill_count": 5
+    },
+    {
+      "api_key": "metarepo",
+      "name": "元数据管理",
+      "icon": "🗂️",
+      "color": "#52c41a",
+      "sort_num": 20,
+      "enabled": true,
+      "system": true,
+      "skill_count": 3
+    }
+  ]
+}
+```
+
+#### 创建分类请求示例
+
+```json
+POST /api/skill-categories
+{
+  "api_key": "reporting",
+  "name": "报表生成",
+  "icon": "📋",
+  "color": "#722ed1",
+  "sort_num": 50
+}
+```
 
 ### 3.4 Skill 状态模型
 
@@ -145,7 +259,7 @@ CREATE TABLE IF NOT EXISTS ai_skill_definition (
 | PUT | /api/skills/{api_key}/toggle | 启用/禁用切换 |
 | DELETE | /api/skills/{api_key} | 软删除 |
 | POST | /api/skills/{api_key}/clone | 克隆 |
-| GET | /api/skills/categories | 分类列表 |
+| GET | /api/skill-categories | 分类列表（独立分类管理，见 3.3 节） |
 | GET | /api/skills/stats | 执行统计概览 |
 | POST | /api/skills/{api_key}/test | 测试执行（dry-run） |
 
@@ -162,9 +276,6 @@ POST /api/skills
   "when_to_use": "客户健康|健康度|活跃度评估",
   "category": "crm",
   "tags": ["account", "health", "scoring"],
-  "context": "fork",
-  "agent": "",
-  "model": "",
   "allowed_tools": ["query_data", "analyze_data"],
   "arguments": ["account_id"],
   "prompt": "你是客户健康度评估专家...\n\n## 步骤 1: ...",
@@ -191,7 +302,6 @@ GET /api/skills?category=crm&enabled=true&page=1&page_size=20
       "description": "生成客户 360 度全景视图...",
       "category": "crm",
       "tags": ["account"],
-      "context": "inline",
       "risk_level": "read_only",
       "enabled": true,
       "version": "1.0.0",
@@ -228,126 +338,187 @@ PUT /api/skills/customer_health_check/toggle
 
 ### 5.1 页面结构
 
-```
-/admin/skills                    — 技能列表页
-/admin/skills/create             — 创建技能页
-/admin/skills/:apiKey            — 技能详情/编辑页
-/admin/skills/:apiKey/logs       — 执行日志页
-```
-
-### 5.2 技能列表页
+整体采用左侧菜单 + 右侧内容区的布局，左侧菜单区分"技能列表"和"分类管理"两个功能入口。
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ 技能管理                                          [+ 创建技能]   │
-├─────────────────────────────────────────────────────────────────┤
-│ [全部] [CRM] [元数据] [分析] [自动化] [自定义]    🔍 搜索...    │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│ ┌─────────────────────────────────────────────────────────────┐ │
-│ │ 📊 customer_360          v1.0.0  [🟢 启用 ▼]               │ │
-│ │ 客户 360 全景视图                                           │ │
-│ │ inline | read_only | 执行 42 次 | 成功率 90%                │ │
-│ │                                         [编辑] [克隆] [删除]│ │
-│ └─────────────────────────────────────────────────────────────┘ │
-│                                                                 │
-│ ┌─────────────────────────────────────────────────────────────┐ │
-│ │ 🔍 diagnose              v1.0.0  [🟢 启用 ▼]               │ │
-│ │ 系统化诊断业务数据异常或配置问题                              │ │
-│ │ inline | read_only | 执行 15 次 | 成功率 87%                │ │
-│ │                                         [编辑] [克隆] [删除]│ │
-│ └─────────────────────────────────────────────────────────────┘ │
-│                                                                 │
-│ ┌─────────────────────────────────────────────────────────────┐ │
-│ │ ⚠️ batch_cleanup          v1.0.0  [⚪ 禁用 ▼]               │ │
-│ │ 批量清理过期或无效的业务数据                                  │ │
-│ │ fork | destructive | 执行 3 次 | 成功率 100%                │ │
-│ │                                         [编辑] [克隆] [删除]│ │
-│ └─────────────────────────────────────────────────────────────┘ │
-│                                                                 │
-│                        [1] [2] [3] ...                          │
-└─────────────────────────────────────────────────────────────────┘
+/admin/skills                    — 技能管理（左侧菜单 + 右侧内容区）
+/admin/skills/list               — 技能列表（默认）
+/admin/skills/list/:apiKey       — 技能详情/编辑
+/admin/skills/list/:apiKey/logs  — 执行日志
+/admin/skills/categories         — 分类管理
 ```
 
-### 5.3 创建/编辑页
+### 5.2 整体布局
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ 创建技能                                    [保存草稿] [发布]    │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│ ┌─ 基本信息 ──────────────────────────────────────────────────┐ │
-│ │ API Key:     [customer_health_check    ]                    │ │
-│ │ 名称:        [客户健康度检查            ]                    │ │
-│ │ 描述:        [评估客户的活跃度...       ]                    │ │
-│ │ 触发关键词:  [客户健康|健康度|活跃度评估]                    │ │
-│ │ 分类:        [CRM ▼]                                        │ │
-│ │ 标签:        [account] [health] [+ 添加]                    │ │
-│ │ 归属:        [CRM-Platform             ]                    │ │
-│ └─────────────────────────────────────────────────────────────┘ │
-│                                                                 │
-│ ┌─ 执行配置 ──────────────────────────────────────────────────┐ │
-│ │ 执行模式:    (●) inline  ( ) fork                           │ │
-│ │ 子 Agent:    [                         ] (fork 模式可选)    │ │
-│ │ 指定模型:    [                         ] (空=继承主模型)    │ │
-│ │ 允许工具:    [query_data] [analyze_data] [+ 添加]           │ │
-│ │ 参数列表:    [account_id] [+ 添加]                          │ │
-│ └─────────────────────────────────────────────────────────────┘ │
-│                                                                 │
-│ ┌─ 安全配置 ──────────────────────────────────────────────────┐ │
-│ │ 风险等级:    (●) read_only  ( ) mutating  ( ) destructive   │ │
-│ │ 需要确认:    [ ] 是                                         │ │
-│ │ 最大工具调用: [15]                                          │ │
-│ │ 超时(ms):    [45000]                                        │ │
-│ └─────────────────────────────────────────────────────────────┘ │
-│                                                                 │
-│ ┌─ 提示词（Prompt） ─────────────────────────────────────────┐ │
-│ │ ┌─────────────────────────────────────────────────────────┐ │ │
-│ │ │ 你是客户健康度评估专家。请对客户 {account_id} 进行...   │ │ │
-│ │ │                                                         │ │ │
-│ │ │ ## 步骤 1: 获取客户基本信息                             │ │ │
-│ │ │ 调用 query_data(action="get", ...)                      │ │ │
-│ │ │                                                         │ │ │
-│ │ │ ## 步骤 2: 分析商机活跃度                               │ │ │
-│ │ │ ...                                                     │ │ │
-│ │ └─────────────────────────────────────────────────────────┘ │ │
-│ │ Markdown 编辑器 | 支持 {参数} 占位符高亮                    │ │
-│ └─────────────────────────────────────────────────────────────┘ │
-│                                                                 │
-│ ┌─ 测试 ─────────────────────────────────────────────────────┐ │
-│ │ account_id: [ACC001        ]          [▶ 测试执行]          │ │
-│ │                                                             │ │
-│ │ 执行结果预览:                                               │ │
-│ │ ┌─────────────────────────────────────────────────────────┐ │ │
-│ │ │ (测试输出将显示在这里)                                   │ │ │
-│ │ └─────────────────────────────────────────────────────────┘ │ │
-│ └─────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 技能管理                                                                │
+├────────────┬────────────────────────────────────────────────────────────┤
+│            │                                                            │
+│  左侧菜单  │                    右侧内容区                               │
+│            │                                                            │
+│ ┌────────┐ │  （根据左侧菜单选中项切换内容）                              │
+│ │📋 技能  │ │                                                            │
+│ │  列表   │ │                                                            │
+│ └────────┘ │                                                            │
+│            │                                                            │
+│ ┌────────┐ │                                                            │
+│ │🏷️ 分类 │ │                                                            │
+│ │  管理   │ │                                                            │
+│ └────────┘ │                                                            │
+│            │                                                            │
+├────────────┴────────────────────────────────────────────────────────────┤
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 5.4 执行日志页
+### 5.3 技能列表页（左侧选中"技能列表"）
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ customer_360 — 执行日志                              [← 返回]   │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│ 2025-05-10 14:32  ✅ 成功  耗时 12.3s  tokens: 2840            │
-│ ├── 参数: account_id=ACC001                                     │
-│ ├── 工具调用: query_data×3, analyze_data×1                      │
-│ └── [查看详情]                                                  │
-│                                                                 │
-│ 2025-05-10 11:05  ✅ 成功  耗时 15.1s  tokens: 3200            │
-│ ├── 参数: account_id=ACC007                                     │
-│ ├── 工具调用: query_data×4, analyze_data×2                      │
-│ └── [查看详情]                                                  │
-│                                                                 │
-│ 2025-05-09 16:48  ❌ 失败  耗时 45.0s  tokens: 1200            │
-│ ├── 参数: account_id=ACC999                                     │
-│ ├── 错误: 超时                                                  │
-│ └── [查看详情]                                                  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌────────────┬────────────────────────────────────────────────────────────┐
+│            │ 技能列表                                    [+ 创建技能]    │
+│ ┌────────┐ ├────────────────────────────────────────────────────────────┤
+│ │▶ 技能  │ │ [全部] [CRM] [元数据] [分析] [自动化] [自定义] 🔍 搜索... │
+│ │  列表  │ ├────────────────────────────────────────────────────────────┤
+│ └────────┘ │                                                            │
+│            │ ┌────────────────────────────────────────────────────────┐ │
+│ ┌────────┐ │ │ 📊 customer_360          v1.0.0  [🟢 启用 ▼]         │ │
+│ │  分类  │ │ │ 客户 360 全景视图                                     │ │
+│ │  管理  │ │ │ CRM | read_only | 执行 42 次 | 成功率 90%             │ │
+│ └────────┘ │ │                                     [编辑] [克隆] [删除]│ │
+│            │ └────────────────────────────────────────────────────────┘ │
+│            │                                                            │
+│            │ ┌────────────────────────────────────────────────────────┐ │
+│            │ │ 🔍 diagnose              v1.0.0  [🟢 启用 ▼]         │ │
+│            │ │ 系统化诊断业务数据异常或配置问题                        │ │
+│            │ │ CRM | read_only | 执行 15 次 | 成功率 87%             │ │
+│            │ │                                     [编辑] [克隆] [删除]│ │
+│            │ └────────────────────────────────────────────────────────┘ │
+│            │                                                            │
+│            │ ┌────────────────────────────────────────────────────────┐ │
+│            │ │ ⚠️ batch_cleanup          v1.0.0  [⚪ 禁用 ▼]         │ │
+│            │ │ 批量清理过期或无效的业务数据                            │ │
+│            │ │ 自动化 | destructive | 执行 3 次 | 成功率 100%         │ │
+│            │ │                                     [编辑] [克隆] [删除]│ │
+│            │ └────────────────────────────────────────────────────────┘ │
+│            │                                                            │
+│            │                      [1] [2] [3] ...                       │
+└────────────┴────────────────────────────────────────────────────────────┘
+```
+
+### 5.4 分类管理页（左侧选中"分类管理"）
+
+```
+┌────────────┬────────────────────────────────────────────────────────────┐
+│            │ 分类管理                                    [+ 新增分类]    │
+│ ┌────────┐ ├────────────────────────────────────────────────────────────┤
+│ │  技能  │ │                                                            │
+│ │  列表  │ │  排序  │ 图标 │ 分类名称     │ 技能数 │ 状态 │ 操作       │
+│ └────────┘ │ ──────┼──────┼──────────────┼────────┼──────┼─────────── │
+│            │  ⠿ 1  │  📊  │ CRM 业务     │   5    │ 启用 │ 编辑       │
+│ ┌────────┐ │  ⠿ 2  │  🗂️  │ 元数据管理   │   3    │ 启用 │ 编辑       │
+│ │▶ 分类  │ │  ⠿ 3  │  📈  │ 数据分析     │   2    │ 启用 │ 编辑       │
+│ │  管理  │ │  ⠿ 4  │  ⚙️  │ 自动化操作   │   1    │ 启用 │ 编辑       │
+│ └────────┘ │  ⠿ 5  │  🔧  │ 自定义       │   0    │ 启用 │ 编辑       │
+│            │  ⠿ 6  │  📋  │ 报表生成     │   0    │ 禁用 │ 编辑 删除  │
+│            │                                                            │
+│            │ ────────────────────────────────────────────────────────── │
+│            │ 💡 拖拽 ⠿ 图标可调整分类排序                               │
+│            │ 💡 系统预置分类（🔒）不可删除，仅可编辑名称/图标/颜色       │
+│            │                                                            │
+└────────────┴────────────────────────────────────────────────────────────┘
+```
+
+### 5.5 分类编辑弹框
+
+```
+┌─────────────────────────────────────────────┐
+│ 编辑分类                              [✕]   │
+├─────────────────────────────────────────────┤
+│                                             │
+│  API Key:    [crm              ] 🔒不可改   │
+│  分类名称:   [CRM 业务          ]           │
+│  图标:       [📊 ▼]  (emoji 选择器)        │
+│  颜色:       [■ #1890ff ▼]  (色板选择)     │
+│  描述:       [CRM 业务相关技能   ]          │
+│  状态:       (●) 启用  ( ) 禁用             │
+│                                             │
+├─────────────────────────────────────────────┤
+│                        [取消]  [保存]        │
+└─────────────────────────────────────────────┘
+```
+
+### 5.6 创建/编辑技能页
+
+```
+┌────────────┬────────────────────────────────────────────────────────────┐
+│            │ 创建技能                              [取消]  [保存]        │
+│ ┌────────┐ ├────────────────────────────────────────────────────────────┤
+│ │▶ 技能  │ │                                                            │
+│ │  列表  │ │ ┌─ 基本信息 ────────────────────────────────────────────┐ │
+│ └────────┘ │ │ API Key:     [customer_health_check    ]              │ │
+│            │ │ 名称:        [客户健康度检查            ]              │ │
+│ ┌────────┐ │ │ 描述:        [评估客户的活跃度...       ]              │ │
+│ │  分类  │ │ │ 触发关键词:  [客户健康|健康度|活跃度评估]              │ │
+│ │  管理  │ │ │ 分类:        [CRM ▼]                                  │ │
+│ └────────┘ │ │ 标签:        [account] [health] [+ 添加]              │ │
+│            │ │ 归属:        [CRM-Platform             ]              │ │
+│            │ └────────────────────────────────────────────────────────┘ │
+│            │                                                            │
+│            │ ┌─ 执行配置 ────────────────────────────────────────────┐ │
+│            │ │ 允许工具:    [query_data] [analyze_data] [+ 添加]     │ │
+│            │ │ 参数列表:    [account_id] [+ 添加]                    │ │
+│            │ └────────────────────────────────────────────────────────┘ │
+│            │                                                            │
+│            │ ┌─ 安全配置 ────────────────────────────────────────────┐ │
+│            │ │ 风险等级:    (●) read_only  ( ) mutating  ( ) destru. │ │
+│            │ │ 需要确认:    [ ] 是                                    │ │
+│            │ │ 最大工具调用: [15]                                     │ │
+│            │ │ 超时(ms):    [45000]                                   │ │
+│            │ └────────────────────────────────────────────────────────┘ │
+│            │                                                            │
+│            │ ┌─ 提示词（Prompt） ────────────────────────────────────┐ │
+│            │ │ ┌──────────────────────────────────────────────────┐  │ │
+│            │ │ │ 你是客户健康度评估专家。请对客户 {account_id}... │  │ │
+│            │ │ │                                                  │  │ │
+│            │ │ │ ## 步骤 1: 获取客户基本信息                      │  │ │
+│            │ │ │ 调用 query_data(action="get", ...)               │  │ │
+│            │ │ └──────────────────────────────────────────────────┘  │ │
+│            │ │ Markdown 编辑器 | 支持 {参数} 占位符高亮              │ │
+│            │ └────────────────────────────────────────────────────────┘ │
+│            │                                                            │
+│            │ ┌─ 测试 ────────────────────────────────────────────────┐ │
+│            │ │ account_id: [ACC001        ]        [▶ 测试执行]      │ │
+│            │ │ 执行结果预览:                                          │ │
+│            │ │ ┌──────────────────────────────────────────────────┐  │ │
+│            │ │ │ (测试输出将显示在这里)                            │  │ │
+│            │ │ └──────────────────────────────────────────────────┘  │ │
+│            │ └────────────────────────────────────────────────────────┘ │
+└────────────┴────────────────────────────────────────────────────────────┘
+```
+
+### 5.7 执行日志页
+
+```
+┌────────────┬────────────────────────────────────────────────────────────┐
+│            │ customer_360 — 执行日志                        [← 返回]    │
+│ ┌────────┐ ├────────────────────────────────────────────────────────────┤
+│ │▶ 技能  │ │                                                            │
+│ │  列表  │ │ 2025-05-10 14:32  ✅ 成功  耗时 12.3s  tokens: 2840      │
+│ └────────┘ │ ├── 参数: account_id=ACC001                                │
+│            │ ├── 工具调用: query_data×3, analyze_data×1                  │
+│ ┌────────┐ │ └── [查看详情]                                             │
+│ │  分类  │ │                                                            │
+│ │  管理  │ │ 2025-05-10 11:05  ✅ 成功  耗时 15.1s  tokens: 3200      │
+│ └────────┘ │ ├── 参数: account_id=ACC007                                │
+│            │ ├── 工具调用: query_data×4, analyze_data×2                  │
+│            │ └── [查看详情]                                             │
+│            │                                                            │
+│            │ 2025-05-09 16:48  ❌ 失败  耗时 45.0s  tokens: 1200      │
+│            │ ├── 参数: account_id=ACC999                                │
+│            │ ├── 错误: 超时                                             │
+│            │ └── [查看详情]                                             │
+│            │                                                            │
+└────────────┴────────────────────────────────────────────────────────────┘
 ```
 
 ## 6. 后端实现方案
@@ -419,23 +590,32 @@ class SkillService:
 
 ```
 src/pages/skills/
-├── index.tsx                  — 列表页
-├── SkillCreate.tsx            — 创建页
-├── SkillDetail.tsx            — 详情/编辑页
-├── SkillLogs.tsx              — 执行日志
+├── layout.tsx                 — 整体布局（左侧菜单 + 右侧内容区）
+├── SkillList.tsx              — 技能列表页
+├── SkillCreate.tsx            — 创建技能页
+├── SkillDetail.tsx            — 技能详情/编辑页
+├── SkillLogs.tsx              — 执行日志页
+├── categories/
+│   ├── CategoryList.tsx       — 分类管理页（表格 + 拖拽排序）
+│   ├── CategoryFormModal.tsx  — 分类新增/编辑弹框
+│   └── hooks/
+│       ├── useCategories.ts   — 分类列表查询
+│       └── useCategoryMutation.ts — 分类 CRUD mutation
 ├── components/
-│   ├── SkillCard.tsx          — 列表卡片
-│   ├── SkillForm.tsx          — 表单（创建/编辑共用）
+│   ├── SideMenu.tsx           — 左侧菜单组件（技能列表 / 分类管理）
+│   ├── SkillCard.tsx          — 技能列表卡片
+│   ├── SkillForm.tsx          — 技能表单（创建/编辑共用）
 │   ├── PromptEditor.tsx       — Prompt Markdown 编辑器
 │   ├── ArgumentsEditor.tsx    — 参数列表编辑
 │   ├── ToolSelector.tsx       — 工具选择器
 │   ├── SkillTestPanel.tsx     — 测试面板
 │   ├── EnableSwitch.tsx       — 启用/禁用开关
-│   └── CategoryFilter.tsx     — 分类筛选
+│   ├── CategoryFilter.tsx     — 分类筛选 Tab（数据来自 useCategories）
+│   └── CategorySelect.tsx     — 分类下拉选择器（Skill 表单中使用）
 ├── hooks/
-│   ├── useSkills.ts           — 列表查询
-│   ├── useSkillDetail.ts      — 详情查询
-│   ├── useSkillMutation.ts    — 创建/编辑/启用禁用等 mutation
+│   ├── useSkills.ts           — 技能列表查询
+│   ├── useSkillDetail.ts      — 技能详情查询
+│   ├── useSkillMutation.ts    — 技能 CRUD mutation
 │   └── useSkillTest.ts        — 测试执行
 └── types.ts                   — TypeScript 类型定义
 ```
@@ -444,16 +624,50 @@ src/pages/skills/
 
 ```typescript
 // types.ts
+
+// ── Skill 分类（动态，来自 ai_skill_category 表）──
+export interface SkillCategory {
+  api_key: string;
+  name: string;
+  name_key: string;
+  description: string;
+  icon: string;
+  color: string;
+  sort_num: number;
+  enabled: boolean;
+  system: boolean;        // system_flg=1 的分类不可删除
+  skill_count?: number;   // 列表接口返回时附带该分类下的技能数量
+  tenant_id: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface SkillCategoryCreateRequest {
+  api_key: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  color?: string;
+  sort_num?: number;
+}
+
+export interface SkillCategoryUpdateRequest {
+  name?: string;
+  description?: string;
+  icon?: string;
+  color?: string;
+  sort_num?: number;
+  enabled?: boolean;
+}
+
+// ── Skill 定义 ──
 export interface Skill {
   api_key: string;
   name: string;
   description: string;
   when_to_use: string;
-  category: SkillCategory;
+  category: string;       // 关联 SkillCategory.api_key（动态值，非硬编码枚举）
   tags: string[];
-  context: 'inline' | 'fork';
-  agent: string;
-  model: string;
   allowed_tools: string[];
   arguments: string[];
   prompt: string;
@@ -472,18 +686,13 @@ export interface Skill {
   updated_at: number;
 }
 
-export type SkillCategory = 'crm' | 'metarepo' | 'analysis' | 'automation' | 'custom';
-
 export interface SkillCreateRequest {
   api_key: string;
   name: string;
   description: string;
   when_to_use?: string;
-  category?: SkillCategory;
+  category?: string;      // 关联 SkillCategory.api_key
   tags?: string[];
-  context?: 'inline' | 'fork';
-  agent?: string;
-  model?: string;
   allowed_tools?: string[];
   arguments?: string[];
   prompt: string;
@@ -502,17 +711,21 @@ export interface SkillToggleRequest {
 
 ### Phase 1: 后端 API 完善（2天）
 
-1. DDL 迁移脚本 — 新增 category/tags/icon/sort_num/enabled_flg 字段
-2. 新增 `src/skills/service.py` — SkillService 业务逻辑层
-3. 扩展 `src/api/skill_api.py` — 补全 POST/PUT/DELETE/toggle 接口
-4. 扩展 `src/store/skill_dao.py` — 补全写入方法，load_from_db 改为检查 enabled_flg
-5. 热加载机制 — 启用/禁用后自动刷新 SkillRegistry
+1. DDL 迁移脚本 — 新增 ai_skill_category 表 + ai_skill_definition 新增 category/tags/icon/sort_num/enabled_flg 字段
+2. 分类初始化数据 — 插入 5 个系统预置分类（crm/metarepo/analysis/automation/custom）
+3. 新增 `src/skills/category_service.py` — 分类 CRUD 业务逻辑层
+4. 新增 `src/api/skill_category_api.py` — 分类 REST API（GET/POST/PUT/DELETE/排序）
+5. 新增 `src/skills/service.py` — SkillService 业务逻辑层
+6. 扩展 `src/api/skill_api.py` — 补全 POST/PUT/DELETE/toggle 接口
+7. 扩展 `src/store/skill_dao.py` — 补全写入方法，load_from_db 改为检查 enabled_flg
+8. 热加载机制 — 启用/禁用后自动刷新 SkillRegistry
 
 ### Phase 2: 前端管理页面（3天）
 
-1. 技能列表页 — 分类筛选 + 搜索 + 分页 + 启用/禁用开关
-2. 创建/编辑页 — 表单 + Prompt 编辑器
-3. 测试面板 — 填入参数 → 调用测试接口 → 展示结果
+1. 分类管理页 — 分类列表 + 新增/编辑弹框 + 拖拽排序 + 删除（系统预置不可删）
+2. 技能列表页 — 分类筛选（数据来自分类接口）+ 搜索 + 分页 + 启用/禁用开关
+3. 创建/编辑页 — 表单 + 分类下拉选择器（数据来自分类接口）+ Prompt 编辑器
+4. 测试面板 — 填入参数 → 调用测试接口 → 展示结果
 
 ### Phase 3: 增强功能（2天）
 

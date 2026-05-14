@@ -3,155 +3,513 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Skill 技能管理</title>
+<title>技能管理</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
   .fade-in { animation: fadeIn 0.2s ease-in; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-  .prompt-content { max-height: 500px; overflow-y: auto; }
-  .prompt-content h1,.prompt-content h2,.prompt-content h3 { font-weight: 600; margin-top: 1em; margin-bottom: 0.5em; }
-  .prompt-content h2 { font-size: 1.1em; color: #1e40af; }
-  .prompt-content h3 { font-size: 1em; color: #4338ca; }
-  .prompt-content ul,.prompt-content ol { padding-left: 1.5em; margin: 0.5em 0; }
-  .prompt-content li { margin: 0.25em 0; }
-  .prompt-content code { background: #f1f5f9; padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.9em; }
-  .prompt-content pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.75em; overflow-x: auto; margin: 0.5em 0; }
-  .prompt-content table { border-collapse: collapse; width: 100%; margin: 0.5em 0; }
-  .prompt-content th,.prompt-content td { border: 1px solid #e2e8f0; padding: 0.4em 0.6em; text-align: left; font-size: 0.85em; }
-  .prompt-content th { background: #f8fafc; font-weight: 600; }
+  .prompt-editor { min-height: 300px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.6; }
+  .prompt-preview { max-height: 400px; overflow-y: auto; }
+  .prompt-preview h2 { font-size: 1.1em; color: #1e40af; font-weight: 600; margin-top: 1em; }
+  .prompt-preview h3 { font-size: 1em; color: #4338ca; font-weight: 600; margin-top: 0.8em; }
+  .prompt-preview ul,.prompt-preview ol { padding-left: 1.5em; margin: 0.5em 0; }
+  .prompt-preview code { background: #f1f5f9; padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.9em; }
+  .prompt-preview pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.75em; overflow-x: auto; }
+  .toggle-switch { position: relative; width: 44px; height: 24px; cursor: pointer; }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider { position: absolute; inset: 0; background: #d1d5db; border-radius: 12px; transition: 0.2s; }
+  .toggle-slider:before { content: ''; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: 0.2s; }
+  .toggle-switch input:checked + .toggle-slider { background: #22c55e; }
+  .toggle-switch input:checked + .toggle-slider:before { transform: translateX(20px); }
+  .modal-overlay { background: rgba(0,0,0,0.4); backdrop-filter: blur(2px); }
+  .side-menu-item { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 8px; cursor: pointer; transition: all 0.15s; font-size: 14px; color: #4b5563; }
+  .side-menu-item:hover { background: #f3f4f6; color: #1f2937; }
+  .side-menu-item.active { background: #eff6ff; color: #2563eb; font-weight: 500; }
+  .category-row { display: grid; grid-template-columns: 32px 40px 1fr 60px 60px 80px; align-items: center; padding: 12px 16px; border-bottom: 1px solid #f3f4f6; }
+  .category-row:hover { background: #f9fafb; }
+  .drag-handle { cursor: grab; color: #9ca3af; font-size: 16px; }
+  .drag-handle:active { cursor: grabbing; }
 </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-gray-50 min-h-screen flex flex-col">
 
 <!-- 顶部导航 -->
 <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
-  <div class="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+  <div class="px-6 py-3 flex items-center justify-between">
     <div class="flex items-center gap-3">
       <span class="text-xl">⚡</span>
-      <h1 class="text-lg font-semibold text-gray-800">Skill 技能管理</h1>
-      <span id="skillCount" class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">0</span>
+      <h1 class="text-lg font-semibold text-gray-800">技能管理</h1>
     </div>
-    <div class="flex items-center gap-3">
-      <input id="searchInput" type="text" placeholder="搜索技能名称 / 描述..."
-             class="w-64 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200">
-      <select id="statusFilter" class="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none">
-        <option value="">全部状态</option>
-        <option value="published">已发布</option>
-        <option value="draft">草稿</option>
-        <option value="deprecated">已废弃</option>
-      </select>
-      <a href="/" class="text-sm text-gray-500 hover:text-blue-600">← 返回对话</a>
-    </div>
+    <a href="/" class="text-sm text-gray-500 hover:text-blue-600">← 返回首页</a>
   </div>
 </header>
 
-<!-- 主体：左列表 + 右详情 -->
-<div class="max-w-7xl mx-auto px-6 py-6 flex gap-6" style="height: calc(100vh - 60px);">
+<!-- 主体：左侧菜单 + 右侧内容 -->
+<div class="flex flex-1 overflow-hidden">
+  <!-- 左侧菜单 -->
+  <aside class="w-48 bg-white border-r border-gray-200 p-4 flex-shrink-0">
+    <nav class="space-y-1">
+      <div class="side-menu-item active" data-page="skills" onclick="switchPage('skills')">
+        <span>📋</span><span>技能列表</span>
+      </div>
+      <div class="side-menu-item" data-page="categories" onclick="switchPage('categories')">
+        <span>🏷️</span><span>分类管理</span>
+      </div>
+    </nav>
+  </aside>
 
-  <!-- 左侧列表 -->
-  <div class="w-[380px] flex-shrink-0 overflow-y-auto">
-    <div id="skillList" class="space-y-2"></div>
-    <div id="emptyState" class="hidden text-center py-12 text-gray-400 text-sm">
-      暂无技能数据
-    </div>
-  </div>
-
-  <!-- 右侧详情 -->
-  <div class="flex-1 overflow-y-auto">
-    <div id="detailPanel" class="hidden fade-in">
-      <!-- 头部 -->
-      <div class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
-        <div class="flex items-start justify-between">
-          <div>
-            <h2 id="detailName" class="text-xl font-bold text-gray-800"></h2>
-            <p id="detailDesc" class="text-sm text-gray-500 mt-1"></p>
-          </div>
-          <div class="flex gap-2">
-            <span id="detailStatus" class="px-2 py-0.5 rounded text-xs font-medium"></span>
-            <span id="detailContext" class="px-2 py-0.5 rounded text-xs font-medium bg-purple-50 text-purple-700"></span>
-          </div>
+  <!-- 右侧内容区 -->
+  <main class="flex-1 overflow-y-auto">
+    <!-- 技能列表页 -->
+    <div id="page-skills" class="p-6">
+      <!-- 顶部操作栏 -->
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <span id="skillCount" class="text-sm text-gray-500">共 0 个技能</span>
         </div>
-        <!-- 元信息 -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-gray-100">
-          <div><span class="text-[10px] text-gray-400 uppercase">版本</span><p id="detailVersion" class="text-sm font-medium text-gray-700"></p></div>
-          <div><span class="text-[10px] text-gray-400 uppercase">Owner</span><p id="detailOwner" class="text-sm font-medium text-gray-700"></p></div>
-          <div><span class="text-[10px] text-gray-400 uppercase">风险等级</span><p id="detailRisk" class="text-sm font-medium text-gray-700"></p></div>
-          <div><span class="text-[10px] text-gray-400 uppercase">超时</span><p id="detailTimeout" class="text-sm font-medium text-gray-700"></p></div>
-        </div>
-        <!-- 统计 -->
-        <div class="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-100">
-          <div class="text-center"><span class="text-lg font-bold text-blue-600" id="detailExecCount">0</span><p class="text-[10px] text-gray-400">执行次数</p></div>
-          <div class="text-center"><span class="text-lg font-bold text-green-600" id="detailSuccessRate">-</span><p class="text-[10px] text-gray-400">成功率</p></div>
-          <div class="text-center"><span class="text-lg font-bold text-amber-600" id="detailAvgDuration">-</span><p class="text-[10px] text-gray-400">平均耗时</p></div>
+        <div class="flex items-center gap-3">
+          <input id="searchInput" type="text" placeholder="搜索技能..."
+                 class="w-52 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200">
+          <button id="btnCreate" onclick="openCreate()" class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+            + 创建技能
+          </button>
         </div>
       </div>
+      <!-- 分类筛选 Tab -->
+      <div id="categoryTabs" class="flex items-center gap-1 mb-4 flex-wrap">
+        <button class="px-3 py-1 text-sm rounded-full bg-blue-100 text-blue-700 font-medium" data-cat="" onclick="filterByCategory('')">全部</button>
+      </div>
+      <!-- 统计栏 -->
+      <div class="grid grid-cols-4 gap-3 mb-4">
+        <div class="bg-white rounded-lg border p-3 text-center">
+          <div class="text-xl font-bold text-gray-800" id="statTotal">-</div>
+          <div class="text-xs text-gray-500">技能总数</div>
+        </div>
+        <div class="bg-white rounded-lg border p-3 text-center">
+          <div class="text-xl font-bold text-green-600" id="statEnabled">-</div>
+          <div class="text-xs text-gray-500">已启用</div>
+        </div>
+        <div class="bg-white rounded-lg border p-3 text-center">
+          <div class="text-xl font-bold text-gray-800" id="statExec">-</div>
+          <div class="text-xs text-gray-500">总执行</div>
+        </div>
+        <div class="bg-white rounded-lg border p-3 text-center">
+          <div class="text-xl font-bold text-blue-600" id="statRate">-</div>
+          <div class="text-xs text-gray-500">成功率</div>
+        </div>
+      </div>
+      <!-- 列表 -->
+      <div id="skillList" class="space-y-3"></div>
+      <div id="emptyState" class="hidden text-center py-16 text-gray-400">暂无技能数据</div>
+    </div>
 
-      <!-- 参数 & 工具 -->
-      <div class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
-        <h3 class="text-sm font-semibold text-gray-700 mb-3">参数 & 工具</h3>
+    <!-- 分类管理页 -->
+    <div id="page-categories" class="p-6 hidden">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-lg font-semibold text-gray-800">分类管理</h2>
+        <button onclick="openCategoryForm()" class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+          + 新增分类
+        </button>
+      </div>
+      <!-- 分类表格 -->
+      <div class="bg-white rounded-lg border">
+        <div class="category-row font-medium text-xs text-gray-500 border-b border-gray-200" style="background:#f9fafb;">
+          <div>排序</div><div>图标</div><div>分类名称</div><div>技能数</div><div>状态</div><div>操作</div>
+        </div>
+        <div id="categoryList"></div>
+      </div>
+      <p class="text-xs text-gray-400 mt-3">💡 系统预置分类（🔒）不可删除，仅可编辑名称/图标/颜色</p>
+    </div>
+  </main>
+</div>
+
+<!-- 创建/编辑技能 Modal -->
+<div id="formModal" class="fixed inset-0 z-[100] hidden">
+  <div class="modal-overlay absolute inset-0" onclick="closeForm()"></div>
+  <div class="absolute inset-4 md:inset-y-4 md:inset-x-[10%] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden z-10">
+    <div class="flex items-center justify-between px-6 py-4 border-b">
+      <h2 id="formTitle" class="text-lg font-semibold">创建技能</h2>
+      <div class="flex gap-2">
+        <button onclick="testSkill()" class="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50">▶ 测试</button>
+        <button onclick="saveSkill()" class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">保存</button>
+        <button onclick="closeForm()" class="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50">取消</button>
+      </div>
+    </div>
+    <div class="flex-1 overflow-y-auto p-6">
+      <form id="skillForm" class="space-y-5">
+        <!-- 基本信息 -->
+        <div class="grid grid-cols-3 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">API Key *</label>
+            <input name="api_key" id="f_api_key" required pattern="^[a-zA-Z][a-zA-Z0-9_]{1,98}$"
+                   class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"
+                   placeholder="customer_health_check">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">名称 *</label>
+            <input name="name" id="f_name" required
+                   class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"
+                   placeholder="客户健康度检查">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">分类</label>
+            <select name="category" id="f_category" class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
+              <option value="">未分类</option>
+            </select>
+          </div>
+        </div>
         <div class="grid grid-cols-2 gap-4">
           <div>
-            <span class="text-[10px] text-gray-400 uppercase">Arguments</span>
-            <div id="detailArgs" class="mt-1 flex flex-wrap gap-1"></div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">描述 *</label>
+            <textarea name="description" id="f_description" required rows="2"
+                      class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"
+                      placeholder="一句话描述技能用途"></textarea>
           </div>
           <div>
-            <span class="text-[10px] text-gray-400 uppercase">Allowed Tools</span>
-            <div id="detailTools" class="mt-1 flex flex-wrap gap-1"></div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">触发关键词（|分隔）</label>
+            <textarea name="when_to_use" id="f_when_to_use" rows="2"
+                      class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"
+                      placeholder="客户健康|健康度|活跃度评估"></textarea>
           </div>
         </div>
-        <div class="mt-3">
-          <span class="text-[10px] text-gray-400 uppercase">触发关键词 (when_to_use)</span>
-          <p id="detailWhenToUse" class="text-sm text-gray-600 mt-1"></p>
+        <!-- 执行配置 -->
+        <div class="grid grid-cols-4 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">风险等级</label>
+            <select name="risk_level" id="f_risk_level" class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
+              <option value="read_only">只读</option>
+              <option value="mutating">可变更</option>
+              <option value="destructive">危险</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">最大工具调用</label>
+            <input name="max_tool_calls" id="f_max_tool_calls" type="number" value="20" min="1" max="100"
+                   class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">超时(ms)</label>
+            <input name="timeout_ms" id="f_timeout_ms" type="number" value="60000" min="5000" max="300000" step="5000"
+                   class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">归属</label>
+            <input name="owner" id="f_owner"
+                   class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none"
+                   placeholder="CRM-Platform">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">允许的工具（逗号分隔）</label>
+            <input name="allowed_tools" id="f_allowed_tools"
+                   class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none"
+                   placeholder="query_data, analyze_data">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">参数列表（逗号分隔）</label>
+            <input name="arguments" id="f_arguments"
+                   class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none"
+                   placeholder="account_id, dimensions">
+          </div>
+        </div>
+        <!-- Prompt -->
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">提示词 (Prompt) * — 支持 Markdown，用 {参数名} 作占位符</label>
+          <textarea name="prompt" id="f_prompt" required rows="14"
+                    class="prompt-editor w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"
+                    placeholder="你是一位专家。请对 {account_id} 进行分析。"></textarea>
+        </div>
+        <!-- 测试输出 -->
+        <div id="testOutputSection" class="hidden">
+          <label class="block text-xs font-medium text-gray-600 mb-1">测试输出预览</label>
+          <div id="testOutput" class="prompt-preview bg-gray-50 border rounded-lg p-4 text-sm"></div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- 分类编辑 Modal -->
+<div id="categoryModal" class="fixed inset-0 z-[100] hidden">
+  <div class="modal-overlay absolute inset-0" onclick="closeCategoryForm()"></div>
+  <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[440px] bg-white rounded-xl shadow-2xl z-10">
+    <div class="flex items-center justify-between px-6 py-4 border-b">
+      <h2 id="categoryFormTitle" class="text-base font-semibold">新增分类</h2>
+      <button onclick="closeCategoryForm()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+    </div>
+    <div class="p-6 space-y-4">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">API Key *</label>
+        <input id="cf_api_key" class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"
+               placeholder="reporting">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">分类名称 *</label>
+        <input id="cf_name" class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"
+               placeholder="报表生成">
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">图标（emoji）</label>
+          <input id="cf_icon" class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none"
+                 placeholder="📋">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">颜色</label>
+          <input id="cf_color" type="color" value="#1890ff"
+                 class="w-full h-9 border rounded-lg cursor-pointer">
         </div>
       </div>
-
-      <!-- Prompt 全文 -->
-      <div class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold text-gray-700">Prompt 定义</h3>
-          <button onclick="copyPrompt()" class="text-xs text-blue-600 hover:text-blue-800">📋 复制</button>
-        </div>
-        <div id="detailPrompt" class="prompt-content text-sm text-gray-700 leading-relaxed"></div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">描述</label>
+        <input id="cf_description" class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none"
+               placeholder="分类用途说明">
       </div>
-
-      <!-- 版本历史 -->
-      <div class="bg-white rounded-xl border border-gray-200 p-5">
-        <h3 class="text-sm font-semibold text-gray-700 mb-3">版本历史</h3>
-        <div id="detailVersions" class="space-y-2 text-sm"></div>
+      <div class="flex items-center gap-2">
+        <label class="text-xs font-medium text-gray-600">状态:</label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="cf_enabled" checked>
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="text-xs text-gray-500" id="cf_enabled_label">启用</span>
       </div>
     </div>
-
-    <!-- 空状态 -->
-    <div id="detailEmpty" class="flex items-center justify-center h-full text-gray-400 text-sm">
-      ← 选择一个技能查看详情
+    <div class="flex justify-end gap-2 px-6 py-4 border-t">
+      <button onclick="closeCategoryForm()" class="px-4 py-1.5 text-sm border rounded-lg hover:bg-gray-50">取消</button>
+      <button onclick="saveCategory()" class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">保存</button>
     </div>
   </div>
 </div>
 
 <script>
-const API = '/api/skills';
-let allSkills = [];
-let currentApiKey = null;
-let currentPromptRaw = '';
+// ═══════════════════════════════════════════════════════════
+// 全局状态
+// ═══════════════════════════════════════════════════════════
+const SKILL_API = '/api/skills';
+const CATEGORY_API = '/api/skill-categories';
 
-// ── 加载列表 ──
-async function loadSkills() {
-  const keyword = document.getElementById('searchInput').value.trim();
-  const status = document.getElementById('statusFilter').value;
-  const params = new URLSearchParams();
-  if (keyword) params.set('keyword', keyword);
-  if (status) params.set('status', status);
-  const res = await fetch(`${API}?${params}`);
-  allSkills = await res.json();
-  renderList();
+let allSkills = [];
+let allCategories = [];
+let currentCategory = '';
+let editingKey = null;
+let editingCategoryKey = null;
+
+// ═══════════════════════════════════════════════════════════
+// 页面切换
+// ═══════════════════════════════════════════════════════════
+function switchPage(page) {
+  document.querySelectorAll('.side-menu-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+  document.getElementById('page-skills').classList.toggle('hidden', page !== 'skills');
+  document.getElementById('page-categories').classList.toggle('hidden', page !== 'categories');
+
+  if (page === 'categories') loadCategories();
+  if (page === 'skills') loadSkills();
 }
 
-function renderList() {
+// ═══════════════════════════════════════════════════════════
+// 分类管理
+// ═══════════════════════════════════════════════════════════
+async function loadCategories() {
+  try {
+    const res = await fetch(CATEGORY_API);
+    const data = await res.json();
+    allCategories = data.items || [];
+    renderCategoryList();
+    renderCategoryTabs();
+    renderCategorySelect();
+  } catch (e) {
+    console.error('加载分类失败:', e);
+  }
+}
+
+function renderCategoryList() {
+  const container = document.getElementById('categoryList');
+  if (!allCategories.length) {
+    container.innerHTML = '<div class="p-8 text-center text-gray-400 text-sm">暂无分类数据</div>';
+    return;
+  }
+  container.innerHTML = allCategories.map((c, idx) => `
+    <div class="category-row fade-in" data-key="${c.api_key}">
+      <div class="drag-handle" title="拖拽排序">⠿</div>
+      <div class="text-lg">${c.icon || '📁'}</div>
+      <div>
+        <span class="font-medium text-gray-800">${c.name}</span>
+        <span class="text-xs text-gray-400 ml-2">${c.api_key}</span>
+        ${c.system ? '<span class="text-[10px] ml-1 text-amber-600">🔒</span>' : ''}
+      </div>
+      <div class="text-sm text-gray-500 text-center">${c.skill_count || 0}</div>
+      <div>
+        <span class="text-xs px-1.5 py-0.5 rounded ${c.enabled ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}">
+          ${c.enabled ? '启用' : '禁用'}
+        </span>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="editCategory('${c.api_key}')" class="text-xs text-blue-600 hover:text-blue-800">编辑</button>
+        ${!c.system ? `<button onclick="deleteCategory('${c.api_key}', '${c.name}')" class="text-xs text-red-500 hover:text-red-700">删除</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderCategoryTabs() {
+  const container = document.getElementById('categoryTabs');
+  const allBtn = `<button class="px-3 py-1 text-sm rounded-full ${!currentCategory ? 'bg-blue-100 text-blue-700 font-medium' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}" onclick="filterByCategory('')">全部</button>`;
+  const catBtns = allCategories.filter(c => c.enabled).map(c =>
+    `<button class="px-3 py-1 text-sm rounded-full ${currentCategory === c.api_key ? 'bg-blue-100 text-blue-700 font-medium' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}" onclick="filterByCategory('${c.api_key}')">${c.icon || ''} ${c.name}</button>`
+  ).join('');
+  container.innerHTML = allBtn + catBtns;
+}
+
+function renderCategorySelect() {
+  const select = document.getElementById('f_category');
+  const currentVal = select.value;
+  select.innerHTML = '<option value="">未分类</option>' +
+    allCategories.filter(c => c.enabled).map(c =>
+      `<option value="${c.api_key}">${c.icon || ''} ${c.name}</option>`
+    ).join('');
+  select.value = currentVal;
+}
+
+function filterByCategory(cat) {
+  currentCategory = cat;
+  renderCategoryTabs();
+  loadSkills();
+}
+
+function openCategoryForm(apiKey) {
+  editingCategoryKey = apiKey || null;
+  document.getElementById('categoryFormTitle').textContent = apiKey ? '编辑分类' : '新增分类';
+  document.getElementById('cf_api_key').value = '';
+  document.getElementById('cf_api_key').disabled = false;
+  document.getElementById('cf_name').value = '';
+  document.getElementById('cf_icon').value = '';
+  document.getElementById('cf_color').value = '#1890ff';
+  document.getElementById('cf_description').value = '';
+  document.getElementById('cf_enabled').checked = true;
+
+  if (apiKey) {
+    const cat = allCategories.find(c => c.api_key === apiKey);
+    if (cat) {
+      document.getElementById('cf_api_key').value = cat.api_key;
+      document.getElementById('cf_api_key').disabled = true;
+      document.getElementById('cf_name').value = cat.name;
+      document.getElementById('cf_icon').value = cat.icon;
+      document.getElementById('cf_color').value = cat.color || '#1890ff';
+      document.getElementById('cf_description').value = cat.description;
+      document.getElementById('cf_enabled').checked = cat.enabled;
+    }
+  }
+  document.getElementById('categoryModal').classList.remove('hidden');
+}
+
+function closeCategoryForm() {
+  document.getElementById('categoryModal').classList.add('hidden');
+}
+
+function editCategory(apiKey) {
+  openCategoryForm(apiKey);
+}
+
+async function saveCategory() {
+  const apiKey = document.getElementById('cf_api_key').value.trim();
+  const name = document.getElementById('cf_name').value.trim();
+  if (!apiKey || !name) { alert('API Key 和名称为必填项'); return; }
+
+  const data = {
+    api_key: apiKey,
+    name: name,
+    icon: document.getElementById('cf_icon').value.trim(),
+    color: document.getElementById('cf_color').value,
+    description: document.getElementById('cf_description').value.trim(),
+    enabled: document.getElementById('cf_enabled').checked,
+  };
+
+  try {
+    let res;
+    if (editingCategoryKey) {
+      const { api_key, ...updateData } = data;
+      res = await fetch(`${CATEGORY_API}/${editingCategoryKey}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updateData),
+      });
+    } else {
+      res = await fetch(CATEGORY_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+    }
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail?.message || `HTTP ${res.status}`);
+    }
+    closeCategoryForm();
+    loadCategories();
+  } catch (e) {
+    alert('保存失败: ' + e.message);
+  }
+}
+
+async function deleteCategory(apiKey, name) {
+  if (!confirm(`确定删除分类「${name}」？已关联该分类的技能不会被删除。`)) return;
+  try {
+    const res = await fetch(`${CATEGORY_API}/${apiKey}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail?.message || '删除失败');
+    }
+    loadCategories();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 技能管理
+// ═══════════════════════════════════════════════════════════
+async function loadSkills() {
+  try {
+    const params = new URLSearchParams();
+    const keyword = document.getElementById('searchInput').value;
+    if (keyword) params.set('keyword', keyword);
+    if (currentCategory) params.set('category', currentCategory);
+    params.set('page_size', '100');
+
+    const res = await fetch(`${SKILL_API}?${params}`);
+    const data = await res.json();
+    allSkills = data.items || data;
+    renderSkillList();
+  } catch (e) {
+    console.error('加载失败:', e);
+  }
+}
+
+async function loadStats() {
+  try {
+    const res = await fetch(`${SKILL_API}/stats`);
+    const s = await res.json();
+    document.getElementById('statTotal').textContent = s.total_skills;
+    document.getElementById('statEnabled').textContent = s.enabled_count;
+    document.getElementById('statExec').textContent = s.total_executions;
+    document.getElementById('statRate').textContent = Math.round(s.success_rate * 100) + '%';
+  } catch (e) {}
+}
+
+function getCategoryLabel(catKey) {
+  const cat = allCategories.find(c => c.api_key === catKey);
+  return cat ? `${cat.icon || ''} ${cat.name}` : catKey;
+}
+
+function renderSkillList() {
   const container = document.getElementById('skillList');
   const empty = document.getElementById('emptyState');
-  document.getElementById('skillCount').textContent = allSkills.length;
+  document.getElementById('skillCount').textContent = `共 ${allSkills.length} 个技能`;
 
   if (!allSkills.length) {
     container.innerHTML = '';
@@ -160,130 +518,240 @@ function renderList() {
   }
   empty.classList.add('hidden');
 
-  container.innerHTML = allSkills.map(s => `
-    <div class="bg-white rounded-lg border ${currentApiKey === s.api_key ? 'border-blue-400 ring-2 ring-blue-100' : 'border-gray-200 hover:border-gray-300'} p-3 cursor-pointer transition-all"
-         onclick="selectSkill('${s.api_key}')">
-      <div class="flex items-center justify-between">
-        <span class="font-medium text-sm text-gray-800">${esc(s.api_key)}</span>
-        <div class="flex gap-1">
-          ${statusBadge(s.status)}
-          ${contextBadge(s.context)}
+  container.innerHTML = allSkills.map(s => {
+    const rate = s.exec_count > 0 ? Math.round(s.success_count / s.exec_count * 100) : 0;
+    const riskColors = { read_only: 'bg-green-50 text-green-700', mutating: 'bg-orange-50 text-orange-700', destructive: 'bg-red-50 text-red-700' };
+    const riskLabels = { read_only: '只读', mutating: '可变更', destructive: '危险' };
+    const enabled = s.enabled !== undefined ? s.enabled : true;
+
+    return `
+      <div class="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-sm transition-shadow fade-in">
+        <div class="flex items-start justify-between">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="font-semibold text-gray-800">${s.name}</span>
+              <code class="text-xs text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">${s.api_key}</code>
+              ${s.category ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">${getCategoryLabel(s.category)}</span>` : ''}
+            </div>
+            <p class="text-sm text-gray-500 mt-1 truncate">${s.description}</p>
+            <div class="flex items-center gap-3 mt-2 text-xs text-gray-400">
+              <span class="px-1.5 py-0.5 rounded ${riskColors[s.risk_level]}">${riskLabels[s.risk_level]}</span>
+              <span>执行 ${s.exec_count} 次</span>
+              <span>成功率 ${rate}%</span>
+              ${s.owner ? `<span>· ${s.owner}</span>` : ''}
+            </div>
+          </div>
+          <div class="flex items-center gap-3 ml-4">
+            <label class="toggle-switch" title="${enabled ? '点击禁用' : '点击启用'}">
+              <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleSkill('${s.api_key}', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+            <button onclick="editSkill('${s.api_key}')" class="text-xs text-blue-600 hover:text-blue-800 font-medium">编辑</button>
+            <button onclick="cloneSkill('${s.api_key}')" class="text-xs text-gray-500 hover:text-gray-700">克隆</button>
+            <button onclick="deleteSkill('${s.api_key}', '${s.name}')" class="text-xs text-red-500 hover:text-red-700">删除</button>
+          </div>
         </div>
       </div>
-      <p class="text-xs text-gray-500 mt-1 line-clamp-2">${esc(s.description)}</p>
-      <div class="flex items-center gap-3 mt-2 text-[10px] text-gray-400">
-        <span>v${s.version}</span>
-        <span>${s.exec_count} 次执行</span>
-        ${s.owner ? `<span>by ${esc(s.owner)}</span>` : ''}
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
-// ── 选中详情 ──
-async function selectSkill(apiKey) {
-  currentApiKey = apiKey;
-  renderList();
-
-  const [detail, versions] = await Promise.all([
-    fetch(`${API}/${apiKey}`).then(r => r.json()),
-    fetch(`${API}/${apiKey}/versions`).then(r => r.json()),
-  ]);
-
-  document.getElementById('detailEmpty').classList.add('hidden');
-  const panel = document.getElementById('detailPanel');
-  panel.classList.remove('hidden');
-
-  document.getElementById('detailName').textContent = detail.api_key;
-  document.getElementById('detailDesc').textContent = detail.description;
-  document.getElementById('detailVersion').textContent = 'v' + detail.version;
-  document.getElementById('detailOwner').textContent = detail.owner || '-';
-  document.getElementById('detailRisk').textContent = riskLabel(detail.risk_level);
-  document.getElementById('detailTimeout').textContent = (detail.timeout_ms / 1000) + 's';
-  document.getElementById('detailExecCount').textContent = detail.exec_count;
-  document.getElementById('detailSuccessRate').textContent = detail.exec_count > 0
-    ? Math.round(detail.success_count / detail.exec_count * 100) + '%' : '-';
-  document.getElementById('detailAvgDuration').textContent = detail.avg_duration_ms > 0
-    ? (detail.avg_duration_ms / 1000).toFixed(1) + 's' : '-';
-
-  // Status badge
-  const statusEl = document.getElementById('detailStatus');
-  statusEl.textContent = detail.status;
-  statusEl.className = `px-2 py-0.5 rounded text-xs font-medium ${statusClass(detail.status)}`;
-
-  // Context badge
-  document.getElementById('detailContext').textContent = detail.context;
-
-  // Args & Tools
-  document.getElementById('detailArgs').innerHTML = (detail.arguments || [])
-    .map(a => `<span class="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">{${esc(a)}}</span>`).join('') || '<span class="text-gray-400 text-xs">无</span>';
-  document.getElementById('detailTools').innerHTML = (detail.allowed_tools || [])
-    .map(t => `<span class="px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs">${esc(t)}</span>`).join('') || '<span class="text-gray-400 text-xs">无</span>';
-
-  // When to use
-  document.getElementById('detailWhenToUse').textContent = detail.when_to_use || '-';
-
-  // Prompt (rendered as Markdown)
-  currentPromptRaw = detail.prompt || '';
-  document.getElementById('detailPrompt').innerHTML = marked.parse(currentPromptRaw);
-
-  // Versions
-  const versionsEl = document.getElementById('detailVersions');
-  if (versions.length) {
-    versionsEl.innerHTML = versions.map(v => `
-      <div class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-        <div>
-          <span class="font-medium text-gray-700">v${esc(v.version)}</span>
-          <span class="text-gray-400 ml-2">${esc(v.changelog || '')}</span>
-        </div>
-        <span class="text-[10px] text-gray-400">${formatTime(v.created_at)}</span>
-      </div>
-    `).join('');
-  } else {
-    versionsEl.innerHTML = '<span class="text-gray-400 text-xs">暂无版本记录</span>';
+// ── 启用/禁用 ──
+async function toggleSkill(apiKey, enabled) {
+  try {
+    await fetch(`${SKILL_API}/${apiKey}/toggle`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    loadSkills();
+    loadStats();
+  } catch (e) {
+    alert('操作失败: ' + e.message);
+    loadSkills();
   }
 }
 
-// ── 工具函数 ──
-function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
-
-function statusBadge(s) {
-  return `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium ${statusClass(s)}">${s}</span>`;
-}
-function statusClass(s) {
-  if (s === 'published') return 'bg-green-50 text-green-700';
-  if (s === 'draft') return 'bg-gray-100 text-gray-600';
-  return 'bg-red-50 text-red-600';
-}
-function contextBadge(c) {
-  const cls = c === 'fork' ? 'bg-purple-50 text-purple-700' : 'bg-indigo-50 text-indigo-700';
-  return `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium ${cls}">${c}</span>`;
-}
-function riskLabel(r) {
-  if (r === 'read_only') return '🟢 只读';
-  if (r === 'mutating') return '🟡 可变';
-  return '🔴 破坏性';
-}
-function formatTime(ts) {
-  if (!ts) return '-';
-  return new Date(ts).toLocaleDateString('zh-CN');
-}
-function copyPrompt() {
-  navigator.clipboard.writeText(currentPromptRaw).then(() => {
-    alert('已复制 Prompt 到剪贴板');
-  });
+// ── 删除 ──
+async function deleteSkill(apiKey, name) {
+  if (!confirm(`确定删除技能「${name}」(${apiKey})？`)) return;
+  try {
+    await fetch(`${SKILL_API}/${apiKey}`, { method: 'DELETE' });
+    loadSkills();
+    loadStats();
+  } catch (e) {
+    alert('删除失败: ' + e.message);
+  }
 }
 
-// ── 事件绑定 ──
-let searchTimer;
-document.getElementById('searchInput').addEventListener('input', () => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(loadSkills, 300);
+// ── 克隆 ──
+async function cloneSkill(apiKey) {
+  const newKey = prompt('请输入新的 API Key:', apiKey + '_copy');
+  if (!newKey) return;
+  try {
+    const res = await fetch(`${SKILL_API}/${apiKey}/clone`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_api_key: newKey }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail?.message || '克隆失败');
+    }
+    loadSkills();
+    loadStats();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+// ── 创建技能 ──
+function openCreate() {
+  editingKey = null;
+  document.getElementById('formTitle').textContent = '创建技能';
+  document.getElementById('skillForm').reset();
+  document.getElementById('f_api_key').disabled = false;
+  document.getElementById('f_max_tool_calls').value = '20';
+  document.getElementById('f_timeout_ms').value = '60000';
+  document.getElementById('testOutputSection').classList.add('hidden');
+  renderCategorySelect();
+  document.getElementById('formModal').classList.remove('hidden');
+}
+
+// ── 编辑技能 ──
+async function editSkill(apiKey) {
+  editingKey = apiKey;
+  document.getElementById('formTitle').textContent = `编辑: ${apiKey}`;
+  document.getElementById('testOutputSection').classList.add('hidden');
+  renderCategorySelect();
+  document.getElementById('formModal').classList.remove('hidden');
+
+  try {
+    const res = await fetch(`${SKILL_API}/${apiKey}`);
+    const s = await res.json();
+    document.getElementById('f_api_key').value = s.api_key;
+    document.getElementById('f_api_key').disabled = true;
+    document.getElementById('f_name').value = s.name || '';
+    document.getElementById('f_description').value = s.description || '';
+    document.getElementById('f_when_to_use').value = s.when_to_use || '';
+    document.getElementById('f_category').value = s.category || '';
+    document.getElementById('f_risk_level').value = s.risk_level || 'read_only';
+    document.getElementById('f_max_tool_calls').value = s.max_tool_calls || 20;
+    document.getElementById('f_timeout_ms').value = s.timeout_ms || 60000;
+    document.getElementById('f_allowed_tools').value = (s.allowed_tools || []).join(', ');
+    document.getElementById('f_arguments').value = (s.arguments || []).join(', ');
+    document.getElementById('f_owner').value = s.owner || '';
+    document.getElementById('f_prompt').value = s.prompt || '';
+  } catch (e) {
+    alert('加载失败: ' + e.message);
+    closeForm();
+  }
+}
+
+function closeForm() {
+  document.getElementById('formModal').classList.add('hidden');
+}
+
+// ── 保存技能 ──
+async function saveSkill() {
+  const form = document.getElementById('skillForm');
+  if (!form.checkValidity()) { form.reportValidity(); return; }
+
+  const data = {
+    api_key: document.getElementById('f_api_key').value.trim(),
+    name: document.getElementById('f_name').value.trim(),
+    description: document.getElementById('f_description').value.trim(),
+    when_to_use: document.getElementById('f_when_to_use').value.trim(),
+    category: document.getElementById('f_category').value,
+    risk_level: document.getElementById('f_risk_level').value,
+    max_tool_calls: parseInt(document.getElementById('f_max_tool_calls').value) || 20,
+    timeout_ms: parseInt(document.getElementById('f_timeout_ms').value) || 60000,
+    allowed_tools: document.getElementById('f_allowed_tools').value.split(',').map(s => s.trim()).filter(Boolean),
+    arguments: document.getElementById('f_arguments').value.split(',').map(s => s.trim()).filter(Boolean),
+    owner: document.getElementById('f_owner').value.trim(),
+    prompt: document.getElementById('f_prompt').value,
+  };
+
+  try {
+    let res;
+    if (editingKey) {
+      const { api_key, ...updateData } = data;
+      res = await fetch(`${SKILL_API}/${editingKey}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updateData),
+      });
+    } else {
+      res = await fetch(SKILL_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+    }
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail?.message || `HTTP ${res.status}`);
+    }
+    closeForm();
+    loadSkills();
+    loadStats();
+  } catch (e) {
+    alert('保存失败: ' + e.message);
+  }
+}
+
+// ── 测试技能 ──
+async function testSkill() {
+  const apiKey = editingKey || document.getElementById('f_api_key').value.trim();
+  const args = document.getElementById('f_arguments').value.split(',').map(s => s.trim()).filter(Boolean);
+  const testArgs = {};
+  args.forEach(a => { testArgs[a] = `<测试_${a}>`; });
+
+  const section = document.getElementById('testOutputSection');
+  const output = document.getElementById('testOutput');
+  section.classList.remove('hidden');
+
+  if (editingKey) {
+    try {
+      const res = await fetch(`${SKILL_API}/${apiKey}/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ arguments: testArgs }),
+      });
+      const data = await res.json();
+      output.innerHTML = marked.parse(data.output || '(空)');
+    } catch (e) {
+      output.innerHTML = `<span class="text-red-500">错误: ${e.message}</span>`;
+    }
+  } else {
+    let prompt = document.getElementById('f_prompt').value;
+    for (const [k, v] of Object.entries(testArgs)) {
+      prompt = prompt.replaceAll(`{${k}}`, `<mark>${v}</mark>`);
+    }
+    output.innerHTML = marked.parse(prompt || '(空)');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 工具函数
+// ═══════════════════════════════════════════════════════════
+function debounce(fn, ms) {
+  let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
+// ═══════════════════════════════════════════════════════════
+// 事件绑定 & 初始化
+// ═══════════════════════════════════════════════════════════
+document.getElementById('searchInput').addEventListener('input', debounce(loadSkills, 300));
+document.getElementById('cf_enabled').addEventListener('change', function() {
+  document.getElementById('cf_enabled_label').textContent = this.checked ? '启用' : '禁用';
 });
-document.getElementById('statusFilter').addEventListener('change', loadSkills);
 
-// ── 初始化 ──
-loadSkills();
+// 初始化
+loadCategories().then(() => {
+  loadSkills();
+  loadStats();
+});
 </script>
 </body>
 </html>

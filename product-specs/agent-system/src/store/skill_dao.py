@@ -30,29 +30,62 @@ class SkillDefinitionDAO:
         "risk_level, requires_confirmation, max_tool_calls, timeout_ms, idempotent_flg, "
         "version, status, published_at, "
         "exec_count, success_count, avg_duration_ms, ext_info, "
-        "delete_flg, created_at, created_by, updated_at, updated_by, "
-        "COALESCE(enabled_flg, CASE WHEN status='published' THEN 1 ELSE 0 END) AS enabled_flg, "
-        "COALESCE(category, '') AS category, "
-        "COALESCE(tags, '[]') AS tags, "
-        "COALESCE(icon, '') AS icon, "
-        "COALESCE(sort_num, 0) AS sort_num"
+        "delete_flg, created_at, created_by, updated_at, updated_by"
     )
+
+    # 包含新增字段的列（迁移后使用）
+    _ALL_COLUMNS_V2 = (
+        "id, api_key, tenant_id, name, description, when_to_use, owner, "
+        "context, agent, model, allowed_tools, arguments, prompt, "
+        "risk_level, requires_confirmation, max_tool_calls, timeout_ms, idempotent_flg, "
+        "version, status, published_at, "
+        "exec_count, success_count, avg_duration_ms, ext_info, "
+        "delete_flg, created_at, created_by, updated_at, updated_by, "
+        "enabled_flg, category, tags, icon, sort_num"
+    )
+
+    _use_v2: bool = False  # 是否已检测到新字段存在
+    _detected: bool = False  # 是否已完成检测
+
+    @classmethod
+    def _get_columns(cls) -> str:
+        """自动检测并返回可用的列列表（只探测一次）"""
+        if cls._detected:
+            return cls._ALL_COLUMNS_V2 if cls._use_v2 else cls._ALL_COLUMNS
+        # 首次调用时检测新字段是否存在
+        cls._detected = True
+        try:
+            with get_conn() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT enabled_flg FROM ai_skill_definition LIMIT 1"
+                )
+                cls._use_v2 = True
+                return cls._ALL_COLUMNS_V2
+        except Exception:
+            cls._use_v2 = False
+            return cls._ALL_COLUMNS
 
     # ── 查询 ──
 
     @staticmethod
     def list_active(tenant_id: int | None = None,
                      include_platform: bool = True) -> list[SkillDefinitionRow]:
-        """列出 enabled_flg=1 且未删除的技能（兼容旧 status='published'）
+        """列出启用且未删除的技能（兼容新旧字段）
 
         Args:
             tenant_id: 目标租户；None 表示读所有租户
             include_platform: 是否把 tenant_id=0 的平台级技能也纳入结果
         """
+        cols = SkillDefinitionDAO._get_columns()
+        if SkillDefinitionDAO._use_v2:
+            where_enabled = "AND (enabled_flg=1 OR (enabled_flg IS NULL AND status='published'))"
+        else:
+            where_enabled = "AND status='published'"
+
         sql = (
-            f"SELECT {SkillDefinitionDAO._ALL_COLUMNS} "
-            f"FROM ai_skill_definition WHERE delete_flg=0 "
-            f"AND (enabled_flg=1 OR (enabled_flg IS NULL AND status='published'))"
+            f"SELECT {cols} "
+            f"FROM ai_skill_definition WHERE delete_flg=0 {where_enabled}"
         )
         params: list[Any] = []
         if tenant_id is not None:
@@ -74,7 +107,7 @@ class SkillDefinitionDAO:
                   keyword: str | None = None,
                   include_platform: bool = True) -> list[SkillDefinitionRow]:
         """列表查询（供运营管理页面使用）"""
-        sql = f"SELECT {SkillDefinitionDAO._ALL_COLUMNS} FROM ai_skill_definition WHERE delete_flg=0"
+        sql = f"SELECT {SkillDefinitionDAO._get_columns()} FROM ai_skill_definition WHERE delete_flg=0"
         params: list[Any] = []
         if tenant_id is not None:
             if include_platform:
@@ -100,13 +133,18 @@ class SkillDefinitionDAO:
     def get_by_api_key(tenant_id: int, api_key: str,
                         include_platform: bool = True) -> SkillDefinitionRow | None:
         """优先取租户自有技能；找不到时 fallback 到平台级（tenant_id=0）"""
-        sql = (
-            f"SELECT {SkillDefinitionDAO._ALL_COLUMNS} "
-            f"FROM ai_skill_definition WHERE delete_flg=0 AND api_key=%s "
-            f"AND tenant_id IN (%s, 0)" if include_platform else
-            f"SELECT {SkillDefinitionDAO._ALL_COLUMNS} "
-            f"FROM ai_skill_definition WHERE delete_flg=0 AND api_key=%s AND tenant_id=%s"
-        )
+        cols = SkillDefinitionDAO._get_columns()
+        if include_platform:
+            sql = (
+                f"SELECT {cols} "
+                f"FROM ai_skill_definition WHERE delete_flg=0 AND api_key=%s "
+                f"AND tenant_id IN (%s, 0)"
+            )
+        else:
+            sql = (
+                f"SELECT {cols} "
+                f"FROM ai_skill_definition WHERE delete_flg=0 AND api_key=%s AND tenant_id=%s"
+            )
         params = (api_key, tenant_id) if include_platform else (api_key, tenant_id)
         with get_conn() as conn:
             cur = conn.cursor()
