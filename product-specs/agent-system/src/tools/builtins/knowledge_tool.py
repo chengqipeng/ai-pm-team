@@ -124,9 +124,18 @@ class KnowledgeSearchTool(BaseTool):
         trace_id = ctx.get("trace_id", "") or ""
 
         if provider is None:
-            return "知识库未启用，请联系管理员配置 knowledge-plugin。"
+            logger.error(
+                "knowledge_search: knowledge_provider 未注入到 configurable 中！"
+                "请检查 server.py 的 config['configurable'] 是否包含 knowledge_provider。"
+                "ctx keys=%s", list(ctx.keys()),
+            )
+            raise RuntimeError(
+                "知识库 Provider 未注入（knowledge_provider=None）。"
+                "请检查 server.py 是否在 config.configurable 中传入了 app.state.knowledge_provider。"
+            )
         if tenant_id <= 0:
-            return "缺少租户上下文，无法检索知识库。"
+            logger.error("knowledge_search: tenant_id 无效: %s", ctx.get("tenant_id"))
+            raise RuntimeError(f"缺少有效的租户上下文（tenant_id={ctx.get('tenant_id')}）")
 
         # 构造过滤条件（工具参数层 + Self-Querying 自动识别，互不冲突）
         filters: dict = {}

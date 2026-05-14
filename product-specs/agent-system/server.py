@@ -370,7 +370,7 @@ async def _llm_detect_output_format(
 
 
 # 产出文档的技能名称集合（调用这些技能时，最终输出必然是报告/文档）
-_DOCUMENT_SKILLS = {"data_analysis", "pipeline_analysis", "customer_360", "verify_config", "diagnose"}
+_DOCUMENT_SKILLS = {"data_analysis", "pipeline_analysis", "customer_360", "verify_config", "diagnose", "account-insight", "account_insight"}
 
 
 def _is_document_skill(tool_name: str, tool_input) -> dict | None:
@@ -410,6 +410,9 @@ def _is_document_skill(tool_name: str, tool_input) -> dict | None:
             title = f"{entity} 配置校验报告" if entity else "配置校验报告"
         elif skill_name == "diagnose":
             title = "问题诊断报告"
+        elif skill_name in ("account-insight", "account_insight"):
+            account_id = skill_args.get("account_id", "") if isinstance(skill_args, dict) else ""
+            title = f"客户洞察 {account_id}" if account_id else "客户洞察报告"
         else:
             title = "分析报告"
         logger.warning("doc_start 信号: tool=%s, skill=%s, title=%s", tool_name, skill_name, title)
@@ -911,6 +914,7 @@ async def chat_stream(req: ChatRequest):
                 "parsed_files": files,  # FileProcessMiddleware 也从这里读
                 "extend_params": {},
                 "input_metadata": {"entry_review_passed": True},
+                "knowledge_provider": getattr(app.state, "knowledge_provider", None),
             },
             "recursion_limit": 150,
         }
@@ -1283,7 +1287,12 @@ async def chat_sync(req: ChatRequest):
     trace_writer.on_trace_start(trace)
 
     result = await agent.ainvoke({"messages": messages},
-                                  config={"configurable": {"thread_id": req.thread_id}})
+                                  config={"configurable": {
+                                      "thread_id": req.thread_id,
+                                      "tenant_id": str(DEFAULT_TENANT_ID),
+                                      "user_id": req.user_id,
+                                      "knowledge_provider": getattr(app.state, "knowledge_provider", None),
+                                  }})
     msgs = result.get("messages", [])
 
     content = ""
