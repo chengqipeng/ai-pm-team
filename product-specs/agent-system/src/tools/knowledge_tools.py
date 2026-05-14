@@ -28,6 +28,13 @@ class KnowledgeSearchAdapterTool(Tool):
     def __init__(self):
         from src.tools.builtins.knowledge_tool import KnowledgeSearchTool
         self._inner = KnowledgeSearchTool()
+        self._provider = None  # 由 register_knowledge_tools 注入
+        self._tenant_id = 0
+
+    def set_provider(self, provider, tenant_id: int = 0):
+        """注入 knowledge_provider（服务启动后调用）"""
+        self._provider = provider
+        self._tenant_id = tenant_id
 
     @property
     def name(self) -> str:
@@ -76,20 +83,51 @@ class KnowledgeSearchAdapterTool(Tool):
         context: Any,
         on_progress: Callable[[Any], None] | None = None,
     ) -> ToolResult:
-        try:
-            result = await self._inner._arun(
-                query=input_data["query"],
-                knowledge_base_id=input_data.get("knowledge_base_id"),
-                top_k=input_data.get("top_k", 5),
-                doc_category=input_data.get("doc_category"),
-                industry=input_data.get("industry"),
-                business_stage=input_data.get("business_stage"),
-                target_audience=input_data.get("target_audience"),
+        # 优先使用直接注入的 provider（不依赖 langgraph get_config）
+        provider = self._provider
+        tenant_id = self._tenant_id
+
+        if provider is None:
+            # 降级：尝试从 langgraph config 获取
+            try:
+                from langgraph.config import get_config
+                ctx = get_config().get("configurable", {}) or {}
+                provider = ctx.get("knowledge_provider")
+                tenant_id = int(ctx.get("tenant_id", 0) or 0)
+            except Exception:
+                pass
+
+        if provider is None:
+            logger.error("knowledge_search: provider 未注入且 get_config 也取不到")
+            return ToolResult(
+                content="知识库 Provider 未注入，请检查服务配置。",
+                is_error=True,
             )
-            return ToolResult(content=result)
+
+        query = input_data.get("query", "")
+        if not query:
+            return ToolResult(content="query 参数不能为空", is_error=True)
+
+        try:
+            results = await provider.search(
+                tenant_id=tenant_id,
+                query=query,
+                knowledge_base_id=input_data.get("knowledge_base_id"),
+                filters=None,
+                top_k=input_data.get("top_k", 5),
+                enable_self_query=True,
+            )
         except Exception as exc:
             logger.exception("knowledge_search 执行失败: %s", exc)
             return ToolResult(content=f"知识库检索失败: {exc}", is_error=True)
+
+        if not results:
+            return ToolResult(content=f"未找到与 '{query}' 相关的知识文档。")
+
+        # 格式化结果
+        from src.tools.builtins.knowledge_tool import KnowledgeSearchTool
+        formatted = KnowledgeSearchTool._format_results(query, results)
+        return ToolResult(content=formatted)
 
     def prompt(self) -> str:
         return (
@@ -191,7 +229,16 @@ class ListKnowledgeBasesTool(Tool):
             return {}
 
 
-def register_knowledge_tools(registry: ToolRegistry) -> None:
-    """注册知识库相关工具到 ToolRegistry"""
-    registry.register(KnowledgeSearchAdapterTool())
+def register_knowledge_tools(registry: ToolRegistry, provider=None, tenant_id: int = 0) -> None:
+    """注册知识库相关工具到 ToolRegistry
+
+    Args:
+        registry: 工具注册表
+        provider: KnowledgeProvider 实例（可选，启动后注入）
+        tenant_id: 默认租户 ID
+    """
+    search_tool = KnowledgeSearchAdapterTool()
+    if provider:
+        search_tool.set_provider(provider, tenant_id)
+    registry.register(search_tool)
     registry.register(ListKnowledgeBasesTool())

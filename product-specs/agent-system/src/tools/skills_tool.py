@@ -52,8 +52,17 @@ class SkillsTool(BaseTool):
     async def _arun(self, skill_name: str, arguments: dict[str, Any] | None = None) -> str:
         arguments = self._normalize_arguments(arguments)
         result = await self.skill_executor.execute(skill_name, arguments, self.parent_thread_id)
-        # 对 fork 模式的技能，在结果前加指令让 LLM 直接输出
-        if result and len(result) > 200:
+
+        # 判断 Skill 的 context 模式
+        skill = self.skill_executor._registry.get(skill_name)
+        is_inline = skill and skill.context == "inline"
+
+        if is_inline:
+            # inline 模式：Skill 已通过 allowed-tools 完成执行，result 就是最终结果
+            # 不要包含 SOP 指令文本，只返回执行结果
+            return result
+        elif result and len(result) > 200:
+            # fork 模式：子 Agent 已执行完毕，结果是完整报告，直接输出
             return f"[技能执行完成，以下是完整分析报告，请直接输出给用户，不要再调用其他工具]\n\n{result}"
         return result
 

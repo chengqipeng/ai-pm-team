@@ -111,7 +111,7 @@ async def _get_agent(multimodal: bool = False):
         data_backend = backend
         logger.info("CRM data backend for server Agent: Simulated (内部闭环)")
         skill_reg = SkillRegistry()
-        # 权威数据源：ai_skill_definition 表（禁止硬编码）
+        # 权威数据源：ai_skill_definition 表（禁止从文件加载）
         try:
             skill_reg.load_from_db(tenant_id=0)
         except Exception as exc:
@@ -243,9 +243,8 @@ def _detect_document(content: str) -> dict | None:
         return None
 
     # 排除知识库检索结果（Skill 输出的结构化回答，不应被当作报告）
-    first_200 = content[:200]
-    retrieval_markers = ["📚 检索结果", "检索结果：", "核心发现", "📄 来源：", "未找到直接相关的文档"]
-    if any(marker in first_200 for marker in retrieval_markers):
+    retrieval_markers = ["📚 检索结果", "检索结果：", "核心发现", "📄 来源：", "未找到直接相关的文档", "知识库检索："]
+    if any(marker in content for marker in retrieval_markers):
         return None
 
     # 排除短文本模板
@@ -336,6 +335,11 @@ async def _llm_detect_output_format(
 
     # 短内容直接返回 inline，不浪费 LLM 调用
     if not content or len(content) < 300:
+        return None
+
+    # 快速特征排除：知识库检索结果不应被判为 document
+    retrieval_markers = ["📚 检索结果", "📄 来源：", "未找到直接相关的文档", "知识库检索："]
+    if any(marker in content for marker in retrieval_markers):
         return None
 
     prompt = _OUTPUT_FORMAT_PROMPT.format(
@@ -916,7 +920,7 @@ async def chat_stream(req: ChatRequest):
                 "input_metadata": {"entry_review_passed": True},
                 "knowledge_provider": getattr(app.state, "knowledge_provider", None),
             },
-            "recursion_limit": 150,
+            "recursion_limit": 300,
         }
         full_content = ""
         current_tool_span = None
