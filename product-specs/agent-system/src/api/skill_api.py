@@ -66,6 +66,7 @@ class CreateSkillBody(BaseModel):
     allowed_tools: list[str] = Field(default_factory=list)
     arguments: list[str] = Field(default_factory=list)
     argument_descriptions: dict[str, str] = Field(default_factory=dict)
+    argument_config: dict[str, Any] = Field(default_factory=dict)
     risk_level: str = Field(default="read_only")
     requires_confirmation: bool = Field(default=False)
     max_tool_calls: int = Field(default=20, ge=1, le=100)
@@ -88,6 +89,7 @@ class UpdateSkillBody(BaseModel):
     allowed_tools: list[str] | None = None
     arguments: list[str] | None = None
     argument_descriptions: dict[str, str] | None = None
+    argument_config: dict[str, Any] | None = None
     risk_level: str | None = None
     requires_confirmation: bool | None = None
     max_tool_calls: int | None = Field(default=None, ge=1, le=100)
@@ -381,6 +383,7 @@ def _row_to_summary(row) -> dict:
         "risk_level": row.risk_level,
         "version": row.version,
         "enabled": bool(getattr(row, "enabled_flg", 1)),
+        "system": bool(getattr(row, "system_flg", 0)),
         "owner": row.owner,
         "arguments": _safe_json_loads(row.arguments, []),
         "allowed_tools": _safe_json_loads(row.allowed_tools, []),
@@ -406,6 +409,7 @@ def _row_to_detail(row) -> dict:
         "icon": getattr(row, "icon", ""),
         "sort_num": getattr(row, "sort_num", 0),
         "argument_descriptions": ext.get("argument_descriptions", {}),
+        "argument_config": ext.get("argument_config", {}),
         "ext_info": ext,
     })
     return d

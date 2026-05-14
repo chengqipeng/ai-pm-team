@@ -69,6 +69,17 @@ _agent = None
 _agent_mm = None  # 多模态 Agent
 _agent_lock = asyncio.Lock()
 
+# ── 共享 CRM 后端实例（Agent 和 mock-data API 共用，修改即时可见）──
+_crm_backend = None
+
+def get_crm_backend():
+    """获取共享的 CRM 模拟后端实例"""
+    global _crm_backend
+    if _crm_backend is None:
+        from src.tools.crm_backend import CrmSimulatedBackend
+        _crm_backend = CrmSimulatedBackend()
+    return _crm_backend
+
 
 async def _get_agent(multimodal: bool = False):
     global _agent, _agent_mm
@@ -92,9 +103,13 @@ async def _get_agent(multimodal: bool = False):
         from src.memory.viking_engine import VikingMemoryEngine
         from langchain_openai import ChatOpenAI
 
-        backend = CrmSimulatedBackend()
+        backend = get_crm_backend()
         metarepo_backend = _build_metarepo_backend_for_server()
         reg = ToolRegistry()
+
+        # 构建业务数据 backend — 始终使用内部模拟后端（agent-system 内部闭环）
+        data_backend = backend
+        logger.info("CRM data backend for server Agent: Simulated (内部闭环)")
         skill_reg = SkillRegistry()
         # 权威数据源：ai_skill_definition 表（禁止硬编码）
         try:
@@ -111,17 +126,25 @@ async def _get_agent(multimodal: bool = False):
 
         aux_llm = ChatOpenAI(model="doubao-seed-2-0-lite-260215", api_key=os.environ["DOUBAO_API_KEY"],
                              base_url="https://ark.cn-beijing.volces.com/api/v3/", max_tokens=2048)
-        memory_engine = VikingMemoryEngine(
-            vdb_url="http://10.60.2.17",
-            vdb_key="bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck",
-            vdb_username="root",
-            database_name="viking_memory",
-            collection_name="agent_memories",
-            llm=aux_llm,
-        )
+        memory_engine = None
+        try:
+            memory_engine = VikingMemoryEngine(
+                vdb_url="http://10.60.2.17",
+                vdb_key="bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck",
+                vdb_username="root",
+                database_name="viking_memory",
+                collection_name="agent_memories",
+                llm=aux_llm,
+            )
+        except Exception as exc:
+            logger.warning("VikingMemoryEngine 初始化失败（记忆功能降级）: %s", exc)
 
-        register_crm_tools(reg, backend, memory_engine=memory_engine)
+        register_crm_tools(reg, data_backend, memory_engine=memory_engine)
         register_metarepo_tools(reg, metarepo_backend)
+
+        # 注册 ManageSkillTool（供 create_skill 技能使用）
+        from src.tools.manage_skill_tool import ManageSkillTool
+        reg.register(ManageSkillTool())
 
         system_prompt = build_system_prompt(agent_name="CRM-Agent", skills=skill_reg.list_all())
         middlewares = build_middleware(
@@ -462,6 +485,16 @@ except ImportError as exc:
     logger.warning("Tool 工具管理 API 未启用: %s", exc)
 except Exception as exc:
     logger.warning("Tool 工具管理 API 挂载失败: %s", exc)
+
+# ── 挂载 Mock 数据查看 API ──
+try:
+    from src.api import mock_data_router
+    app.include_router(mock_data_router)
+    logger.info("已挂载 Mock 数据查看 API: /api/mock-data/*")
+except ImportError as exc:
+    logger.warning("Mock 数据查看 API 未启用: %s", exc)
+except Exception as exc:
+    logger.warning("Mock 数据查看 API 挂载失败: %s", exc)
 
 
 # ── API 路由 ──
@@ -1312,6 +1345,16 @@ async def skill_browser():
         with open(html_path, encoding="utf-8") as f:
             return f.read()
     return "<h1>Skill Browser — 页面未找到</h1>"
+
+
+@app.get("/mock-data", response_class=HTMLResponse)
+async def mock_data_browser():
+    """Mock 数据查看页面 — 浏览 CRM Agent 的模拟数据和元数据 Schema"""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "mock_data_browser.html")
+    if os.path.exists(html_path):
+        with open(html_path, encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Mock Data Browser — 页面未找到</h1>"
 
 
 # ── 记忆浏览 API ──

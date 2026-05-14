@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mock 数据查看 - DeepAgent AI</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; }
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 10px; }
+@keyframes fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.animate-fade-in { animation: fade-in 0.25s ease-out; }
+
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 700; }
+.chip-blue { background: #eff6ff; color: #1d4ed8; }
+.chip-green { background: #ecfdf5; color: #047857; }
+.chip-orange { background: #fff7ed; color: #c2410c; }
+.chip-purple { background: #faf5ff; color: #7e22ce; }
+.chip-gray { background: #f1f5f9; color: #475569; }
+.chip-red { background: #fef2f2; color: #b91c1c; }
+.chip-teal { background: #f0fdfa; color: #0f766e; }
+
+.tab-btn {
+  padding: 6px 14px; font-size: 12px; font-weight: 700; color: #64748b;
+  border-radius: 8px; cursor: pointer; transition: all 0.15s ease;
+}
+.tab-btn:hover { background: #f1f5f9; color: #1e293b; }
+.tab-btn.active { background: linear-gradient(to right, #4f46e5, #2563eb); color: white; box-shadow: 0 6px 12px -4px rgba(79,70,229,0.35); }
+
+.data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.data-table th { background: #f8fafc; padding: 8px 12px; text-align: left; font-weight: 700; color: #475569; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; z-index: 1; }
+.data-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+.data-table tr:hover td { background: #f8fafc; }
+
+.field-card { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 16px; transition: all 0.15s; }
+.field-card:hover { border-color: #a5b4fc; box-shadow: 0 4px 12px -4px rgba(99,102,241,0.15); }
+</style>
+</head>
+<body>
+<div class="flex h-screen w-full bg-[#f4f7fb] font-sans text-slate-800 overflow-hidden relative">
+  <!-- 氛围背景 -->
+  <div class="absolute top-[-10%] left-[-5%] w-[40%] h-[40%] bg-emerald-400/10 rounded-full blur-[100px] pointer-events-none"></div>
+  <div class="absolute bottom-[-10%] right-[-5%] w-[30%] h-[30%] bg-blue-400/10 rounded-full blur-[100px] pointer-events-none"></div>
+
+  <!-- 左侧 —— 实体列表 -->
+  <aside class="w-72 flex flex-col z-20 shrink-0 bg-white/40 backdrop-blur-xl border-r border-gray-200/50">
+    <div class="p-5 shrink-0">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-9 h-9 bg-gradient-to-br from-emerald-600 to-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-600/20">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
+        </div>
+        <div>
+          <div class="font-bold text-lg tracking-tight text-gray-900">Mock 数据</div>
+          <div class="text-[10px] text-gray-400">CRM Agent · 种子数据浏览</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 统计概览 -->
+    <div id="statsBar" class="px-4 pb-3">
+      <div class="grid grid-cols-2 gap-2 text-center">
+        <div class="bg-white/70 rounded-lg p-2 border border-gray-100">
+          <div id="statEntities" class="text-lg font-bold text-indigo-600">-</div>
+          <div class="text-[9px] text-gray-400 font-medium">业务对象</div>
+        </div>
+        <div class="bg-white/70 rounded-lg p-2 border border-gray-100">
+          <div id="statRecords" class="text-lg font-bold text-emerald-600">-</div>
+          <div class="text-[9px] text-gray-400 font-medium">数据记录</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 实体列表 -->
+    <div class="px-4 pt-2 pb-1 flex items-center justify-between">
+      <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">业务对象</div>
+    </div>
+    <div class="flex-1 overflow-y-auto custom-scrollbar px-4 pb-4">
+      <div id="entityList" class="space-y-1">
+        <div class="text-center text-gray-400 text-xs py-8">加载中...</div>
+      </div>
+    </div>
+
+    <!-- 底部导航 -->
+    <div class="p-3 border-t border-gray-200/50 bg-white/30">
+      <a href="/" class="flex items-center gap-2 text-xs text-gray-500 hover:text-indigo-600 transition-colors">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        返回主页
+      </a>
+    </div>
+  </aside>
+
+  <!-- 右侧 —— 详情区 -->
+  <main class="flex-1 flex flex-col min-w-0 z-10">
+    <!-- 顶栏 -->
+    <header class="h-14 bg-white/60 backdrop-blur-xl border-b border-gray-200/50 flex items-center justify-between px-6 shrink-0">
+      <div id="headerTitle" class="font-bold text-gray-900">选择一个业务对象查看</div>
+      <div class="flex items-center gap-3">
+        <button onclick="exportAll()" class="text-xs font-medium text-gray-500 hover:text-indigo-600 flex items-center gap-1 transition-colors">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          导出全部
+        </button>
+      </div>
+    </header>
+
+    <!-- 内容区 -->
+    <div id="contentArea" class="flex-1 overflow-y-auto custom-scrollbar p-6">
+      <!-- 默认欢迎页 -->
+      <div id="welcomeView" class="flex flex-col items-center justify-center h-full text-center">
+        <div class="w-16 h-16 bg-gradient-to-br from-emerald-100 to-teal-100 rounded-2xl flex items-center justify-center mb-4">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0f766e" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
+        </div>
+        <h2 class="text-xl font-bold text-gray-800 mb-2">Mock 数据浏览器</h2>
+        <p class="text-sm text-gray-500 max-w-md">查看 CRM Agent 使用的模拟数据和对应的元数据 Schema 描述。<br>从左侧选择一个业务对象开始。</p>
+      </div>
+
+      <!-- 详情视图 -->
+      <div id="detailView" class="hidden animate-fade-in">
+        <!-- Tab 切换 -->
+        <div class="flex items-center gap-2 mb-5">
+          <button onclick="switchDetailTab('schema')" class="tab-btn active" id="tabSchema">Schema 定义</button>
+          <button onclick="switchDetailTab('data')" class="tab-btn" id="tabData">数据记录</button>
+          <button onclick="switchDetailTab('relations')" class="tab-btn" id="tabRelations">关联关系</button>
+        </div>
+
+        <!-- Schema 视图 -->
+        <div id="schemaView" class="animate-fade-in"></div>
+
+        <!-- 数据视图 -->
+        <div id="dataView" class="hidden animate-fade-in"></div>
+
+        <!-- 关联视图 -->
+        <div id="relationsView" class="hidden animate-fade-in"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// 状态
+// ═══════════════════════════════════════════════════════════
+let currentEntity = null;
+let entitiesData = [];
+let currentTab = 'schema';
+
+// ═══════════════════════════════════════════════════════════
+// 初始化
+// ═══════════════════════════════════════════════════════════
+async function init() {
+  try {
+    const resp = await fetch('/api/mock-data/entities');
+    const data = await resp.json();
+    entitiesData = data.entities || [];
+    document.getElementById('statEntities').textContent = data.total_entities || 0;
+    document.getElementById('statRecords').textContent = data.total_records || 0;
+    renderEntityList();
+  } catch (e) {
+    document.getElementById('entityList').innerHTML = '<div class="text-red-500 text-xs p-4">加载失败: ' + e.message + '</div>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 左侧实体列表
+// ═══════════════════════════════════════════════════════════
+function renderEntityList() {
+  const container = document.getElementById('entityList');
+  if (!entitiesData.length) {
+    container.innerHTML = '<div class="text-gray-400 text-xs py-4 text-center">暂无数据</div>';
+    return;
+  }
+  container.innerHTML = entitiesData.map(e => `
+    <div onclick="selectEntity('${e.api_key}')" id="entity-${e.api_key}"
+         class="flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all hover:bg-white/80 ${currentEntity === e.api_key ? 'bg-white shadow-sm border border-indigo-200' : ''}">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-50 to-blue-50 flex items-center justify-center">
+          <span class="text-sm">${getEntityIcon(e.api_key)}</span>
+        </div>
+        <div>
+          <div class="text-sm font-bold text-gray-800">${e.label}</div>
+          <div class="text-[10px] text-gray-400">${e.api_key}</div>
+        </div>
+      </div>
+      <div class="flex flex-col items-end gap-0.5">
+        <span class="chip chip-blue">${e.record_count} 条</span>
+        <span class="text-[9px] text-gray-400">${e.field_count} 字段</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function getEntityIcon(apiKey) {
+  const icons = { account: '🏢', contact: '👤', opportunity: '💰', activity: '📋', lead: '🎯' };
+  return icons[apiKey] || '📦';
+}
+
+// ═══════════════════════════════════════════════════════════
+// 选择实体
+// ═══════════════════════════════════════════════════════════
+async function selectEntity(apiKey) {
+  currentEntity = apiKey;
+  renderEntityList();
+
+  const entity = entitiesData.find(e => e.api_key === apiKey);
+  document.getElementById('headerTitle').textContent = `${entity?.label || apiKey} — ${apiKey}`;
+  document.getElementById('welcomeView').classList.add('hidden');
+  document.getElementById('detailView').classList.remove('hidden');
+
+  // 加载 Schema 和数据
+  await Promise.all([loadSchema(apiKey), loadRecords(apiKey)]);
+  switchDetailTab(currentTab);
+}
+
+// ═══════════════════════════════════════════════════════════
+// Schema 加载和渲染
+// ═══════════════════════════════════════════════════════════
+let schemaCache = {};
+
+async function loadSchema(apiKey) {
+  if (schemaCache[apiKey]) { renderSchema(schemaCache[apiKey]); return; }
+  try {
+    const resp = await fetch(`/api/mock-data/schema/${apiKey}`);
+    const data = await resp.json();
+    schemaCache[apiKey] = data;
+    renderSchema(data);
+  } catch (e) {
+    document.getElementById('schemaView').innerHTML = '<div class="text-red-500">Schema 加载失败</div>';
+  }
+}
+
+function renderSchema(schema) {
+  const items = schema.items || [];
+  const html = `
+    <div class="mb-4 flex items-center gap-3">
+      <span class="chip chip-green">${items.length} 个字段</span>
+      <span class="chip chip-purple">${items.filter(i => i.item_type === 'PICK_LIST').length} 个选项字段</span>
+      <span class="chip chip-orange">${items.filter(i => i.required).length} 个必填</span>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      ${items.map(item => renderFieldCard(item)).join('')}
+    </div>
+  `;
+  document.getElementById('schemaView').innerHTML = html;
+}
+
+function renderFieldCard(item) {
+  const typeColors = {
+    VARCHAR: 'chip-blue', INTEGER: 'chip-green', DECIMAL: 'chip-green',
+    PICK_LIST: 'chip-purple', RELATIONSHIP: 'chip-orange', DATE: 'chip-teal', TEXT: 'chip-gray'
+  };
+  const chipClass = typeColors[item.item_type] || 'chip-gray';
+
+  let optionsHtml = '';
+  if (item.options && item.options.length) {
+    optionsHtml = `
+      <div class="mt-2 flex flex-wrap gap-1">
+        ${item.options.map(o => `<span class="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px]">${o}</span>`).join('')}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="field-card">
+      <div class="flex items-center justify-between mb-1">
+        <div class="flex items-center gap-2">
+          <span class="font-bold text-sm text-gray-800">${item.label}</span>
+          ${item.required ? '<span class="text-red-500 text-xs">*</span>' : ''}
+        </div>
+        <span class="chip ${chipClass}">${item.item_type}</span>
+      </div>
+      <div class="text-[11px] text-gray-400 font-mono">${item.api_key}</div>
+      ${optionsHtml}
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// 数据记录加载和渲染
+// ═══════════════════════════════════════════════════════════
+let recordsCache = {};
+
+async function loadRecords(apiKey) {
+  if (recordsCache[apiKey]) { renderRecords(recordsCache[apiKey]); return; }
+  try {
+    const resp = await fetch(`/api/mock-data/records/${apiKey}?page_size=50`);
+    const data = await resp.json();
+    recordsCache[apiKey] = data;
+    renderRecords(data);
+  } catch (e) {
+    document.getElementById('dataView').innerHTML = '<div class="text-red-500">数据加载失败</div>';
+  }
+}
+
+function renderRecords(data) {
+  const records = data.records || [];
+  if (!records.length) {
+    document.getElementById('dataView').innerHTML = '<div class="text-gray-400 text-center py-8">暂无数据</div>';
+    return;
+  }
+
+  // 获取所有字段名
+  const allKeys = new Set();
+  records.forEach(r => Object.keys(r).forEach(k => allKeys.add(k)));
+  const keys = Array.from(allKeys);
+
+  // 优先显示的字段
+  const priority = ['id', 'name', 'subject', 'company', 'label'];
+  keys.sort((a, b) => {
+    const ai = priority.indexOf(a);
+    const bi = priority.indexOf(b);
+    if (ai >= 0 && bi >= 0) return ai - bi;
+    if (ai >= 0) return -1;
+    if (bi >= 0) return 1;
+    return a.localeCompare(b);
+  });
+
+  const html = `
+    <div class="mb-3 flex items-center gap-3">
+      <span class="chip chip-blue">${data.total} 条记录</span>
+      <span class="chip chip-gray">${keys.length} 个字段</span>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="data-table">
+          <thead>
+            <tr>${keys.map(k => `<th class="whitespace-nowrap">${k}</th>`).join('')}</tr>
+          </thead>
+          <tbody>
+            ${records.map(r => `
+              <tr>${keys.map(k => `<td class="whitespace-nowrap max-w-[200px] truncate" title="${escapeHtml(String(r[k] ?? ''))}">${formatValue(r[k])}</td>`).join('')}</tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  document.getElementById('dataView').innerHTML = html;
+}
+
+function formatValue(val) {
+  if (val === null || val === undefined) return '<span class="text-gray-300">—</span>';
+  if (typeof val === 'number') return `<span class="font-mono text-indigo-600">${val}</span>`;
+  return escapeHtml(String(val));
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ═══════════════════════════════════════════════════════════
+// 关联关系渲染
+// ═══════════════════════════════════════════════════════════
+function renderRelations() {
+  const schema = schemaCache[currentEntity];
+  if (!schema) { document.getElementById('relationsView').innerHTML = ''; return; }
+
+  const links = schema.links || [];
+  if (!links.length) {
+    document.getElementById('relationsView').innerHTML = `
+      <div class="text-center py-8 text-gray-400">
+        <div class="text-2xl mb-2">🔗</div>
+        <div class="text-sm">该业务对象没有定义关联关系</div>
+      </div>
+    `;
+    return;
+  }
+
+  const html = `
+    <div class="mb-3">
+      <span class="chip chip-orange">${links.length} 个关联</span>
+    </div>
+    <div class="space-y-3">
+      ${links.map(link => `
+        <div class="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4">
+          <div class="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center text-lg">🔗</div>
+          <div class="flex-1">
+            <div class="font-bold text-sm text-gray-800">${link.label}</div>
+            <div class="text-[11px] text-gray-400 mt-0.5">
+              <span class="font-mono">${currentEntity}</span>
+              <span class="mx-2 text-orange-500">→ ${link.type}</span>
+              <span class="font-mono text-indigo-600 cursor-pointer hover:underline" onclick="selectEntity('${link.target}')">${link.target}</span>
+            </div>
+          </div>
+          <span class="chip chip-orange">${link.type}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+  document.getElementById('relationsView').innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════
+// Tab 切换
+// ═══════════════════════════════════════════════════════════
+function switchDetailTab(tab) {
+  currentTab = tab;
+  ['schema', 'data', 'relations'].forEach(t => {
+    document.getElementById(t + 'View').classList.toggle('hidden', t !== tab);
+    document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1)).classList.toggle('active', t === tab);
+  });
+  if (tab === 'relations') renderRelations();
+}
+
+// ═══════════════════════════════════════════════════════════
+// 导出
+// ═══════════════════════════════════════════════════════════
+async function exportAll() {
+  try {
+    const resp = await fetch('/api/mock-data/full');
+    const data = await resp.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'mock_data_export.json'; a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('导出失败: ' + e.message);
+  }
+}
+
+// 启动
+init();
+</script>
+</body>
+</html>

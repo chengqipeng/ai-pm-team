@@ -60,13 +60,19 @@
       <div class="side-menu-item" data-page="categories" onclick="switchPage('categories')">
         <span>🏷️</span><span>分类管理</span>
       </div>
+      <div class="side-menu-item" data-page="mockdata" onclick="switchPage('mockdata')">
+        <span>🗃️</span><span>Mock 数据</span>
+      </div>
+      <div class="side-menu-item" data-page="mockmeta" onclick="switchPage('mockmeta')">
+        <span>📐</span><span>Mock 元数据</span>
+      </div>
     </nav>
   </aside>
 
   <!-- 右侧内容区 -->
-  <main class="flex-1 overflow-y-auto">
+  <main class="flex-1 overflow-hidden relative">
     <!-- 技能列表页 -->
-    <div id="page-skills" class="p-6">
+    <div id="page-skills" class="p-6 overflow-y-auto h-full">
       <!-- 顶部操作栏 -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
@@ -109,7 +115,7 @@
     </div>
 
     <!-- 分类管理页 -->
-    <div id="page-categories" class="p-6 hidden">
+    <div id="page-categories" class="p-6 hidden overflow-y-auto h-full">
       <div class="flex items-center justify-between mb-6">
         <h2 class="text-lg font-semibold text-gray-800">分类管理</h2>
         <button onclick="openCategoryForm()" class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
@@ -127,7 +133,7 @@
     </div>
 
     <!-- 工具管理页 -->
-    <div id="page-tools" class="p-6 hidden">
+    <div id="page-tools" class="p-6 hidden overflow-y-auto h-full">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-lg font-semibold text-gray-800">工具管理</h2>
         <div class="flex items-center gap-3">
@@ -141,13 +147,97 @@
       <div id="toolList" class="space-y-2"></div>
       <div id="toolEmpty" class="hidden text-center py-12 text-gray-400 text-sm">暂无工具数据</div>
     </div>
+
+    <!-- Mock 数据页 -->
+    <div id="page-mockdata" class="hidden h-full">
+      <div class="flex h-full">
+        <!-- 左侧实体导航 -->
+        <aside class="w-48 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
+          <div class="px-4 py-3 border-b border-gray-100">
+            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">业务对象</h3>
+            <span id="mockDataStats" class="text-xs text-gray-400"></span>
+          </div>
+          <nav id="mockEntityNav" class="flex-1 overflow-y-auto py-2 space-y-0.5 px-2"></nav>
+        </aside>
+        <!-- 右侧数据内容 -->
+        <div class="flex-1 overflow-hidden flex flex-col">
+          <!-- 空状态 -->
+          <div id="mockDataEmpty" class="flex flex-col items-center justify-center h-full text-gray-400">
+            <span class="text-3xl mb-2">🗃️</span>
+            <p class="text-sm">选择左侧实体查看 Mock 数据</p>
+          </div>
+          <!-- 数据表格 -->
+          <div id="mockDataTable" class="hidden flex flex-col h-full">
+            <div class="flex items-center justify-between px-6 py-3 border-b bg-white flex-shrink-0">
+              <h3 id="mockDataTitle" class="text-base font-semibold text-gray-800"></h3>
+              <span id="mockDataRecordCount" class="text-xs text-gray-400"></span>
+            </div>
+            <div class="flex-1 overflow-auto">
+              <table class="w-full text-sm border-collapse">
+                <thead id="mockDataThead" class="bg-gray-50 text-xs text-gray-500 sticky top-0"></thead>
+                <tbody id="mockDataTbody" class="divide-y divide-gray-100"></tbody>
+              </table>
+            </div>
+            <div id="mockDataPagination" class="flex items-center justify-between px-6 py-3 border-t bg-white text-sm text-gray-500 flex-shrink-0"></div>
+          </div>
+        </div>
+      </div>
+      <!-- 记录详情弹层 -->
+      <div id="mockDataDetailModal" class="fixed inset-0 z-[200] hidden">
+        <div class="absolute inset-0 bg-black/30 backdrop-blur-sm" onclick="closeMockDataDetail()"></div>
+        <div class="absolute top-0 right-0 bottom-0 w-[520px] bg-white shadow-2xl flex flex-col z-10">
+          <div class="flex items-center justify-between px-6 py-4 border-b">
+            <h3 id="mockDataDetailTitle" class="text-base font-semibold text-gray-800">记录详情</h3>
+            <button onclick="closeMockDataDetail()" class="text-gray-400 hover:text-gray-600 text-lg">✕</button>
+          </div>
+          <div id="mockDataDetailBody" class="flex-1 overflow-y-auto p-6"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mock 元数据页 -->
+    <div id="page-mockmeta" class="hidden h-full">
+      <div class="flex h-full">
+        <!-- 左侧实体导航 -->
+        <aside class="w-48 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
+          <div class="px-4 py-3 border-b border-gray-100">
+            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Schema 列表</h3>
+          </div>
+          <nav id="mockMetaEntityNav" class="flex-1 overflow-y-auto py-2 space-y-0.5 px-2"></nav>
+        </aside>
+        <!-- 右侧 Schema 内容 -->
+        <div class="flex-1 overflow-y-auto p-6">
+          <!-- 空状态 -->
+          <div id="mockMetaEmpty" class="flex flex-col items-center justify-center h-full text-gray-400">
+            <span class="text-3xl mb-2">📐</span>
+            <p class="text-sm">选择左侧实体查看元数据 Schema</p>
+          </div>
+          <!-- Schema 详情 -->
+          <div id="mockMetaDetail" class="hidden">
+            <div class="flex items-center justify-between mb-4">
+              <h3 id="mockMetaTitle" class="text-base font-semibold text-gray-800"></h3>
+            </div>
+            <!-- 字段列表 -->
+            <div class="bg-white rounded-lg border mb-4">
+              <div class="px-4 py-3 border-b bg-gray-50 text-xs font-medium text-gray-500">字段定义</div>
+              <div id="mockMetaFields" class="divide-y divide-gray-100"></div>
+            </div>
+            <!-- 关联关系 -->
+            <div id="mockMetaLinksSection" class="bg-white rounded-lg border hidden">
+              <div class="px-4 py-3 border-b bg-gray-50 text-xs font-medium text-gray-500">关联关系</div>
+              <div id="mockMetaLinks" class="divide-y divide-gray-100"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
 </div>
 
 <!-- 创建/编辑技能 Modal -->
 <div id="formModal" class="fixed inset-0 z-[100] hidden">
   <div class="modal-overlay absolute inset-0" onclick="closeForm()"></div>
-  <div class="absolute inset-4 md:inset-y-4 md:inset-x-[10%] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden z-10">
+  <div class="absolute top-0 right-0 bottom-0 w-[600px] bg-white shadow-2xl flex flex-col overflow-hidden z-10 transform transition-transform duration-300">
     <div class="flex items-center justify-between px-6 py-4 border-b">
       <h2 id="formTitle" class="text-lg font-semibold">创建技能</h2>
       <div class="flex gap-2">
@@ -159,7 +249,7 @@
     <div class="flex-1 overflow-y-auto p-6">
       <form id="skillForm" class="space-y-5">
         <!-- 基本信息 -->
-        <div class="grid grid-cols-3 gap-4">
+        <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">API Key *</label>
             <input name="api_key" id="f_api_key" required pattern="^[a-zA-Z][a-zA-Z0-9_]{1,98}$"
@@ -172,28 +262,13 @@
                    class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"
                    placeholder="客户健康度检查">
           </div>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">分类 *</label>
             <select name="category" id="f_category" class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
             </select>
           </div>
-        </div>
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">描述 *</label>
-            <textarea name="description" id="f_description" required rows="2"
-                      class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"
-                      placeholder="一句话描述技能用途"></textarea>
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">触发关键词（|分隔）</label>
-            <textarea name="when_to_use" id="f_when_to_use" rows="2"
-                      class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"
-                      placeholder="客户健康|健康度|活跃度评估"></textarea>
-          </div>
-        </div>
-        <!-- 执行配置 -->
-        <div class="grid grid-cols-4 gap-4">
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">风险等级</label>
             <select name="risk_level" id="f_risk_level" class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
@@ -202,6 +277,21 @@
               <option value="destructive">危险</option>
             </select>
           </div>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">描述 *</label>
+          <textarea name="description" id="f_description" required rows="2"
+                    class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"
+                    placeholder="一句话描述技能用途"></textarea>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">触发关键词（|分隔）</label>
+          <input name="when_to_use" id="f_when_to_use"
+                 class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"
+                 placeholder="客户健康|健康度|活跃度评估">
+        </div>
+        <!-- 执行配置 -->
+        <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">最大工具调用</label>
             <input name="max_tool_calls" id="f_max_tool_calls" type="number" value="20" min="1" max="100"
@@ -213,12 +303,11 @@
                    class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
           </div>
         </div>
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">允许的工具（逗号分隔）</label>
-            <input name="allowed_tools" id="f_allowed_tools"
-                   class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none"
-                   placeholder="query_data, analyze_data">
+        <!-- 允许的工具（多选） -->
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-2">允许的工具（从工具管理中选择）</label>
+          <div id="f_allowed_tools_options" class="flex flex-wrap gap-2">
+            <!-- 动态渲染工具选项 -->
           </div>
         </div>
         <!-- 参数定义 -->
@@ -324,10 +413,14 @@ function switchPage(page) {
   document.getElementById('page-skills').classList.toggle('hidden', page !== 'skills');
   document.getElementById('page-tools').classList.toggle('hidden', page !== 'tools');
   document.getElementById('page-categories').classList.toggle('hidden', page !== 'categories');
+  document.getElementById('page-mockdata').classList.toggle('hidden', page !== 'mockdata');
+  document.getElementById('page-mockmeta').classList.toggle('hidden', page !== 'mockmeta');
 
   if (page === 'categories') loadCategories();
   if (page === 'skills') loadSkills();
   if (page === 'tools') loadTools();
+  if (page === 'mockdata') loadMockData();
+  if (page === 'mockmeta') loadMockMeta();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -559,18 +652,21 @@ function renderSkillList() {
             <p class="text-sm text-gray-500 mt-1 truncate">${s.description}</p>
             <div class="flex items-center gap-3 mt-2 text-xs text-gray-400">
               <span class="px-1.5 py-0.5 rounded ${riskColors[s.risk_level]}">${riskLabels[s.risk_level]}</span>
+              ${s.system ? '<span class="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">🔒 系统</span>' : ''}
               <span>执行 ${s.exec_count} 次</span>
               <span>成功率 ${rate}%</span>
             </div>
           </div>
           <div class="flex items-center gap-3 ml-4">
             <label class="toggle-switch" title="${enabled ? '点击禁用' : '点击启用'}">
-              <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleSkill('${s.api_key}', this.checked)">
+              <input type="checkbox" ${enabled ? 'checked' : ''} ${s.system ? 'disabled' : ''} onchange="toggleSkill('${s.api_key}', this.checked)">
               <span class="toggle-slider"></span>
             </label>
+            ${!s.system ? `
             <button onclick="editSkill('${s.api_key}')" class="text-xs text-blue-600 hover:text-blue-800 font-medium">编辑</button>
             <button onclick="cloneSkill('${s.api_key}')" class="text-xs text-gray-500 hover:text-gray-700">克隆</button>
             <button onclick="deleteSkill('${s.api_key}', '${s.name}')" class="text-xs text-red-500 hover:text-red-700">删除</button>
+            ` : '<span class="text-xs text-gray-400">系统预置</span>'}
           </div>
         </div>
       </div>
@@ -636,6 +732,7 @@ function openCreate() {
   document.getElementById('f_max_tool_calls').value = '20';
   document.getElementById('f_timeout_ms').value = '60000';
   document.getElementById('testOutputSection').classList.add('hidden');
+  renderToolOptions([]);
   resetArguments();
   renderCategorySelect();
   document.getElementById('formModal').classList.remove('hidden');
@@ -661,8 +758,8 @@ async function editSkill(apiKey) {
     document.getElementById('f_risk_level').value = s.risk_level || 'read_only';
     document.getElementById('f_max_tool_calls').value = s.max_tool_calls || 20;
     document.getElementById('f_timeout_ms').value = s.timeout_ms || 60000;
-    document.getElementById('f_allowed_tools').value = (s.allowed_tools || []).join(', ');
-    loadArguments(s.arguments || [], s.argument_descriptions || {});
+    renderToolOptions(s.allowed_tools || []);
+    loadArguments(s.arguments || [], s.argument_descriptions || {}, s.argument_config || {});
     document.getElementById('f_prompt').value = s.prompt || '';
   } catch (e) {
     alert('加载失败: ' + e.message);
@@ -694,9 +791,10 @@ async function saveSkill() {
     risk_level: document.getElementById('f_risk_level').value,
     max_tool_calls: parseInt(document.getElementById('f_max_tool_calls').value) || 20,
     timeout_ms: parseInt(document.getElementById('f_timeout_ms').value) || 60000,
-    allowed_tools: document.getElementById('f_allowed_tools').value.split(',').map(s => s.trim()).filter(Boolean),
+    allowed_tools: getSelectedTools(),
     arguments: getArgumentNames(),
     argument_descriptions: getArgumentDescriptions(),
+    argument_config: getArgumentConfig(),
     prompt: document.getElementById('f_prompt').value,
   };
 
@@ -758,6 +856,52 @@ async function testSkill() {
     }
     output.innerHTML = marked.parse(prompt || '(空)');
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 工具选择器（Skill 表单中的 allowed_tools 多选）
+// ═══════════════════════════════════════════════════════════
+function renderToolOptions(selectedTools) {
+  const container = document.getElementById('f_allowed_tools_options');
+  if (!allTools.length) {
+    // 如果工具列表还没加载，先加载
+    fetch(TOOL_API).then(r => r.json()).then(data => {
+      allTools = data.items || [];
+      _renderToolCheckboxes(container, selectedTools);
+    });
+  } else {
+    _renderToolCheckboxes(container, selectedTools);
+  }
+}
+
+function _renderToolCheckboxes(container, selectedTools) {
+  const selected = new Set(selectedTools || []);
+  const enabledTools = allTools.filter(t => t.enabled);
+
+  if (!enabledTools.length) {
+    container.innerHTML = '<span class="text-xs text-gray-400">暂无可用工具</span>';
+    return;
+  }
+
+  container.innerHTML = enabledTools.map(t => {
+    const checked = selected.has(t.api_key) ? 'checked' : '';
+    const badge = t.read_only
+      ? '<span class="text-[9px] text-green-600">只读</span>'
+      : '<span class="text-[9px] text-orange-600">可写</span>';
+    return `
+      <label class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border cursor-pointer hover:bg-blue-50 transition-colors ${checked ? 'bg-blue-50 border-blue-300' : 'border-gray-200'}" 
+             onclick="this.classList.toggle('bg-blue-50'); this.classList.toggle('border-blue-300')">
+        <input type="checkbox" value="${t.api_key}" ${checked} class="tool-checkbox rounded text-blue-600 w-3.5 h-3.5">
+        <code class="text-xs font-medium text-gray-700">${t.api_key}</code>
+        ${badge}
+      </label>
+    `;
+  }).join('');
+}
+
+function getSelectedTools() {
+  const checkboxes = document.querySelectorAll('#f_allowed_tools_options .tool-checkbox:checked');
+  return Array.from(checkboxes).map(cb => cb.value);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -891,7 +1035,8 @@ async function showToolDetail(apiKey) {
 // ═══════════════════════════════════════════════════════════
 // 参数编辑器
 // ═══════════════════════════════════════════════════════════
-let skillArguments = []; // [{name: '', description: ''}]
+let skillArguments = []; // [{name: '', description: '', config: {}}]
+let skillArgumentConfig = {}; // 从 API 加载的 argument_config
 
 function addArgument(name = '', description = '') {
   skillArguments.push({ name, description });
@@ -914,21 +1059,96 @@ function renderArguments() {
   }
   empty.classList.add('hidden');
 
-  container.innerHTML = skillArguments.map((arg, idx) => `
-    <div class="flex items-center gap-2">
-      <input type="text" value="${arg.name}" placeholder="参数名（如 account_id）"
-             onchange="skillArguments[${idx}].name = this.value.trim()"
-             class="w-40 px-2 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none font-mono">
-      <input type="text" value="${arg.description}" placeholder="参数描述（如：客户 ID）"
-             onchange="skillArguments[${idx}].description = this.value.trim()"
-             class="flex-1 px-2 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none">
-      <button type="button" onclick="removeArgument(${idx})" class="text-red-400 hover:text-red-600 text-sm px-1">✕</button>
-    </div>
-  `).join('');
+  container.innerHTML = skillArguments.map((arg, idx) => {
+    const config = skillArgumentConfig[arg.name] || {};
+    const argType = config.type || 'text';
+    // 渲染参数类型选择器
+    const typeOptions = [
+      { value: 'text', label: '文本' },
+      { value: 'select', label: '下拉选择' },
+      { value: 'number', label: '数字' },
+      { value: 'textarea', label: '多行文本' },
+    ];
+    const typeSelect = `<select onchange="updateArgConfig(${idx}, 'type', this.value)" class="w-20 px-1.5 py-1.5 text-xs border rounded-lg focus:outline-none bg-gray-50">
+      ${typeOptions.map(o => `<option value="${o.value}" ${argType === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+    </select>`;
+
+    // 如果是 select 类型，显示数据源配置
+    let extraConfig = '';
+    if (argType === 'select') {
+      const ds = config.data_source || '';
+      const dsOptions = [
+        { value: 'knowledge_bases', label: '知识库列表' },
+        { value: 'custom', label: '自定义选项' },
+      ];
+      extraConfig = `
+        <div class="flex items-center gap-2 mt-1.5 ml-[168px]">
+          <span class="text-[10px] text-gray-400">数据源:</span>
+          <select onchange="updateArgConfig(${idx}, 'data_source', this.value)" class="px-1.5 py-1 text-xs border rounded focus:outline-none bg-gray-50">
+            ${dsOptions.map(o => `<option value="${o.value}" ${ds === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+          </select>
+          <label class="flex items-center gap-1 text-[10px] text-gray-400">
+            <input type="checkbox" ${config.allow_empty ? 'checked' : ''} onchange="updateArgConfig(${idx}, 'allow_empty', this.checked)" class="w-3 h-3 rounded">
+            允许为空
+          </label>
+        </div>`;
+    }
+
+    return `
+      <div class="space-y-0">
+        <div class="flex items-center gap-2">
+          <input type="text" value="${arg.name}" placeholder="参数名（如 account_id）"
+                 onchange="skillArguments[${idx}].name = this.value.trim(); syncArgConfig(${idx})"
+                 class="w-40 px-2 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none font-mono">
+          <input type="text" value="${arg.description}" placeholder="参数描述（如：客户 ID）"
+                 onchange="skillArguments[${idx}].description = this.value.trim()"
+                 class="flex-1 px-2 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none">
+          ${typeSelect}
+          <button type="button" onclick="removeArgument(${idx})" class="text-red-400 hover:text-red-600 text-sm px-1">✕</button>
+        </div>
+        ${extraConfig}
+      </div>
+    `;
+  }).join('');
 }
 
-function loadArguments(names, descriptions) {
-  // names: ["account_id", ...], descriptions: {"account_id": "客户ID", ...}
+function updateArgConfig(idx, key, value) {
+  const argName = skillArguments[idx]?.name;
+  if (!argName) return;
+  if (!skillArgumentConfig[argName]) {
+    skillArgumentConfig[argName] = { type: 'text', required: false };
+  }
+  skillArgumentConfig[argName][key] = value;
+
+  // 如果切换到 select 类型且数据源是 knowledge_bases，自动填充配置
+  if (key === 'type' && value === 'select') {
+    const cfg = skillArgumentConfig[argName];
+    if (!cfg.data_source) cfg.data_source = 'knowledge_bases';
+    if (!cfg.data_source_api) cfg.data_source_api = '/api/knowledge/bases';
+    if (!cfg.option_label_field) cfg.option_label_field = 'name';
+    if (!cfg.option_value_field) cfg.option_value_field = 'id';
+    cfg.allow_empty = true;
+    cfg.empty_label = '全部';
+  }
+  if (key === 'data_source' && value === 'knowledge_bases') {
+    const cfg = skillArgumentConfig[argName];
+    cfg.data_source_api = '/api/knowledge/bases';
+    cfg.option_label_field = 'name';
+    cfg.option_value_field = 'id';
+    cfg.empty_label = '全部知识库';
+  }
+
+  renderArguments();
+}
+
+function syncArgConfig(idx) {
+  // 参数名变更时同步 config key
+  // 简单处理：不做 key 重命名，保存时会根据当前 arguments 重新构建
+}
+
+function loadArguments(names, descriptions, config) {
+  // names: ["account_id", ...], descriptions: {"account_id": "客户ID", ...}, config: {...}
+  skillArgumentConfig = config || {};
   skillArguments = (names || []).map(name => ({
     name,
     description: (descriptions && descriptions[name]) || '',
@@ -948,8 +1168,25 @@ function getArgumentDescriptions() {
   return desc;
 }
 
+function getArgumentConfig() {
+  // 只返回有配置的参数（非默认 text 类型）
+  const config = {};
+  skillArguments.forEach(a => {
+    if (!a.name) return;
+    const cfg = skillArgumentConfig[a.name];
+    if (cfg && (cfg.type !== 'text' || cfg.required)) {
+      config[a.name] = { ...cfg, label: a.description || a.name };
+    } else {
+      // 默认 text 类型也保存 label
+      config[a.name] = { type: 'text', required: false, label: a.description || a.name };
+    }
+  });
+  return config;
+}
+
 function resetArguments() {
   skillArguments = [];
+  skillArgumentConfig = {};
   renderArguments();
 }
 
@@ -958,6 +1195,289 @@ function resetArguments() {
 // ═══════════════════════════════════════════════════════════
 function debounce(fn, ms) {
   let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
+// ═══════════════════════════════════════════════════════════
+// Mock 数据管理
+// ═══════════════════════════════════════════════════════════
+const MOCK_DATA_API = '/api/mock-data';
+let mockEntities = [];
+let mockDataActiveEntity = '';
+
+async function loadMockData() {
+  try {
+    const res = await fetch(`${MOCK_DATA_API}/entities`);
+    const data = await res.json();
+    mockEntities = data.entities || [];
+    document.getElementById('mockDataStats').textContent = `${data.total_entities || 0} 个实体`;
+    renderMockEntityNav();
+    // 默认选中第一个
+    if (mockEntities.length && !mockDataActiveEntity) {
+      viewMockRecords(mockEntities[0].apiKey, mockEntities[0].label);
+    } else if (mockDataActiveEntity) {
+      const e = mockEntities.find(x => x.apiKey === mockDataActiveEntity);
+      if (e) viewMockRecords(e.apiKey, e.label);
+    }
+  } catch (e) {
+    document.getElementById('mockEntityNav').innerHTML = '<div class="px-3 py-4 text-xs text-gray-400 text-center">加载失败</div>';
+  }
+}
+
+function renderMockEntityNav() {
+  const container = document.getElementById('mockEntityNav');
+  container.innerHTML = mockEntities.map(e => `
+    <div class="mock-entity-nav-item flex items-center justify-between px-3 py-2 rounded-md cursor-pointer text-sm transition-all ${mockDataActiveEntity === e.apiKey ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}"
+         data-key="${e.apiKey}" onclick="viewMockRecords('${e.apiKey}', '${e.label}')">
+      <span>${e.label}</span>
+      <span class="text-xs ${mockDataActiveEntity === e.apiKey ? 'text-blue-400' : 'text-gray-400'}">${e.recordCount}</span>
+    </div>
+  `).join('');
+}
+
+let mockDataCurrentPage = 1;
+let mockDataAllRecords = []; // 保存当前页数据用于详情查看
+let mockDataFieldLabels = {}; // apiKey → 中文 label 映射
+
+async function viewMockRecords(entityApiKey, label) {
+  mockDataActiveEntity = entityApiKey;
+  mockDataCurrentPage = 1;
+  mockDataFieldLabels = {};
+  // 更新导航高亮
+  renderMockEntityNav();
+  // 显示表格，隐藏空状态
+  document.getElementById('mockDataEmpty').classList.add('hidden');
+  document.getElementById('mockDataTable').classList.remove('hidden');
+  document.getElementById('mockDataTitle').textContent = `${label}`;
+  // 先加载 schema 获取字段中文名
+  try {
+    const schemaRes = await fetch(`${MOCK_DATA_API}/schema/${entityApiKey}`);
+    const schema = await schemaRes.json();
+    // 优先使用 dataFieldLabels（包含 seed data 实际字段的中文映射）
+    if (schema.dataFieldLabels) {
+      mockDataFieldLabels = schema.dataFieldLabels;
+    } else {
+      (schema.items || []).forEach(item => {
+        mockDataFieldLabels[item.apiKey] = item.label || item.apiKey;
+      });
+    }
+  } catch(e) {}
+  await fetchMockRecords();
+}
+
+async function fetchMockRecords() {
+  try {
+    const res = await fetch(`${MOCK_DATA_API}/records/${mockDataActiveEntity}?page=${mockDataCurrentPage}&page_size=20`);
+    const data = await res.json();
+    mockDataAllRecords = data.records || [];
+    document.getElementById('mockDataRecordCount').textContent = `共 ${data.total} 条记录`;
+    renderMockTable(data);
+  } catch (e) {
+    document.getElementById('mockDataTbody').innerHTML = '<tr><td colspan="99" class="px-4 py-8 text-center text-gray-400">加载失败</td></tr>';
+  }
+}
+
+function getFieldLabel(apiKey) {
+  return mockDataFieldLabels[apiKey] || apiKey;
+}
+
+function renderMockTable(data) {
+  const records = data.records || [];
+  if (!records.length) {
+    document.getElementById('mockDataThead').innerHTML = '';
+    document.getElementById('mockDataTbody').innerHTML = '<tr><td class="px-4 py-8 text-center text-gray-400">暂无数据</td></tr>';
+    document.getElementById('mockDataPagination').innerHTML = '';
+    return;
+  }
+  // 显示所有字段
+  const allKeys = Object.keys(records[0]);
+
+  document.getElementById('mockDataThead').innerHTML = `<tr>${allKeys.map(k => `<th class="px-3 py-2 text-left font-medium whitespace-nowrap border-b border-gray-200"><div class="text-gray-700">${getFieldLabel(k)}</div><div class="text-[10px] text-gray-400 font-normal">${k}</div></th>`).join('')}</tr>`;
+  document.getElementById('mockDataTbody').innerHTML = records.map((r, idx) => `
+    <tr class="hover:bg-blue-50/50 cursor-pointer transition-colors" onclick="openMockDataDetail(${idx})">
+      ${allKeys.map(k => {
+        let val = r[k];
+        if (val === null || val === undefined) val = '<span class="text-gray-300 italic">null</span>';
+        else if (typeof val === 'object') val = `<span class="text-xs font-mono text-purple-500">${JSON.stringify(val).slice(0, 50)}</span>`;
+        else {
+          const s = String(val);
+          val = s.length > 40 ? `<span title="${s.replace(/"/g, '&quot;')}">${s.slice(0, 40)}…</span>` : s;
+        }
+        return `<td class="px-3 py-2.5 text-gray-700 whitespace-nowrap">${val}</td>`;
+      }).join('')}
+    </tr>
+  `).join('');
+
+  // 分页
+  const total = data.total || 0;
+  const totalPages = Math.ceil(total / 20);
+  document.getElementById('mockDataPagination').innerHTML = `
+    <span>共 ${total} 条</span>
+    <div class="flex gap-2">
+      <button onclick="mockDataPrev()" class="px-2 py-1 border rounded text-xs ${mockDataCurrentPage <= 1 ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-100'}" ${mockDataCurrentPage <= 1 ? 'disabled' : ''}>上一页</button>
+      <span class="px-2 py-1 text-xs">${mockDataCurrentPage} / ${totalPages}</span>
+      <button onclick="mockDataNext(${totalPages})" class="px-2 py-1 border rounded text-xs ${mockDataCurrentPage >= totalPages ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-100'}" ${mockDataCurrentPage >= totalPages ? 'disabled' : ''}>下一页</button>
+    </div>
+  `;
+}
+
+function mockDataPrev() { if (mockDataCurrentPage > 1) { mockDataCurrentPage--; fetchMockRecords(); } }
+function mockDataNext(max) { if (mockDataCurrentPage < max) { mockDataCurrentPage++; fetchMockRecords(); } }
+
+function openMockDataDetail(idx) {
+  const record = mockDataAllRecords[idx];
+  if (!record) return;
+  const modal = document.getElementById('mockDataDetailModal');
+  modal.classList.remove('hidden');
+  document.getElementById('mockDataDetailTitle').textContent = `${record.name || record.id || '记录详情'}`;
+  const body = document.getElementById('mockDataDetailBody');
+  const keys = Object.keys(record);
+  body.innerHTML = `
+    <div class="space-y-0">
+      ${keys.map(k => {
+        let val = record[k];
+        let valHtml = '';
+        if (val === null || val === undefined) {
+          valHtml = '<span class="text-gray-300 italic">null</span>';
+        } else if (typeof val === 'object') {
+          valHtml = `<pre class="text-xs font-mono text-purple-700 bg-purple-50 rounded p-2 mt-1 whitespace-pre-wrap break-all">${JSON.stringify(val, null, 2)}</pre>`;
+        } else {
+          valHtml = `<span class="text-gray-800">${String(val)}</span>`;
+        }
+        return `
+          <div class="flex border-b border-gray-100 py-3">
+            <div class="w-36 flex-shrink-0 pt-0.5">
+              <div class="text-xs font-medium text-gray-700">${getFieldLabel(k)}</div>
+              <div class="text-[10px] text-gray-400">${k}</div>
+            </div>
+            <div class="flex-1 text-sm break-all">${valHtml}</div>
+          </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+function closeMockDataDetail() {
+  document.getElementById('mockDataDetailModal').classList.add('hidden');
+}
+
+// ═══════════════════════════════════════════════════════════
+// Mock 元数据管理
+// ═══════════════════════════════════════════════════════════
+let mockMetaActiveEntity = '';
+let mockMetaEntities = []; // 元数据页面自己的实体列表
+
+async function loadMockMeta() {
+  try {
+    const res = await fetch(`${MOCK_DATA_API}/entities`);
+    const data = await res.json();
+    mockMetaEntities = data.entities || [];
+    renderMockMetaEntityNav();
+    // 默认选中第一个
+    if (mockMetaEntities.length && !mockMetaActiveEntity) {
+      viewMockSchema(mockMetaEntities[0].apiKey, mockMetaEntities[0].label);
+    } else if (mockMetaActiveEntity) {
+      const e = mockMetaEntities.find(x => x.apiKey === mockMetaActiveEntity);
+      if (e) viewMockSchema(e.apiKey, e.label);
+    }
+  } catch (e) {
+    document.getElementById('mockMetaEntityNav').innerHTML = '<div class="px-3 py-4 text-xs text-gray-400 text-center">加载失败</div>';
+  }
+}
+
+function renderMockMetaEntityNav() {
+  const container = document.getElementById('mockMetaEntityNav');
+  container.innerHTML = mockMetaEntities.map(e => `
+    <div class="mock-meta-nav-item flex items-center justify-between px-3 py-2 rounded-md cursor-pointer text-sm transition-all ${mockMetaActiveEntity === e.apiKey ? 'bg-purple-50 text-purple-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}"
+         data-key="${e.apiKey}" onclick="viewMockSchema('${e.apiKey}', '${e.label}')">
+      <span>${e.label}</span>
+      <span class="text-xs ${mockMetaActiveEntity === e.apiKey ? 'text-purple-400' : 'text-gray-400'}">${e.fieldCount}字段</span>
+    </div>
+  `).join('');
+}
+
+async function viewMockSchema(entityApiKey, label) {
+  mockMetaActiveEntity = entityApiKey;
+  // 更新导航高亮
+  renderMockMetaEntityNav();
+  try {
+    const res = await fetch(`${MOCK_DATA_API}/schema/${entityApiKey}`);
+    const schema = await res.json();
+    document.getElementById('mockMetaEmpty').classList.add('hidden');
+    document.getElementById('mockMetaDetail').classList.remove('hidden');
+    const entity = schema.entity || {};
+    document.getElementById('mockMetaTitle').textContent = `${entity.label || label}（${entity.apiKey || entityApiKey}）`;
+    renderMockMetaFields(schema.items || [], schema.pickOptionsMap || {});
+    renderMockMetaLinks(schema.links || []);
+  } catch (e) {
+    document.getElementById('mockMetaDetail').innerHTML = '<div class="text-center py-8 text-gray-400">加载 Schema 失败</div>';
+  }
+}
+
+function renderMockMetaFields(items, pickOptionsMap) {
+  const container = document.getElementById('mockMetaFields');
+  if (!items.length) {
+    container.innerHTML = '<div class="px-4 py-6 text-center text-gray-400 text-sm">暂无字段定义</div>';
+    return;
+  }
+  const typeLabels = {1:'文本',2:'选择',3:'选择',4:'长文本',5:'数字',6:'货币',7:'日期',8:'JSON',10:'关联',22:'电话',23:'邮箱',27:'汇总',31:'开关',33:'百分比',38:'时间戳'};
+  container.innerHTML = items.map(item => {
+    const typeLabel = typeLabels[item.itemType] || `类型${item.itemType}`;
+    const options = pickOptionsMap[item.apiKey];
+    const optionsHtml = options ? `<span class="text-xs text-gray-400" title="${options.map(o=>o.label).join(', ')}">选项: ${options.length}个</span>` : '';
+    const descHtml = item.description ? `<div class="text-xs text-gray-400 mt-1 leading-relaxed">${item.description}</div>` : '';
+    const referHtml = item.referEntityApiKey ? `<span class="text-xs text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">→ ${item.referEntityApiKey}</span>` : '';
+    return `
+    <div class="px-4 py-3 hover:bg-gray-50/50 transition-colors">
+      <div class="flex items-center gap-3">
+        <div class="w-6 text-center text-xs text-gray-300">${item.itemOrder}</div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="font-medium text-gray-800 text-sm">${item.label}</span>
+            <span class="text-xs text-gray-400 font-mono">${item.apiKey}</span>
+            ${referHtml}
+          </div>
+          ${descHtml}
+        </div>
+        <span class="text-xs px-2 py-0.5 rounded ${getTypeColor(item.itemType)}">${typeLabel}</span>
+        <span class="text-xs text-gray-400 font-mono w-28 truncate text-right" title="${item.dbColumn}">${item.dbColumn}</span>
+        ${item.requireFlg ? '<span class="text-xs text-red-500">必填</span>' : ''}
+        ${optionsHtml}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderMockMetaLinks(links) {
+  const section = document.getElementById('mockMetaLinksSection');
+  const container = document.getElementById('mockMetaLinks');
+  if (!links.length) {
+    section.classList.add('hidden');
+    return;
+  }
+  section.classList.remove('hidden');
+  const linkTypeLabels = {1:'一对多',2:'多对一',3:'多对多',4:'一对一'};
+  container.innerHTML = links.map(link => `
+    <div class="px-4 py-3 flex items-center gap-4">
+      <span class="text-sm text-gray-800">${link.label}</span>
+      <span class="text-xs font-mono text-gray-400">${link.parentEntityApiKey} → ${link.childEntityApiKey}</span>
+      <span class="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-600">${linkTypeLabels[link.linkType] || link.linkType}</span>
+    </div>
+  `).join('');
+}
+
+function getTypeColor(itemType) {
+  const map = {
+    1: 'bg-gray-100 text-gray-600',
+    2: 'bg-gray-100 text-gray-600',
+    3: 'bg-purple-50 text-purple-600',
+    4: 'bg-green-50 text-green-600',
+    5: 'bg-blue-50 text-blue-600',
+    6: 'bg-orange-50 text-orange-600',
+    8: 'bg-yellow-50 text-yellow-700',
+    10: 'bg-indigo-50 text-indigo-600',
+    31: 'bg-green-50 text-green-600',
+  };
+  return map[itemType] || 'bg-gray-100 text-gray-600';
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -972,6 +1492,7 @@ document.getElementById('cf_enabled').addEventListener('change', function() {
 loadCategories().then(() => {
   loadSkills();
   loadStats();
+  loadTools();  // 预加载工具列表，供 Skill 表单使用
 });
 </script>
 </body>

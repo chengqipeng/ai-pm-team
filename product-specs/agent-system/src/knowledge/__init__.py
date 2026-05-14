@@ -20,6 +20,7 @@ Phase 1 + Phase 2 交付：
 
 from .lkeap_client import TencentLKEAPClient
 from .cos_client import TencentCOSClient
+from .archive_extractor import ArchiveExtractor, is_archive, ExtractionResult, ExtractedFile
 from .vdb_writer import KnowledgeVectorStore
 from .guard import IngestionGuard, DuplicateIngestionError, ConcurrentIngestionError
 from .queue import IngestTask, PgIngestQueue
@@ -58,6 +59,11 @@ __all__ = [
     "TencentLKEAPClient",
     # COS
     "TencentCOSClient",
+    # Archive
+    "ArchiveExtractor",
+    "is_archive",
+    "ExtractionResult",
+    "ExtractedFile",
     # VDB
     "KnowledgeVectorStore",
     # Guard

@@ -138,13 +138,29 @@ async def upload_document(
     title: str = Query(""),
     file: UploadFile = File(...),
 ):
-    """上传文档 → 存本地 → 入队 → 立即返回 task_id"""
+    """上传文档 → 存本地 → 入队 → 立即返回 task_id
+
+    自动检测压缩包格式（ZIP/TAR 等），如果是压缩包则自动解压并批量入库。
+    """
+    from src.knowledge.archive_extractor import is_archive
+
     provider = _get_provider(request)
 
     # ── 前置校验 ──
     if not file or not file.filename:
         logger.warning("Upload rejected: empty file (tenant=%s kb=%s)", tenant_id, knowledge_base_id)
         raise HTTPException(400, "未提供有效文件")
+
+    # ── 压缩包自动检测：转发到 archive 处理流程 ──
+    if is_archive(file.filename):
+        return await upload_archive(
+            request=request,
+            tenant_id=tenant_id,
+            knowledge_base_id=knowledge_base_id,
+            dataset_id=dataset_id,
+            title=title,
+            file=file,
+        )
 
     kb = KnowledgeBaseDAO.get_by_id(knowledge_base_id)
     if kb is None or kb.tenant_id != tenant_id:
@@ -210,6 +226,160 @@ async def upload_document(
                 os.unlink(tmp_path)
             except OSError as exc:
                 logger.debug("Failed to remove tmp file %s: %s", tmp_path, exc)
+
+
+@router.post("/documents/upload-archive")
+async def upload_archive(
+    request: Request,
+    tenant_id: int = Query(..., gt=0),
+    knowledge_base_id: int = Query(..., gt=0),
+    dataset_id: int = Query(0, ge=0),
+    title: str = Query("", description="自定义标题前缀（可选，留空则使用原文件名）"),
+    file: UploadFile = File(...),
+):
+    """上传压缩包（ZIP/TAR/TAR.GZ 等）→ 解压 → 遍历所有文档 → 逐一入库
+
+    支持格式：.zip, .tar, .tar.gz, .tgz, .tar.bz2, .tar.xz, .rar, .gz
+    压缩包内支持的文档格式：PDF/DOCX/PPTX/XLSX/MD/TXT/HTML/CSV 等
+
+    返回：
+        - total: 压缩包内文件总数
+        - submitted: 成功提交入库的文件数
+        - skipped: 跳过的不支持格式文件数
+        - results: 每个文件的入库结果（task_id, doc_id, status）
+    """
+    from src.knowledge.archive_extractor import ArchiveExtractor, is_archive
+
+    provider = _get_provider(request)
+
+    # ── 前置校验 ──
+    if not file or not file.filename:
+        raise HTTPException(400, "未提供有效文件")
+
+    if not is_archive(file.filename):
+        raise HTTPException(
+            400,
+            f"不支持的压缩格式: {file.filename}。"
+            "支持 ZIP/TAR/TAR.GZ/TGZ/TAR.BZ2/TAR.XZ/RAR/GZ",
+        )
+
+    kb = KnowledgeBaseDAO.get_by_id(knowledge_base_id)
+    if kb is None or kb.tenant_id != tenant_id:
+        raise HTTPException(404, f"知识库 id={knowledge_base_id} 不存在或不属于该租户")
+
+    # ── 保存压缩包到临时文件 ──
+    suffix = os.path.splitext(file.filename or "")[1] or ""
+    # 处理 .tar.gz 等复合后缀
+    if file.filename and file.filename.lower().endswith((".tar.gz", ".tar.bz2", ".tar.xz")):
+        suffix = "." + ".".join(file.filename.rsplit(".", 2)[-2:])
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+        logger.info(
+            "Archive upload received: tenant=%s kb=%s file=%s size=%d tmp=%s",
+            tenant_id, knowledge_base_id, file.filename, len(content), tmp_path,
+        )
+    except Exception as exc:
+        logger.exception(
+            "Archive upload failed to save tmp: tenant=%s kb=%s file=%s: %s",
+            tenant_id, knowledge_base_id, file.filename, exc,
+        )
+        raise HTTPException(500, f"临时文件写入失败: {exc}")
+
+    # ── 解压 ──
+    extractor = ArchiveExtractor()
+    extract_result = extractor.extract(tmp_path, archive_name=file.filename)
+
+    # 清理压缩包临时文件
+    try:
+        os.unlink(tmp_path)
+    except OSError:
+        pass
+
+    if not extract_result.success:
+        raise HTTPException(400, f"压缩包解压失败: {extract_result.error}")
+
+    if not extract_result.files:
+        extractor.cleanup(extract_result.extract_dir)
+        raise HTTPException(
+            400,
+            f"压缩包内没有支持的文档文件。"
+            f"跳过的文件: {extract_result.skipped_files[:10]}",
+        )
+
+    # ── 逐一提交入库 ──
+    results: list[dict] = []
+    submitted = 0
+    errors: list[dict] = []
+
+    try:
+        for extracted_file in extract_result.files:
+            # 构造文档标题：自定义前缀 + 压缩包内相对路径
+            if title:
+                doc_title = f"{title}/{extracted_file.relative_path}"
+            else:
+                doc_title = extracted_file.relative_path
+
+            try:
+                result = await provider.ingest_document(
+                    tenant_id=tenant_id,
+                    knowledge_base_id=knowledge_base_id,
+                    file_path=extracted_file.file_path,
+                    file_name=extracted_file.file_name,
+                    user_metadata={
+                        "title": doc_title,
+                        "archive_source": file.filename,
+                        "archive_path": extracted_file.relative_path,
+                    },
+                    dataset_id=dataset_id,
+                )
+                results.append({
+                    "file_name": extracted_file.file_name,
+                    "relative_path": extracted_file.relative_path,
+                    "file_size": extracted_file.file_size,
+                    "task_id": result.task_id,
+                    "doc_id": result.doc_id,
+                    "status": result.status,
+                    "reused": result.reused,
+                    "message": result.message,
+                })
+                submitted += 1
+            except Exception as exc:
+                logger.warning(
+                    "Archive ingest failed for %s: %s",
+                    extracted_file.relative_path, exc,
+                )
+                errors.append({
+                    "file_name": extracted_file.file_name,
+                    "relative_path": extracted_file.relative_path,
+                    "error": str(exc),
+                })
+    finally:
+        # 清理解压临时目录
+        extractor.cleanup(extract_result.extract_dir)
+
+    logger.info(
+        "Archive upload complete: tenant=%s kb=%s archive=%s "
+        "total=%d submitted=%d skipped=%d errors=%d",
+        tenant_id, knowledge_base_id, file.filename,
+        len(extract_result.files), submitted,
+        len(extract_result.skipped_files), len(errors),
+    )
+
+    return {
+        "archive_name": file.filename,
+        "total_files": len(extract_result.files) + len(extract_result.skipped_files),
+        "supported_files": len(extract_result.files),
+        "submitted": submitted,
+        "skipped": len(extract_result.skipped_files),
+        "skipped_files": extract_result.skipped_files[:20],  # 最多返回 20 个
+        "errors": errors,
+        "results": results,
+    }
 
 
 @router.get("/documents")
@@ -471,6 +641,49 @@ async def delete_document(
     if not ok:
         raise HTTPException(404, "文档不存在或不属于该租户")
     return {"deleted": True, "doc_id": doc_id}
+
+
+class BatchDeleteRequest(BaseModel):
+    """批量删除文档请求体"""
+    tenant_id: int = Field(..., gt=0)
+    doc_ids: list[str] = Field(..., min_length=1, max_length=100, description="要删除的文档 ID 列表，最多 100 个")
+
+
+@router.post("/documents/batch-delete")
+async def batch_delete_documents(
+    request: Request,
+    body: BatchDeleteRequest,
+):
+    """批量删除文档
+
+    一次最多删除 100 个文档。返回每个文档的删除结果。
+    """
+    provider = _get_provider(request)
+
+    results: list[dict] = []
+    success_count = 0
+    fail_count = 0
+
+    for doc_id in body.doc_ids:
+        try:
+            ok = await provider.delete_document(body.tenant_id, doc_id)
+            if ok:
+                results.append({"doc_id": doc_id, "deleted": True})
+                success_count += 1
+            else:
+                results.append({"doc_id": doc_id, "deleted": False, "error": "文档不存在或不属于该租户"})
+                fail_count += 1
+        except Exception as exc:
+            logger.warning("Batch delete failed for doc_id=%s: %s", doc_id, exc)
+            results.append({"doc_id": doc_id, "deleted": False, "error": str(exc)})
+            fail_count += 1
+
+    return {
+        "total": len(body.doc_ids),
+        "success": success_count,
+        "failed": fail_count,
+        "results": results,
+    }
 
 
 # ═══════════════════════════════════════════════════════════

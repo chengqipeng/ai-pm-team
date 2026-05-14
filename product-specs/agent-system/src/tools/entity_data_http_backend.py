@@ -4,6 +4,9 @@
 提供与 CrmSimulatedBackend 相同的查询接口（同名方法 + async 版本），用于页面与 Agent
 对"第三层 业务数据"的访问。
 
+包含 query_metadata 方法，用于查询业务对象的元数据描述（schema），
+使 Agent 在查询到数据后能理解字段含义、类型、选项值等。
+
 环境变量：
   ENTITY_DATA_API_BASE  —— paas-platform-service 地址（与 MetarepoHttpBackend 通常共用一个）
 """
@@ -174,6 +177,84 @@ class EntityDataHttpBackend:
             except httpx.HTTPError:
                 stats[e] = 0
         return stats
+
+    # ─── 元数据查询（Schema）—— 对齐 CrmSimulatedBackend.query_metadata ───
+
+    async def query_metadata(self, query_type: str, **params) -> dict:
+        """查询业务对象的元数据描述（字段结构、关联关系等）。
+
+        通过 /meta/metadata/* 接口获取真实的元数据定义，使 Agent 在查询到数据后
+        能理解字段含义、类型、选项值等。
+
+        Args:
+            query_type: 查询类型
+                - list_entities: 列出所有业务对象
+                - entity: 查看某个业务对象的详细定义
+                - entity_items: 查看某个业务对象的所有字段列表
+                - entity_links: 查看某个业务对象与其他对象的关联关系
+                - entity_pick_options: 查看某个字段的选项值列表
+            **params:
+                - entity_api_key: 业务对象标识
+                - item_api_key: 字段标识（entity_pick_options 时使用）
+
+        Returns:
+            {"data": ...} 或 {"data": {}, "error": "..."}
+        """
+        entity_key = params.get("entity_api_key", "")
+        item_key = params.get("item_api_key", "")
+
+        try:
+            if query_type == "list_entities":
+                entities = await self._get("/meta/metadata/entities")
+                # 返回精简列表：apiKey + label
+                data = [
+                    {"api_key": e.get("apiKey", ""), "label": e.get("label", "")}
+                    for e in (entities or [])
+                ]
+                return {"data": data}
+
+            if query_type == "entity":
+                if not entity_key:
+                    return {"data": {}, "error": "entity 查询需要 entity_api_key"}
+                # 获取实体基本信息
+                entities = await self._get("/meta/metadata/entities")
+                entity_info = None
+                for e in (entities or []):
+                    if e.get("apiKey") == entity_key:
+                        entity_info = e
+                        break
+                if not entity_info:
+                    return {"data": {}, "error": f"业务对象 {entity_key} 不存在"}
+                # 同时获取字段和关联，组装完整 schema
+                items = await self._get("/meta/metadata/items", entityApiKey=entity_key)
+                links = await self._get("/meta/metadata/entity-links", entityApiKey=entity_key)
+                entity_info["items"] = items or []
+                entity_info["links"] = links or []
+                return {"data": entity_info}
+
+            if query_type == "entity_items":
+                if not entity_key:
+                    return {"data": {}, "error": "entity_items 查询需要 entity_api_key"}
+                items = await self._get("/meta/metadata/items", entityApiKey=entity_key)
+                return {"data": items or []}
+
+            if query_type == "entity_links":
+                if not entity_key:
+                    return {"data": {}, "error": "entity_links 查询需要 entity_api_key"}
+                links = await self._get("/meta/metadata/entity-links", entityApiKey=entity_key)
+                return {"data": links or []}
+
+            if query_type == "entity_pick_options":
+                if not item_key:
+                    return {"data": {}, "error": "entity_pick_options 查询需要 item_api_key"}
+                options = await self._get("/meta/metadata/pick-options", itemApiKey=item_key)
+                return {"data": options or []}
+
+        except httpx.HTTPError as exc:
+            logger.warning("query_metadata failed: type=%s params=%s err=%s", query_type, params, exc)
+            return {"data": {}, "error": f"元数据查询失败: {exc}"}
+
+        return {"data": {}, "error": f"未知查询类型: {query_type}"}
 
 
 # ─── 聚合工具 ────────────────────────────────────────────────

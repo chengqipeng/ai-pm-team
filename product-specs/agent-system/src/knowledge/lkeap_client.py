@@ -161,12 +161,16 @@ class TencentLKEAPClient:
         cred = credential.Credential(secret_id, secret_key)
         http_profile = HttpProfile()
         http_profile.endpoint = "lkeap.tencentcloudapi.com"
+        http_profile.reqTimeout = 120  # 请求超时 120s（大文件解析可能较慢）
+        http_profile.keepAlive = True  # 复用连接，减少 TLS 握手开销
         client_profile = ClientProfile()
         client_profile.httpProfile = http_profile
         self._client = lkeap_client.LkeapClient(cred, self._region, client_profile)
+
         logger.info(
-            "LKEAP client initialized: region=%s secret_id=%s***",
-            self._region, secret_id[:6],
+            "LKEAP client initialized: region=%s secret_id=%s*** "
+            "timeout=%ds keepAlive=True",
+            self._region, secret_id[:6], http_profile.reqTimeout,
         )
         return self._client
 

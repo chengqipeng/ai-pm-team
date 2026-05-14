@@ -66,6 +66,17 @@ class NeoAgentV2Adapter:
         metarepo_backend = _build_metarepo_backend()
         reg = ToolRegistry()
 
+        # 构建业务数据 backend（HTTP 模式下走真实服务，含 query_metadata 能力）
+        from src.tools._http_auth import get_shared_auth_client
+        data_client = get_shared_auth_client()
+        if data_client is not None:
+            from src.tools.entity_data_http_backend import EntityDataHttpBackend
+            data_backend = EntityDataHttpBackend(auth_client=data_client)
+            logger.info("CRM data backend for Agent: HTTP")
+        else:
+            data_backend = backend  # fallback 到 CrmSimulatedBackend
+            logger.info("CRM data backend for Agent: Simulated")
+
         skill_reg = SkillRegistry()
         # 权威数据源：ai_skill_definition 表（禁止硬编码）
         try:
@@ -99,7 +110,7 @@ class NeoAgentV2Adapter:
             agent_rules_threshold=5,
         )
 
-        register_crm_tools(reg, backend, memory_engine=memory_engine)
+        register_crm_tools(reg, data_backend, memory_engine=memory_engine)
         register_metarepo_tools(reg, metarepo_backend)
 
         # 初始化自改进学习循环（SkillOptimizer 写入 DB，不再落盘）

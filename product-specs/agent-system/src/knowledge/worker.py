@@ -48,14 +48,18 @@ class IngestPipeline(Protocol):
 # ═══════════════════════════════════════════════════════════
 
 class IngestWorker:
-    """单个 Worker 协程：循环 dequeue → run → ack/nack"""
+    """单个 Worker 协程：循环 dequeue → run → ack/nack
+
+    每次只取 1 个任务串行处理，确保 LKEAP 连接池（max=10）不被打满。
+    并发度由 IngestSupervisor 的 worker_count 控制。
+    """
 
     def __init__(
         self,
         worker_id: str,
         queue: PgIngestQueue,
         pipeline: IngestPipeline,
-        batch: int = 4,
+        batch: int = 1,
         poll_interval_ms: int = 500,
     ) -> None:
         self._worker_id = worker_id
@@ -66,7 +70,11 @@ class IngestWorker:
         self._stopped = False
 
     async def run_forever(self) -> None:
-        """主循环 — 取任务、执行、ack/nack。"""
+        """主循环 — 取任务、逐个执行、ack/nack。
+
+        串行处理确保单 Worker 同一时刻只占用 1 个 LKEAP 连接槽位，
+        总并发 = worker_count（由 Supervisor 控制，默认 2）。
+        """
         logger.info("IngestWorker %s started", self._worker_id)
         while not self._stopped:
             try:
@@ -80,11 +88,9 @@ class IngestWorker:
                 await asyncio.sleep(self._poll_interval)
                 continue
 
-            # 并发执行一批任务
-            await asyncio.gather(
-                *(self._run_one(t) for t in tasks),
-                return_exceptions=True,
-            )
+            # 逐个串行执行（不再 asyncio.gather 并发，避免打满连接池）
+            for task in tasks:
+                await self._run_one(task)
         logger.info("IngestWorker %s stopped", self._worker_id)
 
     async def _run_one(self, task: IngestTask) -> None:

@@ -61,6 +61,7 @@ class SkillDefinitionRow:
     tags: str = "[]"                    # JSON 标签数组
     icon: str = ""                      # 图标
     sort_num: int = 0                   # 排序权重
+    system_flg: int = 0                 # 1=系统预置（不可编辑/删除）, 0=用户创建
 
     def __post_init__(self):
         if not self.id:

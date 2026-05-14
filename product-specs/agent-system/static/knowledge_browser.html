@@ -165,8 +165,8 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
       <div id="uploadDrop" class="upload-drop border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-blue-400 transition-all cursor-pointer mb-4" onclick="document.getElementById('uploadInput').click()">
         <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="mx-auto text-gray-400 mb-3"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         <p id="uploadHint" class="text-sm text-gray-600 font-medium">点击或拖拽文件到这里</p>
-        <p class="text-xs text-gray-400 mt-1">支持 PDF / DOCX / PPTX / XLSX / MD / TXT，单次可选多个</p>
-        <input id="uploadInput" type="file" class="hidden" multiple accept=".pdf,.docx,.pptx,.xlsx,.md,.txt,.html,.csv"/>
+        <p class="text-xs text-gray-400 mt-1">支持 PDF / DOCX / PPTX / XLSX / MD / TXT / ZIP / TAR.GZ / RAR，单次可选多个</p>
+        <input id="uploadInput" type="file" class="hidden" multiple accept=".pdf,.docx,.pptx,.xlsx,.md,.txt,.html,.csv,.zip,.tar,.tar.gz,.tgz,.tar.bz2,.tbz2,.tar.xz,.txz,.rar,.gz"/>
       </div>
       <!-- 文件列表 -->
       <div id="uploadFileList" class="space-y-1 max-h-48 overflow-y-auto custom-scrollbar mb-4"></div>
@@ -538,6 +538,14 @@ function renderDocs(){
       </div>
       <button onclick="doDocSearch()" class="px-3 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-colors">搜索</button>
       <span class="text-[10px] text-gray-400">共 ${docTotal} 条</span>
+      <div id="batchDeleteBar" class="ml-auto flex items-center gap-2" style="display:none;">
+        <span id="batchSelectedCount" class="text-xs text-gray-600 font-medium"></span>
+        <button onclick="batchDeleteDocs()" class="px-3 py-1.5 bg-red-500 text-white text-xs font-bold rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          批量删除
+        </button>
+        <button onclick="clearDocSelection()" class="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700 font-medium">取消选择</button>
+      </div>
     </div>
   `;
 
@@ -562,6 +570,10 @@ function renderDocs(){
       <table class="w-full text-sm">
         <thead class="bg-gray-50 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
           <tr>
+            <th class="px-3 py-3 text-left w-8">
+              <input type="checkbox" id="docSelectAll" onchange="toggleSelectAllDocs(this.checked)"
+                class="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
+            </th>
             <th class="px-4 py-3 text-left">文档</th>
             <th class="px-4 py-3 text-left">状态</th>
             <th class="px-4 py-3 text-left">切片</th>
@@ -651,6 +663,10 @@ function renderDocRow(d){
   const quality = d.quality_score ? renderQualityBar(d.quality_score) : '<span class="text-gray-300 text-xs">—</span>';
   return `
     <tr class="hover:bg-blue-50/30 transition-colors">
+      <td class="px-3 py-3 w-8">
+        <input type="checkbox" class="doc-select-checkbox w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+          data-doc-id="${esc(d.doc_id)}" onchange="onDocCheckChange()" />
+      </td>
       <td class="px-4 py-3">
         <div class="flex items-center gap-2">
           <span class="text-lg">${fileEmoji(d.file_type)}</span>
@@ -675,7 +691,7 @@ function renderDocRow(d){
 }
 
 function fileEmoji(ft){
-  const m = {pdf:'📕',docx:'📘',doc:'📘',xlsx:'📗',xls:'📗',pptx:'📙',ppt:'📙',md:'📝',txt:'📄',html:'🌐',csv:'📊'};
+  const m = {pdf:'📕',docx:'📘',doc:'📘',xlsx:'📗',xls:'📗',pptx:'📙',ppt:'📙',md:'📝',txt:'📄',html:'🌐',csv:'📊',zip:'📦',tar:'📦',gz:'📦',tgz:'📦',rar:'📦'};
   return m[String(ft||'').toLowerCase()] || '📄';
 }
 
@@ -1117,6 +1133,80 @@ async function deleteDoc(docId){
     }
   } catch (e) {
     toast('删除失败: ' + e.message, 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 批量删除
+// ═══════════════════════════════════════════════════════════
+
+function getSelectedDocIds() {
+  const checkboxes = document.querySelectorAll('.doc-select-checkbox:checked');
+  return Array.from(checkboxes).map(cb => cb.dataset.docId);
+}
+
+function onDocCheckChange() {
+  const selected = getSelectedDocIds();
+  const bar = document.getElementById('batchDeleteBar');
+  const countEl = document.getElementById('batchSelectedCount');
+  const selectAllCb = document.getElementById('docSelectAll');
+
+  if (selected.length > 0) {
+    bar.style.display = 'flex';
+    countEl.textContent = `已选 ${selected.length} 项`;
+  } else {
+    bar.style.display = 'none';
+  }
+
+  // 更新全选框状态
+  const allCheckboxes = document.querySelectorAll('.doc-select-checkbox');
+  if (selectAllCb) {
+    selectAllCb.checked = allCheckboxes.length > 0 && selected.length === allCheckboxes.length;
+    selectAllCb.indeterminate = selected.length > 0 && selected.length < allCheckboxes.length;
+  }
+}
+
+function toggleSelectAllDocs(checked) {
+  const checkboxes = document.querySelectorAll('.doc-select-checkbox');
+  checkboxes.forEach(cb => { cb.checked = checked; });
+  onDocCheckChange();
+}
+
+function clearDocSelection() {
+  toggleSelectAllDocs(false);
+}
+
+async function batchDeleteDocs() {
+  const docIds = getSelectedDocIds();
+  if (!docIds.length) { toast('请先选择要删除的文档', 'error'); return; }
+
+  if (!confirm(`确定批量删除选中的 ${docIds.length} 个文档？\n（包含所有切片和向量，不可恢复）`)) return;
+
+  try {
+    const resp = await apiPost('/api/knowledge/documents/batch-delete', {
+      tenant_id: tenantId(),
+      doc_ids: docIds,
+    });
+    const { success, failed } = resp;
+    if (failed > 0) {
+      toast(`批量删除完成：成功 ${success} 个，失败 ${failed} 个`, 'warning');
+    } else {
+      toast(`已成功删除 ${success} 个文档`, 'success');
+    }
+    // 刷新列表和统计
+    const prevKbId = currentKb ? String(currentKb.id) : null;
+    await loadKbs();
+    if (prevKbId) {
+      const still = kbs.find(k => String(k.id) === prevKbId);
+      if (still) {
+        currentKb = still;
+        renderKbList();
+        renderStats();
+        loadDocuments();
+      }
+    }
+  } catch (e) {
+    toast('批量删除失败: ' + e.message, 'error');
   }
 }
 

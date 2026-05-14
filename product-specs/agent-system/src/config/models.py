@@ -96,10 +96,12 @@ class KnowledgeSettings(BaseModel):
     enable_query_rewrite: bool = False
 
     # ── 入库 Worker ──
-    ingest_worker_count: int = 2
-    ingest_batch_size: int = 4
+    # 连接池上限 10，每个 Worker 串行处理任务（每任务占 1~2 连接）
+    # worker_count 不应超过 8（留 2 连接给轮询/健康检查等）
+    ingest_worker_count: int = 4
+    ingest_batch_size: int = 1          # 每次出队 1 个任务，串行处理
     ingest_poll_interval_ms: int = 500
-    lkeap_concurrency: int = 3
+    lkeap_concurrency: int = 8          # LKEAP 并发信号量（≤ 连接池 10）
     reclaim_interval_ms: int = 30000
     vector_max_retry: int = 5
 

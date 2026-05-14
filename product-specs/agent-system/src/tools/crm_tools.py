@@ -10,7 +10,10 @@ from src.core.dtypes import ToolResult, ValidationResult
 
 
 class QuerySchemaTool(Tool):
-    """查询元数据定义"""
+    """查询元数据定义 — 查询业务对象的字段结构、关联关系、选项值等 schema 信息
+
+    典型场景：Agent 查询到数据后，需要理解字段含义、类型、选项值时调用。
+    """
 
     def __init__(self, backend):
         self._backend = backend
@@ -23,9 +26,10 @@ class QuerySchemaTool(Tool):
             "type": "object",
             "properties": {
                 "query_type": {"type": "string",
-                    "enum": ["list_entities", "entity", "entity_items", "entity_links"],
+                    "enum": ["list_entities", "entity", "entity_items", "entity_links", "entity_pick_options"],
                     "description": "查询类型"},
                 "entity_api_key": {"type": "string", "description": "业务对象 api_key"},
+                "item_api_key": {"type": "string", "description": "字段 api_key（entity_pick_options 时必填）"},
             },
             "required": ["query_type"],
         }
@@ -34,6 +38,7 @@ class QuerySchemaTool(Tool):
         result = await self._backend.query_metadata(
             input_data["query_type"],
             entity_api_key=input_data.get("entity_api_key", ""),
+            item_api_key=input_data.get("item_api_key", ""),
         )
         if "error" in result:
             return ToolResult(content=result["error"], is_error=True)
@@ -41,21 +46,30 @@ class QuerySchemaTool(Tool):
 
     def prompt(self):
         return (
-            "查询 CRM 系统中业务对象的元数据定义（字段结构、关联关系等）。\n"
-            "何时使用：当你不确定某个业务对象有哪些字段、字段类型是什么、或者对象之间的关联关系时，先调用此工具查 schema，再用 query_data 查数据。\n"
+            "查询 CRM 系统中业务对象的元数据定义（字段结构、类型、关联关系、选项值等）。\n"
+            "何时使用：\n"
+            "  1. 当你不确定某个业务对象有哪些字段、字段类型是什么时，先调用此工具查 schema\n"
+            "  2. 查询到数据后，需要理解字段含义（如 stage='won' 代表什么）时调用\n"
+            "  3. 需要知道某个选项字段有哪些合法取值时调用\n"
+            "  4. 需要了解对象之间的关联关系时调用\n"
             "参数说明：\n"
             "  - query_type（必填）：\n"
             "    · list_entities — 列出系统中所有业务对象（如 account、opportunity、contact 等）\n"
-            "    · entity — 查看某个业务对象的详细定义（需传 entity_api_key）\n"
+            "    · entity — 查看某个业务对象的完整定义（含字段+关联，需传 entity_api_key）\n"
             "    · entity_items — 查看某个业务对象的所有字段列表（需传 entity_api_key）\n"
             "    · entity_links — 查看某个业务对象与其他对象的关联关系（需传 entity_api_key）\n"
+            "    · entity_pick_options — 查看某个选项字段的合法取值列表（需传 item_api_key）\n"
             "  - entity_api_key（entity/entity_items/entity_links 时必填）：业务对象标识，如 account、opportunity、contact、activity、lead\n"
+            "  - item_api_key（entity_pick_options 时必填）：字段标识，如 stage、industry、source\n"
             "典型用法：\n"
             "  · 用户问'商机有哪些字段' → query_schema(query_type='entity_items', entity_api_key='opportunity')\n"
             "  · 用户问'系统有哪些业务对象' → query_schema(query_type='list_entities')\n"
-            "  · 不确定字段名时先查 schema 再查数据，避免字段名写错"
+            "  · 查到数据后想知道 stage 字段能填什么 → query_schema(query_type='entity_pick_options', item_api_key='stage')\n"
+            "  · 不确定字段名时先查 schema 再查数据，避免字段名写错\n"
+            "  · 查到数据后需要解释字段含义时，先查 schema 获取 label 和 item_type"
         )
 
+    def is_read_only(self, input_data): return True
     @property
     def code_extractable(self): return True
     @property
