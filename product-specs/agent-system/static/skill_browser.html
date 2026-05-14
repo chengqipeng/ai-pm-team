@@ -154,9 +154,8 @@
                    placeholder="客户健康度检查">
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">分类</label>
+            <label class="block text-xs font-medium text-gray-600 mb-1">分类 *</label>
             <select name="category" id="f_category" class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
-              <option value="">未分类</option>
             </select>
           </div>
         </div>
@@ -194,12 +193,6 @@
             <input name="timeout_ms" id="f_timeout_ms" type="number" value="60000" min="5000" max="300000" step="5000"
                    class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
           </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">归属</label>
-            <input name="owner" id="f_owner"
-                   class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none"
-                   placeholder="CRM-Platform">
-          </div>
         </div>
         <div class="grid grid-cols-2 gap-4">
           <div>
@@ -208,12 +201,17 @@
                    class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none"
                    placeholder="query_data, analyze_data">
           </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">参数列表（逗号分隔）</label>
-            <input name="arguments" id="f_arguments"
-                   class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none"
-                   placeholder="account_id, dimensions">
+        </div>
+        <!-- 参数定义 -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-medium text-gray-600">参数定义 — 在 Prompt 中用 {参数名} 引用</label>
+            <button type="button" onclick="addArgument()" class="text-xs text-blue-600 hover:text-blue-800 font-medium">+ 添加参数</button>
           </div>
+          <div id="f_arguments_list" class="space-y-2">
+            <!-- 动态渲染参数行 -->
+          </div>
+          <div id="f_arguments_empty" class="text-xs text-gray-400 py-2 hidden">暂无参数，点击"+ 添加参数"新增</div>
         </div>
         <!-- Prompt -->
         <div>
@@ -368,11 +366,15 @@ function renderCategoryTabs() {
 function renderCategorySelect() {
   const select = document.getElementById('f_category');
   const currentVal = select.value;
-  select.innerHTML = '<option value="">未分类</option>' +
-    allCategories.filter(c => c.enabled).map(c =>
+  select.innerHTML = allCategories.filter(c => c.enabled).map(c =>
       `<option value="${c.api_key}">${c.icon || ''} ${c.name}</option>`
     ).join('');
-  select.value = currentVal;
+  // 优先恢复之前的值，否则默认选中"自定义"
+  if (currentVal && allCategories.some(c => c.api_key === currentVal)) {
+    select.value = currentVal;
+  } else {
+    select.value = 'custom';
+  }
 }
 
 function filterByCategory(cat) {
@@ -538,7 +540,6 @@ function renderSkillList() {
               <span class="px-1.5 py-0.5 rounded ${riskColors[s.risk_level]}">${riskLabels[s.risk_level]}</span>
               <span>执行 ${s.exec_count} 次</span>
               <span>成功率 ${rate}%</span>
-              ${s.owner ? `<span>· ${s.owner}</span>` : ''}
             </div>
           </div>
           <div class="flex items-center gap-3 ml-4">
@@ -614,6 +615,7 @@ function openCreate() {
   document.getElementById('f_max_tool_calls').value = '20';
   document.getElementById('f_timeout_ms').value = '60000';
   document.getElementById('testOutputSection').classList.add('hidden');
+  resetArguments();
   renderCategorySelect();
   document.getElementById('formModal').classList.remove('hidden');
 }
@@ -634,13 +636,12 @@ async function editSkill(apiKey) {
     document.getElementById('f_name').value = s.name || '';
     document.getElementById('f_description').value = s.description || '';
     document.getElementById('f_when_to_use').value = s.when_to_use || '';
-    document.getElementById('f_category').value = s.category || '';
+    document.getElementById('f_category').value = s.category || 'custom';
     document.getElementById('f_risk_level').value = s.risk_level || 'read_only';
     document.getElementById('f_max_tool_calls').value = s.max_tool_calls || 20;
     document.getElementById('f_timeout_ms').value = s.timeout_ms || 60000;
     document.getElementById('f_allowed_tools').value = (s.allowed_tools || []).join(', ');
-    document.getElementById('f_arguments').value = (s.arguments || []).join(', ');
-    document.getElementById('f_owner').value = s.owner || '';
+    loadArguments(s.arguments || [], s.argument_descriptions || {});
     document.getElementById('f_prompt').value = s.prompt || '';
   } catch (e) {
     alert('加载失败: ' + e.message);
@@ -657,18 +658,24 @@ async function saveSkill() {
   const form = document.getElementById('skillForm');
   if (!form.checkValidity()) { form.reportValidity(); return; }
 
+  const category = document.getElementById('f_category').value;
+  if (!category) {
+    alert('请选择分类');
+    return;
+  }
+
   const data = {
     api_key: document.getElementById('f_api_key').value.trim(),
     name: document.getElementById('f_name').value.trim(),
     description: document.getElementById('f_description').value.trim(),
     when_to_use: document.getElementById('f_when_to_use').value.trim(),
-    category: document.getElementById('f_category').value,
+    category: category,
     risk_level: document.getElementById('f_risk_level').value,
     max_tool_calls: parseInt(document.getElementById('f_max_tool_calls').value) || 20,
     timeout_ms: parseInt(document.getElementById('f_timeout_ms').value) || 60000,
     allowed_tools: document.getElementById('f_allowed_tools').value.split(',').map(s => s.trim()).filter(Boolean),
-    arguments: document.getElementById('f_arguments').value.split(',').map(s => s.trim()).filter(Boolean),
-    owner: document.getElementById('f_owner').value.trim(),
+    arguments: getArgumentNames(),
+    argument_descriptions: getArgumentDescriptions(),
     prompt: document.getElementById('f_prompt').value,
   };
 
@@ -703,7 +710,7 @@ async function saveSkill() {
 // ── 测试技能 ──
 async function testSkill() {
   const apiKey = editingKey || document.getElementById('f_api_key').value.trim();
-  const args = document.getElementById('f_arguments').value.split(',').map(s => s.trim()).filter(Boolean);
+  const args = getArgumentNames();
   const testArgs = {};
   args.forEach(a => { testArgs[a] = `<测试_${a}>`; });
 
@@ -730,6 +737,71 @@ async function testSkill() {
     }
     output.innerHTML = marked.parse(prompt || '(空)');
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 参数编辑器
+// ═══════════════════════════════════════════════════════════
+let skillArguments = []; // [{name: '', description: ''}]
+
+function addArgument(name = '', description = '') {
+  skillArguments.push({ name, description });
+  renderArguments();
+}
+
+function removeArgument(idx) {
+  skillArguments.splice(idx, 1);
+  renderArguments();
+}
+
+function renderArguments() {
+  const container = document.getElementById('f_arguments_list');
+  const empty = document.getElementById('f_arguments_empty');
+
+  if (!skillArguments.length) {
+    container.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  container.innerHTML = skillArguments.map((arg, idx) => `
+    <div class="flex items-center gap-2">
+      <input type="text" value="${arg.name}" placeholder="参数名（如 account_id）"
+             onchange="skillArguments[${idx}].name = this.value.trim()"
+             class="w-40 px-2 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none font-mono">
+      <input type="text" value="${arg.description}" placeholder="参数描述（如：客户 ID）"
+             onchange="skillArguments[${idx}].description = this.value.trim()"
+             class="flex-1 px-2 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none">
+      <button type="button" onclick="removeArgument(${idx})" class="text-red-400 hover:text-red-600 text-sm px-1">✕</button>
+    </div>
+  `).join('');
+}
+
+function loadArguments(names, descriptions) {
+  // names: ["account_id", ...], descriptions: {"account_id": "客户ID", ...}
+  skillArguments = (names || []).map(name => ({
+    name,
+    description: (descriptions && descriptions[name]) || '',
+  }));
+  renderArguments();
+}
+
+function getArgumentNames() {
+  return skillArguments.map(a => a.name).filter(Boolean);
+}
+
+function getArgumentDescriptions() {
+  const desc = {};
+  skillArguments.forEach(a => {
+    if (a.name && a.description) desc[a.name] = a.description;
+  });
+  return desc;
+}
+
+function resetArguments() {
+  skillArguments = [];
+  renderArguments();
 }
 
 // ═══════════════════════════════════════════════════════════

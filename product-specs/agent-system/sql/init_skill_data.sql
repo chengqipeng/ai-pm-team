@@ -663,3 +663,19 @@ INSERT INTO ai_skill_category (
 (2000000000000004, 'automation', 0, '自动化操作', 'skill.category.automation', '批量处理、定时任务、数据清理等自动化技能', '⚙️', '#f5222d', 40, 1, 1, 0, 1746489600000, 0, 1746489600000, 0),
 (2000000000000005, 'custom', 0, '自定义', 'skill.category.custom', '租户自行创建的技能分类', '🔧', '#722ed1', 100, 1, 1, 0, 1746489600000, 0, 1746489600000, 0)
 ON CONFLICT (tenant_id, api_key) WHERE delete_flg = 0 DO NOTHING;
+
+-- ═══════════════════════════════════════════════════════════
+-- 为预置技能设置 category 字段（关联 ai_skill_category.api_key）
+-- 需要 category 列已通过 ALTER TABLE 添加
+-- ═══════════════════════════════════════════════════════════
+
+UPDATE ai_skill_definition SET category = 'crm'        WHERE api_key = 'accountInsight'          AND tenant_id = 0 AND delete_flg = 0;
+UPDATE ai_skill_definition SET category = 'crm'        WHERE api_key = 'verify_config'           AND tenant_id = 0 AND delete_flg = 0;
+UPDATE ai_skill_definition SET category = 'crm'        WHERE api_key = 'diagnose'                AND tenant_id = 0 AND delete_flg = 0;
+UPDATE ai_skill_definition SET category = 'crm'        WHERE api_key = 'customer_360'            AND tenant_id = 0 AND delete_flg = 0;
+UPDATE ai_skill_definition SET category = 'crm'        WHERE api_key = 'pipeline_analysis'       AND tenant_id = 0 AND delete_flg = 0;
+UPDATE ai_skill_definition SET category = 'analysis'   WHERE api_key = 'data_analysis'           AND tenant_id = 0 AND delete_flg = 0;
+UPDATE ai_skill_definition SET category = 'automation' WHERE api_key = 'batch_cleanup'           AND tenant_id = 0 AND delete_flg = 0;
+UPDATE ai_skill_definition SET category = 'metarepo'   WHERE api_key = 'inspect_metamodel'       AND tenant_id = 0 AND delete_flg = 0;
+UPDATE ai_skill_definition SET category = 'metarepo'   WHERE api_key = 'trace_db_column'         AND tenant_id = 0 AND delete_flg = 0;
+UPDATE ai_skill_definition SET category = 'metarepo'   WHERE api_key = 'inspect_entity_metadata' AND tenant_id = 0 AND delete_flg = 0;

@@ -65,6 +65,7 @@ class CreateSkillBody(BaseModel):
     model: str = Field(default="", max_length=100)
     allowed_tools: list[str] = Field(default_factory=list)
     arguments: list[str] = Field(default_factory=list)
+    argument_descriptions: dict[str, str] = Field(default_factory=dict)
     risk_level: str = Field(default="read_only")
     requires_confirmation: bool = Field(default=False)
     max_tool_calls: int = Field(default=20, ge=1, le=100)
@@ -86,6 +87,7 @@ class UpdateSkillBody(BaseModel):
     model: str | None = Field(default=None, max_length=100)
     allowed_tools: list[str] | None = None
     arguments: list[str] | None = None
+    argument_descriptions: dict[str, str] | None = None
     risk_level: str | None = None
     requires_confirmation: bool | None = None
     max_tool_calls: int | None = Field(default=None, ge=1, le=100)
@@ -241,7 +243,12 @@ async def create_skill(body: CreateSkillBody, tenant_id: int = Query(0)):
         sort_num=body.sort_num,
     )
     try:
-        return service.create(req, tenant_id=tenant_id)
+        result = service.create(req, tenant_id=tenant_id)
+        # 存储 argument_descriptions 到 ext_info
+        if body.argument_descriptions:
+            _save_argument_descriptions(tenant_id, body.api_key, body.argument_descriptions)
+            result["argument_descriptions"] = body.argument_descriptions
+        return result
     except SkillServiceError as e:
         raise HTTPException(status_code=400, detail={"message": str(e), "code": e.code})
 
@@ -275,7 +282,12 @@ async def update_skill(api_key: str, body: UpdateSkillBody, tenant_id: int = Que
         sort_num=body.sort_num,
     )
     try:
-        return service.update(api_key, req, tenant_id=tenant_id)
+        result = service.update(api_key, req, tenant_id=tenant_id)
+        # 存储 argument_descriptions 到 ext_info
+        if body.argument_descriptions is not None:
+            _save_argument_descriptions(tenant_id, api_key, body.argument_descriptions)
+            result["argument_descriptions"] = body.argument_descriptions
+        return result
     except SkillServiceError as e:
         status = 404 if e.code == "NOT_FOUND" else 400
         raise HTTPException(status_code=status, detail={"message": str(e), "code": e.code})
@@ -383,6 +395,7 @@ def _row_to_summary(row) -> dict:
 
 def _row_to_detail(row) -> dict:
     d = _row_to_summary(row)
+    ext = _safe_json_loads(row.ext_info, {})
     d.update({
         "prompt": row.prompt,
         "model": row.model,
@@ -392,6 +405,32 @@ def _row_to_detail(row) -> dict:
         "idempotent": bool(row.idempotent_flg),
         "icon": getattr(row, "icon", ""),
         "sort_num": getattr(row, "sort_num", 0),
-        "ext_info": _safe_json_loads(row.ext_info, {}),
+        "argument_descriptions": ext.get("argument_descriptions", {}),
+        "ext_info": ext,
     })
     return d
+
+
+def _save_argument_descriptions(tenant_id: int, api_key: str, descriptions: dict[str, str]) -> None:
+    """将 argument_descriptions 存入 ext_info JSON 字段"""
+    from src.store.pg_pool import get_conn
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+        # 读取当前 ext_info
+        cur.execute(
+            "SELECT ext_info FROM ai_skill_definition WHERE tenant_id = %s AND api_key = %s AND delete_flg = 0",
+            (tenant_id, api_key),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return
+
+        ext = _safe_json_loads(row[0], {})
+        ext["argument_descriptions"] = descriptions
+
+        # 写回
+        cur.execute(
+            "UPDATE ai_skill_definition SET ext_info = %s WHERE tenant_id = %s AND api_key = %s AND delete_flg = 0",
+            (json.dumps(ext, ensure_ascii=False), tenant_id, api_key),
+        )
