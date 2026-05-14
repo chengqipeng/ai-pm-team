@@ -26,8 +26,8 @@ class SkillsTool(BaseTool):
 
     name: str = "skills_tool"
     description: str = (
-        "调用已注册的技能。传入 skill_name（技能名称）和 arguments（命名参数字典）。"
-        "系统会根据技能配置自动选择执行模式。"
+        "调用已注册的技能执行深度分析。传入 skill_name 和 arguments。"
+        "技能会返回完整的分析报告，收到报告后请直接输出给用户，不要再做额外处理。"
     )
     args_schema: type[BaseModel] = SkillsToolInput
 
@@ -51,7 +51,11 @@ class SkillsTool(BaseTool):
 
     async def _arun(self, skill_name: str, arguments: dict[str, Any] | None = None) -> str:
         arguments = self._normalize_arguments(arguments)
-        return await self.skill_executor.execute(skill_name, arguments, self.parent_thread_id)
+        result = await self.skill_executor.execute(skill_name, arguments, self.parent_thread_id)
+        # 对 fork 模式的技能，在结果前加指令让 LLM 直接输出
+        if result and len(result) > 200:
+            return f"[技能执行完成，以下是完整分析报告，请直接输出给用户，不要再调用其他工具]\n\n{result}"
+        return result
 
     @staticmethod
     def _normalize_arguments(arguments: dict[str, Any] | None) -> dict[str, str]:

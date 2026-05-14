@@ -142,6 +142,10 @@ async def _get_agent(multimodal: bool = False):
         register_crm_tools(reg, data_backend, memory_engine=memory_engine)
         register_metarepo_tools(reg, metarepo_backend)
 
+        # 注册知识库工具（供 knowledge_doc_search 技能使用）
+        from src.tools.knowledge_tools import register_knowledge_tools
+        register_knowledge_tools(reg)
+
         # 注册 ManageSkillTool（供 create_skill 技能使用）
         from src.tools.manage_skill_tool import ManageSkillTool
         reg.register(ManageSkillTool())
@@ -981,6 +985,23 @@ async def chat_stream(req: ChatRequest):
                         current_tool_span.finish("success", {"output": output_full})
                         yield f"data: {json.dumps({'type': 'tool_end', 'tool_name': tool_name, 'output': output_full[:300], 'output_full': output_full[:4000], 'duration_ms': round(current_tool_span.duration_ms)}, ensure_ascii=False)}\n\n"
                         current_tool_span = None
+
+                    # skills_tool 返回长文本（分析报告）时，直接作为 token 流推送给前端
+                    if tool_name == "skills_tool" and len(output_content) > 200:
+                        # 去掉前缀指令
+                        report = output_content
+                        prefix = "[技能执行完成，以下是完整分析报告，请直接输出给用户，不要再调用其他工具]\n\n"
+                        if report.startswith(prefix):
+                            report = report[len(prefix):]
+                        # 流式推送报告内容
+                        yield f"data: {json.dumps({'type': 'skill_report_start', 'skill_name': 'account-insight'}, ensure_ascii=False)}\n\n"
+                        # 分块推送（模拟流式）
+                        chunk_size = 80
+                        for i in range(0, len(report), chunk_size):
+                            chunk = report[i:i+chunk_size]
+                            yield f"data: {json.dumps({'type': 'token', 'content': chunk}, ensure_ascii=False)}\n\n"
+                            full_content += chunk
+                        yield f"data: {json.dumps({'type': 'skill_report_end'}, ensure_ascii=False)}\n\n"
 
         except Exception as exc:
             err_span = tracer.start_span(trace_id, SpanType.ERROR, "error",

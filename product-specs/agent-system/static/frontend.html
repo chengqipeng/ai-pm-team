@@ -1153,7 +1153,11 @@ function refreshTrace() {
         if (designEntry.allow.includes(mwPhase)) {
           return designEntry.display;
         }
-        // 执行阶段不匹配设计归属 → 隐藏（无实际作用的空执行）
+        // before_model / after_model 阶段：即使不是设计归属，也显示在 reasoning 中（它们确实执行了）
+        if (mwPhase === 'before_model' || mwPhase === 'after_model') {
+          return 'reasoning';
+        }
+        // 其他阶段不匹配设计归属 → 隐藏
         return '_hidden';
       }
 

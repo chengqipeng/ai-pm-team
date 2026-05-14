@@ -124,6 +124,26 @@ TOOLS = [
         "destructive_flg": 0,
         "sort_num": 80,
     },
+    {
+        "id": 3000000000000009,
+        "api_key": "knowledge_search",
+        "name": "知识库检索",
+        "description": "检索 AI 知识库中的文档，支持自然语言查询、元数据过滤、多维度排序",
+        "category": "knowledge",
+        "read_only_flg": 1,
+        "destructive_flg": 0,
+        "sort_num": 90,
+    },
+    {
+        "id": 3000000000000010,
+        "api_key": "list_knowledge_bases",
+        "name": "列出知识库",
+        "description": "列出当前租户可用的知识库列表（含 ID、名称、描述、文档数量）",
+        "category": "knowledge",
+        "read_only_flg": 1,
+        "destructive_flg": 0,
+        "sort_num": 91,
+    },
 ]
 
 
