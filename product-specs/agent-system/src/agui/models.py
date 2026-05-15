@@ -169,8 +169,12 @@ def step_metadata(step_name: str, *,
                   skill_apikey: str | None = None,
                   step_index: int | None = None,
                   status: str | None = None,
+                  skill_context: str | None = None,
                   phase: str = "started") -> AGUIEvent:
-    """伴随 STEP_STARTED/FINISHED 发出的扩展信息（D4）。"""
+    """伴随 STEP_STARTED/FINISHED 发出的扩展信息（D4）。
+
+    skill_context: "inline" | "fork"，标识 Skill 的执行模式。
+    """
     value: dict[str, Any] = {"step_name": step_name, "phase": phase}
     if skill_apikey is not None:
         value["skill_apikey"] = skill_apikey
@@ -178,6 +182,8 @@ def step_metadata(step_name: str, *,
         value["step_index"] = step_index
     if status is not None:
         value["status"] = status
+    if skill_context is not None:
+        value["skill_context"] = skill_context
     return AGUIEvent(type=AGUIEventType.CUSTOM,
                      data={"name": "step_metadata", "value": value})
 

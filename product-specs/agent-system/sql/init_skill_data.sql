@@ -663,7 +663,7 @@ INSERT INTO ai_skill_definition (
     '知识检索|文档查找|知识库搜索|查资料|找文档|产品手册|技术文档|解决方案|成功案例|FAQ|操作指南|培训材料|白皮书|竞品分析|帮我找|有没有关于|查一下',
     'AI-Platform',
     'inline', '', '',
-    '["knowledge_search","list_knowledge_bases"]',
+    '["knowledge_search","list_knowledge_bases","knowledge_doc_detail"]',
     '["query","knowledge_base_id"]',
     '你是一位专业的知识库检索助手。你的任务是帮助用户从知识库中精准定位相关文档，并以结构化、易理解的方式呈现检索结果。
 
@@ -768,7 +768,7 @@ INSERT INTO ai_skill_definition (
 3. **可追溯**：每个关键信息点都标注来源文档
 4. **简洁性**：优先呈现最相关的内容，避免大段复制粘贴
 5. **实用性**：结尾给出可操作的建议或追问方向',
-    'read_only', 0, 8, 30000, 1,
+    'read_only', 0, 12, 30000, 1,
     '1.0.0', 'published', 1747267200000,  -- 2025-05-15 发布
     0, 0, 0, '{"tags":["knowledge","retrieval","document","search","rag"],"changelog":"初始版本：多策略检索 + 结果综合分析 + 引用溯源","argument_descriptions":{"query":"检索问题，用自然语言描述你要查找的知识","knowledge_base_id":"知识库"},"argument_config":{"query":{"type":"text","required":true,"placeholder":"输入你要检索的问题","label":"检索问题"},"knowledge_base_id":{"type":"select","required":false,"label":"知识库","placeholder":"选择知识库（不选则检索全部）","data_source":"knowledge_bases","data_source_api":"/api/knowledge/bases","option_label_field":"name","option_value_field":"id","allow_empty":true,"empty_label":"全部知识库"}}}',
     0, 1747267200000, 0, 1747267200000, 0

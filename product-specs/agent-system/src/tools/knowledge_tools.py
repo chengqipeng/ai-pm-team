@@ -229,6 +229,67 @@ class ListKnowledgeBasesTool(Tool):
             return {}
 
 
+class KnowledgeDocDetailAdapterTool(Tool):
+    """文档详情工具 — 获取文档目录或指定章节的完整内容
+
+    当 knowledge_search 返回的切片不够完整时，用此工具深入获取文档的特定章节。
+    """
+
+    @property
+    def name(self) -> str:
+        return "knowledge_doc_detail"
+
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "doc_id": {
+                    "type": "string",
+                    "description": "文档 ID（从 knowledge_search 结果中获取）",
+                },
+                "sections": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "要获取的章节标题列表。为空时返回文档目录；指定章节时返回该章节的完整内容",
+                },
+            },
+            "required": ["doc_id"],
+        }
+
+    async def call(
+        self,
+        input_data: dict,
+        context: Any,
+        on_progress: Callable[[Any], None] | None = None,
+    ) -> ToolResult:
+        from src.tools.builtins.knowledge_doc_detail_tool import KnowledgeDocDetailTool
+        tool = KnowledgeDocDetailTool()
+        doc_id = input_data.get("doc_id", "")
+        sections = input_data.get("sections") or []
+
+        if not doc_id:
+            return ToolResult(content="doc_id 参数不能为空", is_error=True)
+
+        try:
+            result = await tool._arun(doc_id=doc_id, sections=sections)
+            return ToolResult(content=result)
+        except Exception as exc:
+            logger.exception("knowledge_doc_detail 执行失败: %s", exc)
+            return ToolResult(content=f"获取文档详情失败: {exc}", is_error=True)
+
+    def prompt(self) -> str:
+        return (
+            "获取知识库文档的目录结构或指定章节的完整内容。\n"
+            "当 knowledge_search 返回的切片不够完整时，用此工具深入获取文档的特定章节。\n"
+            "用法：\n"
+            "  1) sections 为空或不传 → 返回文档目录（章节列表+切片数）\n"
+            "  2) 指定 sections → 返回这些章节的完整文本内容\n"
+            "参数：\n"
+            "  - doc_id（必填）：文档 ID，从 knowledge_search 结果中获取\n"
+            "  - sections（可选）：章节标题列表，如 [\"差压范围\", \"测量类型\"]"
+        )
+
+
 def register_knowledge_tools(registry: ToolRegistry, provider=None, tenant_id: int = 0) -> None:
     """注册知识库相关工具到 ToolRegistry
 
@@ -242,3 +303,4 @@ def register_knowledge_tools(registry: ToolRegistry, provider=None, tenant_id: i
         search_tool.set_provider(provider, tenant_id)
     registry.register(search_tool)
     registry.register(ListKnowledgeBasesTool())
+    registry.register(KnowledgeDocDetailAdapterTool())

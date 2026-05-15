@@ -259,8 +259,47 @@ class KnowledgeSearchTool(BaseTool):
 
     @staticmethod
     def _format_results(query: str, results) -> str:
-        """把检索结果渲染为 Markdown 文本"""
+        """把检索结果渲染为 Markdown 文本（含文档概览，帮助 Agent 判断深入哪篇）"""
         parts: list[str] = [f"## 知识库检索：{query}\n"]
+
+        # ── 文档概览（按文档聚合，帮助 Agent 判断哪篇最值得深入）──
+        doc_stats: dict[str, dict] = {}
+        for chunk in results:
+            did = chunk.document_id or ""
+            if did not in doc_stats:
+                doc_stats[did] = {
+                    "title": chunk.document_title or "未知文档",
+                    "doc_id": did,
+                    "hit_count": 0,
+                    "max_score": 0.0,
+                    "category": chunk.metadata.get("docCategory", ""),
+                }
+            doc_stats[did]["hit_count"] += 1
+            doc_stats[did]["max_score"] = max(
+                doc_stats[did]["max_score"], chunk.score
+            )
+
+        if len(doc_stats) > 1:
+            parts.append("### 命中文档概览")
+            parts.append("")
+            parts.append("| 文档 | doc_id | 命中切片 | 最高相关度 | 类别 |")
+            parts.append("|------|--------|----------|-----------|------|")
+            for did, info in sorted(
+                doc_stats.items(), key=lambda x: x[1]["max_score"], reverse=True
+            ):
+                parts.append(
+                    f"| {info['title'][:40]} | {info['doc_id']} | "
+                    f"{info['hit_count']} | {info['max_score']:.3f} | "
+                    f"{info['category']} |"
+                )
+            parts.append("")
+            parts.append(
+                "> 💡 如需某篇文档的完整内容，可调用 "
+                "knowledge_doc_detail(doc_id=\"...\", sections=[]) 获取目录。"
+            )
+            parts.append("")
+
+        # ── 切片详情 ──
         for i, chunk in enumerate(results, 1):
             parts.append(f"### 结果 {i}: {chunk.document_title or '未知文档'}")
             meta_bits = []
@@ -271,6 +310,7 @@ class KnowledgeSearchTool(BaseTool):
             if chunk.metadata.get("industryVertical"):
                 meta_bits.append(f"**行业**: {chunk.metadata['industryVertical']}")
             meta_bits.append(f"**相关度**: {chunk.score:.3f}")
+            meta_bits.append(f"**doc_id**: {chunk.document_id}")
             parts.append(" | ".join(meta_bits))
             parts.append("")
             parts.append(chunk.content)
@@ -278,5 +318,5 @@ class KnowledgeSearchTool(BaseTool):
                 parts.append("\n**扩展上下文**：")
                 parts.append(chunk.expanded_context)
             parts.append("\n---")
-        parts.append(f"\n共 {len(results)} 条结果。")
+        parts.append(f"\n共 {len(results)} 条结果，来自 {len(doc_stats)} 篇文档。")
         return "\n".join(parts)

@@ -1,6 +1,6 @@
 ---
 name: knowledge-doc-search
-description: 检索知识库文档，回答用户关于产品技术参数、安装指南、操作手册等专业问题
+description: 深度检索知识库文档，支持多维度过滤、文档深入、结果摘要与引用溯源，帮助用户快速定位和理解知识库中的专业文档内容
 when_to_use: 知识检索|文档查找|知识库搜索|查资料|找文档|产品手册|技术文档|解决方案|成功案例|FAQ|操作指南|培训材料|白皮书|竞品分析|帮我找|有没有关于|查一下|量程|精度|安装|规格|参数|型号
 arguments:
   - query
@@ -8,12 +8,13 @@ arguments:
 allowed-tools:
   - knowledge_search
   - list_knowledge_bases
-context: fork
+  - knowledge_doc_detail
+context: inline
 risk_level: read_only
-version: 2.1.0
+version: 3.0.0
 owner: AI-Platform
-max_tool_calls: 6
-timeout_ms: 60000
+max_tool_calls: 12
+timeout_ms: 30000
 ---
 
 你是知识库检索助手。根据用户问题检索知识库并直接回答。

@@ -1916,18 +1916,7 @@ async function send() {
 
             // ── LLM 开始 ──
             else if (evt.type === 'llm_start') {
-              // 插入 before_model 中间件 span（上下文压缩检查）
-              addLiveSpan({
-                status: 'complete',
-                step_name: 'SummarizationMiddleware',
-                step_name_en: 'middleware',
-                phase: 'reasoning',
-                duration_ms: 0,
-                detail: '',
-                input_data: { phase: 'before_model' },
-                output_data: { has_effect: false },
-                metadata: { middleware_name: 'SummarizationMiddleware', phase: 'before_model', has_effect: false },
-              });
+              // before_model 中间件由后端通过 mw_span 事件推送，无需前端手动插入
 
               iterCount = evt.iteration || iterCount + 1;
               const title = `第 ${iterCount} 轮思考`;
@@ -1987,21 +1976,7 @@ async function send() {
                 currentLlmStepId = null;
               }
 
-              // 插入 after_model 中间件 spans（循环检测、输出校验等）
-              const afterModelMws = ['SubagentLimitMiddleware', 'LoopDetectionMiddleware', 'OutputValidationMiddleware'];
-              for (const mwName of afterModelMws) {
-                addLiveSpan({
-                  status: 'complete',
-                  step_name: mwName,
-                  step_name_en: 'middleware',
-                  phase: 'reasoning',
-                  duration_ms: 0,
-                  detail: '',
-                  input_data: { phase: 'after_model' },
-                  output_data: { has_effect: false },
-                  metadata: { middleware_name: mwName, phase: 'after_model', has_effect: false },
-                });
-              }
+              // after_model 中间件由后端通过 mw_span 事件推送，无需前端手动插入
             }
 
             // ── 工具调用开始 ──
@@ -2019,11 +1994,14 @@ async function send() {
                 }
                 displayName = subName ? `${toolName}(${subName})` : toolName;
               }
+              // 构建带 inline/fork 标识的显示名
+              const ctxMode = evt.skill_context_mode || '';
+              const displayWithMode = ctxMode ? `${displayName} [${ctxMode}]` : displayName;
               addLiveSpan({
                 status: 'active',
                 icon: getSpanIcon('tool_call'),
-                title: `工具: ${displayName}`,
-                step_name: `工具调用: ${displayName}`,
+                title: `工具: ${displayWithMode}`,
+                step_name: `工具调用: ${displayWithMode}`,
                 step_name_en: 'tool_call',
                 phase: 'execution',
                 detail: evt.input ? `参数: ${truncStr(evt.input, 80)}` : '执行中...',
@@ -2034,9 +2012,9 @@ async function send() {
                 output_data: {},
                 input: evt.input_full || evt.input || '',
                 output: '',
-                metadata: { tool_name: toolName, display_name: displayName, skill_context_mode: evt.skill_context_mode || '' },
+                metadata: { tool_name: toolName, display_name: displayName, skill_context_mode: ctxMode },
               });
-              currentToolStepId = addStep(`调用 ${displayName}...`, 'run', {indent: true});
+              currentToolStepId = addStep(`调用 ${displayWithMode}...`, 'run', {indent: true});
             }
 
             // ── 工具调用结束 ──

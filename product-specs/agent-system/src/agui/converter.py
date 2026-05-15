@@ -42,11 +42,13 @@ class AGUIConverter:
         *,
         parent_run_id: str | None = None,
         emit_legacy_reasoning: bool = True,
+        skill_registry: Any | None = None,
     ) -> None:
         self.run_id = run_id
         self.thread_id = thread_id
         self._parent_run_id = parent_run_id
         self._emit_legacy_reasoning = emit_legacy_reasoning
+        self._skill_registry = skill_registry  # SkillRegistry，用于查询 skill context 模式
 
         # 步骤计数
         self._step_index = 0
@@ -266,15 +268,20 @@ class AGUIConverter:
             yield e
         skill_apikey = name[len(SKILL_CHAIN_PREFIX):]
         step_name = skill_apikey
+        # 查询 skill 的 context 模式（inline/fork）
+        skill_context = self._resolve_skill_context(skill_apikey)
         yield m.step_started(step_name)
         yield m.step_metadata(step_name, skill_apikey=skill_apikey,
-                              step_index=self._step_index, phase="started")
+                              step_index=self._step_index, phase="started",
+                              skill_context=skill_context)
 
     async def _handle_skill_end(self, name: str, data: dict) -> AsyncGenerator[m.AGUIEvent, None]:
         skill_apikey = name[len(SKILL_CHAIN_PREFIX):]
         step_name = skill_apikey
         output = data.get("output", {})
         status = "failed" if isinstance(output, dict) and output.get("error") else "completed"
+        # 查询 skill 的 context 模式（inline/fork）
+        skill_context = self._resolve_skill_context(skill_apikey)
 
         # Renderer 会消费此内部事件，不透传前端
         if status == "completed" and output:
@@ -283,10 +290,22 @@ class AGUIConverter:
 
         yield m.step_metadata(step_name, skill_apikey=skill_apikey,
                               step_index=self._step_index, status=status,
-                              phase="finished")
+                              phase="finished", skill_context=skill_context)
         yield m.step_finished(step_name)
         self._step_index += 1
         yield m.messages_snapshot(list(self._messages))
+
+    def _resolve_skill_context(self, skill_apikey: str) -> str | None:
+        """从 SkillRegistry 查询 skill 的 context 模式（inline/fork）。"""
+        if self._skill_registry is None:
+            return None
+        try:
+            skill = self._skill_registry.get(skill_apikey)
+            if skill:
+                return getattr(skill, 'context', None) or 'inline'
+        except Exception:
+            pass
+        return None
 
     # ═══════════════════════════════════════════════════════════
     # on_custom_event 适配层（Skill / Tool / Middleware 自定义事件）

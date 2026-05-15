@@ -68,6 +68,7 @@ trace_writer = TraceWriter(tenant_id=DEFAULT_TENANT_ID)
 _agent = None
 _agent_mm = None  # 多模态 Agent
 _agent_lock = asyncio.Lock()
+_skill_registry = None  # SkillRegistry 实例，Agent 初始化后可用
 
 # ── 共享 CRM 后端实例（Agent 和 mock-data API 共用，修改即时可见）──
 _crm_backend = None
@@ -82,7 +83,7 @@ def get_crm_backend():
 
 
 async def _get_agent(multimodal: bool = False):
-    global _agent, _agent_mm
+    global _agent, _agent_mm, _skill_registry
     target = _agent_mm if multimodal else _agent
     if target is not None:
         return target
@@ -117,6 +118,9 @@ async def _get_agent(multimodal: bool = False):
         except Exception as exc:
             logger.warning("从 DB 加载 Skill 失败（Agent 将跳过技能）: %s", exc)
 
+        # 暴露为模块级变量，供 event_generator 闭包中查询 skill context
+        _skill_registry = skill_reg
+
         # 注入 skill_registry 到 SkillService（热加载支持）
         try:
             from src.api.skill_api import get_skill_service
@@ -144,7 +148,8 @@ async def _get_agent(multimodal: bool = False):
 
         # 注册知识库工具（供 knowledge_doc_search 技能使用）
         from src.tools.knowledge_tools import register_knowledge_tools
-        register_knowledge_tools(reg)
+        _kb_provider = getattr(app.state, "knowledge_provider", None)
+        register_knowledge_tools(reg, provider=_kb_provider, tenant_id=DEFAULT_TENANT_ID)
 
         # 注册 ManageSkillTool（供 create_skill 技能使用）
         from src.tools.manage_skill_tool import ManageSkillTool
@@ -894,6 +899,9 @@ async def chat_stream(req: ChatRequest):
 
         LangGraph create_react_agent 不自动调用 middleware 的 before_model/after_model，
         这里在 on_chat_model_start/end 事件时手动记录已知的中间件。
+
+        注意：此函数在 event_generator() 中调用，不在 LangGraph runtime context 中，
+        必须使用 _add_to_thread 显式指定 thread_id。
         """
         from src.middleware.tracing import tracing_middleware
         # 已知的 before_model / after_model 中间件
@@ -902,10 +910,29 @@ async def chat_stream(req: ChatRequest):
             "after_model": ["SubagentLimitMiddleware", "LoopDetectionMiddleware", "OutputValidationMiddleware"],
         }
         mw_list = MW_BY_PHASE.get(phase, [])
+        # 根据执行阶段映射到前端 phase 分组
+        phase_mapping = {
+            "before_model": "reasoning",
+            "after_model": "reasoning",
+        }
+        display_phase = phase_mapping.get(phase, "reasoning")
         for mw_name in mw_list:
-            tracing_middleware.record_middleware_execution(
-                mw_name, phase, 0,
-                has_effect=False,
+            tracing_middleware._add_to_thread(
+                tid, "middleware", f"mw:{mw_name}", 0,
+                metadata={
+                    "middleware_name": mw_name,
+                    "phase": phase,
+                    "has_effect": False,
+                },
+                input_data={
+                    "middleware": mw_name,
+                    "phase": phase,
+                },
+                output_data={
+                    "has_effect": False,
+                    "duration_ms": 0,
+                },
+                detail=f"{mw_name}.{phase} → 无变更",
             )
 
     async def event_generator():
@@ -940,6 +967,10 @@ async def chat_stream(req: ChatRequest):
             new_spans = mw_spans[last_mw_idx:]
             last_mw_idx = len(mw_spans)
             return new_spans
+
+        # 先推送入口预处理阶段已记录的 span（title_generation、content_review、query_rewrite）
+        for mw_span in flush_mw_spans():
+            yield f"data: {json.dumps({'type': 'mw_span', 'span': mw_span}, ensure_ascii=False)}\n\n"
 
         try:
             async for event in agent.astream_events({"messages": messages}, config=config, version="v2"):
@@ -1077,15 +1108,14 @@ async def chat_stream(req: ChatRequest):
                                     or parsed_in.get("agent_name")
                                     or ""
                                 )
-                                # 查询 skill 的 context_mode（inline/fork）
+                                # 查询 skill 的 context（inline/fork）
                                 if sub_name and tool_name == "skills_tool":
                                     try:
-                                        from src.skills.base import SkillRegistry
-                                        _sr = skill_reg if 'skill_reg' in dir() else None
+                                        _sr = _skill_registry
                                         if _sr:
                                             _sk = _sr.get(sub_name)
                                             if _sk:
-                                                skill_context_mode = getattr(_sk, 'context_mode', '') or 'inline'
+                                                skill_context_mode = getattr(_sk, 'context', '') or 'inline'
                                     except Exception:
                                         pass
                         except (json.JSONDecodeError, TypeError, ValueError):
