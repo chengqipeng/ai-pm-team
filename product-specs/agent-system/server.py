@@ -1113,11 +1113,21 @@ async def chat_stream(req: ChatRequest):
                                     try:
                                         _sr = _skill_registry
                                         if _sr:
+                                            # 尝试精确匹配，失败则尝试连字符/下划线互换
                                             _sk = _sr.get(sub_name)
+                                            if _sk is None:
+                                                alt_name = sub_name.replace('-', '_') if '-' in sub_name else sub_name.replace('_', '-')
+                                                _sk = _sr.get(alt_name)
                                             if _sk:
-                                                skill_context_mode = getattr(_sk, 'context', '') or 'inline'
+                                                skill_context_mode = _sk.context or 'inline'
+                                            else:
+                                                # 未找到 skill 定义，默认标注 inline
+                                                skill_context_mode = 'inline'
+                                        else:
+                                            # SkillRegistry 未初始化，默认标注 inline
+                                            skill_context_mode = 'inline'
                                     except Exception:
-                                        pass
+                                        skill_context_mode = 'inline'
                         except (json.JSONDecodeError, TypeError, ValueError):
                             sub_name = ""
 
