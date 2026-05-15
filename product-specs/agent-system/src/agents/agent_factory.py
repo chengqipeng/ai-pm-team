@@ -146,6 +146,12 @@ class AgentFactory:
                 current_depth=depth + 1,
             ))
 
+        # 3.5 ask_user 工具（中断确认机制，需要 checkpointer 支持）
+        if self._checkpointer is not None:
+            if not explicit_tools or "ask_user" in self._tool_names:
+                from src.tools.builtins.ask_user_tool import AskUserTool
+                tool_loader.register_tool("ask_user", AskUserTool())
+
         # 4. 统一加载
         all_tools = tool_loader.load_tools()
 

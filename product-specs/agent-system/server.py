@@ -155,6 +155,12 @@ async def _get_agent(multimodal: bool = False):
         from src.tools.manage_skill_tool import ManageSkillTool
         reg.register(ManageSkillTool())
 
+        # 注册 ask_user 工具（中断确认机制）
+        from src.tools.builtins.ask_user_tool import AskUserTool
+        # ask_user 是 LangChain BaseTool，需要通过 ToolRegistry 的 LangChain 适配注册
+        # 由于 ToolRegistry 只接受自定义 Tool 基类，这里通过 AgentFactory 的 tool_loader 注册
+        # ask_user 会在 AgentFactory._build_agent 中通过 ToolLoader 自动发现
+
         system_prompt = build_system_prompt(agent_name="CRM-Agent", skills=skill_reg.list_all())
         middlewares = build_middleware(
             system_prompt=system_prompt,
@@ -164,10 +170,15 @@ async def _get_agent(multimodal: bool = False):
 
         model_name = MULTIMODAL_MODEL if multimodal else TEXT_MODEL
 
+        # 启用 checkpointer（支持 interrupt 中断确认机制）
+        from langgraph.checkpoint.memory import MemorySaver
+        _checkpointer = MemorySaver()
+
         config = LangChainAgentConfig(
             model=model_name, api_key=os.environ["DOUBAO_API_KEY"],
             api_base="https://ark.cn-beijing.volces.com/api/v3/", tool_registry=reg,
             skill_registry=skill_reg, system_prompt=system_prompt, middlewares=middlewares,
+            checkpointer=_checkpointer,
         )
         built = create_deep_agent(config)
 

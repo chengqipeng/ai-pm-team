@@ -8,20 +8,35 @@ from langgraph.types import Command
 
 logger = logging.getLogger(__name__)
 
+# GraphInterrupt 必须透传，不能被当作工具错误处理
+try:
+    from langgraph.errors import GraphInterrupt
+except ImportError:
+    GraphInterrupt = None  # type: ignore
+
 
 class ToolErrorHandlingMiddleware(AgentMiddleware):
-    """工具异常 → 错误消息，防止整个 Agent run 崩溃"""
+    """工具异常 → 错误消息，防止整个 Agent run 崩溃
+
+    注意：GraphInterrupt 异常必须透传（interrupt 中断确认机制依赖此异常传播到框架层）
+    """
 
     def wrap_tool_call(self, request: ToolCallRequest, handler) -> ToolMessage | Command:
         try:
             return handler(request)
         except Exception as exc:
+            # GraphInterrupt 必须透传（ask_user 工具的 interrupt() 调用）
+            if GraphInterrupt is not None and isinstance(exc, GraphInterrupt):
+                raise
             return self._error_message(request, exc)
 
     async def awrap_tool_call(self, request: ToolCallRequest, handler) -> ToolMessage | Command:
         try:
             return await handler(request)
         except Exception as exc:
+            # GraphInterrupt 必须透传（ask_user 工具的 interrupt() 调用）
+            if GraphInterrupt is not None and isinstance(exc, GraphInterrupt):
+                raise
             return self._error_message(request, exc)
 
     @staticmethod

@@ -237,7 +237,7 @@
 <!-- 创建/编辑技能 Modal -->
 <div id="formModal" class="fixed inset-0 z-[100] hidden">
   <div class="modal-overlay absolute inset-0" onclick="closeForm()"></div>
-  <div class="absolute top-0 right-0 bottom-0 w-[600px] bg-white shadow-2xl flex flex-col overflow-hidden z-10 transform transition-transform duration-300">
+  <div class="absolute top-0 right-0 bottom-0 w-[900px] bg-white shadow-2xl flex flex-col overflow-hidden z-10 transform transition-transform duration-300">
     <div class="flex items-center justify-between px-6 py-4 border-b">
       <h2 id="formTitle" class="text-lg font-semibold">创建技能</h2>
       <div class="flex gap-2">
@@ -246,8 +246,36 @@
         <button onclick="closeForm()" class="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50">取消</button>
       </div>
     </div>
-    <div class="flex-1 overflow-y-auto p-6">
-      <form id="skillForm" class="space-y-5">
+    <!-- 左右分栏 -->
+    <div class="flex-1 flex overflow-hidden">
+      <!-- 左侧：资源树导航 -->
+      <aside id="skillTreePanel" class="w-56 bg-gray-50 border-r flex flex-col flex-shrink-0 hidden">
+        <div class="px-3 py-2 border-b bg-white">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-gray-600">📁 资源文件</span>
+            <span id="resourceCount" class="text-[10px] text-gray-400"></span>
+          </div>
+        </div>
+        <div class="flex-1 overflow-y-auto py-1">
+          <!-- 固定节点：Skill 配置 -->
+          <div class="tree-node active px-3 py-1.5 text-xs cursor-pointer hover:bg-blue-50 rounded mx-1 flex items-center gap-1.5"
+               onclick="switchToConfig()" id="treeNodeConfig">
+            <span>⚙️</span><span class="font-medium text-gray-700">Skill 配置</span>
+          </div>
+          <div class="tree-node px-3 py-1.5 text-xs cursor-pointer hover:bg-blue-50 rounded mx-1 flex items-center gap-1.5"
+               onclick="switchToPrompt()" id="treeNodePrompt">
+            <span>📄</span><span class="font-medium text-gray-700">SKILL.md</span>
+          </div>
+          <div class="border-t my-1 mx-2"></div>
+          <!-- 动态资源树 -->
+          <div id="resourceTree" class="px-1"></div>
+        </div>
+      </aside>
+      <!-- 右侧：内容编辑区 -->
+      <div class="flex-1 overflow-y-auto p-6">
+        <!-- 配置面板（默认显示） -->
+        <div id="panelConfig">
+          <form id="skillForm" class="space-y-5">
         <!-- 基本信息 -->
         <div class="grid grid-cols-2 gap-4">
           <div>
@@ -321,19 +349,38 @@
           </div>
           <div id="f_arguments_empty" class="text-xs text-gray-400 py-2 hidden">暂无参数，点击"+ 添加参数"新增</div>
         </div>
-        <!-- Prompt -->
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">提示词 (Prompt) * — 支持 Markdown，用 {参数名} 作占位符</label>
-          <textarea name="prompt" id="f_prompt" required rows="14"
-                    class="prompt-editor w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"
-                    placeholder="你是一位专家。请对 {account_id} 进行分析。"></textarea>
-        </div>
+        <!-- Prompt（隐藏，由 SKILL.md 面板同步） -->
+        <input type="hidden" name="prompt" id="f_prompt">
         <!-- 测试输出 -->
         <div id="testOutputSection" class="hidden">
           <label class="block text-xs font-medium text-gray-600 mb-1">测试输出预览</label>
           <div id="testOutput" class="prompt-preview bg-gray-50 border rounded-lg p-4 text-sm"></div>
         </div>
+        <!-- 资源文件树（旧位置，已移到左侧面板） -->
+        <div id="resourceTreeSection" class="hidden"></div>
       </form>
+        </div>
+        <!-- Prompt 面板（左侧点击 SKILL.md 时显示） -->
+        <div id="panelPrompt" class="hidden">
+          <label class="block text-xs font-medium text-gray-600 mb-2">SKILL.md — 技能提示词，支持 Markdown，用 {参数名} 作占位符</label>
+          <textarea id="f_prompt_full" rows="30"
+                    class="prompt-editor w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"
+                    placeholder="你是一位专家。请对 {account_id} 进行分析。"
+                    oninput="document.getElementById('f_prompt').value = this.value"></textarea>
+        </div>
+        <!-- 资源文件编辑面板（左侧点击文件时显示） -->
+        <div id="panelResource" class="hidden">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 id="resourceFileName" class="text-sm font-semibold text-gray-800"></h3>
+              <span id="resourceFilePath" class="text-xs text-gray-400"></span>
+            </div>
+            <button onclick="saveResourceContent()" class="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700">保存文件</button>
+          </div>
+          <textarea id="resourceEditor" rows="28"
+                    class="prompt-editor w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-200 focus:outline-none"></textarea>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -751,6 +798,7 @@ async function editSkill(apiKey) {
     const s = await res.json();
     document.getElementById('f_api_key').value = s.api_key;
     document.getElementById('f_api_key').disabled = true;
+    document.getElementById('formTitle').textContent = `编辑: ${s.name || apiKey}（${s.api_key}）`;
     document.getElementById('f_name').value = s.name || '';
     document.getElementById('f_description').value = s.description || '';
     document.getElementById('f_when_to_use').value = s.when_to_use || '';
@@ -761,6 +809,8 @@ async function editSkill(apiKey) {
     renderToolOptions(s.allowed_tools || []);
     loadArguments(s.arguments || [], s.argument_descriptions || {}, s.argument_config || {});
     document.getElementById('f_prompt').value = s.prompt || '';
+    // 加载资源树
+    loadResourceTree(apiKey);
   } catch (e) {
     alert('加载失败: ' + e.message);
     closeForm();
@@ -1123,6 +1173,127 @@ async function showToolDetail(apiKey) {
   } catch (e) {
     alert('加载失败: ' + e.message);
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 资源文件树
+// ═══════════════════════════════════════════════════════════
+
+let currentResourceNodes = [];
+
+async function loadResourceTree(apiKey) {
+  const treePanel = document.getElementById('skillTreePanel');
+  const container = document.getElementById('resourceTree');
+  const countEl = document.getElementById('resourceCount');
+
+  try {
+    const res = await fetch(`${SKILL_API}/${apiKey}/resources`);
+    const data = await res.json();
+    currentResourceNodes = data.nodes || [];
+
+    if (!currentResourceNodes.length) {
+      treePanel.classList.add('hidden');
+      return;
+    }
+
+    treePanel.classList.remove('hidden');
+    const fileCount = currentResourceNodes.filter(n => n.node_type === 'file').length;
+    const dirCount = currentResourceNodes.filter(n => n.node_type === 'dir').length;
+    countEl.textContent = `${dirCount}目录 · ${fileCount}文件`;
+
+    container.innerHTML = renderTreeNodes(currentResourceNodes, null, 0);
+    // 默认显示配置面板
+    switchToConfig();
+  } catch (e) {
+    treePanel.classList.add('hidden');
+  }
+}
+
+function renderTreeNodes(nodes, parentId, level) {
+  const children = nodes.filter(n => n.parent_id === parentId);
+  if (!children.length) return '';
+
+  let html = '';
+  const sorted = children.sort((a, b) => {
+    if (a.node_type !== b.node_type) return a.node_type === 'dir' ? -1 : 1;
+    return a.sort_num - b.sort_num || a.name.localeCompare(b.name);
+  });
+
+  for (const node of sorted) {
+    const indent = (level + 1) * 12;
+    const icon = node.node_type === 'dir' ? '📁' : '📄';
+    const clickAttr = node.node_type === 'file'
+      ? `onclick="switchToResource('${node.path}', '${node.name}')" data-path="${node.path}"`
+      : '';
+    const cls = node.node_type === 'file'
+      ? 'cursor-pointer hover:bg-blue-50'
+      : 'text-gray-500';
+
+    html += `<div style="padding-left:${indent}px" class="tree-node px-2 py-1 text-[11px] rounded mx-1 flex items-center gap-1 ${cls}" ${clickAttr}>
+      <span>${icon}</span><span class="truncate">${node.name}</span>
+    </div>`;
+
+    if (node.node_type === 'dir') {
+      html += renderTreeNodes(nodes, node.id, level + 1);
+    }
+  }
+  return html;
+}
+
+function switchToConfig() {
+  document.getElementById('panelConfig').classList.remove('hidden');
+  document.getElementById('panelPrompt').classList.add('hidden');
+  document.getElementById('panelResource').classList.add('hidden');
+  // 高亮左侧节点
+  document.querySelectorAll('#skillTreePanel .tree-node').forEach(el => el.classList.remove('bg-blue-100', 'font-medium'));
+  document.getElementById('treeNodeConfig')?.classList.add('bg-blue-100', 'font-medium');
+}
+
+function switchToPrompt() {
+  document.getElementById('panelConfig').classList.add('hidden');
+  document.getElementById('panelPrompt').classList.remove('hidden');
+  document.getElementById('panelResource').classList.add('hidden');
+  // 同步 prompt 内容
+  document.getElementById('f_prompt_full').value = document.getElementById('f_prompt').value;
+  // 高亮
+  document.querySelectorAll('#skillTreePanel .tree-node').forEach(el => el.classList.remove('bg-blue-100', 'font-medium'));
+  document.getElementById('treeNodePrompt')?.classList.add('bg-blue-100', 'font-medium');
+}
+
+async function switchToResource(path, name) {
+  document.getElementById('panelConfig').classList.add('hidden');
+  document.getElementById('panelPrompt').classList.add('hidden');
+  document.getElementById('panelResource').classList.remove('hidden');
+  // 高亮
+  document.querySelectorAll('#skillTreePanel .tree-node').forEach(el => el.classList.remove('bg-blue-100', 'font-medium'));
+  document.querySelector(`[data-path="${path}"]`)?.classList.add('bg-blue-100', 'font-medium');
+
+  document.getElementById('resourceFileName').textContent = name;
+  document.getElementById('resourceFilePath').textContent = path;
+  document.getElementById('resourceEditor').value = '加载中...';
+
+  try {
+    const res = await fetch(`${SKILL_API}/${editingKey}/resources/content?path=${encodeURIComponent(path)}`);
+    const data = await res.json();
+    document.getElementById('resourceEditor').value = data.content || '';
+  } catch (e) {
+    document.getElementById('resourceEditor').value = `加载失败: ${e.message}`;
+  }
+}
+
+async function saveResourceContent() {
+  // TODO: 实现保存资源文件内容的 API
+  alert('保存功能开发中');
+}
+
+function formatSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes}B`;
+  return `${(bytes / 1024).toFixed(1)}KB`;
+}
+
+async function previewResource(apiKey, path) {
+  switchToResource(path, path.split('/').pop());
 }
 
 // ═══════════════════════════════════════════════════════════

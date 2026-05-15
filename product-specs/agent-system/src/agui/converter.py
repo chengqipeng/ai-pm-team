@@ -43,12 +43,18 @@ class AGUIConverter:
         parent_run_id: str | None = None,
         emit_legacy_reasoning: bool = True,
         skill_registry: Any | None = None,
+        conversation_type: int | None = None,
     ) -> None:
         self.run_id = run_id
         self.thread_id = thread_id
         self._parent_run_id = parent_run_id
         self._emit_legacy_reasoning = emit_legacy_reasoning
-        self._skill_registry = skill_registry  # SkillRegistry，用于查询 skill context 模式
+        self._skill_registry = skill_registry
+        self._conversation_type = conversation_type  # 1,2=chat; 3=定时器; 4=调试; 5=临时; 6=嵌入页面
+
+        # long_text 标签解析器（对齐 apps-agent）
+        from .long_text import LongTextParser
+        self._long_text_parser = LongTextParser(run_id=run_id)  # SkillRegistry，用于查询 skill context 模式
 
         # 步骤计数
         self._step_index = 0
@@ -206,7 +212,30 @@ class AGUIConverter:
         # 切换：关闭推理流
         async for e in self._close_reasoning_stream():
             yield e
-        # 开启文本流
+
+        # <long_text> 标签检测（对齐 apps-agent）
+        if self._long_text_parser.active or "<long_text" in content or self._long_text_parser._pending:
+            async for ev in self._long_text_parser.feed(content):
+                t = ev.type if isinstance(ev.type, str) else ev.type.value
+                if t == "__plain_text__":
+                    # 普通文本正常输出
+                    text = ev.data.get("text", "")
+                    if text:
+                        if not self._text_active:
+                            self._text_active = True
+                            self._text_message_id = uuid.uuid4().hex[:12]
+                            yield m.text_message_start(self._text_message_id)
+                        yield m.text_message_content(self._text_message_id, text)
+                elif t == "__close_text__":
+                    # 关闭文本流
+                    async for e in self._close_text_stream():
+                        yield e
+                else:
+                    # ACTIVITY_SNAPSHOT 等事件直接透传
+                    yield ev
+            return
+
+        # 正常文本输出（无 long_text 标签）
         if not self._text_active:
             self._text_active = True
             self._text_message_id = uuid.uuid4().hex[:12]

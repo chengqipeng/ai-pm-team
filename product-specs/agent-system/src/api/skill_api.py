@@ -451,3 +451,73 @@ def _save_argument_ext(tenant_id: int, api_key: str,
 
 # 保留旧函数名兼容（manage_skill_tool.py 中有引用）
 _save_argument_descriptions = lambda tid, ak, descs: _save_argument_ext(tid, ak, descs, None)
+
+
+# ═══════════════════════════════════════════════════════════
+# Skill 资源树 API
+# ═══════════════════════════════════════════════════════════
+
+@router.get("/{api_key}/resources")
+async def get_skill_resources(api_key: str, tenant_id: int = Query(0)):
+    """获取 Skill 的资源文件树"""
+    from src.store.pg_pool import get_conn
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, parent_id, node_type, name, path, depth,
+                   content_size, description, icon, sort_num, enabled_flg
+            FROM ai_skill_resource
+            WHERE skill_api_key = %s AND tenant_id = %s AND delete_flg = 0
+            ORDER BY depth, sort_num, name
+        """, (api_key, tenant_id))
+        rows = cur.fetchall()
+
+    nodes = []
+    for r in rows:
+        nodes.append({
+            "id": str(r[0]),
+            "parent_id": str(r[1]) if r[1] else None,
+            "node_type": r[2],
+            "name": r[3],
+            "path": r[4],
+            "depth": r[5],
+            "content_size": r[6],
+            "description": r[7],
+            "icon": r[8],
+            "sort_num": r[9],
+            "enabled": bool(r[10]),
+        })
+
+    return {"skill_api_key": api_key, "nodes": nodes, "total": len(nodes)}
+
+
+@router.get("/{api_key}/resources/content")
+async def get_skill_resource_content(
+    api_key: str,
+    path: str = Query(..., description="资源文件路径"),
+    tenant_id: int = Query(0),
+):
+    """读取 Skill 资源文件内容"""
+    from src.store.pg_pool import get_conn
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT content, content_type, content_size, description
+            FROM ai_skill_resource
+            WHERE skill_api_key = %s AND path = %s AND node_type = 'file'
+                  AND tenant_id = %s AND delete_flg = 0 AND enabled_flg = 1
+        """, (api_key, path, tenant_id))
+        row = cur.fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Resource '{path}' not found")
+
+    return {
+        "path": path,
+        "content": row[0],
+        "content_type": row[1],
+        "content_size": row[2],
+        "description": row[3],
+    }

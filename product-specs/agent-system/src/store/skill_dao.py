@@ -41,7 +41,8 @@ class SkillDefinitionDAO:
         "version, status, published_at, "
         "exec_count, success_count, avg_duration_ms, ext_info, "
         "delete_flg, created_at, created_by, updated_at, updated_by, "
-        "enabled_flg, category, tags, icon, sort_num, system_flg"
+        "enabled_flg, category, tags, icon, sort_num, system_flg, "
+        "output_mode, component_apikey"
     )
 
     _use_v2: bool = False  # 是否已检测到新字段存在
