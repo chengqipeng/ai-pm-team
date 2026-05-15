@@ -280,13 +280,42 @@ class AGUIConverter:
         step_name = skill_apikey
         output = data.get("output", {})
         status = "failed" if isinstance(output, dict) and output.get("error") else "completed"
-        # 查询 skill 的 context 模式（inline/fork）
         skill_context = self._resolve_skill_context(skill_apikey)
 
-        # Renderer 会消费此内部事件，不透传前端
+        # 根据 output_mode 决定事件通道
+        output_mode = self._resolve_output_mode(skill_apikey)
+
         if status == "completed" and output:
-            yield m.custom_event("skill_output",
-                                 {"skill_apikey": skill_apikey, "data": output})
+            output_text = str(output) if not isinstance(output, str) else output
+
+            if output_mode == "text" or output_mode == "streaming":
+                # 走 TEXT_MESSAGE 通道 → 前端渲染为 Markdown 文本气泡
+                async for e in self._emit_text(output_text):
+                    yield e
+            elif output_mode == "card":
+                # 走 CUSTOM(component_complete) + 内置 doc_card
+                title = output_text.split("\n")[0][:60].lstrip("# ").strip()
+                yield m.custom_event("component_complete", {
+                    "apikey": "doc_card",
+                    "state": "complete",
+                    "data": {"title": title, "content": output_text, "skill_apikey": skill_apikey},
+                })
+            elif output_mode == "component":
+                # 走 CUSTOM(skill_output) → Renderer 匹配组件
+                comp_apikey = self._resolve_component_apikey(skill_apikey)
+                yield m.custom_event("skill_output",
+                                     {"skill_apikey": skill_apikey, "data": output})
+            elif output_mode == "table":
+                # 走 CUSTOM(component_data)
+                yield m.custom_event("component_data", {
+                    "model_name": "searchResults",
+                    "skill_apikey": skill_apikey,
+                    "data": output if isinstance(output, (dict, list)) else {"value": output},
+                })
+            else:
+                # auto / 兜底：走原有 skill_output 路径
+                yield m.custom_event("skill_output",
+                                     {"skill_apikey": skill_apikey, "data": output})
 
         yield m.step_metadata(step_name, skill_apikey=skill_apikey,
                               step_index=self._step_index, status=status,
@@ -294,6 +323,30 @@ class AGUIConverter:
         yield m.step_finished(step_name)
         self._step_index += 1
         yield m.messages_snapshot(list(self._messages))
+
+    def _resolve_output_mode(self, skill_apikey: str) -> str:
+        """从 SkillRegistry 获取 Skill 的 output_mode。"""
+        if self._skill_registry is None:
+            return "auto"
+        try:
+            skill = self._skill_registry.get(skill_apikey)
+            if skill:
+                return getattr(skill, "output_mode", "auto") or "auto"
+        except Exception:
+            pass
+        return "auto"
+
+    def _resolve_component_apikey(self, skill_apikey: str) -> str:
+        """从 SkillRegistry 获取 Skill 的 component_apikey。"""
+        if self._skill_registry is None:
+            return ""
+        try:
+            skill = self._skill_registry.get(skill_apikey)
+            if skill:
+                return getattr(skill, "component_apikey", "") or ""
+        except Exception:
+            pass
+        return ""
 
     def _resolve_skill_context(self, skill_apikey: str) -> str | None:
         """从 SkillRegistry 查询 skill 的 context 模式（inline/fork）。"""

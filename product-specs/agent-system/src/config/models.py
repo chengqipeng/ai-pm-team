@@ -114,7 +114,7 @@ class ToolSettings(BaseModel):
 
 
 class SkillSettings(BaseModel):
-    skills_dir: str = ""
+    skills_dir: str = ""  # 已废弃，保留兼容。Skill 唯一数据源为 ai_skill_definition 表
     skill_names: list[str] = Field(default_factory=list)
     auto_generate: bool = False
     min_tool_calls_for_autogen: int = 5

@@ -48,6 +48,8 @@ class SkillDefinition:
     max_tool_calls: int = 20
     timeout_ms: int = 60000
     owner: str = ""
+    output_mode: str = "auto"
+    component_apikey: str = ""
     tenant_id: int = 0                           # 0 = 平台级
 
     def format_prompt(self, arguments: dict[str, str]) -> str:
@@ -89,6 +91,8 @@ class SkillDefinition:
             max_tool_calls=row.max_tool_calls or 20,
             timeout_ms=row.timeout_ms or 60000,
             owner=row.owner or "",
+            output_mode=getattr(row, "output_mode", "auto") or "auto",
+            component_apikey=getattr(row, "component_apikey", "") or "",
             tenant_id=row.tenant_id or 0,
         )
 

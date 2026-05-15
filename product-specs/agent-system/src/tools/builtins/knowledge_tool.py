@@ -259,7 +259,7 @@ class KnowledgeSearchTool(BaseTool):
 
     @staticmethod
     def _format_results(query: str, results) -> str:
-        """把检索结果渲染为 Markdown 文本（含文档概览，帮助 Agent 判断深入哪篇）"""
+        """把检索结果渲染为 Markdown 文本（含引用元数据，支持 Skill 生成可点击引用链接）"""
         parts: list[str] = [f"## 知识库检索：{query}\n"]
 
         # ── 文档概览（按文档聚合，帮助 Agent 判断哪篇最值得深入）──
@@ -273,6 +273,7 @@ class KnowledgeSearchTool(BaseTool):
                     "hit_count": 0,
                     "max_score": 0.0,
                     "category": chunk.metadata.get("docCategory", ""),
+                    "industry": chunk.metadata.get("industryVertical", ""),
                 }
             doc_stats[did]["hit_count"] += 1
             doc_stats[did]["max_score"] = max(
@@ -282,15 +283,15 @@ class KnowledgeSearchTool(BaseTool):
         if len(doc_stats) > 1:
             parts.append("### 命中文档概览")
             parts.append("")
-            parts.append("| 文档 | doc_id | 命中切片 | 最高相关度 | 类别 |")
-            parts.append("|------|--------|----------|-----------|------|")
+            parts.append("| 文档 | doc_id | 命中切片 | 最高相关度 | 类别 | 行业 |")
+            parts.append("|------|--------|----------|-----------|------|------|")
             for did, info in sorted(
                 doc_stats.items(), key=lambda x: x[1]["max_score"], reverse=True
             ):
                 parts.append(
                     f"| {info['title'][:40]} | {info['doc_id']} | "
                     f"{info['hit_count']} | {info['max_score']:.3f} | "
-                    f"{info['category']} |"
+                    f"{info['category']} | {info['industry']} |"
                 )
             parts.append("")
             parts.append(
@@ -299,12 +300,19 @@ class KnowledgeSearchTool(BaseTool):
             )
             parts.append("")
 
-        # ── 切片详情 ──
+        # ── 切片详情（含完整引用元数据）──
         for i, chunk in enumerate(results, 1):
             parts.append(f"### 结果 {i}: {chunk.document_title or '未知文档'}")
+            # 引用元数据块 — Skill 用此生成可点击链接
+            parts.append(f"<!-- ref: doc_id={chunk.document_id} "
+                         f"title={chunk.document_title or '未知文档'} "
+                         f"section={chunk.section_title or ''} "
+                         f"section_path={chunk.section_path or ''} -->")
             meta_bits = []
             if chunk.section_title:
                 meta_bits.append(f"**章节**: {chunk.section_title}")
+            if chunk.section_path:
+                meta_bits.append(f"**路径**: {chunk.section_path}")
             if chunk.metadata.get("docCategory"):
                 meta_bits.append(f"**类别**: {chunk.metadata['docCategory']}")
             if chunk.metadata.get("industryVertical"):
@@ -318,5 +326,29 @@ class KnowledgeSearchTool(BaseTool):
                 parts.append("\n**扩展上下文**：")
                 parts.append(chunk.expanded_context)
             parts.append("\n---")
-        parts.append(f"\n共 {len(results)} 条结果，来自 {len(doc_stats)} 篇文档。")
+
+        # ── 引用索引（结构化，方便 Skill 直接生成引用链接）──
+        parts.append("\n### 📚 引用索引（用于生成来源链接）")
+        parts.append("")
+        ref_idx = 1
+        seen_refs: set[tuple[str, str]] = set()
+        for chunk in results:
+            ref_key = (chunk.document_id or "", chunk.section_title or "")
+            if ref_key in seen_refs:
+                continue
+            seen_refs.add(ref_key)
+            doc_id = chunk.document_id or ""
+            title = chunk.document_title or "未知文档"
+            section = chunk.section_title or ""
+            section_path = chunk.section_path or ""
+            link = f"/knowledge/doc/{doc_id}"
+            if section:
+                link += f"#section={section}"
+            parts.append(
+                f"[^{ref_idx}]: [{title}]({link})"
+                + (f" — {section_path or section}" if (section_path or section) else "")
+            )
+            ref_idx += 1
+        parts.append("")
+        parts.append(f"共 {len(results)} 条结果，来自 {len(doc_stats)} 篇文档。")
         return "\n".join(parts)

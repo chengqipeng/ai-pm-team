@@ -339,13 +339,131 @@ Agent Loop
 
 ---
 
-## 八、文件清单
+## 八、输出深度优化设计（v4.0）
+
+> 本节描述 v4.0 新增的输出形式智能选择 + 引用溯源链接化设计。
+
+### 8.1 设计目标
+
+1. **输出形式与用户语义匹配**：不同查询意图产出不同格式（对比表格 / 参数列表 / 概述段落 / 步骤指引 / 诊断方案）
+2. **信息来源强制引用**：每个关键信息点标注来源编号，末尾统一输出可点击的引用链接
+3. **引用链接可跳转**：前端渲染为超链接，点击可跳转到原文档对应章节
+
+### 8.2 语义类型判定
+
+Skill prompt 中定义了 5 种语义类型，由 LLM 在执行时自动判定：
+
+| 语义类型 | 触发关键词 | 输出形式 | 示例查询 |
+|----------|-----------|----------|----------|
+| 对比型 | 对比、区别、哪个好、vs、优缺点、选型 | 多列对比表格 | "3051 和 3095 的区别" |
+| 参数查询型 | 参数、规格、量程、精度、尺寸 | 参数表格 | "3051 的技术参数" |
+| 概述型 | 介绍、是什么、概述、了解 | 结构化段落 | "阿牛巴流量计是什么" |
+| 操作指引型 | 怎么、如何、步骤、安装、配置 | 编号步骤列表 | "3051 怎么安装" |
+| 问题诊断型 | 故障、报错、不工作、异常 | 原因+方案 | "3051 显示异常怎么办" |
+
+### 8.3 对比型输出的深度逻辑
+
+**触发条件**（满足任一）：
+- 用户提到 2 个及以上产品/型号/方案名称
+- 使用了对比类关键词
+- 问"有哪些产品适合 XX 场景"（隐含多产品对比）
+
+**检索策略**：
+```
+1. 拆解对比对象（A、B、...）
+2. 分别检索：
+   knowledge_search(query="A 特点 参数 优势", top_k=3)
+   knowledge_search(query="B 特点 参数 优势", top_k=3)
+3. 合并结果，按对比维度组织
+```
+
+**输出结构**：
+```markdown
+[一句话核心结论]
+
+| 对比维度 | 产品A | 产品B |
+|----------|-------|-------|
+| 适用场景 | ...[^1] | ...[^2] |
+| 核心参数 | ...[^1] | ...[^2] |
+| 优势     | ...[^1] | ...[^2] |
+| 局限     | ...[^1] | ...[^2] |
+
+**选型建议**：[明确推荐]
+
+---
+📚 **信息来源**
+
+[^1]: [产品A手册](/knowledge/doc/{doc_id}#section=技术规格) — 第3章 技术规格
+[^2]: [产品B手册](/knowledge/doc/{doc_id}#section=产品概述) — 第1章 产品概述
+```
+
+### 8.4 引用溯源链接化设计
+
+#### 8.4.1 数据流
+
+```
+KnowledgeChunk
+  ├── document_id      → 构建链接路径 /knowledge/doc/{doc_id}
+  ├── document_title   → 链接显示文本
+  ├── section_title    → 锚点 #section={section_title}
+  └── section_path     → 补充描述（如 "第2章 / 2.1 安装要求"）
+
+Tool._format_results()
+  └── 输出 <!-- ref: doc_id=xxx title=xxx section=xxx --> 注释标记
+  └── 输出 ### 📚 引用索引 结构化列表
+
+Skill Prompt
+  └── 指导 LLM 使用 [^N] 行内标注 + 末尾引用列表
+  └── 引用格式：[^N]: [文档标题](/knowledge/doc/{doc_id}#section={section}) — 章节路径
+```
+
+#### 8.4.2 前端渲染
+
+引用链接在前端 Markdown 渲染器中被解析为：
+- `[^N]` → 上标数字，hover 显示来源摘要
+- `/knowledge/doc/{doc_id}#section={section}` → 点击跳转到文档详情页对应章节
+
+#### 8.4.3 引用规则
+
+| 规则 | 说明 |
+|------|------|
+| 强制标注 | 每个关键数据/结论必须标注来源编号 |
+| 末尾汇总 | 所有引用源在回答最末尾统一列出 |
+| 可点击 | 每条引用是 Markdown 链接格式 |
+| 去重复用 | 同一文档同一章节只分配一个编号 |
+| 不确定标注 | 推断性内容标注"（基于文档推断）" |
+
+### 8.5 与 output_mode 的关系
+
+knowledge-doc-search Skill 的 `output_mode` 固定为 `text`，所有输出通过 TEXT_MESSAGE 三段式推送到前端 ChatBubble 的 Markdown 渲染器。
+
+Markdown 渲染器需要支持：
+- 标准表格渲染（对比表格、参数表格）
+- 脚注语法 `[^N]` 渲染为上标链接
+- 内部链接 `/knowledge/doc/...` 渲染为可点击跳转
+
+### 8.6 变更清单
+
+| 文件 | 变更 | 说明 |
+|------|------|------|
+| `skills/definitions/knowledge-doc-search/SKILL.md` | 重写 | v4.0 prompt：语义类型判定 + 输出形式规则 + 引用规范 |
+| `src/tools/builtins/knowledge_tool.py` | `_format_results` 增强 | 输出引用元数据注释 + 结构化引用索引 |
+| 前端 MarkdownRenderer | 待开发 | 支持脚注语法 + 内部链接跳转 |
+
+---
+
+## 九、文件清单
 
 | 文件 | 路径 | 说明 |
 |------|------|------|
-| Skill 定义 | `skills/definitions/knowledge-doc-search/SKILL.md` | SKILL.md 格式定义 |
-| SQL 初始化 | `skills/definitions/knowledge-doc-search/init.sql` | 数据库注册 |
+| SQL 迁移（v4.0） | `sql/migrate_knowledge_skill_v4_output_optimization.sql` | 直接更新 DB 中的 prompt/配置 |
+| SQL 初始化 | `sql/migrate_add_knowledge_doc_search_skill.sql` | 首次安装（v1.0） |
 | 设计文档 | `doc/知识库检索文档Skill设计方案.md` | 本文档 |
 | 依赖 Tool | `src/tools/builtins/knowledge_tool.py` | knowledge_search Tool |
+| 文档详情 Tool | `src/tools/builtins/knowledge_doc_detail_tool.py` | knowledge_doc_detail Tool |
 | 检索引擎 | `src/knowledge/retriever.py` | KnowledgeRetriever |
 | Provider | `src/knowledge/standalone_provider.py` | StandaloneKnowledgeProvider |
+
+> ⚠️ 注意：Skill 定义的唯一数据源是 `ai_skill_definition` 数据库表。
+> 所有变更通过 SQL 迁移脚本直接更新 DB，不再维护本地 SKILL.md 文件。
+> 运行时通过 `SkillRegistry.load_from_db()` 加载。

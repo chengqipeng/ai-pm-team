@@ -62,6 +62,8 @@ class SkillDefinitionRow:
     icon: str = ""                      # 图标
     sort_num: int = 0                   # 排序权重
     system_flg: int = 0                 # 1=系统预置（不可编辑/删除）, 0=用户创建
+    output_mode: str = "auto"           # text | card | component | table | streaming | auto
+    component_apikey: str = ""          # output_mode=component 时的目标组件
 
     def __post_init__(self):
         if not self.id:
