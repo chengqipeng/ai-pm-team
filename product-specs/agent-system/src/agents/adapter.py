@@ -235,44 +235,15 @@ class NeoAgentV2Adapter:
         input_data = {"messages": messages}
         config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 300}
 
-        # ── 记录预处理 spans 到 tracing_middleware（由实时 flush 推送）──
         from src.middleware.tracing import tracing_middleware
-
-        tracing_middleware._add_to_thread(
-            thread_id, "content_review", "content_review", 0,
-            {"passed": passed, "source": "entry"},
-            input_data={"user_input": user_input[:200]},
-            output_data={"passed": passed},
-            detail="输入内容审查：通过" if passed else "输入内容审查：拦截",
-        )
-        changed = effective_query != user_input
-        tracing_middleware._add_to_thread(
-            thread_id, "query_rewrite", "query_rewrite", 0,
-            {"original_query": user_input[:200], "rewritten_query": effective_query[:200], "changed": changed},
-            input_data={"original_query": user_input[:200]},
-            output_data={"rewritten_query": effective_query[:200], "changed": changed},
-            detail=f"查询改写：{'已改写' if changed else '无需改写'}",
-        )
-        tracing_middleware._add_to_thread(
-            thread_id, "context_build", "context_build", 0,
-            {"message_count": len(messages)},
-            input_data={"current_query": effective_query[:200], "history_turns": len(history or [])},
-            output_data={"message_count": len(messages)},
-            detail=f"构建 LLM 上下文: {len(messages)} 条消息",
-        )
+        # 清除残留 spans，避免重复
+        tracing_middleware.clear(thread_id)
 
         astream = agent.astream_events(input_data, config=config, version="v2")
 
-        # 实时 flush 预处理 spans（在 RUN_STARTED 之前就推送）
-        _last_mw_idx = 0
-        _current_spans = tracing_middleware.get_spans(thread_id)
-        if _current_spans:
-            for sp in _current_spans:
-                yield _m.custom_event("mw_span", sp)
-            _last_mw_idx = len(_current_spans)
-
         # 拦截流：RUN_FINISHED 暂存到最后，实时 flush mw_spans
         _run_finished_event = None
+        _last_mw_idx = 0
         async for event in renderer.process(converter.convert(astream)):
             t_val = getattr(event.type, "value", None) or str(event.type)
             if "RUN_FINISHED" in t_val:

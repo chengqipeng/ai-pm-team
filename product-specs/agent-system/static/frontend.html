@@ -2093,33 +2093,11 @@ async function sendAgui(text, extra) {
           else if (type === 'TOOL_CALL_START') {
             const toolCallId = data.tool_call_id || '';
             const toolName = data.name || data.tool_call_name || '';
-            // 去重：同一个 tool_call 可能从 chat_model_stream 和 on_tool_start 各触发一次
+            // 去重
             const dedupeKey = toolName + ':' + (toolCallId || String(Date.now()));
             if (!seenToolCalls.has(dedupeKey)) {
               seenToolCalls.add(dedupeKey);
-              // 工具名称友好映射
-              const toolLabels = {
-                'skills_tool': '执行技能',
-                'query_data': '查询数据',
-                'query_schema': '查询 Schema',
-                'analyze_data': '数据分析',
-                'modify_data': '修改数据',
-                'ask_user': '等待确认',
-                'ask_clarification': '澄清追问',
-                'web_search': '网络搜索',
-                'knowledge_search': '知识检索',
-                'manage_memory': '记忆管理',
-                'memory_read': '读取记忆',
-              };
-              const label = toolLabels[toolName] || toolName;
-              addStep(`🔧 ${label}`, 'run');
-              addLiveSpan({
-                status: 'running', type: 'tool_call', icon: '🔧',
-                title: label, step_name: '工具调用', step_name_en: 'tool_call',
-                phase: 'reasoning', detail: `调用: ${toolName}`,
-                desc: toolName, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
-                children: [], input_data: data, output_data: {}, metadata: { tool_name: toolName },
-              });
+              // 右侧面板由 mw_span 统一渲染，这里不重复添加
             }
           }
           // TOOL_CALL_ARGS
@@ -2132,30 +2110,15 @@ async function sendAgui(text, extra) {
           }
           // TOOL_CALL_RESULT
           else if (type === 'TOOL_CALL_RESULT') {
-            const content = data.content || '';
-            addLiveSpan({
-              status: 'complete', type: 'tool_call', icon: '📤',
-              title: '工具结果', step_name: '工具结果', step_name_en: 'tool_result',
-              phase: 'reasoning', detail: truncStr(content, 100),
-              desc: truncStr(content, 60), time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
-              children: [], input_data: {}, output_data: { result: content.slice(0, 500) }, metadata: {},
-            });
+            // 右侧面板由 mw_span 统一渲染（含完整输入/输出/耗时），这里不重复
           }
           // STEP_STARTED
           else if (type === 'STEP_STARTED') {
-            const stepName = data.name || '';
-            addStep(`⚡ ${stepName}`, 'run');
-            addLiveSpan({
-              status: 'running', type: 'skill_execution', icon: '⚡',
-              title: stepName, step_name: '技能执行', step_name_en: 'skill_execution',
-              phase: 'reasoning', detail: `执行技能: ${stepName}`,
-              desc: stepName, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
-              children: [], input_data: {}, output_data: {}, metadata: {},
-            });
+            // 技能执行由 mw_span(skill_execution) 统一渲染
           }
           // STEP_FINISHED
           else if (type === 'STEP_FINISHED') {
-            addStep(`✅ ${data.name || '步骤完成'}`, 'done');
+            // 由 mw_span 统一渲染
           }
           // CUSTOM
           else if (type === 'CUSTOM') {
@@ -2199,53 +2162,13 @@ async function sendAgui(text, extra) {
               }
             }
             else if (name === 'llm_start') {
-              // LLM 推理开始（循环计数）
-              const iter = value.iteration || 1;
-              addStep(`🧠 循环 ${iter}`, 'run');
-              addLiveSpan({
-                status: 'running', type: 'llm_call', icon: '🧠',
-                title: `循环 ${iter}`, step_name: '模型推理', step_name_en: 'llm_call',
-                phase: 'reasoning', detail: `第 ${iter} 轮推理`,
-                desc: `第 ${iter} 轮推理`, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
-                children: [], input_data: value, output_data: {}, metadata: { iteration: iter },
-              });
+              // 不再使用（由 mw_span 统一渲染）
             }
             else if (name === 'llm_end') {
-              // LLM 推理结束
-              const iter = value.iteration || 1;
-              const toolCalls = value.tool_calls || [];
-              const isFinal = value.is_final;
-              const desc = isFinal ? `第 ${iter} 轮 → 最终回复` : `第 ${iter} 轮 → 调用 ${toolCalls.join(', ')}`;
-              addLiveSpan({
-                status: 'complete', type: 'llm_call', icon: isFinal ? '✅' : '🔄',
-                title: desc, step_name: '模型推理', step_name_en: 'llm_call',
-                phase: 'reasoning', detail: desc,
-                desc: desc, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
-                children: [], input_data: {}, output_data: { tool_calls: toolCalls, is_final: isFinal }, metadata: value,
-              });
+              // 不再使用（由 mw_span 统一渲染）
             }
             else if (name === 'step_metadata') {
-              const phase = value.phase || '';
-              const skillName = value.skill_apikey || '';
-              const status = value.status || '';
-              if (phase === 'started') {
-                addLiveSpan({
-                  status: 'running', type: 'skill_execution', icon: '⚡',
-                  title: `技能: ${skillName}`, step_name: '技能执行', step_name_en: 'skill',
-                  phase: 'reasoning', detail: `开始执行 ${skillName}`,
-                  desc: skillName, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
-                  children: [], input_data: value, output_data: {}, metadata: value,
-                });
-              } else if (phase === 'finished') {
-                addLiveSpan({
-                  status: status === 'failed' ? 'error' : 'complete',
-                  type: 'skill_execution', icon: status === 'failed' ? '❌' : '✅',
-                  title: `技能: ${skillName}`, step_name: '技能完成', step_name_en: 'skill',
-                  phase: 'reasoning', detail: `${skillName} ${status}`,
-                  desc: `${skillName} ${status}`, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
-                  children: [], input_data: {}, output_data: value, metadata: value,
-                });
-              }
+              // 由 mw_span(skill_execution / tool_call) 统一渲染
             }
           }
           // REASONING_START / REASONING_CONTENT

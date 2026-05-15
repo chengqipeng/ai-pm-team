@@ -120,27 +120,32 @@ class AGUIConverter:
                 yield e
             return
 
-        # 过滤子 Agent 的事件（但工具调用开始允许穿透，保持推理链路完整）
+        # 过滤子 Agent 的事件（全部过滤，子 Agent 的执行细节由 mw_span 展示）
         parent_ids = event.get("parent_ids", [])
         is_sub_agent = self._root_run_id and parent_ids and parent_ids[0] != self._root_run_id
         if is_sub_agent:
-            # 只允许 on_tool_start 穿透（显示子 Agent 调用了哪些工具）
-            # on_tool_end 不穿透（避免子 Agent 的工具结果和主 Agent 输出重复）
-            if kind != "on_tool_start":
-                return
+            return
 
         if kind == "on_chat_model_stream":
             async for e in self._handle_chat_stream(event, data):
                 yield e
         elif kind == "on_chat_model_start":
-            # 循环计数 + 发送 llm_start 事件
+            # 记录 LLM 推理开始到 tracing_middleware（由 mw_span flush 推送）
             if not is_sub_agent:
                 self._step_index += 1
-                yield m.custom_event("llm_start", {
-                    "iteration": self._step_index,
-                })
+                try:
+                    from src.middleware.tracing import tracing_middleware
+                    tracing_middleware._add_to_thread(
+                        self.thread_id, "llm_call", f"第 {self._step_index} 轮思考", 0,
+                        {"iteration": self._step_index},
+                        input_data={"iteration": self._step_index},
+                        output_data={},
+                        detail=f"第 {self._step_index} 轮推理",
+                    )
+                except Exception:
+                    pass
         elif kind == "on_chat_model_end":
-            # 发送 llm_end 事件（含 tool_calls 和 is_final 信息）
+            # 记录 LLM 推理结束（含 tool_calls 决策）
             if not is_sub_agent:
                 output = data.get("output", None)
                 tool_calls = []
@@ -148,11 +153,18 @@ class AGUIConverter:
                 if output and hasattr(output, "tool_calls") and output.tool_calls:
                     tool_calls = [tc.get("name", "") for tc in output.tool_calls if isinstance(tc, dict)]
                     is_final = False
-                yield m.custom_event("llm_end", {
-                    "iteration": self._step_index,
-                    "tool_calls": tool_calls,
-                    "is_final": is_final,
-                })
+                try:
+                    from src.middleware.tracing import tracing_middleware
+                    desc = f"第 {self._step_index} 轮 → 最终回复" if is_final else f"第 {self._step_index} 轮 → 调用 {', '.join(tool_calls)}"
+                    tracing_middleware._add_to_thread(
+                        self.thread_id, "llm_call", desc, 0,
+                        {"iteration": self._step_index, "tool_calls": tool_calls, "is_final": is_final},
+                        input_data={"iteration": self._step_index},
+                        output_data={"tool_calls": tool_calls, "is_final": is_final},
+                        detail=desc,
+                    )
+                except Exception:
+                    pass
         elif kind == "on_chain_start" and name.startswith(SKILL_CHAIN_PREFIX):
             async for e in self._handle_skill_start(name):
                 yield e
