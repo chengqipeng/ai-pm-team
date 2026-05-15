@@ -389,8 +389,38 @@ async def _llm_detect_output_format(
         return _detect_document(content)
 
 
-# 产出文档的技能名称集合（调用这些技能时，最终输出必然是报告/文档）
-_DOCUMENT_SKILLS = {"data_analysis", "pipeline_analysis", "customer_360", "verify_config", "diagnose", "account-insight", "account_insight"}
+# 产出文档的技能 — 不再硬编码，从 SkillRegistry 的 output_mode 判断
+# output_mode=card 或 ext_info 中标记 produce_document=true 的 Skill 触发文档面板
+_DOCUMENT_SKILLS = None  # 延迟初始化
+
+
+def _get_document_skills() -> set:
+    """从 SkillRegistry 获取产出文档的 Skill 集合（延迟初始化 + 缓存）"""
+    global _DOCUMENT_SKILLS
+    if _DOCUMENT_SKILLS is not None:
+        return _DOCUMENT_SKILLS
+
+    # 从数据库加载：output_mode=card 或 context=fork 的 Skill 视为文档类
+    # （fork 模式的长文本输出通常是报告/文档）
+    try:
+        from src.store.skill_dao import SkillDefinitionDAO
+        SkillDefinitionDAO._detected = False  # 重置检测缓存
+        rows = SkillDefinitionDAO.list_active(tenant_id=0, include_platform=True)
+        doc_skills = set()
+        for row in rows:
+            # output_mode=card 明确是文档
+            if getattr(row, 'output_mode', '') == 'card':
+                doc_skills.add(row.api_key)
+            # context=fork 且 output_mode=text 的也视为文档（长文本报告）
+            elif getattr(row, 'context', '') == 'fork' and getattr(row, 'output_mode', '') == 'text':
+                doc_skills.add(row.api_key)
+        _DOCUMENT_SKILLS = doc_skills
+        logger.info("文档类 Skill: %s", doc_skills)
+    except Exception as e:
+        logger.warning("加载文档类 Skill 失败，使用默认集合: %s", e)
+        _DOCUMENT_SKILLS = {"data_analysis", "pipeline_analysis", "customer_360",
+                            "verify_config", "diagnose", "account-insight", "account_insight"}
+    return _DOCUMENT_SKILLS
 
 
 def _is_document_skill(tool_name: str, tool_input) -> dict | None:
@@ -410,7 +440,7 @@ def _is_document_skill(tool_name: str, tool_input) -> dict | None:
         else:
             return None
         skill_name = args.get("skill_name", "")
-        if skill_name not in _DOCUMENT_SKILLS:
+        if skill_name not in _get_document_skills():
             return None
         # 根据技能类型预测文档标题
         skill_args = args.get("arguments", {})
@@ -1378,6 +1408,22 @@ async def chat_sync(req: ChatRequest):
         if isinstance(msg, AIMessage) and not getattr(msg, "tool_calls", None):
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
             break
+
+    # 检查是否有 pending interrupt
+    if not content:
+        try:
+            config_check = {"configurable": {"thread_id": req.thread_id}}
+            state = agent.get_state(config_check)
+            if state and state.next:
+                for task in (state.tasks or []):
+                    for intr in (getattr(task, 'interrupts', None) or []):
+                        iv = getattr(intr, 'value', {})
+                        content = iv.get('message') or iv.get('title') or '请确认'
+                        break
+                    if content:
+                        break
+        except Exception:
+            pass
 
     # 记录工具调用 spans
     for msg in msgs:

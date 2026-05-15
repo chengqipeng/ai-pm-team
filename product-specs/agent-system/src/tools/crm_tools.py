@@ -109,6 +109,34 @@ class QueryDataTool(Tool):
             rid = input_data.get("record_id")
             if not rid:
                 return ToolResult(content="get 操作需要 record_id", is_error=True)
+            
+            # 如果 record_id 不是 ID 格式（不以 acc_/opp_/con_ 等开头且不是纯数字），
+            # 自动降级为按名称搜索
+            is_id_format = (
+                rid.startswith(("acc_", "opp_", "con_", "act_", "lea_"))
+                or rid.isdigit()
+                or rid.startswith("id_")
+            )
+            
+            if not is_id_format:
+                # 用户可能传了名称而非 ID，自动转为搜索
+                result = await self._backend.query_data(entity, {"name__contains": rid})
+                records = result.get("data", {}).get("records", [])
+                if not records and len(rid) > 2:
+                    # 拆词重试
+                    result = await self._backend.query_data(entity, {"name__contains": rid[:2]})
+                    records = result.get("data", {}).get("records", [])
+                if records:
+                    if len(records) == 1:
+                        return ToolResult(content=json.dumps(records[0], ensure_ascii=False, indent=2))
+                    else:
+                        return ToolResult(content=json.dumps(
+                            {"hint": f"未找到 ID=\"{rid}\"，但按名称搜索找到以下结果：",
+                             "records": records, "total": len(records)},
+                            ensure_ascii=False, indent=2,
+                        ))
+                return ToolResult(content=f"{entity} 记录 {rid} 不存在", is_error=True)
+            
             result = await self._backend.query_data(entity, {"id": rid})
             records = result.get("data", {}).get("records", [])
             if not records:
@@ -121,13 +149,37 @@ class QueryDataTool(Tool):
             return ToolResult(content=f"{entity} 符合条件的记录数: {total}")
 
         # query
+        filters = input_data.get("filters") or {}
         result = await self._backend.query_data(
-            entity, input_data.get("filters") or {},
+            entity, filters,
             fields=input_data.get("fields"),
             page=input_data.get("page") or 1,
             page_size=input_data.get("page_size") or 20,
             order_by=input_data.get("order_by"),
         )
+        records = result.get("data", {}).get("records", [])
+
+        # 智能重试：如果按名称搜索返回 0 条，自动尝试拆词搜索
+        if not records and filters:
+            name_filter = filters.get("name") or filters.get("name__contains")
+            if name_filter and len(name_filter) > 2:
+                # 尝试用前 2 个字符模糊搜索
+                short_keyword = name_filter[:2]
+                retry_result = await self._backend.query_data(
+                    entity, {"name__contains": short_keyword},
+                    fields=input_data.get("fields"),
+                    page=1,
+                    page_size=input_data.get("page_size") or 20,
+                )
+                retry_records = retry_result.get("data", {}).get("records", [])
+                if retry_records:
+                    # 拆词搜索有结果，返回并提示
+                    hint = f"未找到\"{name_filter}\"的精确匹配，但搜索\"{short_keyword}\"找到以下结果："
+                    return ToolResult(content=json.dumps(
+                        {"hint": hint, "records": retry_records, "total": len(retry_records)},
+                        ensure_ascii=False, indent=2,
+                    ))
+
         return ToolResult(content=json.dumps(result["data"], ensure_ascii=False, indent=2))
 
     def prompt(self):
