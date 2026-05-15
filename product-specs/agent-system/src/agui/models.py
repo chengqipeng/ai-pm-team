@@ -90,7 +90,14 @@ class AGUIEvent:
         return val if isinstance(val, str) else str(t)
 
     def to_sse(self) -> str:
-        return f"event: {self._type_str()}\ndata: {json.dumps(self.data, ensure_ascii=False)}\n\n"
+        def _default(obj):
+            """JSON 序列化兜底：处理 LangChain Message 等不可序列化对象"""
+            if hasattr(obj, 'content'):
+                return str(obj.content)
+            if hasattr(obj, '__dict__'):
+                return {k: v for k, v in obj.__dict__.items() if not k.startswith('_')}
+            return str(obj)
+        return f"event: {self._type_str()}\ndata: {json.dumps(self.data, ensure_ascii=False, default=_default)}\n\n"
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"type": self._type_str(), **self.data}

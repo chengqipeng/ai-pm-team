@@ -120,14 +120,39 @@ class AGUIConverter:
                 yield e
             return
 
-        # 过滤子 Agent 的事件
+        # 过滤子 Agent 的事件（但工具调用开始允许穿透，保持推理链路完整）
         parent_ids = event.get("parent_ids", [])
-        if self._root_run_id and parent_ids and parent_ids[0] != self._root_run_id:
-            return
+        is_sub_agent = self._root_run_id and parent_ids and parent_ids[0] != self._root_run_id
+        if is_sub_agent:
+            # 只允许 on_tool_start 穿透（显示子 Agent 调用了哪些工具）
+            # on_tool_end 不穿透（避免子 Agent 的工具结果和主 Agent 输出重复）
+            if kind != "on_tool_start":
+                return
 
         if kind == "on_chat_model_stream":
             async for e in self._handle_chat_stream(event, data):
                 yield e
+        elif kind == "on_chat_model_start":
+            # 循环计数 + 发送 llm_start 事件
+            if not is_sub_agent:
+                self._step_index += 1
+                yield m.custom_event("llm_start", {
+                    "iteration": self._step_index,
+                })
+        elif kind == "on_chat_model_end":
+            # 发送 llm_end 事件（含 tool_calls 和 is_final 信息）
+            if not is_sub_agent:
+                output = data.get("output", None)
+                tool_calls = []
+                is_final = True
+                if output and hasattr(output, "tool_calls") and output.tool_calls:
+                    tool_calls = [tc.get("name", "") for tc in output.tool_calls if isinstance(tc, dict)]
+                    is_final = False
+                yield m.custom_event("llm_end", {
+                    "iteration": self._step_index,
+                    "tool_calls": tool_calls,
+                    "is_final": is_final,
+                })
         elif kind == "on_chain_start" and name.startswith(SKILL_CHAIN_PREFIX):
             async for e in self._handle_skill_start(name):
                 yield e
@@ -283,6 +308,11 @@ class AGUIConverter:
     async def _handle_tool_end(self, event: dict, data: dict, tool_name: str) -> AsyncGenerator[m.AGUIEvent, None]:
         tool_call_id = event.get("run_id", "")
         output = data.get("output", "")
+        # 提取 ToolMessage 的 content（避免序列化问题）
+        if hasattr(output, "content"):
+            output = output.content if isinstance(output.content, str) else str(output.content)
+        elif not isinstance(output, str):
+            output = str(output)
         # RESULT + END
         yield m.tool_call_result(tool_call_id, content=output, role="tool")
         yield m.tool_call_end(tool_call_id)
@@ -356,14 +386,14 @@ class AGUIConverter:
     def _resolve_output_mode(self, skill_apikey: str) -> str:
         """从 SkillRegistry 获取 Skill 的 output_mode。"""
         if self._skill_registry is None:
-            return "auto"
+            return "text"
         try:
             skill = self._skill_registry.get(skill_apikey)
             if skill:
-                return getattr(skill, "output_mode", "auto") or "auto"
+                return getattr(skill, "output_mode", "text") or "text"
         except Exception:
             pass
-        return "auto"
+        return "text"
 
     def _resolve_component_apikey(self, skill_apikey: str) -> str:
         """从 SkillRegistry 获取 Skill 的 component_apikey。"""

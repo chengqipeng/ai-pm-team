@@ -361,13 +361,56 @@ class MemoryExtractor:
         try:
             result = await self._llm.ainvoke(prompt)
             text = (getattr(result, "content", None) or str(result)).strip()
-            if "{" in text:
+            if "{" in text and "}" in text:
                 json_str = text[text.index("{"):text.rindex("}") + 1]
-                return json.loads(json_str)
-        except json.JSONDecodeError as e:
-            logger.warning("LLM output JSON parse failed: %s", e)
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError:
+                    # 尝试修复常见 JSON 格式问题后重试
+                    repaired = self._repair_json(json_str)
+                    if repaired is not None:
+                        return repaired
+                    logger.warning(
+                        "LLM output JSON parse failed, raw text (first 500 chars): %s",
+                        json_str[:500],
+                    )
         except Exception as e:
             logger.error("LLM invocation failed: %s", e)
+        return None
+
+    @staticmethod
+    def _repair_json(raw: str) -> dict | None:
+        """尝试修复常见的 LLM JSON 输出问题并解析。
+
+        常见问题：
+        1. 尾部多余逗号 (trailing comma)
+        2. 单引号代替双引号
+        3. 未转义的换行符
+        4. 值中缺少逗号分隔（如 "key1": "val1" "key2": "val2"）
+        """
+        import re
+
+        text = raw
+        # 1. 替换未转义的换行/制表符
+        text = text.replace("\n", "\\n").replace("\t", "\\t")
+        # 2. 移除尾部逗号 (,] 或 ,})
+        text = re.sub(r",\s*([}\]])", r"\1", text)
+        # 3. 尝试修复缺少逗号的情况: "..." "..." → "...", "..."
+        text = re.sub(r'"\s*\n?\s*"', '", "', text)
+        # 4. 修复 }" 或 ]" 后缺少逗号的情况
+        text = re.sub(r'([}\]])\s*"', r'\1, "', text)
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # 5. 最后尝试：单引号替换为双引号
+        try:
+            return json.loads(raw.replace("'", '"'))
+        except json.JSONDecodeError:
+            pass
+
         return None
 
     def _filter_user_messages(self, messages: list) -> list:

@@ -4,12 +4,11 @@
 
 挂载路径：/api/meta/*
 
-Backend 切换（通过环境变量）：
-  METAREPO_API_BASE         —— 配置后自动切到 HTTP 模式（调用 paas-platform-service）
-  METAREPO_TENANT_ID / METAREPO_USER_ID / METAREPO_TOKEN —— HTTP 模式下注入 header
-  未配置时回退到 MetarepoSimulatedBackend + CrmSimulatedBackend（零依赖本地运行）
+Backend 切换逻辑：
+  1. 优先直连本地 PostgreSQL（paas_metarepo_common / paas_metarepo schema）
+  2. 数据库不可用时降级到 MetarepoSimulatedBackend（零依赖本地运行）
 
-Sim backend 同步方法和 HTTP backend 异步方法通过 _await 桥接，保证 API 层代码统一。
+DB backend 同步方法和 sim backend 同步方法通过 _await 桥接，保证 API 层代码统一。
 """
 from __future__ import annotations
 
@@ -86,16 +85,6 @@ async def _await(value: Any) -> Any:
     return value
 
 
-def _fallback_list_metamodels() -> list[dict]:
-    """HTTP 后端不可用时降级到模拟后端。"""
-    try:
-        from src.tools.metarepo_backend import MetarepoSimulatedBackend
-        return MetarepoSimulatedBackend().list_metamodels()
-    except Exception as exc:
-        logger.error("降级到模拟后端也失败: %s", exc)
-        return []
-
-
 def _is_http_data(backend: Any) -> bool:
     return backend.__class__.__name__ == "EntityDataHttpBackend"
 
@@ -106,11 +95,7 @@ def _is_http_data(backend: Any) -> bool:
 
 @router.get("/metamodels")
 async def list_metamodels() -> list[dict]:
-    try:
-        return await _await(_get_meta_backend().list_metamodels())
-    except Exception as exc:
-        logger.warning("list_metamodels 失败，尝试降级到模拟后端: %s", exc)
-        return _fallback_list_metamodels()
+    return await _await(_get_meta_backend().list_metamodels())
 
 
 @router.get("/metamodels/{metamodel_api_key}")

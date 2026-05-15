@@ -328,6 +328,14 @@ body { margin: 0; }
         </nav>
         <div class="h-4 w-px bg-gray-200 mx-1"></div>
         <div class="flex items-center gap-1.5 px-2 py-1 bg-white/60 border border-gray-200/50 rounded-lg text-[10px]">
+          <span class="text-gray-400">协议</span>
+          <select id="apiModeSelect" onchange="switchApiMode(this.value)" class="text-[10px] font-bold text-gray-800 bg-transparent border-none outline-none cursor-pointer">
+            <option value="sse">SSE</option>
+            <option value="agui">AG-UI</option>
+          </select>
+        </div>
+        <div class="h-4 w-px bg-gray-200 mx-1"></div>
+        <div class="flex items-center gap-1.5 px-2 py-1 bg-white/60 border border-gray-200/50 rounded-lg text-[10px]">
           <span class="text-gray-400">租户</span>
           <span id="headerTenantDisplay" class="text-gray-800 font-bold">—</span>
           <span class="text-gray-200">|</span>
@@ -468,6 +476,7 @@ body { margin: 0; }
 <script>
 // ═══ 状态管理 ═══
 const API = '';
+let apiMode = localStorage.getItem('deepagent_api_mode') || 'sse'; // 'sse' | 'agui'
 let tid = localStorage.getItem('deepagent_current_tid') || genId();
 localStorage.setItem('deepagent_current_tid', tid);
 let hist = [], pf = [];
@@ -524,6 +533,95 @@ function genId() {
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function truncStr(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : s; }
 
+// ═══ API 模式切换 ═══
+function switchApiMode(mode) {
+  apiMode = mode;
+  localStorage.setItem('deepagent_api_mode', mode);
+  console.log('[DeepAgent] API mode:', mode);
+}
+
+// 初始化 select 状态
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('apiModeSelect');
+  if (sel) sel.value = apiMode;
+});
+
+// ═══ Interrupt UI 渲染 ═══
+function renderInterruptCard(iv) {
+  const type = iv.type || 'confirm';
+  const title = iv.title || '请确认';
+  const message = iv.message || '';
+  const options = iv.options || [];
+  const interruptId = iv.interrupt_id || '';
+
+  let html = `<div class="interrupt-card bg-white border border-blue-200 rounded-xl p-4 my-3 shadow-sm" data-interrupt-id="${esc(interruptId)}">`;
+  html += `<div class="text-sm font-bold text-gray-800 mb-2">${esc(title)}</div>`;
+  if (message) html += `<div class="text-xs text-gray-600 mb-3">${esc(message)}</div>`;
+
+  if (type === 'select' || type === 'multi_select') {
+    html += `<div class="space-y-2">`;
+    for (const opt of options) {
+      html += `<button onclick="handleInterruptSelect('${esc(interruptId)}', '${esc(opt.id)}')" 
+        class="w-full text-left px-3 py-2.5 border border-gray-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all group">
+        <div class="text-sm font-medium text-gray-800 group-hover:text-blue-700">${esc(opt.label)}</div>
+        ${opt.description ? `<div class="text-xs text-gray-500 mt-0.5">${esc(opt.description)}</div>` : ''}
+      </button>`;
+    }
+    html += `</div>`;
+  } else if (type === 'input') {
+    const defaultVal = iv.default_value || '';
+    html += `<div class="flex gap-2">
+      <input type="text" id="interrupt-input-${esc(interruptId)}" value="${esc(defaultVal)}" 
+        placeholder="请输入..." class="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200">
+      <button onclick="handleInterruptInput('${esc(interruptId)}')" 
+        class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">提交</button>
+    </div>`;
+  } else {
+    // confirm
+    html += `<div class="flex gap-2 justify-end">
+      <button onclick="handleInterruptResponse('${esc(interruptId)}', {cancelled: true})" 
+        class="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">取消</button>
+      <button onclick="handleInterruptResponse('${esc(interruptId)}', {value: 'confirmed'})" 
+        class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">确认</button>
+    </div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function handleInterruptSelect(interruptId, selectedId) {
+  // 禁用卡片
+  const card = document.querySelector(`[data-interrupt-id="${interruptId}"]`);
+  if (card) {
+    card.querySelectorAll('button').forEach(b => { b.disabled = true; b.classList.add('opacity-50'); });
+    // 高亮选中项
+    const selected = card.querySelector(`button[onclick*="'${selectedId}'"]`);
+    if (selected) selected.classList.add('border-blue-500', 'bg-blue-50');
+  }
+  handleInterruptResponse(interruptId, { value: selectedId });
+}
+
+function handleInterruptInput(interruptId) {
+  const input = document.getElementById(`interrupt-input-${interruptId}`);
+  const value = input ? input.value.trim() : '';
+  if (!value) return;
+  handleInterruptResponse(interruptId, { value });
+}
+
+async function handleInterruptResponse(interruptId, response) {
+  // 发送 resume 请求
+  const resumeData = { interrupt_id: interruptId, ...response };
+  console.log('[interrupt] resume:', resumeData);
+
+  if (apiMode === 'agui') {
+    // AG-UI 模式：通过 /api/chat/agui 发送 resume
+    await sendAgui('', { resume: resumeData });
+  } else {
+    // SSE 模式：通过 /api/chat 发送（将 resume 信息作为新消息）
+    const label = response.value || '确认';
+    await send(label);
+  }
+}
 // ═══ 右侧面板控制 ═══
 function closeRightPanel() {
   isRightPanelOpen = false;
@@ -794,6 +892,55 @@ function addAIBubbleRaw(content, docTitle, docId) {
 function scrollToBottom() {
   const area = document.getElementById('chatArea');
   setTimeout(() => { area.scrollTop = area.scrollHeight; }, 50);
+}
+
+// ═══ AG-UI 流式气泡（逐字渲染）═══
+let _aguiStreamEl = null;
+
+function addAiBubbleStart() {
+  const inner = document.getElementById('chatInner');
+  const w = document.getElementById('welcomeBlock');
+  if (w) w.remove();
+  inner.insertAdjacentHTML('beforeend', `
+    <div class="flex justify-start w-full animate-fade-in" id="agui-stream-bubble">
+      <div class="max-w-[85%] flex gap-4 flex-row">
+        <div class="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-xs font-bold shadow-sm bg-white border border-blue-100 text-blue-600">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+        <div class="p-4 rounded-2xl text-[14px] shadow-sm bg-white border border-gray-100 text-gray-800">
+          <div class="prose-content agui-stream-content"><span class="animate-pulse text-gray-400">▍</span></div>
+        </div>
+      </div>
+    </div>`);
+  _aguiStreamEl = inner.querySelector('#agui-stream-bubble .agui-stream-content');
+  scrollToBottom();
+}
+
+function updateAiBubble(fullContent) {
+  if (!_aguiStreamEl) return;
+  const rendered = typeof marked !== 'undefined' ? marked.parse(fullContent) : esc(fullContent);
+  _aguiStreamEl.innerHTML = rendered + '<span class="animate-pulse text-gray-400">▍</span>';
+  scrollToBottom();
+}
+
+function finalizeAiBubble(fullContent) {
+  if (!_aguiStreamEl) return;
+  const rendered = typeof marked !== 'undefined' ? marked.parse(fullContent) : esc(fullContent);
+  _aguiStreamEl.innerHTML = rendered;
+  _aguiStreamEl = null;
+  // 移除 stream ID
+  const el = document.getElementById('agui-stream-bubble');
+  if (el) el.removeAttribute('id');
+  scrollToBottom();
+}
+
+function addSystemBubble(msg) {
+  const inner = document.getElementById('chatInner');
+  inner.insertAdjacentHTML('beforeend', `
+    <div class="flex justify-center w-full my-2">
+      <div class="px-3 py-1.5 rounded-full bg-red-50 border border-red-100 text-xs text-red-600">${esc(msg)}</div>
+    </div>`);
+  scrollToBottom();
 }
 
 // ═══ Trace 链路渲染（层级结构版）═══
@@ -1849,15 +1996,333 @@ function getSpanLabel(type) { return SPAN_LABELS[type] || type; }
 // ═══ 发送消息 ═══
 function sq(text) { document.getElementById('inp').value = text; send(); }
 
-async function send() {
+// ═══ AG-UI 模式发送 ═══
+async function sendAgui(text, extra) {
+  if (!text && !extra) return;
+
+  // 显示用户消息
+  if (text) {
+    addUserBubble(text);
+    hist.push({ role: 'user', content: text });
+    if (hist.filter(h => h.role === 'user').length === 1) {
+      const title = text.length > 20 ? text.slice(0, 20) + '...' : text;
+      document.getElementById('headerTitle').textContent = title;
+    }
+  }
+
+  // 重置 trace
+  liveSpans = [];
+  stepsContainer = null;
+  stepsWrapper = null;
+  updatePanelStatus(true);
+  createStepsContainer();
+  addStep('AG-UI 处理中...', 'run');
+
+  const body = {
+    message: text || '',
+    threadId: tid,
+    history: hist.slice(0, -1).slice(-10),
+    runId: genId(),
+  };
+  if (extra && extra.resume) {
+    body.resume = extra.resume;
+  }
+
+  try {
+    const r = await fetch(API + '/api/chat/agui', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error('AG-UI API error: ' + r.status);
+
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let aiContent = '';
+    let textMsgActive = false;
+    let seenToolCalls = new Set(); // 去重 TOOL_CALL_START
+
+    // AG-UI SSE 格式: "event: TYPE\ndata: {...}\n\n"
+    let currentEventType = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEventType = line.slice(7).trim();
+          continue;
+        }
+        if (!line.startsWith('data: ')) continue;
+        const dataStr = line.slice(6);
+        if (!dataStr || dataStr === '[DONE]') continue;
+
+        try {
+          const data = JSON.parse(dataStr);
+          const type = currentEventType || data.type || '';
+          currentEventType = ''; // reset after use
+
+          // RUN_STARTED
+          if (type === 'RUN_STARTED') {
+            // 运行开始
+          }
+          // TEXT_MESSAGE_START
+          else if (type === 'TEXT_MESSAGE_START') {
+            textMsgActive = true;
+            addAiBubbleStart();
+          }
+          // TEXT_MESSAGE_CONTENT
+          else if (type === 'TEXT_MESSAGE_CONTENT') {
+            const delta = data.delta || (data.data && data.data.delta) || '';
+            if (delta) {
+              aiContent += delta;
+              updateAiBubble(aiContent);
+            }
+          }
+          // TEXT_MESSAGE_END
+          else if (type === 'TEXT_MESSAGE_END') {
+            textMsgActive = false;
+            finalizeAiBubble(aiContent);
+          }
+          // TOOL_CALL_START
+          else if (type === 'TOOL_CALL_START') {
+            const toolCallId = data.tool_call_id || '';
+            const toolName = data.name || data.tool_call_name || '';
+            // 去重：同一个 tool_call 可能从 chat_model_stream 和 on_tool_start 各触发一次
+            const dedupeKey = toolName + ':' + (toolCallId || String(Date.now()));
+            if (!seenToolCalls.has(dedupeKey)) {
+              seenToolCalls.add(dedupeKey);
+              // 工具名称友好映射
+              const toolLabels = {
+                'skills_tool': '执行技能',
+                'query_data': '查询数据',
+                'query_schema': '查询 Schema',
+                'analyze_data': '数据分析',
+                'modify_data': '修改数据',
+                'ask_user': '等待确认',
+                'ask_clarification': '澄清追问',
+                'web_search': '网络搜索',
+                'knowledge_search': '知识检索',
+                'manage_memory': '记忆管理',
+                'memory_read': '读取记忆',
+              };
+              const label = toolLabels[toolName] || toolName;
+              addStep(`🔧 ${label}`, 'run');
+              addLiveSpan({
+                status: 'running', type: 'tool_call', icon: '🔧',
+                title: label, step_name: '工具调用', step_name_en: 'tool_call',
+                phase: 'reasoning', detail: `调用: ${toolName}`,
+                desc: toolName, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
+                children: [], input_data: data, output_data: {}, metadata: { tool_name: toolName },
+              });
+            }
+          }
+          // TOOL_CALL_ARGS
+          else if (type === 'TOOL_CALL_ARGS') {
+            // 工具参数流式传入（可选展示）
+          }
+          // TOOL_CALL_END
+          else if (type === 'TOOL_CALL_END') {
+            // 工具调用结束
+          }
+          // TOOL_CALL_RESULT
+          else if (type === 'TOOL_CALL_RESULT') {
+            const content = data.content || '';
+            addLiveSpan({
+              status: 'complete', type: 'tool_call', icon: '📤',
+              title: '工具结果', step_name: '工具结果', step_name_en: 'tool_result',
+              phase: 'reasoning', detail: truncStr(content, 100),
+              desc: truncStr(content, 60), time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
+              children: [], input_data: {}, output_data: { result: content.slice(0, 500) }, metadata: {},
+            });
+          }
+          // STEP_STARTED
+          else if (type === 'STEP_STARTED') {
+            const stepName = data.name || '';
+            addStep(`⚡ ${stepName}`, 'run');
+            addLiveSpan({
+              status: 'running', type: 'skill_execution', icon: '⚡',
+              title: stepName, step_name: '技能执行', step_name_en: 'skill_execution',
+              phase: 'reasoning', detail: `执行技能: ${stepName}`,
+              desc: stepName, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
+              children: [], input_data: {}, output_data: {}, metadata: {},
+            });
+          }
+          // STEP_FINISHED
+          else if (type === 'STEP_FINISHED') {
+            addStep(`✅ ${data.name || '步骤完成'}`, 'done');
+          }
+          // CUSTOM
+          else if (type === 'CUSTOM') {
+            const name = data.name || '';
+            const value = data.value || data;
+
+            if (name === 'interrupt') {
+              // 渲染 interrupt 选择卡片
+              const chatInner = document.getElementById('chatInner');
+              chatInner.insertAdjacentHTML('beforeend', renderInterruptCard(value));
+              scrollToBottom();
+              addStep('⏸️ 等待用户确认', 'run');
+            }
+            else if (name === 'run_interrupted') {
+              addStep('⏸️ 已暂停，等待选择', 'done');
+            }
+            else if (name === 'mw_span') {
+              // 中间件 span（与 SSE 模式一致的推理链路）
+              const sp = value || {};
+              const spanType = sp.type || 'unknown';
+              const spanName = sp.name || sp.step_name || spanType;
+              const stepName = sp.step_name || spanName;
+              const meta = sp.metadata || {};
+              let children = [];
+              if (sp.children && sp.children.length) {
+                children = sp.children.map(ch => ({
+                  label: ch.name || ch.type || '', status: 'complete', duration_ms: ch.duration_ms || 0,
+                }));
+              }
+              addLiveSpan({
+                status: sp.status || 'complete', type: spanType, icon: getSpanIcon(spanType),
+                title: spanName, step_name: stepName, step_name_en: sp.step_name_en || spanType,
+                phase: sp.phase || '', detail: sp.detail || '',
+                desc: sp.detail || '', time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
+                duration_ms: sp.duration_ms || 0, children: children,
+                input_data: sp.input_data || {}, output_data: sp.output_data || {}, metadata: meta,
+              });
+              // 关键步骤也显示在左侧
+              if (['content_review', 'query_rewrite', 'context_build', 'memory_retrieval', 'intent_analysis', 'memory_extract'].includes(spanType)) {
+                addStep(`${stepName}`, 'done');
+              }
+            }
+            else if (name === 'llm_start') {
+              // LLM 推理开始（循环计数）
+              const iter = value.iteration || 1;
+              addStep(`🧠 循环 ${iter}`, 'run');
+              addLiveSpan({
+                status: 'running', type: 'llm_call', icon: '🧠',
+                title: `循环 ${iter}`, step_name: '模型推理', step_name_en: 'llm_call',
+                phase: 'reasoning', detail: `第 ${iter} 轮推理`,
+                desc: `第 ${iter} 轮推理`, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
+                children: [], input_data: value, output_data: {}, metadata: { iteration: iter },
+              });
+            }
+            else if (name === 'llm_end') {
+              // LLM 推理结束
+              const iter = value.iteration || 1;
+              const toolCalls = value.tool_calls || [];
+              const isFinal = value.is_final;
+              const desc = isFinal ? `第 ${iter} 轮 → 最终回复` : `第 ${iter} 轮 → 调用 ${toolCalls.join(', ')}`;
+              addLiveSpan({
+                status: 'complete', type: 'llm_call', icon: isFinal ? '✅' : '🔄',
+                title: desc, step_name: '模型推理', step_name_en: 'llm_call',
+                phase: 'reasoning', detail: desc,
+                desc: desc, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
+                children: [], input_data: {}, output_data: { tool_calls: toolCalls, is_final: isFinal }, metadata: value,
+              });
+            }
+            else if (name === 'step_metadata') {
+              const phase = value.phase || '';
+              const skillName = value.skill_apikey || '';
+              const status = value.status || '';
+              if (phase === 'started') {
+                addLiveSpan({
+                  status: 'running', type: 'skill_execution', icon: '⚡',
+                  title: `技能: ${skillName}`, step_name: '技能执行', step_name_en: 'skill',
+                  phase: 'reasoning', detail: `开始执行 ${skillName}`,
+                  desc: skillName, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
+                  children: [], input_data: value, output_data: {}, metadata: value,
+                });
+              } else if (phase === 'finished') {
+                addLiveSpan({
+                  status: status === 'failed' ? 'error' : 'complete',
+                  type: 'skill_execution', icon: status === 'failed' ? '❌' : '✅',
+                  title: `技能: ${skillName}`, step_name: '技能完成', step_name_en: 'skill',
+                  phase: 'reasoning', detail: `${skillName} ${status}`,
+                  desc: `${skillName} ${status}`, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
+                  children: [], input_data: {}, output_data: value, metadata: value,
+                });
+              }
+            }
+          }
+          // REASONING_START / REASONING_CONTENT
+          else if (type === 'REASONING_START' || type === 'REASONING_STARTED') {
+            addStep('🧠 推理中...', 'run');
+          }
+          else if (type === 'REASONING_CONTENT') {
+            // 推理内容（可选展示在右侧面板）
+            const delta = data.delta || '';
+            if (delta) {
+              addLiveSpan({
+                status: 'complete', type: 'llm_call', icon: '🧠',
+                title: '推理', step_name: '模型推理', step_name_en: 'reasoning',
+                phase: 'reasoning', detail: truncStr(delta, 80),
+                desc: truncStr(delta, 40), time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
+                children: [], input_data: {}, output_data: { reasoning: delta.slice(0, 300) }, metadata: {},
+              });
+            }
+          }
+          // RUN_FINISHED
+          else if (type === 'RUN_FINISHED') {
+            collapseStepsContainer();
+          }
+          // RUN_ERROR
+          else if (type === 'RUN_ERROR') {
+            const errMsg = data.message || '执行出错';
+            addStep(`❌ ${truncStr(errMsg, 40)}`, 'err');
+            addLiveSpan({
+              status: 'error', type: 'error', icon: '❌',
+              title: '错误', step_name: '执行错误', step_name_en: 'error',
+              phase: 'execution', detail: errMsg,
+              desc: truncStr(errMsg, 60), time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
+              children: [], input_data: {}, output_data: { error: errMsg }, metadata: {},
+            });
+            if (!aiContent) {
+              addAiBubbleStart();
+              aiContent = '⚠️ ' + errMsg;
+              finalizeAiBubble(aiContent);
+            }
+          }
+          // MESSAGES_SNAPSHOT (忽略)
+          else if (type === 'MESSAGES_SNAPSHOT') {
+            // 历史消息快照，AG-UI 断线重连用
+          }
+        } catch(e) { /* skip parse errors */ }
+      }
+    }
+
+    // 如果有内容但没有正式结束
+    if (aiContent && textMsgActive) {
+      finalizeAiBubble(aiContent);
+    }
+    if (aiContent) {
+      hist.push({ role: 'assistant', content: aiContent });
+    }
+
+  } catch(e) {
+    console.error('[AG-UI] error:', e);
+    addSystemBubble('请求失败: ' + e.message);
+  }
+
+  updatePanelStatus(false);
+}
+
+async function send(overrideText) {
   const inp = document.getElementById('inp');
-  const text = inp.value.trim();
-  if (!text) return;
-  inp.value = '';
-  inp.style.height = '28px';
+  const text = overrideText || inp.value.trim();
+  if (!text && !overrideText) return;
+  if (!overrideText) { inp.value = ''; inp.style.height = '28px'; }
 
   // 上传文件
   if (pf.length) await uploadAll();
+
+  // AG-UI 模式路由
+  if (apiMode === 'agui') {
+    return sendAgui(text);
+  }
 
   // 显示用户消息
   addUserBubble(text);
@@ -2196,6 +2661,16 @@ async function send() {
                   const rendered = typeof marked !== 'undefined' ? marked.parse(aiContent) : esc(aiContent);
                   document.getElementById('docPreviewContent').innerHTML = rendered;
                 }
+              }
+            }
+
+            // ── 中断确认（interrupt）──
+            else if (evt.type === 'interrupt') {
+              const interrupts = evt.interrupts || [];
+              for (const iv of interrupts) {
+                const chatInner = document.getElementById('chatInner');
+                chatInner.insertAdjacentHTML('beforeend', renderInterruptCard(iv));
+                scrollToBottom();
               }
             }
 

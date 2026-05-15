@@ -1,11 +1,11 @@
 """
-CRM 种子数据 — 10 个客户 + 完整关联数据
+CRM 种子数据 — 11 个客户 + 完整关联数据
 
 数据关系：
-- 10 个客户（跨行业：通信、互联网、制造、金融、零售、医疗）
-- 每个客户 2-3 个联系人（共 25 个）
-- 每个客户 1-3 个商机（共 20 个，覆盖所有阶段）
-- 每个客户 1-3 个活动（共 20 个，覆盖所有类型）
+- 11 个客户（跨行业：通信、互联网、制造、金融、零售、医疗）
+- 每个客户 2-3 个联系人（共 28 个）
+- 每个客户 1-3 个商机（共 22 个，覆盖所有阶段）
+- 每个客户 1-3 个活动（共 22 个，覆盖所有类型）
 - 10 个线索（独立于客户，部分已转化）
 
 负责人分配：
@@ -55,6 +55,9 @@ def build_seed_data() -> dict[str, list[dict]]:
         {"id": "acc_010", "name": "万科企业股份有限公司", "industry": "零售", "city": "深圳",
          "employeeCount": 45000, "annualRevenue": 460000, "website": "vanke.com",
          "rating": 65, "activeFlg": 0, "ownerName": "王芳", "createdAt": "2024-03-01 10:00:00", "updatedAt": "2024-12-15 09:00:00"},
+        {"id": "acc_011", "name": "华为股份有限公司", "industry": "通信设备", "city": "东莞",
+         "employeeCount": 195000, "annualRevenue": 720000, "website": "huawei-shares.com",
+         "rating": 89, "activeFlg": 1, "ownerName": "张明", "createdAt": "2025-01-08 09:00:00", "updatedAt": "2025-05-10 14:00:00"},
     ]
 
     # ═══════════════════════════════════════════════════════════
@@ -121,6 +124,13 @@ def build_seed_data() -> dict[str, list[dict]]:
          "accountId": "acc_010", "isPrimary": 0, "createdAt": "2024-04-15 14:00:00"},
         {"id": "con_025", "name": "邓伟", "title": "采购主管", "phone": "13300003333", "email": "dengwei@vanke.com",
          "accountId": "acc_010", "isPrimary": 0, "createdAt": "2024-05-20 10:00:00"},
+        # 华为股份（3人）
+        {"id": "con_026", "name": "陈志远", "title": "数字化转型总监", "phone": "13400001111", "email": "chenzhiyuan@huawei-shares.com",
+         "accountId": "acc_011", "isPrimary": 1, "createdAt": "2025-01-15 09:00:00"},
+        {"id": "con_027", "name": "刘婷", "title": "采购部经理", "phone": "13400002222", "email": "liuting@huawei-shares.com",
+         "accountId": "acc_011", "isPrimary": 0, "createdAt": "2025-02-10 14:00:00"},
+        {"id": "con_028", "name": "王建国", "title": "IT架构师", "phone": "13400003333", "email": "wangjianguo@huawei-shares.com",
+         "accountId": "acc_011", "isPrimary": 0, "createdAt": "2025-03-05 10:00:00"},
     ]
 
     # ═══════════════════════════════════════════════════════════
@@ -197,6 +207,13 @@ def build_seed_data() -> dict[str, list[dict]]:
         {"id": "opp_020", "name": "万科智慧社区", "accountId": "acc_010", "amount": 38.0,
          "stage": "lost", "probability": 0, "closeDate": "2024-12-01", "ownerId": "user_wang",
          "source": "inbound", "lastActivityDate": "2024-11-20", "createdAt": "2024-08-01 10:00:00"},
+        # 华为股份（2个商机）
+        {"id": "opp_021", "name": "华为股份数字化办公平台", "accountId": "acc_011", "amount": 56.0,
+         "stage": "proposal", "probability": 55, "closeDate": "2025-07-30", "ownerId": "user_zhang",
+         "source": "inbound", "lastActivityDate": "2025-05-08", "createdAt": "2025-03-01 10:00:00"},
+        {"id": "opp_022", "name": "华为股份智能运维系统", "accountId": "acc_011", "amount": 32.0,
+         "stage": "qualification", "probability": 35, "closeDate": "2025-09-15", "ownerId": "user_zhang",
+         "source": "referral", "lastActivityDate": "2025-04-28", "createdAt": "2025-04-01 09:00:00"},
     ]
 
     # ═══════════════════════════════════════════════════════════
@@ -273,6 +290,13 @@ def build_seed_data() -> dict[str, list[dict]]:
         {"id": "act_020", "type": "note", "subject": "万科项目复盘", "description": "智慧社区项目丢单原因分析：预算削减+竞品低价",
          "accountId": "acc_010", "opportunityId": "opp_020", "contactId": "con_023",
          "dueDate": "2024-12-10", "status": "completed", "createdAt": "2024-12-05 09:00:00"},
+        # 华为股份
+        {"id": "act_021", "type": "meeting", "subject": "华为股份数字化办公需求调研", "description": "与陈志远讨论数字化办公平台的功能需求和实施计划",
+         "accountId": "acc_011", "opportunityId": "opp_021", "contactId": "con_026",
+         "dueDate": "2025-05-08", "status": "completed", "createdAt": "2025-05-06 09:00:00"},
+        {"id": "act_022", "type": "email", "subject": "华为股份智能运维方案发送", "description": "发送智能运维系统技术方案给王建国评审",
+         "accountId": "acc_011", "opportunityId": "opp_022", "contactId": "con_028",
+         "dueDate": "2025-04-30", "status": "completed", "createdAt": "2025-04-28 14:00:00"},
     ]
 
     # ═══════════════════════════════════════════════════════════

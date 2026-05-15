@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Awaitable
 
 from src.core.dtypes import ToolResult, Message, MessageRole
+from src.core.exceptions import SkillExecutionError
 from src.tools.base import Tool
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ class SkillDefinition:
     max_tool_calls: int = 20
     timeout_ms: int = 60000
     owner: str = ""
-    output_mode: str = "auto"
+    output_mode: str = "text"
     component_apikey: str = ""
     tenant_id: int = 0                           # 0 = 平台级
 
@@ -91,7 +92,7 @@ class SkillDefinition:
             max_tool_calls=row.max_tool_calls or 20,
             timeout_ms=row.timeout_ms or 60000,
             owner=row.owner or "",
-            output_mode=getattr(row, "output_mode", "auto") or "auto",
+            output_mode=getattr(row, "output_mode", "text") or "text",
             component_apikey=getattr(row, "component_apikey", "") or "",
             tenant_id=row.tenant_id or 0,
         )
@@ -586,10 +587,6 @@ class SkillExecutor:
                     )
                 return str(content)
         return ""
-
-
-class SkillExecutionError(Exception):
-    pass
 
 
 # ═══════════════════════════════════════════════════════════

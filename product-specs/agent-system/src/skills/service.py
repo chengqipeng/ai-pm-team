@@ -69,6 +69,8 @@ class SkillUpdateRequest:
     owner: str | None = None
     icon: str | None = None
     sort_num: int | None = None
+    output_mode: str | None = None
+    component_apikey: str | None = None
 
 
 # ═══════════════════════════════════════════════════════════
@@ -225,8 +227,16 @@ class SkillService:
             extra_updates["icon"] = req.icon
         if req.sort_num is not None:
             extra_updates["sort_num"] = req.sort_num
+        if req.output_mode is not None:
+            extra_updates["output_mode"] = req.output_mode
+        if req.component_apikey is not None:
+            extra_updates["component_apikey"] = req.component_apikey
         if extra_updates:
             self._update_extra_fields(tenant_id, api_key, extra_updates)
+
+        # output_mode 变更时清除文档类 Skill 缓存
+        if req.output_mode is not None:
+            self._invalidate_document_skills_cache()
 
         # 热加载
         self._reload_registry(tenant_id)
@@ -377,6 +387,19 @@ class SkillService:
             logger.warning("SkillRegistry 热加载失败: %s", e)
             return 0
 
+    @staticmethod
+    def _invalidate_document_skills_cache() -> None:
+        """清除 server.py 中的 _document_skills_cache（output_mode 变更时调用）"""
+        try:
+            import sys
+            # server 模块在 sys.modules 中（因为是入口模块）
+            srv = sys.modules.get("server") or sys.modules.get("__main__")
+            if srv and hasattr(srv, "_document_skills_cache"):
+                srv._document_skills_cache = None
+                logger.info("已清除 _document_skills_cache")
+        except Exception as e:
+            logger.warning("清除 _document_skills_cache 失败: %s", e)
+
     # ── 内部方法 ──
 
     def _get_detail(self, tenant_id: int, api_key: str) -> dict:
@@ -417,6 +440,8 @@ class SkillService:
             "enabled": bool(getattr(row, "enabled_flg", 1)),
             "owner": row.owner,
             "sort_num": getattr(row, "sort_num", 0),
+            "output_mode": getattr(row, "output_mode", "text"),
+            "component_apikey": getattr(row, "component_apikey", ""),
             "exec_count": row.exec_count,
             "success_count": row.success_count,
             "avg_duration_ms": row.avg_duration_ms,

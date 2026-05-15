@@ -15,6 +15,15 @@
     - POST   /api/skills/{api_key}/clone   克隆
     - POST   /api/skills/{api_key}/test    测试执行
     - DELETE /api/skills/{api_key}      软删除
+
+    资源文件管理（knowledge 目录）：
+    - GET    /api/skills/{api_key}/resources             获取资源文件树
+    - GET    /api/skills/{api_key}/resources/content     读取文件内容
+    - PUT    /api/skills/{api_key}/resources/content     保存文件内容
+    - POST   /api/skills/{api_key}/resources             创建目录或文件
+    - DELETE /api/skills/{api_key}/resources             删除目录或文件
+    - PUT    /api/skills/{api_key}/resources/rename      重命名
+    - PUT    /api/skills/{api_key}/resources/move        移动到新目录
 """
 from __future__ import annotations
 
@@ -97,6 +106,8 @@ class UpdateSkillBody(BaseModel):
     owner: str | None = Field(default=None, max_length=100)
     icon: str | None = Field(default=None, max_length=100)
     sort_num: int | None = None
+    output_mode: str | None = Field(default=None, pattern="^(text|card|component|table)$")
+    component_apikey: str | None = Field(default=None, max_length=100)
 
 
 class ToggleSkillBody(BaseModel):
@@ -283,6 +294,8 @@ async def update_skill(api_key: str, body: UpdateSkillBody, tenant_id: int = Que
         owner=body.owner,
         icon=body.icon,
         sort_num=body.sort_num,
+        output_mode=body.output_mode,
+        component_apikey=body.component_apikey,
     )
     try:
         result = service.update(api_key, req, tenant_id=tenant_id)
@@ -385,7 +398,7 @@ def _row_to_summary(row) -> dict:
         "context": row.context,
         "agent": row.agent,
         "risk_level": row.risk_level,
-        "output_mode": getattr(row, "output_mode", "auto"),
+        "output_mode": getattr(row, "output_mode", "text"),
         "version": row.version,
         "enabled": bool(getattr(row, "enabled_flg", 1)),
         "system": bool(getattr(row, "system_flg", 0)),
@@ -413,7 +426,7 @@ def _row_to_detail(row) -> dict:
         "idempotent": bool(row.idempotent_flg),
         "icon": getattr(row, "icon", ""),
         "sort_num": getattr(row, "sort_num", 0),
-        "output_mode": getattr(row, "output_mode", "auto"),
+        "output_mode": getattr(row, "output_mode", "text"),
         "component_apikey": getattr(row, "component_apikey", ""),
         "argument_descriptions": ext.get("argument_descriptions", {}),
         "argument_config": ext.get("argument_config", {}),
@@ -557,3 +570,373 @@ async def update_skill_resource_content(api_key: str, body: ResourceContentUpdat
         conn.commit()
 
     return {"path": body.path, "content_size": content_size, "updated_at": now}
+
+
+# ═══════════════════════════════════════════════════════════
+# 创建资源节点（目录 / 文件）
+# ═══════════════════════════════════════════════════════════
+
+class ResourceCreateRequest(BaseModel):
+    """创建目录或文件"""
+    parent_path: str = Field("", description="父目录路径（空串表示根级）")
+    node_type: str = Field("file", description="dir=目录, file=文件")
+    name: str = Field(..., min_length=1, max_length=200, description="节点名称")
+    content: str = Field("", description="文件初始内容（目录忽略）")
+    content_type: str = Field("md", description="文件类型: md/yaml/json/txt")
+    description: str = Field("", max_length=500)
+    icon: str = Field("", max_length=50)
+    sort_num: int = Field(0)
+    tenant_id: int = 0
+
+
+@router.post("/{api_key}/resources")
+async def create_skill_resource(api_key: str, body: ResourceCreateRequest):
+    """创建 Skill 资源节点（目录或文件）
+
+    - 目录：node_type='dir'，content 忽略
+    - 文件：node_type='file'，可带初始 content
+    - 路径自动拼接：parent_path + '/' + name
+    - 同路径不可重复（唯一索引保护）
+    """
+    import time
+    from src.store.pg_pool import get_conn
+    from src.store.snowflake import next_id
+
+    if body.node_type not in ("dir", "file"):
+        raise HTTPException(400, "node_type 必须为 'dir' 或 'file'")
+
+    # 拼接完整路径
+    if body.parent_path:
+        full_path = f"{body.parent_path.rstrip('/')}/{body.name}"
+    else:
+        full_path = body.name
+
+    # 计算 depth
+    depth = full_path.count("/")
+
+    now = int(time.time() * 1000)
+    node_id = next_id()
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+
+        # 查找 parent_id（如果有父路径）
+        parent_id = None
+        if body.parent_path:
+            cur.execute("""
+                SELECT id FROM ai_skill_resource
+                WHERE skill_api_key = %s AND path = %s AND node_type = 'dir'
+                      AND tenant_id = %s AND delete_flg = 0
+            """, (api_key, body.parent_path.rstrip("/"), body.tenant_id))
+            parent_row = cur.fetchone()
+            if parent_row is None:
+                raise HTTPException(404, f"父目录 '{body.parent_path}' 不存在")
+            parent_id = parent_row[0]
+
+        # 检查路径是否已存在
+        cur.execute("""
+            SELECT id FROM ai_skill_resource
+            WHERE skill_api_key = %s AND path = %s
+                  AND tenant_id = %s AND delete_flg = 0
+        """, (api_key, full_path, body.tenant_id))
+        if cur.fetchone():
+            raise HTTPException(409, f"路径 '{full_path}' 已存在")
+
+        # 文件内容
+        content = body.content if body.node_type == "file" else None
+        content_size = len(body.content.encode("utf-8")) if body.node_type == "file" else 0
+
+        cur.execute("""
+            INSERT INTO ai_skill_resource (
+                id, tenant_id, skill_api_key, parent_id, node_type, name, path, depth,
+                content, content_type, content_size, description, icon, sort_num,
+                enabled_flg, delete_flg, created_at, created_by, updated_at, updated_by
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s,
+                1, 0, %s, 0, %s, 0
+            )
+        """, (
+            node_id, body.tenant_id, api_key, parent_id, body.node_type,
+            body.name, full_path, depth,
+            content, body.content_type, content_size,
+            body.description, body.icon, body.sort_num,
+            now, now,
+        ))
+        conn.commit()
+
+    return {
+        "id": str(node_id),
+        "node_type": body.node_type,
+        "name": body.name,
+        "path": full_path,
+        "depth": depth,
+        "parent_id": str(parent_id) if parent_id else None,
+        "created_at": now,
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# 删除资源节点（目录递归删除 / 文件删除）
+# ═══════════════════════════════════════════════════════════
+
+class ResourceDeleteRequest(BaseModel):
+    path: str = Field(..., description="要删除的节点路径")
+    tenant_id: int = 0
+
+
+@router.delete("/{api_key}/resources")
+async def delete_skill_resource(api_key: str, body: ResourceDeleteRequest):
+    """删除 Skill 资源节点
+
+    - 文件：直接软删除
+    - 目录：递归软删除该目录及其所有子节点（通过 path LIKE 前缀匹配）
+    """
+    import time
+    from src.store.pg_pool import get_conn
+
+    now = int(time.time() * 1000)
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+
+        # 确认节点存在
+        cur.execute("""
+            SELECT id, node_type FROM ai_skill_resource
+            WHERE skill_api_key = %s AND path = %s
+                  AND tenant_id = %s AND delete_flg = 0
+        """, (api_key, body.path, body.tenant_id))
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(404, f"资源 '{body.path}' 不存在")
+
+        node_id, node_type = row[0], row[1]
+
+        if node_type == "dir":
+            # 递归软删除：该目录 + 所有子路径
+            cur.execute("""
+                UPDATE ai_skill_resource
+                SET delete_flg = 1, updated_at = %s
+                WHERE skill_api_key = %s AND tenant_id = %s AND delete_flg = 0
+                      AND (path = %s OR path LIKE %s)
+            """, (now, api_key, body.tenant_id, body.path, f"{body.path}/%"))
+            deleted_count = cur.rowcount
+        else:
+            # 单文件软删除
+            cur.execute("""
+                UPDATE ai_skill_resource
+                SET delete_flg = 1, updated_at = %s
+                WHERE id = %s AND delete_flg = 0
+            """, (now, node_id))
+            deleted_count = cur.rowcount
+
+        conn.commit()
+
+    return {
+        "path": body.path,
+        "node_type": node_type,
+        "deleted_count": deleted_count,
+        "updated_at": now,
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# 重命名 / 移动资源节点
+# ═══════════════════════════════════════════════════════════
+
+class ResourceRenameRequest(BaseModel):
+    path: str = Field(..., description="当前节点路径")
+    new_name: str = Field(..., min_length=1, max_length=200, description="新名称")
+    tenant_id: int = 0
+
+
+@router.put("/{api_key}/resources/rename")
+async def rename_skill_resource(api_key: str, body: ResourceRenameRequest):
+    """重命名资源节点
+
+    - 文件：更新 name + path
+    - 目录：更新自身 name + path，并级联更新所有子节点的 path 前缀
+    """
+    import time
+    from src.store.pg_pool import get_conn
+
+    now = int(time.time() * 1000)
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+
+        # 查找当前节点
+        cur.execute("""
+            SELECT id, node_type, parent_id, depth FROM ai_skill_resource
+            WHERE skill_api_key = %s AND path = %s
+                  AND tenant_id = %s AND delete_flg = 0
+        """, (api_key, body.path, body.tenant_id))
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(404, f"资源 '{body.path}' 不存在")
+
+        node_id, node_type, parent_id, depth = row
+
+        # 计算新路径
+        old_path = body.path
+        parts = old_path.rsplit("/", 1)
+        if len(parts) == 2:
+            new_path = f"{parts[0]}/{body.new_name}"
+        else:
+            new_path = body.new_name
+
+        # 检查新路径是否冲突
+        cur.execute("""
+            SELECT id FROM ai_skill_resource
+            WHERE skill_api_key = %s AND path = %s
+                  AND tenant_id = %s AND delete_flg = 0
+        """, (api_key, new_path, body.tenant_id))
+        if cur.fetchone():
+            raise HTTPException(409, f"路径 '{new_path}' 已存在")
+
+        # 更新自身
+        cur.execute("""
+            UPDATE ai_skill_resource
+            SET name = %s, path = %s, updated_at = %s
+            WHERE id = %s
+        """, (body.new_name, new_path, now, node_id))
+
+        # 如果是目录，级联更新子节点路径
+        children_updated = 0
+        if node_type == "dir":
+            # 查找所有子节点
+            cur.execute("""
+                SELECT id, path FROM ai_skill_resource
+                WHERE skill_api_key = %s AND tenant_id = %s AND delete_flg = 0
+                      AND path LIKE %s
+            """, (api_key, body.tenant_id, f"{old_path}/%"))
+            children = cur.fetchall()
+
+            for child_id, child_path in children:
+                # 替换路径前缀
+                updated_child_path = new_path + child_path[len(old_path):]
+                cur.execute("""
+                    UPDATE ai_skill_resource
+                    SET path = %s, updated_at = %s
+                    WHERE id = %s
+                """, (updated_child_path, now, child_id))
+                children_updated += 1
+
+        conn.commit()
+
+    return {
+        "old_path": old_path,
+        "new_path": new_path,
+        "new_name": body.new_name,
+        "node_type": node_type,
+        "children_updated": children_updated,
+        "updated_at": now,
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# 移动资源节点到新目录
+# ═══════════════════════════════════════════════════════════
+
+class ResourceMoveRequest(BaseModel):
+    path: str = Field(..., description="当前节点路径")
+    target_parent_path: str = Field("", description="目标父目录路径（空串表示移到根级）")
+    tenant_id: int = 0
+
+
+@router.put("/{api_key}/resources/move")
+async def move_skill_resource(api_key: str, body: ResourceMoveRequest):
+    """移动资源节点到新目录
+
+    - 更新 parent_id、path、depth
+    - 目录移动时级联更新所有子节点
+    """
+    import time
+    from src.store.pg_pool import get_conn
+
+    now = int(time.time() * 1000)
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+
+        # 查找当前节点
+        cur.execute("""
+            SELECT id, node_type, name FROM ai_skill_resource
+            WHERE skill_api_key = %s AND path = %s
+                  AND tenant_id = %s AND delete_flg = 0
+        """, (api_key, body.path, body.tenant_id))
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(404, f"资源 '{body.path}' 不存在")
+
+        node_id, node_type, name = row
+
+        # 确定目标 parent_id 和新路径
+        new_parent_id = None
+        if body.target_parent_path:
+            cur.execute("""
+                SELECT id FROM ai_skill_resource
+                WHERE skill_api_key = %s AND path = %s AND node_type = 'dir'
+                      AND tenant_id = %s AND delete_flg = 0
+            """, (api_key, body.target_parent_path.rstrip("/"), body.tenant_id))
+            parent_row = cur.fetchone()
+            if parent_row is None:
+                raise HTTPException(404, f"目标目录 '{body.target_parent_path}' 不存在")
+            new_parent_id = parent_row[0]
+            new_path = f"{body.target_parent_path.rstrip('/')}/{name}"
+        else:
+            new_path = name
+
+        new_depth = new_path.count("/")
+        old_path = body.path
+
+        # 防止移动到自身子目录
+        if node_type == "dir" and (new_path == old_path or new_path.startswith(f"{old_path}/")):
+            raise HTTPException(400, "不能将目录移动到自身或其子目录下")
+
+        # 检查新路径是否冲突
+        cur.execute("""
+            SELECT id FROM ai_skill_resource
+            WHERE skill_api_key = %s AND path = %s
+                  AND tenant_id = %s AND delete_flg = 0
+        """, (api_key, new_path, body.tenant_id))
+        if cur.fetchone():
+            raise HTTPException(409, f"目标路径 '{new_path}' 已存在同名节点")
+
+        # 更新自身
+        cur.execute("""
+            UPDATE ai_skill_resource
+            SET parent_id = %s, path = %s, depth = %s, updated_at = %s
+            WHERE id = %s
+        """, (new_parent_id, new_path, new_depth, now, node_id))
+
+        # 如果是目录，级联更新子节点
+        children_updated = 0
+        if node_type == "dir":
+            cur.execute("""
+                SELECT id, path, depth FROM ai_skill_resource
+                WHERE skill_api_key = %s AND tenant_id = %s AND delete_flg = 0
+                      AND path LIKE %s
+            """, (api_key, body.tenant_id, f"{old_path}/%"))
+            children = cur.fetchall()
+
+            for child_id, child_path, child_depth in children:
+                updated_child_path = new_path + child_path[len(old_path):]
+                updated_child_depth = updated_child_path.count("/")
+                cur.execute("""
+                    UPDATE ai_skill_resource
+                    SET path = %s, depth = %s, updated_at = %s
+                    WHERE id = %s
+                """, (updated_child_path, updated_child_depth, now, child_id))
+                children_updated += 1
+
+        conn.commit()
+
+    return {
+        "old_path": old_path,
+        "new_path": new_path,
+        "node_type": node_type,
+        "new_parent_id": str(new_parent_id) if new_parent_id else None,
+        "children_updated": children_updated,
+        "updated_at": now,
+    }

@@ -44,16 +44,18 @@ logger = logging.getLogger("deepagent.server")
 
 
 def _build_metarepo_backend_for_server():
-    """按环境变量选择 Sim 或 HTTP 后端（与 /api/meta/* 共享同一 AuthClient）"""
-    from src.tools._http_auth import get_shared_auth_client
-    client = get_shared_auth_client()
-    if client is not None:
-        from src.tools.metarepo_http_backend import MetarepoHttpBackend
-        logger.warning("Metarepo tool backend: HTTP → %s", client.base_url)
-        return MetarepoHttpBackend(auth_client=client)
-    from src.tools.metarepo_backend import MetarepoSimulatedBackend
-    logger.warning("Metarepo tool backend: Simulated (未配置 METAREPO_API_BASE)")
-    return MetarepoSimulatedBackend()
+    """优先直连本地数据库，回退到模拟后端"""
+    try:
+        from src.tools.metarepo_db_backend import MetarepoDbBackend
+        backend = MetarepoDbBackend()
+        backend.list_metamodels()  # 验证连通性
+        logger.warning("Metarepo tool backend: DB 直连 (paas_metarepo_common)")
+        return backend
+    except Exception as exc:
+        logger.warning("Metarepo DB 直连失败，降级到模拟后端: %s", exc)
+        from src.tools.metarepo_backend import MetarepoSimulatedBackend
+        logger.warning("Metarepo tool backend: Simulated")
+        return MetarepoSimulatedBackend()
 
 app = FastAPI(title="DeepAgent API", version="1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -154,6 +156,10 @@ async def _get_agent(multimodal: bool = False):
         # 注册 ManageSkillTool（供 create_skill 技能使用）
         from src.tools.manage_skill_tool import ManageSkillTool
         reg.register(ManageSkillTool())
+
+        # 注册 ReadSkillResourceTool（供 fork 模式子 Agent 加载知识文件）
+        from src.tools.skill_resource_tool import ReadSkillResourceTool
+        reg.register(ReadSkillResourceTool(tenant_id=DEFAULT_TENANT_ID))
 
         # 注册 ask_user 工具（中断确认机制）
         from src.tools.builtins.ask_user_tool import AskUserTool
@@ -394,7 +400,14 @@ _document_skills_cache: set | None = None
 
 
 def _get_document_skills() -> set:
-    """从数据库获取产出文档的 Skill 集合"""
+    """从数据库获取产出文档的 Skill 集合（output_mode=card）。
+
+    双层保护机制：
+    1. _is_document_skill() — 在 Skill 开始执行时发送 doc_start 信号（仅 card 类）
+    2. _executed_skill_output_mode — 在流结束时跳过文档检测（text/table/component 不检测）
+
+    这确保 output_mode=text 的 Skill 即使输出很长也不会触发右侧文档面板。
+    """
     global _document_skills_cache
     if _document_skills_cache is not None:
         return _document_skills_cache
@@ -405,7 +418,7 @@ def _get_document_skills() -> set:
         rows = SkillDefinitionDAO.list_active(tenant_id=0, include_platform=True)
         doc_skills = set()
         for row in rows:
-            output_mode = getattr(row, 'output_mode', 'auto')
+            output_mode = getattr(row, 'output_mode', 'text')
             # 只有 output_mode=card 才触发文档面板
             if output_mode == 'card':
                 doc_skills.add(row.api_key)
@@ -994,6 +1007,7 @@ async def chat_stream(req: ChatRequest):
         pii_restorer = StreamPIIRestorer(config["configurable"].get("input_metadata", {}))
         # 执行过程追踪（用于 LLM 输出形式判断）
         _exec_tools: list[str] = []  # 记录执行过的工具/技能名称
+        _executed_skill_output_mode: str = ""  # 记录执行的 Skill 的 output_mode（用于跳过文档检测）
 
         def flush_mw_spans():
             """检查并推送新的中间件 spans"""
@@ -1192,6 +1206,26 @@ async def chat_stream(req: ChatRequest):
                     yield f"data: {json.dumps(tool_start_payload, ensure_ascii=False)}\n\n"
                     _exec_tools.append(display_name)
 
+                    # 记录执行的 Skill 的 output_mode（用于最终文档检测跳过逻辑）
+                    if sub_name and tool_name == "skills_tool":
+                        try:
+                            _sr = _skill_registry
+                            if _sr:
+                                _sk_om = _sr.get(sub_name)
+                                if _sk_om is None:
+                                    # 尝试连字符/下划线互换
+                                    alt_om = sub_name.replace('-', '_') if '-' in sub_name else sub_name.replace('_', '-')
+                                    _sk_om = _sr.get(alt_om)
+                                if _sk_om is None and any(c.isupper() for c in sub_name):
+                                    # camelCase → kebab-case（如 accountInsight → account-insight）
+                                    import re as _re
+                                    kebab = _re.sub(r'([a-z])([A-Z])', r'\1-\2', sub_name).lower()
+                                    _sk_om = _sr.get(kebab)
+                                if _sk_om:
+                                    _executed_skill_output_mode = getattr(_sk_om, 'output_mode', '') or ''
+                        except Exception:
+                            pass
+
                     # 提前检测文档类技能 → 发送 doc_start 信号
                     doc_prediction = _is_document_skill(tool_name, raw_input)
                     if doc_prediction:
@@ -1239,18 +1273,24 @@ async def chat_stream(req: ChatRequest):
                         yield f"data: {json.dumps({'type': 'skill_report_end'}, ensure_ascii=False)}\n\n"
 
         except Exception as exc:
-            err_span = tracer.start_span(trace_id, SpanType.ERROR, "error",
-                                         input_data={"error": str(exc)})
-            err_span.finish("error")
-            # 刷新 PII 还原器 buffer
-            pii_tail = pii_restorer.flush()
-            if pii_tail:
-                yield f"data: {json.dumps({'type': 'token', 'content': pii_tail}, ensure_ascii=False)}\n\n"
-            tracer.finish_trace(trace_id, "error", full_content)
-            trace_writer.on_trace_finish(tracer.get_trace(trace_id))
-            yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
-            yield f"data: {json.dumps({'type': 'done', 'trace_id': trace_id}, ensure_ascii=False)}\n\n"
-            return
+            # GraphInterrupt 不是错误 — 是 ask_user 的正常中断
+            # 需要跳过错误处理，继续到后面的 interrupt 检测逻辑
+            from langgraph.errors import GraphInterrupt as _GraphInterrupt
+            if isinstance(exc, _GraphInterrupt):
+                pass  # 正常中断，不当作错误，继续执行后续 interrupt 检测
+            else:
+                err_span = tracer.start_span(trace_id, SpanType.ERROR, "error",
+                                             input_data={"error": str(exc)})
+                err_span.finish("error")
+                # 刷新 PII 还原器 buffer
+                pii_tail = pii_restorer.flush()
+                if pii_tail:
+                    yield f"data: {json.dumps({'type': 'token', 'content': pii_tail}, ensure_ascii=False)}\n\n"
+                tracer.finish_trace(trace_id, "error", full_content)
+                trace_writer.on_trace_finish(tracer.get_trace(trace_id))
+                yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'trace_id': trace_id}, ensure_ascii=False)}\n\n"
+                return
 
         # 刷新 PII 还原器 buffer（处理可能残留的不完整占位符）
         pii_flush = pii_restorer.flush()
@@ -1266,19 +1306,45 @@ async def chat_stream(req: ChatRequest):
                 for task in (state.tasks or []):
                     for intr in (getattr(task, 'interrupts', None) or []):
                         interrupt_values.append(getattr(intr, 'value', {}))
+                logger.warning("interrupt check: found %d interrupt values", len(interrupt_values))
                 if interrupt_values:
-                    # 向前端发送 interrupt 事件
+                    # 降级文本显示：在 interrupt 事件之前发送格式化的选项列表
+                    # （确保即使前端没有 interrupt UI，用户也能看到完整选项）
+                    for iv in interrupt_values:
+                        options = iv.get('options', [])
+                        interrupt_type = iv.get('type', 'confirm')
+                        message = iv.get('message', '')
+
+                        # 构建格式化的选项文本
+                        parts = []
+                        if not full_content and message:
+                            parts.append(message)
+                        if options and interrupt_type in ('select', 'multi_select'):
+                            parts.append("\n")
+                            for i, opt in enumerate(options, 1):
+                                label = opt.get('label', '')
+                                desc = opt.get('description', '')
+                                parts.append(f"{i}. **{label}**" + (f"（{desc}）" if desc else ""))
+                            parts.append("\n请回复序号或名称进行选择。")
+                        elif interrupt_type == 'input':
+                            if not full_content:
+                                parts.append(message or iv.get('title', ''))
+                            parts.append("\n请直接输入内容回复。")
+                        elif interrupt_type == 'confirm':
+                            if not full_content:
+                                parts.append(message or iv.get('title', ''))
+                            parts.append('\n请回复"确认"或"取消"。')
+
+                        supplement = "\n".join(parts)
+                        if supplement.strip():
+                            full_content += supplement
+                            yield f"data: {json.dumps({'type': 'token', 'content': supplement}, ensure_ascii=False)}\n\n"
+                        break
+
+                    # 向前端发送 interrupt 事件（前端有 interrupt UI 时使用）
                     yield f"data: {json.dumps({'type': 'interrupt', 'interrupts': interrupt_values}, ensure_ascii=False)}\n\n"
-                    # 如果没有文本内容，生成一个提示
-                    if not full_content:
-                        # 从 interrupt value 中提取 message 作为显示内容
-                        for iv in interrupt_values:
-                            msg = iv.get('message') or iv.get('title', '请确认')
-                            full_content = msg
-                            yield f"data: {json.dumps({'type': 'token', 'content': msg}, ensure_ascii=False)}\n\n"
-                            break
         except Exception as _int_exc:
-            logger.debug("Check interrupt state: %s", _int_exc)
+            logger.warning("Check interrupt state failed: %s", _int_exc)
 
         tracer.finish_trace(trace_id, "success", full_content)
 
@@ -1326,32 +1392,37 @@ async def chat_stream(req: ChatRequest):
             trace_writer.on_trace_finish(trace_final)
 
         # 检测最终内容是否为可下载文档（LLM 判断 + 规则兜底）
-        # 构建执行摘要
-        exec_summary = f"调用工具: {', '.join(_exec_tools)}" if _exec_tools else "无工具调用，直接回答"
+        # ★ 如果执行的 Skill 明确声明 output_mode=text，跳过文档检测
+        #   只有 output_mode=card 或未声明时才需要检测
+        doc_meta = None
+        if _executed_skill_output_mode not in ('text', 'table', 'component'):
+            # 构建执行摘要
+            exec_summary = f"调用工具: {', '.join(_exec_tools)}" if _exec_tools else "无工具调用，直接回答"
 
-        # 获取 LLM 实例（复用 Agent 初始化时的 aux_llm）
-        _format_llm = getattr(app.state, '_format_detect_llm', None)
-        if _format_llm is None:
-            # 首次使用时初始化一个轻量 LLM（低 max_tokens，快速响应）
-            try:
-                from langchain_openai import ChatOpenAI
-                _format_llm = ChatOpenAI(
-                    model="doubao-seed-2-0-lite-260215",
-                    api_key=os.environ.get("DOUBAO_API_KEY", ""),
-                    base_url="https://ark.cn-beijing.volces.com/api/v3/",
-                    max_tokens=100,
-                    request_timeout=5,  # 5 秒超时，不能让用户等太久
-                )
-                app.state._format_detect_llm = _format_llm
-            except Exception:
-                _format_llm = None
+            # 获取 LLM 实例（复用 Agent 初始化时的 aux_llm）
+            _format_llm = getattr(app.state, '_format_detect_llm', None)
+            if _format_llm is None:
+                # 首次使用时初始化一个轻量 LLM（低 max_tokens，快速响应）
+                try:
+                    from langchain_openai import ChatOpenAI
+                    _format_llm = ChatOpenAI(
+                        model="doubao-seed-2-0-lite-260215",
+                        api_key=os.environ.get("DOUBAO_API_KEY", ""),
+                        base_url="https://ark.cn-beijing.volces.com/api/v3/",
+                        max_tokens=100,
+                        request_timeout=5,  # 5 秒超时，不能让用户等太久
+                    )
+                    app.state._format_detect_llm = _format_llm
+                except Exception:
+                    _format_llm = None
 
-        doc_meta = await _llm_detect_output_format(
-            user_query=req.message,
-            content=full_content,
-            execution_summary=exec_summary,
-            llm=_format_llm,
-        )
+            doc_meta = await _llm_detect_output_format(
+                user_query=req.message,
+                content=full_content,
+                execution_summary=exec_summary,
+                llm=_format_llm,
+            )
+
         done_payload = {'type': 'done', 'trace_id': trace_id}
         if doc_meta:
             done_payload['document'] = doc_meta

@@ -55,7 +55,6 @@ class NeoAgentV2Adapter:
         from src.tools.metarepo_tools import register_metarepo_tools
         from src.skills.base import SkillRegistry
         from src.core.prompt_builder import build_system_prompt
-        from src.core.checkpointer import create_async_redis_checkpointer
         from src.middleware.builder import build_middleware
         from src.memory.viking_engine import VikingMemoryEngine
         from src.skills.tracker import SkillTracker
@@ -66,16 +65,9 @@ class NeoAgentV2Adapter:
         metarepo_backend = _build_metarepo_backend()
         reg = ToolRegistry()
 
-        # 构建业务数据 backend（HTTP 模式下走真实服务，含 query_metadata 能力）
-        from src.tools._http_auth import get_shared_auth_client
-        data_client = get_shared_auth_client()
-        if data_client is not None:
-            from src.tools.entity_data_http_backend import EntityDataHttpBackend
-            data_backend = EntityDataHttpBackend(auth_client=data_client)
-            logger.info("CRM data backend for Agent: HTTP")
-        else:
-            data_backend = backend  # fallback 到 CrmSimulatedBackend
-            logger.info("CRM data backend for Agent: Simulated")
+        # 业务数据 backend — 始终使用内部模拟后端（agent-system 内部闭环）
+        data_backend = backend
+        logger.info("CRM data backend for Agent: Simulated (内部闭环)")
 
         skill_reg = SkillRegistry()
         # 权威数据源：ai_skill_definition 表（禁止硬编码）
@@ -84,7 +76,9 @@ class NeoAgentV2Adapter:
         except Exception as exc:
             logger.warning("从 DB 加载 Skill 失败（Agent 将跳过技能）: %s", exc)
 
-        checkpointer = await create_async_redis_checkpointer()
+        # 使用内存 checkpointer（支持 interrupt 中断确认，重启后状态丢失）
+        from langgraph.checkpoint.memory import MemorySaver
+        checkpointer = MemorySaver()
 
         # 初始化 LLM（记忆提取 + 技能优化共用）
         from langchain_openai import ChatOpenAI
@@ -100,18 +94,30 @@ class NeoAgentV2Adapter:
         )
 
         # 初始化长期记忆引擎 — VikingMemoryEngine（腾讯向量库 + PG）
-        memory_engine = VikingMemoryEngine(
-            vdb_url=os.environ.get("TENCENT_VDB_URL", "http://10.60.2.17"),
-            vdb_key=os.environ.get("TENCENT_VDB_KEY", ""),
-            vdb_username=os.environ.get("TENCENT_VDB_USERNAME", "root"),
-            database_name=os.environ.get("TENCENT_VDB_DATABASE", "viking_memory"),
-            collection_name=os.environ.get("TENCENT_VDB_COLLECTION", "memories"),
-            llm=aux_llm,
-            agent_rules_threshold=5,
-        )
+        memory_engine = None
+        try:
+            memory_engine = VikingMemoryEngine(
+                vdb_url=os.environ.get("TENCENT_VDB_URL", "http://10.60.2.17"),
+                vdb_key=os.environ.get("TENCENT_VDB_KEY", "bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck"),
+                vdb_username=os.environ.get("TENCENT_VDB_USERNAME", "root"),
+                database_name=os.environ.get("TENCENT_VDB_DATABASE", "viking_memory"),
+                collection_name=os.environ.get("TENCENT_VDB_COLLECTION", "agent_memories"),
+                llm=aux_llm,
+                agent_rules_threshold=5,
+            )
+        except Exception as exc:
+            logger.warning("VikingMemoryEngine 初始化失败（记忆功能降级）: %s", exc)
 
         register_crm_tools(reg, data_backend, memory_engine=memory_engine)
         register_metarepo_tools(reg, metarepo_backend)
+
+        # 注册知识库工具（供 knowledge_doc_search 技能使用）
+        from src.tools.knowledge_tools import register_knowledge_tools
+        register_knowledge_tools(reg, provider=None, tenant_id=0)
+
+        # 注册 ReadSkillResourceTool（供 fork 模式子 Agent 加载知识文件）
+        from src.tools.skill_resource_tool import ReadSkillResourceTool
+        reg.register(ReadSkillResourceTool(tenant_id=0))
 
         # 初始化自改进学习循环（SkillOptimizer 写入 DB，不再落盘）
         tracker = SkillTracker(db_path="./data/skill_metrics.db")
@@ -227,11 +233,73 @@ class NeoAgentV2Adapter:
             messages = messages[:-1] + pending + messages[-1:]
 
         input_data = {"messages": messages}
-        config = {"configurable": {"thread_id": thread_id}}
+        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 300}
+
+        # ── 记录预处理 spans 到 tracing_middleware（由实时 flush 推送）──
+        from src.middleware.tracing import tracing_middleware
+
+        tracing_middleware._add_to_thread(
+            thread_id, "content_review", "content_review", 0,
+            {"passed": passed, "source": "entry"},
+            input_data={"user_input": user_input[:200]},
+            output_data={"passed": passed},
+            detail="输入内容审查：通过" if passed else "输入内容审查：拦截",
+        )
+        changed = effective_query != user_input
+        tracing_middleware._add_to_thread(
+            thread_id, "query_rewrite", "query_rewrite", 0,
+            {"original_query": user_input[:200], "rewritten_query": effective_query[:200], "changed": changed},
+            input_data={"original_query": user_input[:200]},
+            output_data={"rewritten_query": effective_query[:200], "changed": changed},
+            detail=f"查询改写：{'已改写' if changed else '无需改写'}",
+        )
+        tracing_middleware._add_to_thread(
+            thread_id, "context_build", "context_build", 0,
+            {"message_count": len(messages)},
+            input_data={"current_query": effective_query[:200], "history_turns": len(history or [])},
+            output_data={"message_count": len(messages)},
+            detail=f"构建 LLM 上下文: {len(messages)} 条消息",
+        )
 
         astream = agent.astream_events(input_data, config=config, version="v2")
+
+        # 实时 flush 预处理 spans（在 RUN_STARTED 之前就推送）
+        _last_mw_idx = 0
+        _current_spans = tracing_middleware.get_spans(thread_id)
+        if _current_spans:
+            for sp in _current_spans:
+                yield _m.custom_event("mw_span", sp)
+            _last_mw_idx = len(_current_spans)
+
+        # 拦截流：RUN_FINISHED 暂存到最后，实时 flush mw_spans
+        _run_finished_event = None
         async for event in renderer.process(converter.convert(astream)):
-            yield event
+            t_val = getattr(event.type, "value", None) or str(event.type)
+            if "RUN_FINISHED" in t_val:
+                _run_finished_event = event
+            else:
+                yield event
+
+            # 每次事件循环检查是否有新的 mw_spans（实时推送）
+            _current_spans = tracing_middleware.get_spans(thread_id)
+            if len(_current_spans) > _last_mw_idx:
+                for sp in _current_spans[_last_mw_idx:]:
+                    yield _m.custom_event("mw_span", sp)
+                _last_mw_idx = len(_current_spans)
+
+        # ── 推送 Agent 执行期间剩余的中间件 spans（后处理阶段）──
+        try:
+            mw_spans = tracing_middleware.get_spans(thread_id)
+            if len(mw_spans) > _last_mw_idx:
+                for sp in mw_spans[_last_mw_idx:]:
+                    yield _m.custom_event("mw_span", sp)
+                tracing_middleware.clear(thread_id)
+        except Exception:
+            pass
+
+        # 最后发送 RUN_FINISHED
+        if _run_finished_event:
+            yield _run_finished_event
 
         # ── 检查是否有 pending interrupt（ask_user 触发的中断）──
         try:

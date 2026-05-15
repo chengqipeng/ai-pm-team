@@ -255,6 +255,16 @@
             <span class="text-xs font-medium text-gray-600">📁 资源文件</span>
             <span id="resourceCount" class="text-[10px] text-gray-400"></span>
           </div>
+          <div class="flex items-center gap-1 mt-1.5">
+            <button onclick="showCreateResourceDialog('dir')" title="新建目录"
+                    class="px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded border border-gray-200">📁+</button>
+            <button onclick="showCreateResourceDialog('file')" title="新建文件"
+                    class="px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded border border-gray-200">📄+</button>
+            <button onclick="deleteSelectedResource()" title="删除选中" id="btnDeleteResource"
+                    class="px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-red-600 hover:bg-red-50 rounded border border-gray-200 disabled:opacity-30" disabled>🗑️</button>
+            <button onclick="renameSelectedResource()" title="重命名" id="btnRenameResource"
+                    class="px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-amber-600 hover:bg-amber-50 rounded border border-gray-200 disabled:opacity-30" disabled>✏️</button>
+          </div>
         </div>
         <div class="flex-1 overflow-y-auto py-1">
           <!-- 固定节点：Skill 配置 -->
@@ -310,12 +320,10 @@
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">输出类型</label>
             <select name="output_mode" id="f_output_mode" class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
-              <option value="auto">自动判断</option>
-              <option value="text">文本气泡</option>
-              <option value="card">文档卡片</option>
-              <option value="component">A2UI 组件</option>
-              <option value="table">数据表格</option>
-              <option value="streaming">流式文本</option>
+              <option value="text">对话气泡（Markdown 文本，嵌入对话流）</option>
+              <option value="card">文档面板（右侧独立面板，适合长报告）</option>
+              <option value="component">业务组件（A2UI 卡片渲染）</option>
+              <option value="table">数据表格（结构化列表展示）</option>
             </select>
           </div>
           <div>
@@ -1220,6 +1228,8 @@ async function showToolDetail(apiKey) {
 // ═══════════════════════════════════════════════════════════
 
 let currentResourceNodes = [];
+let selectedResourcePath = null;  // 当前选中的资源节点路径
+let selectedResourceType = null;  // 'dir' | 'file'
 
 async function loadResourceTree(apiKey) {
   const treePanel = document.getElementById('skillTreePanel');
@@ -1231,21 +1241,20 @@ async function loadResourceTree(apiKey) {
     const data = await res.json();
     currentResourceNodes = data.nodes || [];
 
-    if (!currentResourceNodes.length) {
-      treePanel.classList.add('hidden');
-      return;
-    }
-
+    // 即使没有资源节点也显示面板（允许用户创建）
     treePanel.classList.remove('hidden');
     const fileCount = currentResourceNodes.filter(n => n.node_type === 'file').length;
     const dirCount = currentResourceNodes.filter(n => n.node_type === 'dir').length;
     countEl.textContent = `${dirCount}目录 · ${fileCount}文件`;
 
     container.innerHTML = renderTreeNodes(currentResourceNodes, null, 0);
+    selectedResourcePath = null;
+    selectedResourceType = null;
+    updateResourceToolbarState();
     // 默认显示配置面板
     switchToConfig();
   } catch (e) {
-    treePanel.classList.add('hidden');
+    treePanel.classList.remove('hidden');
   }
 }
 
@@ -1262,14 +1271,12 @@ function renderTreeNodes(nodes, parentId, level) {
   for (const node of sorted) {
     const indent = (level + 1) * 12;
     const icon = node.node_type === 'dir' ? '📁' : '📄';
-    const clickAttr = node.node_type === 'file'
-      ? `onclick="switchToResource('${node.path}', '${node.name}')" data-path="${node.path}"`
-      : '';
-    const cls = node.node_type === 'file'
-      ? 'cursor-pointer hover:bg-blue-50'
-      : 'text-gray-500';
+    const clickHandler = node.node_type === 'file'
+      ? `onclick="selectAndOpenResource('${node.path}', '${node.name}', 'file')"`
+      : `onclick="selectResourceNode('${node.path}', 'dir')"`;
+    const cls = 'cursor-pointer hover:bg-blue-50';
 
-    html += `<div style="padding-left:${indent}px" class="tree-node px-2 py-1 text-[11px] rounded mx-1 flex items-center gap-1 ${cls}" ${clickAttr}>
+    html += `<div style="padding-left:${indent}px" class="tree-node px-2 py-1 text-[11px] rounded mx-1 flex items-center gap-1 ${cls}" data-path="${node.path}" data-type="${node.node_type}" ${clickHandler}>
       <span>${icon}</span><span class="truncate">${node.name}</span>
     </div>`;
 
@@ -1361,6 +1368,155 @@ function formatSize(bytes) {
 
 async function previewResource(apiKey, path) {
   switchToResource(path, path.split('/').pop());
+}
+
+// ═══════════════════════════════════════════════════════════
+// 资源节点选择 & CRUD 操作
+// ═══════════════════════════════════════════════════════════
+
+function selectResourceNode(path, type) {
+  selectedResourcePath = path;
+  selectedResourceType = type;
+  // 高亮选中节点
+  document.querySelectorAll('#resourceTree .tree-node').forEach(el => {
+    el.classList.remove('bg-blue-100', 'font-medium');
+  });
+  document.querySelector(`#resourceTree [data-path="${path}"]`)?.classList.add('bg-blue-100', 'font-medium');
+  updateResourceToolbarState();
+}
+
+function selectAndOpenResource(path, name, type) {
+  selectedResourcePath = path;
+  selectedResourceType = type;
+  updateResourceToolbarState();
+  switchToResource(path, name);
+}
+
+function updateResourceToolbarState() {
+  const hasSelection = !!selectedResourcePath;
+  document.getElementById('btnDeleteResource').disabled = !hasSelection;
+  document.getElementById('btnRenameResource').disabled = !hasSelection;
+}
+
+function showCreateResourceDialog(nodeType) {
+  const typeLabel = nodeType === 'dir' ? '目录' : '文件';
+  const name = prompt(`新建${typeLabel}名称：`);
+  if (!name || !name.trim()) return;
+
+  const trimmedName = name.trim();
+  // 如果选中了一个目录，在该目录下创建；否则在根级创建
+  const parentPath = (selectedResourceType === 'dir' && selectedResourcePath)
+    ? selectedResourcePath
+    : '';
+
+  createResource(nodeType, trimmedName, parentPath);
+}
+
+async function createResource(nodeType, name, parentPath) {
+  if (!editingKey) return;
+
+  try {
+    const body = {
+      parent_path: parentPath,
+      node_type: nodeType,
+      name: name,
+      content: nodeType === 'file' ? '' : '',
+      content_type: name.endsWith('.yaml') ? 'yaml' : name.endsWith('.json') ? 'json' : 'md',
+      description: '',
+      tenant_id: 0,
+    };
+
+    const res = await fetch(`${SKILL_API}/${editingKey}/resources`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || '创建失败');
+    }
+
+    showToast(`${nodeType === 'dir' ? '目录' : '文件'} "${name}" 已创建`);
+    // 刷新资源树
+    await loadResourceTree(editingKey);
+  } catch (e) {
+    alert(`创建失败: ${e.message}`);
+  }
+}
+
+async function deleteSelectedResource() {
+  if (!selectedResourcePath || !editingKey) return;
+
+  const node = currentResourceNodes.find(n => n.path === selectedResourcePath);
+  const typeLabel = selectedResourceType === 'dir' ? '目录（含所有子文件）' : '文件';
+  const confirmed = confirm(`确定删除${typeLabel} "${node?.name || selectedResourcePath}"？`);
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`${SKILL_API}/${editingKey}/resources`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: selectedResourcePath, tenant_id: 0 }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || '删除失败');
+    }
+
+    const data = await res.json();
+    showToast(`已删除 ${data.deleted_count} 个节点`);
+
+    // 如果当前正在编辑被删除的文件，切回配置面板
+    const currentEditPath = document.getElementById('resourceFilePath')?.textContent;
+    if (currentEditPath === selectedResourcePath || (selectedResourceType === 'dir' && currentEditPath?.startsWith(selectedResourcePath + '/'))) {
+      switchToConfig();
+    }
+
+    selectedResourcePath = null;
+    selectedResourceType = null;
+    // 刷新资源树
+    await loadResourceTree(editingKey);
+  } catch (e) {
+    alert(`删除失败: ${e.message}`);
+  }
+}
+
+async function renameSelectedResource() {
+  if (!selectedResourcePath || !editingKey) return;
+
+  const node = currentResourceNodes.find(n => n.path === selectedResourcePath);
+  const oldName = node?.name || selectedResourcePath.split('/').pop();
+  const newName = prompt('输入新名称：', oldName);
+  if (!newName || !newName.trim() || newName.trim() === oldName) return;
+
+  try {
+    const res = await fetch(`${SKILL_API}/${editingKey}/resources/rename`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        path: selectedResourcePath,
+        new_name: newName.trim(),
+        tenant_id: 0,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || '重命名失败');
+    }
+
+    const data = await res.json();
+    showToast(`已重命名为 "${data.new_name}"`);
+
+    // 更新选中路径
+    selectedResourcePath = data.new_path;
+    // 刷新资源树
+    await loadResourceTree(editingKey);
+  } catch (e) {
+    alert(`重命名失败: ${e.message}`);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
