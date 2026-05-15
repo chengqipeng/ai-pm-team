@@ -444,6 +444,22 @@
 const SKILL_API = '/api/skills';
 const CATEGORY_API = '/api/skill-categories';
 
+// ═══════════════════════════════════════════════════════════
+// 工具函数
+// ═══════════════════════════════════════════════════════════
+function showToast(msg, duration = 2000) {
+  let el = document.getElementById('_toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = '_toast';
+    el.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);padding:8px 20px;background:#22c55e;color:#fff;border-radius:6px;font-size:13px;z-index:9999;opacity:0;transition:opacity .2s';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  setTimeout(() => { el.style.opacity = '0'; }, duration);
+}
+
 let allSkills = [];
 let allCategories = [];
 let currentCategory = '';
@@ -1282,8 +1298,35 @@ async function switchToResource(path, name) {
 }
 
 async function saveResourceContent() {
-  // TODO: 实现保存资源文件内容的 API
-  alert('保存功能开发中');
+  const path = document.getElementById('resourceFilePath').textContent;
+  const content = document.getElementById('resourceEditor').value;
+
+  if (!path || !editingKey) {
+    alert('无法保存：未选中文件');
+    return;
+  }
+
+  try {
+    const res = await fetch(`${SKILL_API}/${editingKey}/resources/content`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, content, tenant_id: 0 }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || '保存失败');
+    }
+
+    const data = await res.json();
+    // 更新文件树中的 content_size 显示
+    const node = currentResourceNodes.find(n => n.path === path);
+    if (node) node.content_size = data.content_size;
+
+    showToast('文件已保存');
+  } catch (e) {
+    alert(`保存失败: ${e.message}`);
+  }
 }
 
 function formatSize(bytes) {

@@ -413,17 +413,58 @@ class CrmSimulatedBackend:
 
     def _match_filters(self, record: dict, filters: dict) -> bool:
         for key, value in filters.items():
+            # 支持操作符后缀：field__contains, field__startswith, field__in
+            if "__contains" in key:
+                field = key.replace("__contains", "")
+                rec_val = str(record.get(field, ""))
+                if str(value).lower() not in rec_val.lower():
+                    return False
+                continue
+            if "__startswith" in key:
+                field = key.replace("__startswith", "")
+                rec_val = str(record.get(field, ""))
+                if not rec_val.lower().startswith(str(value).lower()):
+                    return False
+                continue
+            if "__in" in key:
+                field = key.replace("__in", "")
+                rec_val = record.get(field)
+                if not isinstance(value, list) or rec_val not in value:
+                    return False
+                continue
+            if "__gte" in key:
+                field = key.replace("__gte", "")
+                try:
+                    if float(record.get(field, 0)) < float(value):
+                        return False
+                except (ValueError, TypeError):
+                    return False
+                continue
+            if "__lte" in key:
+                field = key.replace("__lte", "")
+                try:
+                    if float(record.get(field, 0)) > float(value):
+                        return False
+                except (ValueError, TypeError):
+                    return False
+                continue
+
+            # 原有逻辑：精确匹配 / 大于小于 / 列表包含
             rec_val = record.get(key)
             if isinstance(value, str) and value.startswith(">"):
                 try:
-                    return float(rec_val or 0) > float(value[1:])
+                    if not (float(rec_val or 0) > float(value[1:])):
+                        return False
                 except (ValueError, TypeError):
                     return False
+                continue
             if isinstance(value, str) and value.startswith("<"):
                 try:
-                    return float(rec_val or 0) < float(value[1:])
+                    if not (float(rec_val or 0) < float(value[1:])):
+                        return False
                 except (ValueError, TypeError):
                     return False
+                continue
             if isinstance(value, list):
                 if rec_val not in value:
                     return False

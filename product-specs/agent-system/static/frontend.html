@@ -227,6 +227,27 @@ body { margin: 0; }
 .trace-io-pre { margin: 2px 0; padding: 4px 8px; background: #f8fafc; border-radius: 4px; font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 10px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; color: #334155; }
 .trace-io-chevron { transition: transform 0.2s; }
 
+/* ═══ 异常状态高亮样式 ═══ */
+/* 异常节点背景高亮 */
+.trace-line-error { background: #fef2f2; border-left: 3px solid #ef4444; border-radius: 4px; padding-left: 8px; margin-left: -4px; }
+.trace-line-mw-error { background: #fef2f2; border-left: 3px solid #ef4444; border-radius: 4px; padding-left: 8px; margin-left: -4px; }
+/* 异常中间件组 */
+.trace-mw-group-error { background: #fef2f2; border-radius: 6px; padding: 2px 4px; }
+.trace-mw-group-error > summary { color: #dc2626; }
+/* 异常详情展开区域 */
+.trace-error-details summary { list-style: none; cursor: pointer; }
+.trace-error-details summary::-webkit-details-marker { display: none; }
+.trace-error-details summary::marker { display: none; }
+.trace-error-details[open] .trace-error-chevron { transform: rotate(180deg); }
+.trace-error-chevron { transition: transform 0.2s; }
+.trace-error-content { margin: 4px 0; padding: 6px 10px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 6px; font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 10px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; color: #991b1b; }
+/* 循环容器异常边框 */
+.trace-loop-error { border-left-color: #fca5a5 !important; }
+/* 异常步骤名称颜色 */
+.trace-step-name-error { color: #dc2626 !important; }
+/* 异常序号颜色 */
+.trace-seq-error { color: #ef4444 !important; font-weight: 600; }
+
 /* 背景装饰球 */
 .top-\[-10\%\] { top: -10%; }
 .left-\[-5\%\] { left: -5%; }
@@ -794,7 +815,13 @@ function updatePanelStatus(processing) {
   if (processing) {
     el.innerHTML = '<div class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-ping-slow"></div><span class="text-blue-500">Processing...</span>';
   } else {
-    el.innerHTML = '<span class="text-gray-400">等待中...</span>';
+    // 检查是否有异常 span
+    const errorSpans = liveSpans.filter(s => s.status === 'error' || s.status === 'failed');
+    if (errorSpans.length > 0) {
+      el.innerHTML = `<div class="w-1.5 h-1.5 bg-red-500 rounded-full"></div><span class="text-red-500">完成 · ${errorSpans.length} 个异常</span>`;
+    } else {
+      el.innerHTML = '<span class="text-gray-400">等待中...</span>';
+    }
   }
 }
 
@@ -802,6 +829,7 @@ function renderTraceNode(span, idx, seqNum) {
   const isComplete = span.status === 'complete';
   const isActive = span.status === 'active';
   const isSkipped = span.status === 'skipped';
+  const isError = span.status === 'error' || span.status === 'failed';
   const md = span.metadata || {};
   const isFinalResponse = (md.is_final === true) || (span.output_data && span.output_data.is_final === true);
 
@@ -819,23 +847,33 @@ function renderTraceNode(span, idx, seqNum) {
   // 判断是否有子 Agent 循环
   const hasSubAgent = span.sub_agent_spans && span.sub_agent_spans.length > 0;
 
+  // ═══ 提取异常信息 ═══
+  const errorInfo = _extractErrorInfo(span);
+
   // ═══ 构建详细描述文本 ═══
   const descText = _buildStepDescription(span, md, detail);
 
   // ═══ 构建输入/输出展开区域 ═══
   const ioHtml = _buildIOSection(span);
 
+  // ═══ 构建异常详情展开区域 ═══
+  const errorHtml = isError && errorInfo ? _buildErrorSection(errorInfo) : '';
+
   // ═══ 中间件节点：紧凑布局 [N] · ⚙️ Name · Xms — desc ═══
   if (isMiddleware) {
     const mwName = md.middleware_name || stepName;
-    const checkPrefix = isComplete ? '✓' : (isActive ? '⏳' : '·');
+    const checkPrefix = isError ? '✗' : (isComplete ? '✓' : (isActive ? '⏳' : '·'));
+    const errorClass = isError ? 'trace-line-mw-error' : '';
+    const textColorClass = isError ? 'text-red-600' : (isActive ? 'text-blue-500' : 'text-gray-500');
     return `
-      <div class="trace-line-mw flex items-start py-[2px] text-[10.5px] leading-[1.6] ${isActive ? 'text-blue-500' : 'text-gray-500'}">
-        <span class="trace-seq text-gray-400 shrink-0 select-none">[${stepNum}]</span>
+      <div class="trace-line-mw flex items-start py-[2px] text-[10.5px] leading-[1.6] ${textColorClass} ${errorClass}">
+        <span class="trace-seq ${isError ? 'trace-seq-error' : 'text-gray-400'} shrink-0 select-none">[${stepNum}]</span>
         <div class="flex-1 min-w-0">
-          <span>${checkPrefix} ⚙️ <span class="trace-mw-name">${esc(mwName)}</span></span>
-          ${durationText ? `<span class="text-gray-400 ml-1">· ${durationText}</span>` : ''}
-          ${descText ? `<span class="trace-desc text-gray-400 ml-1">— ${descText}</span>` : ''}
+          <span>${checkPrefix} ${isError ? '❌' : '⚙️'} <span class="trace-mw-name ${isError ? 'text-red-700' : ''}">${esc(mwName)}</span></span>
+          ${durationText ? `<span class="${isError ? 'text-red-400' : 'text-gray-400'} ml-1">· ${durationText}</span>` : ''}
+          ${isError && errorInfo ? `<span class="text-red-500 ml-1 font-semibold">异常</span>` : ''}
+          ${descText ? `<span class="trace-desc ${isError ? 'text-red-400' : 'text-gray-400'} ml-1">— ${descText}</span>` : ''}
+          ${errorHtml}
           ${ioHtml}
         </div>
       </div>`;
@@ -861,19 +899,76 @@ function renderTraceNode(span, idx, seqNum) {
   // 最终回复标记
   const finalMark = isFinalResponse ? ' → 生成回复' : '';
 
+  // 异常节点样式
+  const errorLineClass = isError ? 'trace-line-error' : '';
+  const activeClass = isActive ? 'bg-blue-50/60 rounded px-1 -mx-1' : '';
+
   return `
-    <div class="trace-line flex items-start py-[3px] text-[11px] leading-[1.7] ${isActive ? 'bg-blue-50/60 rounded px-1 -mx-1' : ''}">
-      <span class="trace-seq text-gray-400 shrink-0 select-none">[${stepNum}]</span>
+    <div class="trace-line flex items-start py-[3px] text-[11px] leading-[1.7] ${errorLineClass} ${activeClass}">
+      <span class="trace-seq ${isError ? 'trace-seq-error' : 'text-gray-400'} shrink-0 select-none">[${stepNum}]</span>
       <div class="flex-1 min-w-0">
-        <span class="trace-step-name font-semibold text-gray-800">${esc(stepName)}${skillSuffix}${finalMark}</span>
-        ${durationText ? `<span class="text-gray-400 ml-1">· ${durationText}</span>` : ''}
-        ${descText ? `<br/><span class="trace-desc text-gray-500 text-[10.5px]">${descText}</span>` : ''}
+        <span class="trace-step-name font-semibold ${isError ? 'trace-step-name-error' : 'text-gray-800'}">${esc(stepName)}${skillSuffix}${finalMark}</span>
+        ${isError ? ' <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-100 text-red-700 border border-red-200">异常</span>' : ''}
+        ${durationText ? `<span class="${isError ? 'text-red-400' : 'text-gray-400'} ml-1">· ${durationText}</span>` : ''}
+        ${descText ? `<br/><span class="trace-desc ${isError ? 'text-red-500' : 'text-gray-500'} text-[10.5px]">${descText}</span>` : ''}
         ${isFinalResponse ? ' ✅' : ''}
         ${isActive ? ' <span class="inline-block w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse align-middle"></span>' : ''}
+        ${errorHtml}
         ${ioHtml}
       </div>
     </div>
     ${subAgentHtml}`;
+}
+
+// ═══ 提取异常信息 ═══
+function _extractErrorInfo(span) {
+  const md = span.metadata || {};
+  const outputData = span.output_data || {};
+
+  // 多种来源提取错误信息
+  const errorMessage = span.error_message
+    || md.error_message || md.error || md.exception
+    || outputData.error_message || outputData.error || outputData.exception
+    || (span.error && (typeof span.error === 'string' ? span.error : span.error.message))
+    || '';
+
+  const errorType = md.error_type || md.exception_type || outputData.error_type || '';
+  const errorStack = md.error_stack || md.traceback || outputData.traceback || outputData.stack || '';
+
+  if (!errorMessage && !errorType && !errorStack) return null;
+
+  return {
+    type: errorType,
+    message: errorMessage,
+    stack: errorStack,
+  };
+}
+
+// ═══ 构建异常详情可展开区域 ═══
+function _buildErrorSection(errorInfo) {
+  if (!errorInfo) return '';
+
+  let content = '';
+  if (errorInfo.type) {
+    content += `<div class="mb-1"><span class="font-bold text-red-700">异常类型:</span> <span class="text-red-600">${esc(errorInfo.type)}</span></div>`;
+  }
+  if (errorInfo.message) {
+    content += `<div class="mb-1"><span class="font-bold text-red-700">错误信息:</span> <span class="text-red-600">${esc(truncStr(errorInfo.message, 500))}</span></div>`;
+  }
+  if (errorInfo.stack) {
+    content += `<div><span class="font-bold text-red-700">堆栈:</span><pre class="trace-error-content">${esc(truncStr(errorInfo.stack, 2000))}</pre></div>`;
+  }
+
+  return `
+    <details class="trace-error-details mt-0.5">
+      <summary class="cursor-pointer text-[10px] text-red-500 hover:text-red-700 select-none inline-flex items-center gap-0.5">
+        <svg class="trace-error-chevron w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        <span>🔍 查看异常详情</span>
+      </summary>
+      <div class="trace-error-content mt-1">
+        ${content}
+      </div>
+    </details>`;
 }
 
 // ═══ 构建输入/输出可展开区域 ═══
@@ -1258,11 +1353,13 @@ function refreshTrace() {
       else if (firstName.includes('OutputRender') || firstName.includes('StreamPII')) phaseLabel = 'after_agent';
       else phaseLabel = phaseLabel; // 保持映射后的值
     }
-    const statusIcon = failed > 0 ? '⚠️' : '✓';
-    const statusText = failed > 0
+    const hasError = failed > 0;
+    const statusIcon = hasError ? '⚠️' : '✓';
+    const statusText = hasError
       ? `${total} 个 ${phaseLabel} 中间件，<span class="text-red-500 font-semibold">${failed} 个异常</span>`
       : `${total} 个 ${phaseLabel} 中间件，全部通过`;
     const durText = totalDur ? ` · ${Math.round(totalDur)}ms` : '';
+    const groupErrorClass = hasError ? 'trace-mw-group-error' : '';
 
     const mwNodesHtml = spans.map(s => {
       seqNum++;
@@ -1270,15 +1367,15 @@ function refreshTrace() {
     }).join('');
 
     return `
-      <details class="trace-mw-group my-1">
-        <summary class="cursor-pointer select-none py-[3px] px-1 text-[10.5px] leading-[1.6] text-gray-500 hover:text-gray-700 transition-colors">
+      <details class="trace-mw-group my-1 ${groupErrorClass}" ${hasError ? 'open' : ''}>
+        <summary class="cursor-pointer select-none py-[3px] px-1 text-[10.5px] leading-[1.6] ${hasError ? 'text-red-600' : 'text-gray-500'} hover:text-gray-700 transition-colors">
           <span class="inline-flex items-center gap-1">
             <span>${statusIcon}</span>
-            <span>⚙️ ${statusText}${durText}</span>
-            <svg class="trace-mw-chevron w-3 h-3 text-gray-400 transition-transform duration-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            <span>${hasError ? '❌' : '⚙️'} ${statusText}${durText}</span>
+            <svg class="trace-mw-chevron w-3 h-3 ${hasError ? 'text-red-400' : 'text-gray-400'} transition-transform duration-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
           </span>
         </summary>
-        <div class="pl-3 border-l-2 border-gray-200/60 ml-3 mt-1 mb-1 space-y-0">
+        <div class="pl-3 border-l-2 ${hasError ? 'border-red-200' : 'border-gray-200/60'} ml-3 mt-1 mb-1 space-y-0">
           ${mwNodesHtml}
         </div>
       </details>`;
@@ -2020,29 +2117,39 @@ async function send() {
             // ── 工具调用结束 ──
             else if (evt.type === 'tool_end') {
               const toolName = evt.tool_name || 'unknown';
+              const isToolError = evt.error === true || evt.status === 'error' || evt.status === 'failed';
               for (let i = liveSpans.length - 1; i >= 0; i--) {
                 if (liveSpans[i].status === 'active' && liveSpans[i].title.includes(toolName)) {
-                  liveSpans[i].status = 'complete';
-                  liveSpans[i].desc = `完成 (${evt.duration_ms || 0}ms)`;
-                  liveSpans[i].detail = `工具 ${toolName} 执行完成: ${evt.duration_ms || 0}ms`;
+                  liveSpans[i].status = isToolError ? 'error' : 'complete';
+                  liveSpans[i].desc = isToolError
+                    ? `异常 (${evt.duration_ms || 0}ms)`
+                    : `完成 (${evt.duration_ms || 0}ms)`;
+                  liveSpans[i].detail = isToolError
+                    ? `工具 ${toolName} 执行异常: ${evt.error_message || evt.output || '未知错误'}`
+                    : `工具 ${toolName} 执行完成: ${evt.duration_ms || 0}ms`;
                   liveSpans[i].duration_ms = evt.duration_ms || 0;
                   if (evt.output) {
                     liveSpans[i].output = evt.output_full || evt.output;
-                    liveSpans[i].children.push({ label: truncStr(evt.output, 60), status: 'complete' });
+                    liveSpans[i].children.push({ label: truncStr(evt.output, 60), status: isToolError ? 'error' : 'complete' });
                   }
                   liveSpans[i].output_data = {
                     result: evt.output_full || evt.output || '',
                     duration_ms: evt.duration_ms,
+                    ...(isToolError ? { error: evt.error_message || evt.output || '工具执行失败' } : {}),
                   };
                   liveSpans[i].metadata = Object.assign({}, liveSpans[i].metadata || {}, {
                     duration_ms: evt.duration_ms,
+                    ...(isToolError ? {
+                      error_message: evt.error_message || evt.output || '工具执行失败',
+                      error_type: evt.error_type || '',
+                    } : {}),
                   });
                   break;
                 }
               }
               refreshTrace();
               if (currentToolStepId) {
-                updateStep(currentToolStepId, 'done', evt.duration_ms);
+                updateStep(currentToolStepId, isToolError ? 'err' : 'done', evt.duration_ms);
                 currentToolStepId = null;
               }
             }
@@ -2104,7 +2211,7 @@ async function send() {
             // ── 错误 ──
             else if (evt.type === 'error') {
               addLiveSpan({
-                status: 'complete',
+                status: 'error',
                 icon: getSpanIcon('error'),
                 title: '错误',
                 step_name: '执行错误',
@@ -2116,6 +2223,11 @@ async function send() {
                 children: [],
                 input_data: {},
                 output_data: { error: evt.content || '未知错误' },
+                metadata: {
+                  error_message: evt.content || '未知错误',
+                  error_type: evt.error_type || evt.code || '',
+                  error_stack: evt.traceback || evt.stack || '',
+                },
               });
               addStep('错误: ' + truncStr(evt.content || '', 40), 'err');
             }
@@ -2366,8 +2478,9 @@ function renderInlineSteps(spans) {
     const spanType = s.step_name_en || s.type || '';
     const dur = s.duration_ms ? `${Math.round(s.duration_ms)}ms` : '';
     const status = s.status || 'complete';
-    const dotClass = status === 'complete' || status === 'success' ? 'bg-green-500' :
-                     status === 'error' ? 'bg-red-500' : 'bg-blue-500';
+    const isNodeError = status === 'error' || status === 'failed';
+    const dotClass = (status === 'complete' || status === 'success') ? 'bg-green-500' :
+                     isNodeError ? 'bg-red-500' : 'bg-blue-500';
     const md = s.metadata || {};
     let label = '';
     let desc = '';
@@ -2404,12 +2517,21 @@ function renderInlineSteps(spans) {
       } else if (md.is_final || (s.output_data && s.output_data.is_final)) {
         desc = '生成最终回复';
       }
+    } else if (spanType === 'error') {
+      label = '执行错误';
+      desc = md.error_message || s.detail || '未知错误';
     } else {
       const cnLabel = getSpanLabel(spanType);
       label = (cnLabel && cnLabel !== spanType) ? cnLabel : spanType;
       if (spanType === 'memory_retrieval' && md.hit_count != null) {
         desc = `命中 ${md.hit_count} 条`;
       }
+    }
+
+    // 异常节点增强样式
+    if (isNodeError) {
+      const errorDesc = desc || md.error_message || (s.output_data && s.output_data.error) || '异常';
+      return `<div class="flex items-center gap-1.5 py-[2px] text-[11px] bg-red-50 rounded px-1 -mx-1 border-l-2 border-red-400"><div class="w-1.5 h-1.5 rounded-full ${dotClass} shrink-0 animate-pulse"></div><span class="font-semibold text-red-700">${esc(label)}</span><span class="text-red-500 text-[10px] ml-1 truncate">${esc(truncStr(errorDesc, 50))}</span>${dur ? `<span class="text-[10px] text-red-300 ml-auto">${dur}</span>` : ''}</div>`;
     }
 
     return `<div class="flex items-center gap-1.5 py-[2px] text-[11px] text-gray-600"><div class="w-1.5 h-1.5 rounded-full ${dotClass} shrink-0"></div><span class="font-medium">${esc(label)}</span>${desc ? `<span class="text-gray-400 text-[10px] ml-1">${esc(desc)}</span>` : ''}${dur ? `<span class="text-[10px] text-gray-300 ml-auto">${dur}</span>` : ''}</div>`;
@@ -2461,21 +2583,28 @@ function renderInlineSteps(spans) {
   if (isMultiLoop && loopNum > 0) bodyHtml += '</div>';
   if (currentPhaseIdx >= 0) bodyHtml += '</div></div>';
 
+  // 统计异常步骤数
+  const errorCount = coreSpans.filter(s => s.status === 'error' || s.status === 'failed').length;
+  const errorBadge = errorCount > 0
+    ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-100 text-red-600 border border-red-200">${errorCount} 个异常</span>`
+    : '';
+
   // ═══ 组装容器 ═══
   const container = document.createElement('div');
   container.className = 'ml-12 mb-2';
   container.innerHTML = `
-    <div class="border border-gray-100 rounded-xl bg-gray-50/50 overflow-hidden">
+    <div class="border ${errorCount > 0 ? 'border-red-200' : 'border-gray-100'} rounded-xl ${errorCount > 0 ? 'bg-red-50/30' : 'bg-gray-50/50'} overflow-hidden">
       <div class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none hover:bg-gray-100/60 transition-colors"
            onclick="toggleInlineTrace('${collapseId}')">
         <svg id="${collapseId}-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-             class="text-gray-400 transition-transform duration-200" style="transform: rotate(0deg);">
+             class="${errorCount > 0 ? 'text-red-400' : 'text-gray-400'} transition-transform duration-200" style="transform: rotate(${errorCount > 0 ? '90' : '0'}deg);">
           <polyline points="9 18 15 12 9 6"/>
         </svg>
-        <span class="text-xs font-medium text-gray-500">⚡ 推理链路</span>
+        <span class="text-xs font-medium ${errorCount > 0 ? 'text-red-600' : 'text-gray-500'}">${errorCount > 0 ? '⚠️' : '⚡'} 推理链路</span>
         <span class="text-[10px] text-gray-400">${coreSpans.length} 步${durationText}</span>
+        ${errorBadge}
       </div>
-      <div id="${collapseId}" class="hidden px-3 pb-2">${bodyHtml}</div>
+      <div id="${collapseId}" class="${errorCount > 0 ? '' : 'hidden'} px-3 pb-2">${bodyHtml}</div>
     </div>`;
   inner.appendChild(container);
 }

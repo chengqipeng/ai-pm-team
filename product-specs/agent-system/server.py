@@ -1233,6 +1233,29 @@ async def chat_stream(req: ChatRequest):
         if pii_flush:
             yield f"data: {json.dumps({'type': 'token', 'content': pii_flush}, ensure_ascii=False)}\n\n"
 
+        # ── 检查是否有 pending interrupt（ask_user 触发的中断）──
+        try:
+            state = agent.get_state(config)
+            if state and state.next:
+                # graph 暂停，有 interrupt
+                interrupt_values = []
+                for task in (state.tasks or []):
+                    for intr in (getattr(task, 'interrupts', None) or []):
+                        interrupt_values.append(getattr(intr, 'value', {}))
+                if interrupt_values:
+                    # 向前端发送 interrupt 事件
+                    yield f"data: {json.dumps({'type': 'interrupt', 'interrupts': interrupt_values}, ensure_ascii=False)}\n\n"
+                    # 如果没有文本内容，生成一个提示
+                    if not full_content:
+                        # 从 interrupt value 中提取 message 作为显示内容
+                        for iv in interrupt_values:
+                            msg = iv.get('message') or iv.get('title', '请确认')
+                            full_content = msg
+                            yield f"data: {json.dumps({'type': 'token', 'content': msg}, ensure_ascii=False)}\n\n"
+                            break
+        except Exception as _int_exc:
+            logger.debug("Check interrupt state: %s", _int_exc)
+
         tracer.finish_trace(trace_id, "success", full_content)
 
         # 最终推送剩余的中间件 spans

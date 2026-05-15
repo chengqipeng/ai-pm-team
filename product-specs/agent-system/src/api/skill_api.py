@@ -521,3 +521,36 @@ async def get_skill_resource_content(
         "content_size": row[2],
         "description": row[3],
     }
+
+
+class ResourceContentUpdate(BaseModel):
+    path: str
+    content: str
+    tenant_id: int = 0
+
+
+@router.put("/{api_key}/resources/content")
+async def update_skill_resource_content(api_key: str, body: ResourceContentUpdate):
+    """保存 Skill 资源文件内容"""
+    import time
+    from src.store.pg_pool import get_conn
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+        now = int(time.time() * 1000)
+        content_size = len(body.content.encode("utf-8"))
+
+        cur.execute("""
+            UPDATE ai_skill_resource
+            SET content = %s, content_size = %s, updated_at = %s
+            WHERE skill_api_key = %s AND path = %s AND node_type = 'file'
+                  AND tenant_id = %s AND delete_flg = 0
+        """, (body.content, content_size, now, api_key, body.path, body.tenant_id))
+
+        if cur.rowcount == 0:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail=f"Resource '{body.path}' not found")
+
+        conn.commit()
+
+    return {"path": body.path, "content_size": content_size, "updated_at": now}

@@ -233,6 +233,32 @@ class NeoAgentV2Adapter:
         async for event in renderer.process(converter.convert(astream)):
             yield event
 
+        # ── 检查是否有 pending interrupt（ask_user 触发的中断）──
+        try:
+            state = agent.get_state(config)
+            if state and state.next:
+                # graph 暂停在某个节点，说明有 interrupt
+                # 从 state.tasks 中提取 interrupt value
+                interrupt_values = []
+                for task in (state.tasks or []):
+                    for intr in (getattr(task, 'interrupts', None) or []):
+                        interrupt_values.append(getattr(intr, 'value', {}))
+
+                if interrupt_values:
+                    import uuid as _uuid2
+                    for iv in interrupt_values:
+                        yield _m.custom_event("interrupt", iv)
+                    # 产出带 interrupt outcome 的 RUN_FINISHED
+                    # （覆盖 converter 已产出的 RUN_FINISHED）
+                    yield _m.custom_event("run_interrupted", {
+                        "run_id": _run_id,
+                        "thread_id": thread_id,
+                        "interrupts": interrupt_values,
+                    })
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).debug("Check interrupt state failed: %s", exc)
+
     async def execute_a2ui(
         self,
         thread_id: str,
