@@ -203,6 +203,10 @@ async function loadLeftList() {
       data: '/api/meta/data/entities',
     };
     const r = await fetch(API + urlMap[mode]);
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`HTTP ${r.status}: ${text.slice(0, 100)}`);
+    }
     leftItems = await r.json();
     document.getElementById('leftCount').textContent = `${leftItems.length} 项`;
     renderLeftList();

@@ -25,15 +25,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/meta", tags=["metarepo"])
 
 
-# ─── Backend 工厂 —— 按环境变量决定走本地模拟还是 HTTP 代理 ───────
+# ─── Backend 工厂 —— 优先直连本地数据库，回退到模拟数据 ───────
 
 _meta_backend: Any = None
 _data_backend: Any = None
-_backend_mode: str = ""   # "http" | "sim"
+_backend_mode: str = ""   # "db" | "sim"
 
 
 def _build_headers() -> dict[str, str]:
-    """（保留以备需要时使用；当前主链路已改走 AuthClient 自动登录）"""
+    """（保留以备需要时使用）"""
     from src.core.context import DEFAULT_TENANT_ID
     headers = {"Content-Type": "application/json"}
     tenant = os.getenv("METAREPO_TENANT_ID") or str(DEFAULT_TENANT_ID)
@@ -45,41 +45,37 @@ def _build_headers() -> dict[str, str]:
 
 
 def _get_meta_backend():
-    """懒加载元模型 / 元数据 backend。"""
+    """懒加载元模型 / 元数据 backend —— 优先直连数据库。"""
     global _meta_backend, _backend_mode
     if _meta_backend is not None:
         return _meta_backend
 
-    from src.tools._http_auth import get_shared_auth_client
-    client = get_shared_auth_client()
-    if client is not None:
-        from src.tools.metarepo_http_backend import MetarepoHttpBackend
-        _meta_backend = MetarepoHttpBackend(auth_client=client)
-        _backend_mode = "http"
-        logger.info("Metarepo backend: HTTP → %s", client.base_url)
-    else:
+    # 优先尝试直连本地 PostgreSQL
+    try:
+        from src.tools.metarepo_db_backend import MetarepoDbBackend
+        backend = MetarepoDbBackend()
+        # 验证数据库连通性
+        backend.list_metamodels()
+        _meta_backend = backend
+        _backend_mode = "db"
+        logger.info("Metarepo backend: DB 直连 (paas_metarepo_common)")
+    except Exception as exc:
+        logger.warning("DB 直连失败，降级到模拟后端: %s", exc)
         from src.tools.metarepo_backend import MetarepoSimulatedBackend
         _meta_backend = MetarepoSimulatedBackend()
         _backend_mode = "sim"
-        logger.info("Metarepo backend: Simulated (未配置 METAREPO_API_BASE)")
+        logger.info("Metarepo backend: Simulated (模拟数据)")
     return _meta_backend
 
 
 def _get_data_backend():
-    """懒加载业务数据 backend。"""
+    """懒加载业务数据 backend —— 使用 CRM 模拟后端。"""
     global _data_backend
     if _data_backend is not None:
         return _data_backend
-    from src.tools._http_auth import get_shared_auth_client
-    client = get_shared_auth_client()
-    if client is not None:
-        from src.tools.entity_data_http_backend import EntityDataHttpBackend
-        _data_backend = EntityDataHttpBackend(auth_client=client)
-        logger.info("Entity data backend: HTTP → %s", client.base_url)
-    else:
-        from src.tools.crm_backend import CrmSimulatedBackend
-        _data_backend = CrmSimulatedBackend()
-        logger.info("Entity data backend: Simulated (CrmSimulatedBackend)")
+    from src.tools.crm_backend import CrmSimulatedBackend
+    _data_backend = CrmSimulatedBackend()
+    logger.info("Entity data backend: Simulated (CrmSimulatedBackend)")
     return _data_backend
 
 
@@ -88,6 +84,16 @@ async def _await(value: Any) -> Any:
     if inspect.isawaitable(value):
         return await value
     return value
+
+
+def _fallback_list_metamodels() -> list[dict]:
+    """HTTP 后端不可用时降级到模拟后端。"""
+    try:
+        from src.tools.metarepo_backend import MetarepoSimulatedBackend
+        return MetarepoSimulatedBackend().list_metamodels()
+    except Exception as exc:
+        logger.error("降级到模拟后端也失败: %s", exc)
+        return []
 
 
 def _is_http_data(backend: Any) -> bool:
@@ -100,7 +106,11 @@ def _is_http_data(backend: Any) -> bool:
 
 @router.get("/metamodels")
 async def list_metamodels() -> list[dict]:
-    return await _await(_get_meta_backend().list_metamodels())
+    try:
+        return await _await(_get_meta_backend().list_metamodels())
+    except Exception as exc:
+        logger.warning("list_metamodels 失败，尝试降级到模拟后端: %s", exc)
+        return _fallback_list_metamodels()
 
 
 @router.get("/metamodels/{metamodel_api_key}")

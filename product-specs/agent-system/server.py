@@ -389,38 +389,32 @@ async def _llm_detect_output_format(
         return _detect_document(content)
 
 
-# 产出文档的技能 — 不再硬编码，从 SkillRegistry 的 output_mode 判断
-# output_mode=card 或 ext_info 中标记 produce_document=true 的 Skill 触发文档面板
-_DOCUMENT_SKILLS = None  # 延迟初始化
+# 产出文档的技能 — 从 SkillRegistry 的 output_mode 动态判断
+_document_skills_cache: set | None = None
 
 
 def _get_document_skills() -> set:
-    """从 SkillRegistry 获取产出文档的 Skill 集合（延迟初始化 + 缓存）"""
-    global _DOCUMENT_SKILLS
-    if _DOCUMENT_SKILLS is not None:
-        return _DOCUMENT_SKILLS
+    """从数据库获取产出文档的 Skill 集合"""
+    global _document_skills_cache
+    if _document_skills_cache is not None:
+        return _document_skills_cache
 
-    # 从数据库加载：output_mode=card 或 context=fork 的 Skill 视为文档类
-    # （fork 模式的长文本输出通常是报告/文档）
     try:
         from src.store.skill_dao import SkillDefinitionDAO
-        SkillDefinitionDAO._detected = False  # 重置检测缓存
+        SkillDefinitionDAO._detected = False
         rows = SkillDefinitionDAO.list_active(tenant_id=0, include_platform=True)
         doc_skills = set()
         for row in rows:
-            # output_mode=card 明确是文档
-            if getattr(row, 'output_mode', '') == 'card':
+            output_mode = getattr(row, 'output_mode', 'auto')
+            # 只有 output_mode=card 才触发文档面板
+            if output_mode == 'card':
                 doc_skills.add(row.api_key)
-            # context=fork 且 output_mode=text 的也视为文档（长文本报告）
-            elif getattr(row, 'context', '') == 'fork' and getattr(row, 'output_mode', '') == 'text':
-                doc_skills.add(row.api_key)
-        _DOCUMENT_SKILLS = doc_skills
-        logger.info("文档类 Skill: %s", doc_skills)
+        _document_skills_cache = doc_skills
+        logger.info("文档类 Skill（output_mode=card）: %s", doc_skills)
     except Exception as e:
-        logger.warning("加载文档类 Skill 失败，使用默认集合: %s", e)
-        _DOCUMENT_SKILLS = {"data_analysis", "pipeline_analysis", "customer_360",
-                            "verify_config", "diagnose", "account-insight", "account_insight"}
-    return _DOCUMENT_SKILLS
+        logger.warning("加载文档类 Skill 失败: %s", e)
+        _document_skills_cache = set()
+    return _document_skills_cache
 
 
 def _is_document_skill(tool_name: str, tool_input) -> dict | None:

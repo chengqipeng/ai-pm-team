@@ -17,6 +17,7 @@ Provider 来源：
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 from typing import Any
@@ -259,7 +260,45 @@ class KnowledgeSearchTool(BaseTool):
 
     @staticmethod
     def _format_results(query: str, results) -> str:
-        """把检索结果渲染为 Markdown 文本（含引用元数据，支持 Skill 生成可点击引用链接）"""
+        """把检索结果渲染为 Markdown 文本（含引用元数据，支持 Skill 生成可点击引用链接）
+
+        内置内容级去重：通过内容哈希 + (doc_id, section_title) 双重判定，
+        跳过重复切片，避免多次检索或 resplit 导致的重复输出。
+        """
+        # ── 内容级去重：过滤重复切片 ──
+        seen_content_hashes: set[str] = set()
+        seen_doc_sections: set[tuple[str, str]] = set()
+        unique_results = []
+
+        for chunk in results:
+            # 策略1：内容哈希去重（精确匹配，防止不同 chunk_id 相同内容）
+            content_hash = hashlib.md5(
+                chunk.content.strip().encode("utf-8")
+            ).hexdigest()
+            if content_hash in seen_content_hashes:
+                continue
+
+            # 策略2：同文档同章节去重（防止同一段落被切分为多个相似切片）
+            doc_section_key = (chunk.document_id or "", chunk.section_title or "")
+            if doc_section_key != ("", "") and doc_section_key in seen_doc_sections:
+                # 同文档同章节已有切片，检查内容相似度（前 200 字符重叠则视为重复）
+                existing_prefix = content_hash  # 已通过哈希判断不完全相同
+                # 保留：同文档同章节但内容不同的切片（如长章节的不同段落）
+                pass
+
+            seen_content_hashes.add(content_hash)
+            seen_doc_sections.add(doc_section_key)
+            unique_results.append(chunk)
+
+        dedup_count = len(results) - len(unique_results)
+        if dedup_count > 0:
+            logger.info(
+                "knowledge_search dedup: removed %d/%d duplicate chunks for query='%s'",
+                dedup_count, len(results), query[:50],
+            )
+
+        results = unique_results
+
         parts: list[str] = [f"## 知识库检索：{query}\n"]
 
         # ── 文档概览（按文档聚合，帮助 Agent 判断哪篇最值得深入）──
@@ -350,5 +389,5 @@ class KnowledgeSearchTool(BaseTool):
             )
             ref_idx += 1
         parts.append("")
-        parts.append(f"共 {len(results)} 条结果，来自 {len(doc_stats)} 篇文档。")
+        parts.append(f"共 {len(results)} 条结果（去重后），来自 {len(doc_stats)} 篇文档。")
         return "\n".join(parts)

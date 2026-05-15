@@ -306,6 +306,26 @@
             </select>
           </div>
         </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">输出类型</label>
+            <select name="output_mode" id="f_output_mode" class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
+              <option value="auto">自动判断</option>
+              <option value="text">文本气泡</option>
+              <option value="card">文档卡片</option>
+              <option value="component">A2UI 组件</option>
+              <option value="table">数据表格</option>
+              <option value="streaming">流式文本</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">执行模式</label>
+            <select name="context" id="f_context" class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
+              <option value="inline">inline（主Agent内执行）</option>
+              <option value="fork">fork（独立子Agent）</option>
+            </select>
+          </div>
+        </div>
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">描述 *</label>
           <textarea name="description" id="f_description" required rows="2"
@@ -820,6 +840,8 @@ async function editSkill(apiKey) {
     document.getElementById('f_when_to_use').value = s.when_to_use || '';
     document.getElementById('f_category').value = s.category || 'custom';
     document.getElementById('f_risk_level').value = s.risk_level || 'read_only';
+    document.getElementById('f_output_mode').value = s.output_mode || 'auto';
+    document.getElementById('f_context').value = s.context || 'inline';
     document.getElementById('f_max_tool_calls').value = s.max_tool_calls || 20;
     document.getElementById('f_timeout_ms').value = s.timeout_ms || 60000;
     renderToolOptions(s.allowed_tools || []);
@@ -855,6 +877,8 @@ async function saveSkill() {
     when_to_use: document.getElementById('f_when_to_use').value.trim(),
     category: category,
     risk_level: document.getElementById('f_risk_level').value,
+    output_mode: document.getElementById('f_output_mode').value,
+    context: document.getElementById('f_context').value,
     max_tool_calls: parseInt(document.getElementById('f_max_tool_calls').value) || 20,
     timeout_ms: parseInt(document.getElementById('f_timeout_ms').value) || 60000,
     allowed_tools: getSelectedTools(),
