@@ -247,6 +247,7 @@ class NeoAgentV2Adapter:
         # 解决 skill fork 执行期间无 AG-UI 事件导致链路不实时更新的问题。
         _run_finished_event = None
         _last_mw_idx = 0
+        _sub_thread_indices: dict[str, int] = {}  # sub_thread_id → 已推送的 span index
         _event_queue: asyncio.Queue = asyncio.Queue()
         _SENTINEL = object()  # 标记流结束
 
@@ -281,12 +282,23 @@ class NeoAgentV2Adapter:
                     else:
                         yield item
 
-                # 每次循环检查新的 mw_spans
+                # 每次循环检查新的 mw_spans（主 thread）
                 _current_spans = tracing_middleware.get_spans(thread_id)
                 if len(_current_spans) > _last_mw_idx:
                     for sp in _current_spans[_last_mw_idx:]:
                         yield _m.custom_event("mw_span", sp)
                     _last_mw_idx = len(_current_spans)
+
+                # 实时推送子 Agent spans（带 sub_thread 标记，前端单独处理）
+                for sub_tid in list(tracing_middleware._active_sub_threads.get(thread_id, [])):
+                    sub_spans = tracing_middleware.get_spans(sub_tid)
+                    last_sub_idx = _sub_thread_indices.get(sub_tid, 0)
+                    if len(sub_spans) > last_sub_idx:
+                        for sp in sub_spans[last_sub_idx:]:
+                            tagged = dict(sp)
+                            tagged["_sub_thread_id"] = sub_tid
+                            yield _m.custom_event("sub_agent_span", tagged)
+                        _sub_thread_indices[sub_tid] = len(sub_spans)
         finally:
             if not consume_task.done():
                 consume_task.cancel()

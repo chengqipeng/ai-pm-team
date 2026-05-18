@@ -46,6 +46,29 @@ class TracingMiddleware(AgentMiddleware):
         self._spans: dict[str, list[dict]] = {}  # thread_id → spans
         self._memory_result: dict[str, Any] = {}  # thread_id → memory retrieval result
         self._intent_result: dict[str, dict] = {}  # thread_id → intent analysis result
+        self._active_sub_threads: dict[str, list[str]] = {}  # parent_thread → [sub_thread_ids]
+
+    def register_sub_thread(self, parent_thread_id: str, sub_thread_id: str) -> None:
+        """注册子 Agent 的 thread_id，供主 Agent polling 时实时获取子 Agent spans"""
+        self._active_sub_threads.setdefault(parent_thread_id, []).append(sub_thread_id)
+
+    def unregister_sub_thread(self, parent_thread_id: str, sub_thread_id: str) -> None:
+        """取消注册子 thread"""
+        subs = self._active_sub_threads.get(parent_thread_id, [])
+        if sub_thread_id in subs:
+            subs.remove(sub_thread_id)
+
+    def get_spans_with_sub_threads(self, thread_id: str) -> list[dict]:
+        """获取主 thread + 所有活跃子 thread 的 spans（供实时 polling）"""
+        all_spans = list(self._spans.get(thread_id, []))
+        for sub_tid in self._active_sub_threads.get(thread_id, []):
+            sub_spans = self._spans.get(sub_tid, [])
+            for sp in sub_spans:
+                # 标记来源子 thread，前端可据此分组
+                tagged = dict(sp)
+                tagged["_sub_thread_id"] = sub_tid
+                all_spans.append(tagged)
+        return all_spans
 
     def _tid(self) -> str:
         try:

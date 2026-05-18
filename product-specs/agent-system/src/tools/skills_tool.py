@@ -78,8 +78,8 @@ class SkillsTool(BaseTool):
             return result
 
         # 其他模式：通过 skill_result 事件直出子 Agent 结果
+        dispatch_success = False
         if result:
-            dispatch_success = False
             try:
                 from langchain_core.callbacks import adispatch_custom_event
                 await adispatch_custom_event("skill_result", {

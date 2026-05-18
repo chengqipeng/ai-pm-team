@@ -121,6 +121,8 @@ class ContextWindowMiddleware(AgentMiddleware):
         threshold = config["threshold"]
 
         if len(content) <= threshold:
+            # 未超阈值，记录跳过 span
+            self._record_compact_span(tool_name, len(content), len(content), skipped=True)
             return result
 
         original_len = len(content)
@@ -404,18 +406,29 @@ class ContextWindowMiddleware(AgentMiddleware):
     # Tracing
     # ═══════════════════════════════════════════════════════════
 
-    def _record_compact_span(self, tool_name: str, original_len: int, summary_len: int) -> None:
-        """记录源头压缩 span"""
+    def _record_compact_span(self, tool_name: str, original_len: int, summary_len: int, skipped: bool = False) -> None:
+        """记录源头压缩 span（无论是否触发压缩都记录）"""
         try:
             from src.middleware.tracing import tracing_middleware
-            ratio = round(1 - summary_len / max(original_len, 1), 2)
-            tracing_middleware._add("tool_result_compact", f"compact:{tool_name}", 0,
-                metadata={"tool_name": tool_name},
-                input_data={"tool_name": tool_name, "original_length": original_len,
-                            "threshold": TOOL_THRESHOLDS.get(tool_name, DEFAULT_TOOL_THRESHOLD)["threshold"]},
-                output_data={"summary_length": summary_len, "compression_ratio": f"{ratio:.0%}"},
-                detail=f"源头压缩: {tool_name} {original_len}→{summary_len}字符 (节省{ratio:.0%})",
-            )
+            config = TOOL_THRESHOLDS.get(tool_name, DEFAULT_TOOL_THRESHOLD)
+            if skipped:
+                tracing_middleware._add("tool_result_compact", f"compact:{tool_name}", 0,
+                    metadata={"tool_name": tool_name},
+                    input_data={"tool_name": tool_name, "content_length": original_len,
+                                "threshold": config["threshold"]},
+                    output_data={"action": "skip", "reason": f"未超阈值({original_len}/{config['threshold']})"},
+                    detail=f"上下文检查: {tool_name} {original_len}字符 ≤ 阈值{config['threshold']} → 保留原文",
+                )
+            else:
+                ratio = round(1 - summary_len / max(original_len, 1), 2)
+                tracing_middleware._add("tool_result_compact", f"compact:{tool_name}", 0,
+                    metadata={"tool_name": tool_name},
+                    input_data={"tool_name": tool_name, "original_length": original_len,
+                                "threshold": config["threshold"]},
+                    output_data={"summary_length": summary_len, "compression_ratio": f"{ratio:.0%}",
+                                 "action": "compressed"},
+                    detail=f"源头压缩: {tool_name} {original_len}→{summary_len}字符 (节省{ratio:.0%})",
+                )
         except Exception:
             pass
 

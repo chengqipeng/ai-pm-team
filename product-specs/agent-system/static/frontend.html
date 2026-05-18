@@ -1109,7 +1109,7 @@ function renderTraceNode(span, idx, seqNum) {
         (groups[ph] = groups[ph] || []).push(m);
       });
       let h = '';
-      const phaseLabels = { 'before_model': '推理前', 'after_model': '推理后', 'wrap_tool_call': '调用前检查', 'before_agent': '准备阶段', 'after_agent': '结束阶段' };
+      const phaseLabels = { 'before_model': '推理前', 'after_model': '推理后', 'wrap_tool_call': '护栏(含执行)', 'before_agent': '准备阶段', 'after_agent': '结束阶段' };
       for (const [ph, items] of Object.entries(groups)) {
         const dur = items.reduce((s, m) => s + (m.duration_ms || 0), 0);
         const durText = dur ? ` · ${Math.round(dur)}ms` : '';
@@ -1200,7 +1200,7 @@ function renderTraceNode(span, idx, seqNum) {
             let toolName = '';
             for (let j = i + 1; j < reasonSpans.length; j++) {
               if (reasonSpans[j].type === 'tool_call') { toolName = reasonSpans[j].name || ''; break; }
-              if (reasonSpans[j].type === 'middleware' && ((reasonSpans[j].metadata || {}).middleware_name || '').includes('Summarization') && (reasonSpans[j].metadata || {}).phase === 'before_model') break;
+              if (reasonSpans[j].type === 'middleware' && ((reasonSpans[j].metadata || {}).middleware_name || '').match(/Summarization|ContextWindow/) && (reasonSpans[j].metadata || {}).phase === 'before_model') break;
             }
             const loopLabel = toolName ? `调用 ${toolName.replace('tool:', '')}` : '生成最终回复 ✅';
             subAgentHtml += `<div class="text-amber-600 font-medium mt-1.5 pl-2">├─ 循环 ${loopNum}</div>`;
@@ -1212,16 +1212,17 @@ function renderTraceNode(span, idx, seqNum) {
           else if (mwPhase === 'wrap_tool_call') wrapToolBuf.push(s);
           else beforeModelBuf.push(s); // fallback
         } else if (sType === 'tool_call' || sType === 'skill_execution') {
-          // 正确的显示顺序：before_model → 推理节点 → after_model → wrap_tool_call → tool_call
+          // 显示顺序：before_model → 推理节点 → after_model → tool_call（含护栏）
           subAgentHtml += flushBeforeModel();
-          // 插入推理节点（LLM 推理发生在 before_model 之后、after_model 之前）
           const toolName = (s.name || '').replace('tool:', '');
           subAgentHtml += `<div class="text-gray-700 pl-5">🧠 模型推理 → 决定调用 ${esc(toolName)}</div>`;
           subAgentHtml += flushAfterModel();
-          subAgentHtml += flushWrapTool();
           const toolStatus = sMeta.status === 'error' ? '<span class="text-red-500">❌</span>' : '<span class="text-green-600">✓</span>';
           const dur = s.duration_ms ? ` · ${Math.round(s.duration_ms)}ms` : '';
+          // wrap_tool_call 护栏折叠在 tool_call 内部（它包裹了工具执行）
+          const wrapHtml = flushWrapTool();
           subAgentHtml += `<div class="text-blue-600 pl-5 font-medium">${toolStatus} ${esc(s.name || '')}${dur}</div>`;
+          if (wrapHtml) subAgentHtml += `<div class="pl-7">${wrapHtml}</div>`;
           subAgentHtml += subIO(s);
         } else {
           subAgentHtml += flushBeforeModel();
@@ -1428,7 +1429,7 @@ function _buildStepDescription(span, md, fallbackDetail) {
         const changed = md.changed || outputData.changed;
         return changed ? '多模态内容已注入' : '无变更';
       }
-      if (mwName.includes('Summarization')) {
+      if (mwName.includes('Summarization') || mwName.includes('ContextWindow')) {
         const before = md.before_count || '';
         const after = md.after_count || '';
         return (before && after) ? `上下文压缩: ${before}条→${after}条` : '无需压缩';
@@ -1590,6 +1591,7 @@ function refreshTrace() {
         'MultimodalInject':   { allow: ['before_agent'], display: 'context' },
         // before_model 层（Agent Loop - LLM 调用前）
         'Summarization':      { allow: ['before_model'], display: 'reasoning' },
+        'ContextWindow':      { allow: ['before_model'], display: 'reasoning' },
         // after_model 层（Agent Loop - LLM 返回后）
         'SubagentLimit':      { allow: ['after_model'], display: 'reasoning' },
         'LoopDetection':      { allow: ['after_model'], display: 'reasoning' },
@@ -1697,7 +1699,7 @@ function refreshTrace() {
     if (MAPPED.includes(phaseLabel)) {
       // 映射后的值，尝试从中间件名称推断
       const firstName = ((spans[0].metadata || {}).middleware_name) || spans[0].step_name || '';
-      if (firstName.includes('Summarization')) phaseLabel = 'before_model';
+      if (firstName.includes('Summarization') || firstName.includes('ContextWindow')) phaseLabel = 'before_model';
       else if (firstName.includes('SubagentLimit') || firstName.includes('LoopDetection') || firstName.includes('OutputValidation')) phaseLabel = 'after_model';
       else if (firstName.includes('Guardrail') || firstName.includes('ToolErrorHandling') || firstName.includes('Clarification')) phaseLabel = 'wrap_tool_call';
       else if (firstName.includes('OutputRender') || firstName.includes('StreamPII')) phaseLabel = 'after_agent';
@@ -2138,6 +2140,7 @@ const MW_CN_NAMES = {
   'InputTransformMiddleware': '输入转换',
   'MultimodalInjectMiddleware': '多模态注入',
   'SummarizationMiddleware': '上下文压缩',
+  'ContextWindowMiddleware': '上下文压缩',
   'SubagentLimitMiddleware': '子Agent限制',
   'GuardrailMiddleware': '安全护栏',
   'LoopDetectionMiddleware': '循环检测',
@@ -2316,7 +2319,11 @@ async function sendAgui(text, extra) {
             const dedupeKey = toolName + ':' + (toolCallId || String(Date.now()));
             if (!seenToolCalls.has(dedupeKey)) {
               seenToolCalls.add(dedupeKey);
-              // 右侧面板由 mw_span 统一渲染，这里不重复添加
+              // skills_tool 开始时显示"生成中"占位（fork skill 执行可能较长）
+              if (toolName === 'skills_tool' && !_aguiStreamEl) {
+                addAiBubbleStart();
+                updateAiBubble('<div class="flex items-center gap-2 text-gray-400 text-sm"><div class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>正在分析生成中...</div>');
+              }
             }
           }
           // TOOL_CALL_ARGS
@@ -2382,6 +2389,29 @@ async function sendAgui(text, extra) {
               // 关键步骤也显示在左侧
               if (['content_review', 'query_rewrite', 'context_build', 'memory_retrieval', 'intent_analysis', 'memory_extract'].includes(spanType)) {
                 addStep(`${stepName}`, 'done');
+              }
+            }
+            else if (name === 'sub_agent_span') {
+              // 子 Agent 实时 span — 累积到最后一个 skill_execution 节点的 sub_agent_spans
+              const sp = value || {};
+              // 找到最后一个 skill_execution 类型的 liveSpan
+              for (let i = liveSpans.length - 1; i >= 0; i--) {
+                if ((liveSpans[i].step_name_en || liveSpans[i].type) === 'skill_execution') {
+                  if (!liveSpans[i].sub_agent_spans) liveSpans[i].sub_agent_spans = [];
+                  liveSpans[i].sub_agent_spans.push({
+                    type: sp.type || '', name: sp.name || '', detail: sp.detail || '',
+                    duration_ms: sp.duration_ms || 0,
+                    input_data: sp.input_data || {}, output_data: sp.output_data || {},
+                    metadata: sp.metadata || {},
+                  });
+                  refreshTrace();
+                  break;
+                }
+              }
+              // 左侧步骤：只显示 tool_call 类型（关键操作），其他细节不显示
+              const subType = sp.type || '';
+              if (subType === 'tool_call') {
+                addStep(`子Agent: ${sp.name || ''}`, 'done', {indent: true});
               }
             }
             else if (name === 'llm_start') {

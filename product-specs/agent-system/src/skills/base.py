@@ -607,6 +607,16 @@ class SkillExecutor:
 
         sub_thread_id = f"skill-{skill.name}-{uuid4().hex[:8]}"
 
+        # 注册子 thread 供主 Agent 实时 polling 子 Agent 链路
+        try:
+            from src.middleware.tracing import tracing_middleware
+            from langgraph.config import get_config
+            parent_tid = get_config().get("configurable", {}).get("thread_id", "")
+            if parent_tid:
+                tracing_middleware.register_sub_thread(parent_tid, sub_thread_id)
+        except Exception:
+            parent_tid = ""
+
         try:
             result = await agent.ainvoke(
                 {"messages": messages},
@@ -649,6 +659,13 @@ class SkillExecutor:
         output = self._extract_output(result)
         logger.info("[skill] Fork 完成: name=%s, agent=%s, thread=%s, output_len=%d",
                      skill.name, agent_name, sub_thread_id, len(output))
+
+        # 取消注册子 thread（fork 完成，不再需要实时 polling）
+        if parent_tid:
+            try:
+                tracing_middleware.unregister_sub_thread(parent_tid, sub_thread_id)
+            except Exception:
+                pass
 
         # 收集子 Agent 的 tool_call spans 作为 skill_execution 的 children
         self._last_fork_children = self._collect_sub_agent_spans(sub_thread_id)
