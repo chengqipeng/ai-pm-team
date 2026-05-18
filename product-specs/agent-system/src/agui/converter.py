@@ -199,25 +199,12 @@ class AGUIConverter:
             async for e in self._handle_chat_stream(event, data):
                 yield e
         elif kind == "on_chat_model_start":
-            # 记录 LLM 推理开始到 tracing_middleware（由 mw_span flush 推送）
-            # 只记录主 Agent 的顶层 LLM 调用（parent_ids 深度 <= 2 排除子 Agent）
+            # 记录 LLM 推理开始 — 仅计数，不立即写入 span
+            # span 在 on_chat_model_end 时统一写入（包含完整的 tool_calls/is_final 结果）
             if not is_sub_agent and len(parent_ids) <= 2:
                 self._step_index += 1
-                try:
-                    from src.middleware.tracing import tracing_middleware
-                    # before_model 中间件（SummarizationMiddleware）已由 MiddlewareTracingWrapper
-                    # 在 LangGraph 内部调用时自动记录，此处仅补充 llm_call span
-                    tracing_middleware._add_to_thread(
-                        self.thread_id, "llm_call", f"第 {self._step_index} 轮思考", 0,
-                        {"iteration": self._step_index},
-                        input_data={"iteration": self._step_index},
-                        output_data={},
-                        detail=f"第 {self._step_index} 轮推理",
-                    )
-                except Exception:
-                    pass
         elif kind == "on_chat_model_end":
-            # 记录 LLM 推理结束（含 tool_calls 决策）
+            # 记录完整的 llm_call span（含推理结果：tool_calls / is_final）
             if not is_sub_agent and len(parent_ids) <= 2:
                 output = data.get("output", None)
                 tool_calls = []
@@ -235,11 +222,10 @@ class AGUIConverter:
                         output_data={"tool_calls": tool_calls, "is_final": is_final},
                         detail=desc,
                     )
-                    # 记录 after_model 中间件执行（LangGraph 不自动调用 after_model，
-                    # 与 server.py SSE 模式对齐，手动补充 after_model 阶段中间件 span）
-                    _record_model_phase_middlewares("after_model", self.thread_id)
                 except Exception:
                     pass
+            # after_model 中间件（OutputValidation/LoopDetection/SubagentLimit）
+            # 已由 MiddlewareTracingWrapper 在 LangGraph 内部自动记录，无需手动补充
         elif kind == "on_chain_start" and name.startswith(SKILL_CHAIN_PREFIX):
             async for e in self._handle_skill_start(name):
                 yield e

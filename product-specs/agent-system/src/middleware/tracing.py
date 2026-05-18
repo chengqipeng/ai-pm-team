@@ -615,50 +615,85 @@ class TracingMiddleware(AgentMiddleware):
 
     async def awrap_tool_call(self, request: ToolCallRequest, handler) -> ToolMessage | Command:
         name = request.tool_call.get("name", "unknown")
-        args = str(request.tool_call.get("args", {}))[:500]
+        raw_args = request.tool_call.get("args", {})
+        args = str(raw_args)[:500]
         start = time.monotonic()
+
+        # 解析 skills_tool / agent_tool 的 skill_name
+        skill_name = ""
+        if name in ("skills_tool", "agent_tool") and isinstance(raw_args, dict):
+            skill_name = str(raw_args.get("skill_name", ""))
+
         try:
             result = await handler(request)
             dur = (time.monotonic() - start) * 1000
             output = str(getattr(result, "content", ""))[:500]
             status = getattr(result, "status", "success")
-            self._add("tool_call", f"tool:{name}", dur,
-                metadata={
-                    "tool_name": name,
-                    "input": args,
-                    "output": output,
-                    "status": status,
-                },
-                input_data={
-                    "tool_name": name,
-                    "arguments": args,
-                },
-                output_data={
-                    "result": output,
-                    "status": status,
-                },
-                detail=f"调用工具 {name}: {status}",
-            )
+
+            # skills_tool 正常完成：由 SkillExecutor._record_skill_span 记录 skill_execution span
+            # 此处不重复记录，避免链路出现两个节点
+            if not skill_name:
+                self._add("tool_call", f"tool:{name}", dur,
+                    metadata={
+                        "tool_name": name,
+                        "input": args,
+                        "output": output,
+                        "status": status,
+                    },
+                    input_data={
+                        "tool_name": name,
+                        "arguments": args,
+                    },
+                    output_data={
+                        "result": output,
+                        "status": status,
+                    },
+                    detail=f"调用工具 {name}: {status}",
+                )
             return result
         except Exception as exc:
             dur = (time.monotonic() - start) * 1000
-            self._add("tool_call", f"tool:{name}", dur,
-                metadata={
-                    "tool_name": name,
-                    "input": args,
-                    "error": str(exc)[:500],
-                    "status": "error",
-                },
-                input_data={
-                    "tool_name": name,
-                    "arguments": args,
-                },
-                output_data={
-                    "error": str(exc)[:500],
-                    "status": "error",
-                },
-                detail=f"工具 {name} 执行失败: {str(exc)[:100]}",
-            )
+            # skills_tool 异常：SkillExecutor 未能走到 _record_skill_span，
+            # 此处兜底记录 skill_execution error span
+            if skill_name:
+                self._add("skill_execution", f"skill:{skill_name}", dur,
+                    metadata={
+                        "tool_name": name,
+                        "skill_name": skill_name,
+                        "context_mode": "unknown",
+                        "input": args,
+                        "error": str(exc)[:500],
+                        "status": "error",
+                    },
+                    input_data={
+                        "skill_name": skill_name,
+                        "context_mode": "unknown",
+                        "arguments": args,
+                    },
+                    output_data={
+                        "error": str(exc)[:500],
+                        "status": "error",
+                    },
+                    detail=f"技能执行失败 · {skill_name}: {str(exc)[:100]}",
+                )
+            else:
+                self._add("tool_call", f"tool:{name}", dur,
+                    metadata={
+                        "tool_name": name,
+                        "input": args,
+                        "error": str(exc)[:500],
+                        "status": "error",
+                    },
+                    input_data={
+                        "tool_name": name,
+                        "arguments": args,
+                    },
+                    output_data={
+                        "error": str(exc)[:500],
+                        "status": "error",
+                    },
+                    detail=f"工具 {name} 执行失败: {str(exc)[:100]}",
+                )
             raise
 
     # ── after_agent: 不再直接记录 memory_extract，由 MemoryMiddleware 通过 record_memory_extract 注入 ──

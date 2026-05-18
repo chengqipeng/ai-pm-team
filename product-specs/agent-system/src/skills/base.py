@@ -401,6 +401,7 @@ class SkillExecutor:
         self._current_depth = 0     # 当前嵌套深度，由外部注入
         self._tracker = None        # SkillTracker，由外部注入
         self._optimizer = None      # SkillOptimizer，由外部注入
+        self._last_fork_children: list[dict] = []  # fork 子 Agent 的 tool_call spans
 
     async def execute(
         self,
@@ -429,6 +430,10 @@ class SkillExecutor:
 
         duration_ms = _time.monotonic() * 1000 - start_ms
 
+        # 收集子 Agent 执行的 tool_call 详情（fork 模式）
+        children = getattr(self, '_last_fork_children', []) if skill.context == "fork" else []
+        self._last_fork_children = []  # 清除
+
         # 记录 skill 执行 tracing span
         self._record_skill_span(
             skill_name=skill_name,
@@ -437,6 +442,7 @@ class SkillExecutor:
             duration_ms=duration_ms,
             output_preview=result[:300] if result else "",
             parent_thread_id=parent_thread_id,
+            children=children,
         )
 
         # 自动追踪执行轨迹
@@ -471,6 +477,7 @@ class SkillExecutor:
     def _record_skill_span(
         skill_name: str, context_mode: str, arguments: dict,
         duration_ms: float, output_preview: str, parent_thread_id: str,
+        children: list | None = None,
     ) -> None:
         """记录 skill 执行 span 到 TracingMiddleware"""
         try:
@@ -493,9 +500,39 @@ class SkillExecutor:
                     "context_mode": context_mode,
                 },
                 detail=f"技能 {skill_name} ({context_mode}) · {round(duration_ms)}ms",
+                children=children or [],
             )
         except Exception as e:
             logger.debug("Skill span record failed: %s", e)
+
+    @staticmethod
+    def _collect_sub_agent_spans(sub_thread_id: str) -> list[dict]:
+        """从 TracingMiddleware 中收集子 Agent 的 tool_call spans 作为 children
+
+        fork 模式的子 Agent 运行在独立 thread 中，其 spans 被写入了子 thread_id。
+        这里提取 tool_call 和 llm_call 类型的 spans，作为父级 skill_execution 的 children 展示。
+        """
+        try:
+            from src.middleware.tracing import tracing_middleware
+            sub_spans = tracing_middleware.get_spans(sub_thread_id)
+            children = []
+            for s in sub_spans:
+                s_type = s.get("type", "")
+                if s_type in ("tool_call", "skill_execution", "llm_call"):
+                    children.append({
+                        "type": s_type,
+                        "name": s.get("name", ""),
+                        "duration_ms": s.get("duration_ms", 0),
+                        "metadata": {
+                            "tool_name": s.get("metadata", {}).get("tool_name", ""),
+                            "status": s.get("metadata", {}).get("status", "success"),
+                        },
+                    })
+            # 清理子 Agent 的 spans（已合并到父级 children 中）
+            tracing_middleware.clear(sub_thread_id)
+            return children
+        except Exception:
+            return []
 
     async def _async_optimize(self, skill_name: str) -> None:
         """异步优化技能（不阻塞主流程）"""
@@ -554,6 +591,28 @@ class SkillExecutor:
                 {"messages": messages},
                 config={"configurable": {"thread_id": sub_thread_id}},
             )
+        except RuntimeError as rte:
+            # Event loop is closed — 缓存的 Agent graph 可能绑定了旧的 event loop
+            # 清除缓存后重试一次
+            if "Event loop is closed" in str(rte) or "closed" in str(rte).lower():
+                logger.warning("[skill] Fork RuntimeError (event loop), invalidate cache and retry: %s", rte)
+                self._agent_factory.invalidate(agent_name)
+                agent = await self._agent_factory.build(agent_name, self._current_depth)
+                try:
+                    result = await agent.ainvoke(
+                        {"messages": messages},
+                        config={"configurable": {"thread_id": sub_thread_id}},
+                    )
+                except Exception as exc2:
+                    raise SkillExecutionError(
+                        skill_name=skill.name,
+                        detail=str(exc2),
+                    ) from exc2
+            else:
+                raise SkillExecutionError(
+                    skill_name=skill.name,
+                    detail=str(rte),
+                ) from rte
         except Exception as exc:
             raise SkillExecutionError(
                 skill_name=skill.name,
@@ -563,6 +622,10 @@ class SkillExecutor:
         output = self._extract_output(result)
         logger.info("[skill] Fork 完成: name=%s, agent=%s, thread=%s, output_len=%d",
                      skill.name, agent_name, sub_thread_id, len(output))
+
+        # 收集子 Agent 的 tool_call spans 作为 skill_execution 的 children
+        self._last_fork_children = self._collect_sub_agent_spans(sub_thread_id)
+
         return output
 
     @staticmethod

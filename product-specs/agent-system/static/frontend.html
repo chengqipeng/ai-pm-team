@@ -501,6 +501,35 @@ function loadHistFromStorage(threadId) {
     return data ? JSON.parse(data) : [];
   } catch(e) { return []; }
 }
+// 推理链路 localStorage 持久化
+function saveTraceToStorage() {
+  try {
+    const key = `deepagent_trace_${tid}`;
+    // 只保存核心字段，控制大小
+    const slim = liveSpans.map(s => ({
+      type: s.step_name_en || s.type || '',
+      name: s.title || s.step_name || '',
+      step_name: s.step_name || '',
+      step_name_en: s.step_name_en || '',
+      phase: s.phase || '',
+      detail: s.detail || '',
+      duration_ms: s.duration_ms || 0,
+      status: s.status || 'complete',
+      input_data: s.input_data || {},
+      output_data: s.output_data || {},
+      metadata: s.metadata || {},
+      children: s.children || [],
+    }));
+    localStorage.setItem(key, JSON.stringify(slim));
+  } catch(e) {}
+}
+function loadTraceFromStorage(threadId) {
+  try {
+    const key = `deepagent_trace_${threadId}`;
+    const data = localStorage.getItem(key);
+    return data ? JSON.parse(data) : [];
+  } catch(e) { return []; }
+}
 function saveChatListToStorage() {
   try {
     localStorage.setItem('deepagent_chat_list', JSON.stringify(chatHistory.slice(0, 100)));
@@ -2260,6 +2289,7 @@ async function sendAgui(text, extra) {
   }
 
   updatePanelStatus(false);
+  saveTraceToStorage(); // 对话完成后持久化链路到 localStorage
 }
 
 async function send(overrideText) {
@@ -2774,6 +2804,7 @@ async function send(overrideText) {
     });
     refreshTrace();
     updatePanelStatus(false);
+    saveTraceToStorage(); // 对话完成后持久化链路到 localStorage
     addStep('回复完成 ✓', 'done');
 
     // 首次对话：延迟刷新标题（TitleMiddleware 异步生成）
@@ -2842,21 +2873,26 @@ async function loadChatHistory() {
     const c = chatHistory.find(c => c.id === tid);
     if (c) document.getElementById('headerTitle').textContent = c.title || '对话';
 
-    // 异步加载推理链路数据（localStorage 只存消息，trace 从服务端恢复）
-    (async () => {
-      try {
-        const r = await (await fetch(API + '/api/conversations/' + tid + '/messages')).json();
-        const messages = r.messages || [];
-        if (messages.length > 0) {
-          const lastMsg = messages[messages.length - 1];
-          if (lastMsg && lastMsg.spans && lastMsg.spans.length) {
-            renderHistoricalTrace(lastMsg.spans);
+    // 异步加载推理链路数据（优先 localStorage，fallback 服务端）
+    const localTrace = loadTraceFromStorage(tid);
+    if (localTrace.length > 0) {
+      renderHistoricalTrace(localTrace);
+    } else {
+      (async () => {
+        try {
+          const r = await (await fetch(API + '/api/conversations/' + tid + '/messages')).json();
+          const messages = r.messages || [];
+          if (messages.length > 0) {
+            const lastMsg = messages[messages.length - 1];
+            if (lastMsg && lastMsg.spans && lastMsg.spans.length) {
+              renderHistoricalTrace(lastMsg.spans);
+            }
           }
+        } catch(e) {
+          console.debug('[Trace] 刷新后加载链路失败:', e);
         }
-      } catch(e) {
-        console.debug('[Trace] 刷新后加载链路失败:', e);
-      }
-    })();
+      })();
+    }
   } else {
     // fallback: 从服务端加载
     const current = chatHistory.find(c => c.id === tid);
@@ -2887,18 +2923,23 @@ async function loadChat(chatId) {
       if (msg.role === 'user') addUserBubble(msg.content);
       else if (msg.role === 'assistant') addAIBubble(msg.content);
     }
-    // 异步加载推理链路数据（localStorage 只存消息，trace 从服务端恢复）
-    try {
-      const r = await (await fetch(API + '/api/conversations/' + chatId + '/messages')).json();
-      const messages = r.messages || [];
-      if (messages.length > 0) {
-        const lastMsg = messages[messages.length - 1];
-        if (lastMsg && lastMsg.spans && lastMsg.spans.length) {
-          renderHistoricalTrace(lastMsg.spans);
+    // 恢复推理链路（优先 localStorage，fallback 服务端）
+    const localTrace = loadTraceFromStorage(chatId);
+    if (localTrace.length > 0) {
+      renderHistoricalTrace(localTrace);
+    } else {
+      try {
+        const r = await (await fetch(API + '/api/conversations/' + chatId + '/messages')).json();
+        const messages = r.messages || [];
+        if (messages.length > 0) {
+          const lastMsg = messages[messages.length - 1];
+          if (lastMsg && lastMsg.spans && lastMsg.spans.length) {
+            renderHistoricalTrace(lastMsg.spans);
+          }
         }
+      } catch(e) {
+        console.debug('[Trace] loadChat 加载链路失败:', e);
       }
-    } catch(e) {
-      console.debug('[Trace] loadChat 加载链路失败:', e);
     }
     return;
   }

@@ -279,7 +279,7 @@ class NeoAgentV2Adapter:
             if len(mw_spans) > _last_mw_idx:
                 for sp in mw_spans[_last_mw_idx:]:
                     yield _m.custom_event("mw_span", sp)
-                tracing_middleware.clear(thread_id)
+                # 不在此处 clear — 由调用方（a2ui_routes）在持久化完成后 clear
         except Exception:
             pass
 
