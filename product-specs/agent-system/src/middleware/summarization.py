@@ -77,12 +77,20 @@ class SummarizationMiddleware(AgentMiddleware):
     def before_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
         messages = state.get("messages", [])
         if len(messages) < 4:
+            self._record_span(
+                messages_count=len(messages), estimated_tokens=0,
+                action="skip", reason="消息数不足（<4条）",
+            )
             return None
 
         # 熔断检查
         if self._consecutive_failures >= self._max_failures:
             logger.warning("Compression circuit breaker open (%d failures), skipping",
                            self._consecutive_failures)
+            self._record_span(
+                messages_count=len(messages), estimated_tokens=0,
+                action="circuit_break", reason=f"熔断（连续{self._consecutive_failures}次失败）",
+            )
             return None
 
         estimated = _estimate_tokens(messages)
@@ -93,6 +101,13 @@ class SummarizationMiddleware(AgentMiddleware):
                 result = self._full_compact(messages, estimated)
                 if result:
                     self._consecutive_failures = 0
+                    new_est = _estimate_tokens(result.get("messages", []))
+                    self._record_span(
+                        messages_count=len(messages), estimated_tokens=estimated,
+                        action="full_compact", reason=f"超过90%阈值（{estimated}/{self._max_tokens}）",
+                        compressed_tokens=new_est, messages_after=len(result.get("messages", [])),
+                        messages_before=messages, messages_result=result.get("messages"),
+                    )
                     return result
 
             # Layer 2: AutoCompact — 结构化摘要
@@ -100,21 +115,126 @@ class SummarizationMiddleware(AgentMiddleware):
                 result = self._auto_compact(messages, estimated)
                 if result:
                     self._consecutive_failures = 0
+                    new_est = _estimate_tokens(result.get("messages", []))
+                    self._record_span(
+                        messages_count=len(messages), estimated_tokens=estimated,
+                        action="auto_compact", reason=f"超过75%阈值（{estimated}/{self._max_tokens}）",
+                        compressed_tokens=new_est, messages_after=len(result.get("messages", [])),
+                        messages_before=messages, messages_result=result.get("messages"),
+                    )
                     return result
 
             # Layer 1: MicroCompact — 本地裁剪（0 API 调用）
             if estimated >= self._micro_trigger:
                 result = self._micro_compact(messages, estimated)
                 if result:
-                    # MicroCompact 不算失败/成功，不影响熔断计数
+                    new_est = _estimate_tokens(result.get("messages", []))
+                    self._record_span(
+                        messages_count=len(messages), estimated_tokens=estimated,
+                        action="micro_compact", reason=f"超过50%阈值（{estimated}/{self._max_tokens}）",
+                        compressed_tokens=new_est, messages_after=len(result.get("messages", [])),
+                        messages_before=messages, messages_result=result.get("messages"),
+                    )
                     return result
 
         except Exception as e:
             self._consecutive_failures += 1
             logger.error("Compression failed (attempt %d/%d): %s",
                          self._consecutive_failures, self._max_failures, e)
+            self._record_span(
+                messages_count=len(messages), estimated_tokens=estimated,
+                action="error", reason=f"压缩失败: {str(e)[:100]}",
+                messages_before=messages,
+            )
 
+        # 无需压缩
+        self._record_span(
+            messages_count=len(messages), estimated_tokens=estimated,
+            action="none", reason="未达到压缩阈值",
+            messages_before=messages,
+        )
         return None
+
+    def _record_span(
+        self, messages_count: int, estimated_tokens: int,
+        action: str, reason: str,
+        compressed_tokens: int = 0, messages_after: int = 0,
+        messages_before: list | None = None, messages_result: list | None = None,
+    ) -> None:
+        """向 TracingMiddleware 记录详细的压缩决策 span"""
+        try:
+            from src.middleware.tracing import tracing_middleware
+            has_effect = action not in ("none", "skip", "circuit_break")
+            detail = f"{'✅ ' + action if has_effect else '⏭️ 无需压缩'}: {reason}"
+            if has_effect:
+                detail += f" → {estimated_tokens}→{compressed_tokens} tokens"
+
+            # 构建消息摘要（输入上下文）
+            input_messages_preview = []
+            if messages_before:
+                for m in messages_before[-15:]:  # 最近 15 条
+                    m_type = getattr(m, "type", "unknown")
+                    m_content = getattr(m, "content", "")
+                    if isinstance(m_content, list):
+                        m_content = "".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in m_content)
+                    elif not isinstance(m_content, str):
+                        m_content = str(m_content)
+                    input_messages_preview.append({
+                        "role": m_type,
+                        "content": m_content[:500],
+                    })
+
+            # 构建压缩后摘要（输出上下文）
+            output_messages_preview = []
+            if has_effect and messages_result:
+                for m in messages_result[-10:]:
+                    m_type = getattr(m, "type", "unknown")
+                    m_content = getattr(m, "content", "")
+                    if isinstance(m_content, list):
+                        m_content = "".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in m_content)
+                    elif not isinstance(m_content, str):
+                        m_content = str(m_content)
+                    output_messages_preview.append({
+                        "role": m_type,
+                        "content": m_content[:500],
+                    })
+
+            tid = None
+            try:
+                from langgraph.config import get_config
+                tid = get_config().get("configurable", {}).get("thread_id")
+            except Exception:
+                pass
+
+            if tid:
+                tracing_middleware._spans.setdefault(tid, [])
+                for i in range(len(tracing_middleware._spans[tid]) - 1, -1, -1):
+                    s = tracing_middleware._spans[tid][i]
+                    if (s.get("type") == "middleware"
+                            and s.get("metadata", {}).get("middleware_name") == "SummarizationMiddleware"
+                            and s.get("metadata", {}).get("phase") == "before_model"):
+                        s["input_data"] = {
+                            "messages_count": messages_count,
+                            "estimated_tokens": estimated_tokens,
+                            "thresholds": {
+                                "micro": self._micro_trigger,
+                                "auto": self._auto_trigger,
+                                "full": self._full_trigger,
+                            },
+                            "context_messages": input_messages_preview,
+                        }
+                        s["output_data"] = {
+                            "action": action,
+                            "has_effect": has_effect,
+                            "reason": reason,
+                            "compressed_tokens": compressed_tokens,
+                            "messages_after": messages_after,
+                            "compressed_messages": output_messages_preview if has_effect else [],
+                        }
+                        s["detail"] = detail
+                        break
+        except Exception:
+            pass
 
     def _micro_compact(self, messages: list, estimated: int) -> dict[str, Any] | None:
         """Layer 1: MicroCompact — 裁剪旧 ToolMessage 输出，0 API 调用

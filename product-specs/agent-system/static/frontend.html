@@ -1092,15 +1092,14 @@ function renderTraceNode(span, idx, seqNum) {
       const out = s.output_data || {};
       const hasData = (Object.keys(inp).length > 0) || (Object.keys(out).length > 0);
       if (!hasData) return '';
-      const id = 'sub-io-' + Math.random().toString(36).slice(2,8);
-      let h = `<details class="pl-1 my-0.5 text-[9px]"><summary class="cursor-pointer text-blue-400 hover:text-blue-600 select-none">查看输入/输出</summary><div class="pl-2 text-gray-500 bg-gray-50 rounded p-1 my-0.5 max-h-[120px] overflow-auto">`;
-      if (Object.keys(inp).length > 0) h += `<div><span class="text-gray-600 font-medium">输入:</span> <pre class="inline whitespace-pre-wrap">${esc(JSON.stringify(inp, null, 2).slice(0, 500))}</pre></div>`;
-      if (Object.keys(out).length > 0) h += `<div class="mt-0.5"><span class="text-gray-600 font-medium">输出:</span> <pre class="inline whitespace-pre-wrap">${esc(JSON.stringify(out, null, 2).slice(0, 500))}</pre></div>`;
+      let h = `<details class="pl-2 my-0.5 text-[9px]"><summary class="cursor-pointer text-blue-400 hover:text-blue-600 select-none">查看输入/输出</summary><div class="pl-2 text-gray-500 bg-gray-50/80 rounded p-1.5 my-0.5 max-h-[150px] overflow-auto text-[8.5px] font-mono">`;
+      if (Object.keys(inp).length > 0) h += `<div><span class="text-gray-600 font-semibold font-sans">输入:</span><pre class="whitespace-pre-wrap mt-0.5">${esc(JSON.stringify(inp, null, 2).slice(0, 400))}</pre></div>`;
+      if (Object.keys(out).length > 0) h += `<div class="mt-1"><span class="text-gray-600 font-semibold font-sans">输出:</span><pre class="whitespace-pre-wrap mt-0.5">${esc(JSON.stringify(out, null, 2).slice(0, 400))}</pre></div>`;
       h += `</div></details>`;
       return h;
     }
 
-    // 辅助：渲染一组中间件（按 phase 分组折叠）
+    // 辅助：渲染一组中间件（按 phase 分组折叠，每个可查看输入/输出）
     function renderSubMwGroup(mws, indent) {
       if (mws.length === 0) return '';
       // 按 phase 分组
@@ -1115,12 +1114,13 @@ function renderTraceNode(span, idx, seqNum) {
         const dur = items.reduce((s, m) => s + (m.duration_ms || 0), 0);
         const durText = dur ? ` · ${Math.round(dur)}ms` : '';
         const label = phaseLabels[ph] || ph;
-        h += `<details class="${indent} my-0.5"><summary class="cursor-pointer text-gray-400 hover:text-gray-600 select-none text-[9.5px]">⚙️ ${items.length} 个 ${label} 中间件${durText}</summary><div class="pl-3 text-gray-400 text-[9px]">`;
+        h += `<details class="${indent} my-0.5"><summary class="cursor-pointer text-gray-400 hover:text-gray-600 select-none text-[9.5px]">⚙️ ${items.length} 个 ${label} 中间件${durText}</summary><div class="pl-3 text-[9px]">`;
         items.forEach(m => {
           const mName = (m.metadata || {}).middleware_name || m.name || '';
           const mDur = m.duration_ms ? ` ${Math.round(m.duration_ms)}ms` : '';
-          const effect = (m.metadata || {}).has_effect ? ' → 已修改' : '';
-          h += `<div>· ${esc(mName)}${mDur}${effect}</div>`;
+          const effect = (m.metadata || {}).has_effect ? ' <span class="text-amber-500">→ 已修改</span>' : '';
+          h += `<div class="text-gray-500">· ${esc(mName)}${mDur}${effect}</div>`;
+          h += subIO(m);
         });
         h += `</div></details>`;
       }
@@ -3360,6 +3360,8 @@ function renderHistoricalTrace(spans) {
           label: ch.name || ch.label || ch.type || '',
           type: ch.type || '', name: ch.name || '', detail: ch.detail || '',
           duration_ms: ch.duration_ms || 0,
+          input_data: ch.input_data || {},
+          output_data: ch.output_data || {},
           metadata: ch.metadata || {},
         }));
       }
