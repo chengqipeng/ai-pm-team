@@ -874,7 +874,9 @@ function addAIBubble(content, extra) {
   const rendered = typeof marked !== 'undefined' ? marked.parse(content) : esc(content);
 
   // 检测是否包含报告/文档内容（有标题结构的长文本）
-  const docInfo = detectDocument(content);
+  // 注意：AG-UI 模式刷新恢复时通过 extra.skipDocDetect 跳过检测，保持和实时输出一致
+  const skipDoc = extra && extra.skipDocDetect;
+  const docInfo = skipDoc ? null : detectDocument(content);
 
   let docCardHtml = '';
   if (docInfo) {
@@ -2282,7 +2284,9 @@ async function sendAgui(text, extra) {
           // TEXT_MESSAGE_START
           else if (type === 'TEXT_MESSAGE_START') {
             textMsgActive = true;
-            addAiBubbleStart();
+            if (!_aguiStreamEl) {
+              addAiBubbleStart();
+            }
           }
           // TEXT_MESSAGE_CONTENT
           else if (type === 'TEXT_MESSAGE_CONTENT') {
@@ -3030,7 +3034,7 @@ async function loadChatHistory() {
     inner.innerHTML = '';
     for (const msg of localHist) {
       if (msg.role === 'user') addUserBubble(msg.content);
-      else if (msg.role === 'assistant') addAIBubble(msg.content);
+      else if (msg.role === 'assistant') addAIBubble(msg.content, {skipDocDetect: true});
     }
     const c = chatHistory.find(c => c.id === tid);
     if (c) document.getElementById('headerTitle').textContent = c.title || '对话';
@@ -3083,7 +3087,7 @@ async function loadChat(chatId) {
     hist = localHist;
     for (const msg of localHist) {
       if (msg.role === 'user') addUserBubble(msg.content);
-      else if (msg.role === 'assistant') addAIBubble(msg.content);
+      else if (msg.role === 'assistant') addAIBubble(msg.content, {skipDocDetect: true});
     }
     // 恢复推理链路（优先 localStorage，fallback 服务端）
     const localTrace = loadTraceFromStorage(chatId);
