@@ -61,10 +61,18 @@ class SkillsTool(BaseTool):
             # inline 模式：Skill 已通过 allowed-tools 完成执行，result 就是最终结果
             # 不要包含 SOP 指令文本，只返回执行结果
             return result
-        elif result and len(result) > 200:
-            # fork 模式：子 Agent 已执行完毕，结果是完整报告，直接输出
-            return f"[技能执行完成，以下是完整分析报告，请直接输出给用户，不要再调用其他工具]\n\n{result}"
-        return result
+        else:
+            # fork 模式：子 Agent 已执行完毕，结果是完整报告
+            # 通过 dispatch_custom_event 直接发送给前端（绕过主 Agent LLM）
+            if result and len(result) > 200:
+                try:
+                    from langchain_core.callbacks import dispatch_custom_event
+                    dispatch_custom_event("agent_text", {"content": result})
+                except Exception:
+                    pass
+                # 返回简短确认给主 Agent，避免 LLM 重复输出
+                return f"[技能 {skill_name} 的分析报告已直接发送给用户（{len(result)}字）。不要重复输出报告内容。]"
+            return result
 
     @staticmethod
     def _normalize_arguments(arguments: dict[str, Any] | None) -> dict[str, str]:

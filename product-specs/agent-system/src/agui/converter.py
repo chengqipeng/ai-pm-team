@@ -131,7 +131,8 @@ class AGUIConverter:
                 yield e
         elif kind == "on_chat_model_start":
             # 记录 LLM 推理开始到 tracing_middleware（由 mw_span flush 推送）
-            if not is_sub_agent:
+            # 只记录主 Agent 的顶层 LLM 调用（parent_ids 深度 <= 2 排除子 Agent）
+            if not is_sub_agent and len(parent_ids) <= 2:
                 self._step_index += 1
                 try:
                     from src.middleware.tracing import tracing_middleware
@@ -146,7 +147,7 @@ class AGUIConverter:
                     pass
         elif kind == "on_chat_model_end":
             # 记录 LLM 推理结束（含 tool_calls 决策）
-            if not is_sub_agent:
+            if not is_sub_agent and len(parent_ids) <= 2:
                 output = data.get("output", None)
                 tool_calls = []
                 is_final = True

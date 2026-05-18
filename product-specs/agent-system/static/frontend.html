@@ -487,6 +487,32 @@ let liveSpans = [];
 let generatedDocs = []; // 生成的文档列表
 let currentPreviewDoc = null; // 当前预览的文档
 
+// ═══ 会话 localStorage 持久化 ═══
+function saveHistToStorage() {
+  try {
+    const key = `deepagent_hist_${tid}`;
+    localStorage.setItem(key, JSON.stringify(hist.slice(-50))); // 最多保存 50 条
+  } catch(e) {}
+}
+function loadHistFromStorage(threadId) {
+  try {
+    const key = `deepagent_hist_${threadId}`;
+    const data = localStorage.getItem(key);
+    return data ? JSON.parse(data) : [];
+  } catch(e) { return []; }
+}
+function saveChatListToStorage() {
+  try {
+    localStorage.setItem('deepagent_chat_list', JSON.stringify(chatHistory.slice(0, 100)));
+  } catch(e) {}
+}
+function loadChatListFromStorage() {
+  try {
+    const data = localStorage.getItem('deepagent_chat_list');
+    return data ? JSON.parse(data) : [];
+  } catch(e) { return []; }
+}
+
 // 持久化用户 ID（优先从后端获取真实用户信息，fallback 到 localStorage 随机 ID）
 let userId = localStorage.getItem('deepagent_user_id') || '';
 let userName = '';
@@ -671,6 +697,7 @@ function renderHistoryItem(title, active, chatId) {
 }
 
 function renderChatList() {
+  saveChatListToStorage(); // 持久化到 localStorage
   const todayItems = document.getElementById('chatListTodayItems');
   const yesterdayItems = document.getElementById('chatListYesterdayItems');
 
@@ -2004,6 +2031,7 @@ async function sendAgui(text, extra) {
   if (text) {
     addUserBubble(text);
     hist.push({ role: 'user', content: text });
+    saveHistToStorage();
     if (hist.filter(h => h.role === 'user').length === 1) {
       const title = text.length > 20 ? text.slice(0, 20) + '...' : text;
       document.getElementById('headerTitle').textContent = title;
@@ -2223,6 +2251,7 @@ async function sendAgui(text, extra) {
     }
     if (aiContent) {
       hist.push({ role: 'assistant', content: aiContent });
+      saveHistToStorage();
     }
 
   } catch(e) {
@@ -2250,6 +2279,7 @@ async function send(overrideText) {
   // 显示用户消息
   addUserBubble(text);
   hist.push({ role: 'user', content: text });
+  saveHistToStorage();
 
   // 更新标题
   if (hist.filter(h => h.role === 'user').length === 1) {
@@ -2653,6 +2683,7 @@ async function send(overrideText) {
           addAIBubble(aiContent);
         }
         hist.push({ role: 'assistant', content: aiContent });
+        saveHistToStorage();
       }
     } else {
       // JSON 响应（同步模式）
@@ -2660,6 +2691,7 @@ async function send(overrideText) {
       const reply = data.response || data.content || data.message || JSON.stringify(data);
       addAIBubble(reply);
       hist.push({ role: 'assistant', content: reply });
+      saveHistToStorage();
 
       // 处理 trace spans
       if (data.trace && data.trace.spans) {
@@ -2769,22 +2801,52 @@ async function send(overrideText) {
 
 // ═══ 加载对话历史 ═══
 async function loadChatHistory() {
+  // 从 localStorage 加载本地会话列表
+  const localList = loadChatListFromStorage();
+
   try {
     const r = await (await fetch(API + '/api/conversations?limit=50')).json();
     const convs = r.conversations || [];
     chatHistory = convs.map(c => ({ id: c.thread_id, title: c.title || '对话', time: c.last_time || 0 }));
-    if (!chatHistory.find(c => c.id === tid)) {
-      chatHistory.unshift({ id: tid, title: '新对话', time: Date.now() / 1000 });
-    }
   } catch(e) {
-    chatHistory = [{ id: tid, title: '新对话', time: Date.now() / 1000 }];
+    chatHistory = [];
+  }
+
+  // 合并 localStorage 中的会话（去重，localStorage 优先）
+  for (const lc of localList) {
+    if (!chatHistory.find(c => c.id === lc.id)) {
+      chatHistory.push(lc);
+    }
+  }
+  // 按时间排序
+  chatHistory.sort((a, b) => (b.time || 0) - (a.time || 0));
+
+  if (!chatHistory.find(c => c.id === tid)) {
+    chatHistory.unshift({ id: tid, title: '新对话', time: Date.now() / 1000 });
   }
   renderChatList();
 
-  // 刷新后自动恢复当前对话内容（如果 tid 对应已有会话）
-  const current = chatHistory.find(c => c.id === tid);
-  if (current && current.title !== '新对话') {
-    loadChat(tid);
+  // 刷新后自动恢复当前对话内容
+  const localHist = loadHistFromStorage(tid);
+  if (localHist.length > 0) {
+    // localStorage 有数据 — 直接恢复（无需请求服务端）
+    hist = localHist;
+    const inner = document.getElementById('chatInner');
+    const w = document.getElementById('welcomeBlock');
+    if (w) w.remove();
+    inner.innerHTML = '';
+    for (const msg of localHist) {
+      if (msg.role === 'user') addUserBubble(msg.content);
+      else if (msg.role === 'assistant') addAIBubble(msg.content);
+    }
+    const c = chatHistory.find(c => c.id === tid);
+    if (c) document.getElementById('headerTitle').textContent = c.title || '对话';
+  } else {
+    // fallback: 从服务端加载
+    const current = chatHistory.find(c => c.id === tid);
+    if (current && current.title !== '新对话') {
+      loadChat(tid);
+    }
   }
 }
 
@@ -2800,6 +2862,19 @@ async function loadChat(chatId) {
   const inner = document.getElementById('chatInner');
   inner.innerHTML = '<div class="text-center text-gray-400 text-xs py-10">加载中...</div>';
 
+  // 优先从 localStorage 恢复消息
+  const localHist = loadHistFromStorage(chatId);
+  if (localHist.length > 0) {
+    inner.innerHTML = '';
+    hist = localHist;
+    for (const msg of localHist) {
+      if (msg.role === 'user') addUserBubble(msg.content);
+      else if (msg.role === 'assistant') addAIBubble(msg.content);
+    }
+    return;
+  }
+
+  // fallback: 从服务端加载（SSE 模式的历史数据）
   try {
     // 使用新 API 一次性获取消息 + spans
     const r = await (await fetch(API + '/api/conversations/' + chatId + '/messages')).json();

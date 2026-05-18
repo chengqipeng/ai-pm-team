@@ -456,17 +456,26 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
                     if render_type and ops:
                         thread_store.record_activity(req.thread_id, render_type, ops)
                 yield event.to_sse()
+
+            # 流正常结束 — 持久化会话到 ai_conversation
+            if trace is not None:
+                try:
+                    tracer.finish_trace(trace.trace_id, "success", "")
+                    from src.store.trace_writer import TraceWriter
+                    from src.core.context import DEFAULT_TENANT_ID
+                    _tw = TraceWriter(tenant_id=DEFAULT_TENANT_ID)
+                    trace_final = tracer.get_trace(trace.trace_id)
+                    if trace_final:
+                        _tw.on_trace_finish(trace_final)
+                except Exception as _te:
+                    logger.warning("AG-UI conversation persist failed: %s", _te)
+
         except Exception as exc:
             logger.exception("execute_agui failed")
-            # 产出一个 RUN_ERROR 再结束流
             from src.agui import run_error
             yield run_error("INTERNAL_ERROR", code=type(exc).__name__).to_sse()
         finally:
-            if trace is not None:
-                try:
-                    trace.finish("success")
-                except Exception:
-                    pass
+            pass
 
     return StreamingResponse(
         generator(),
