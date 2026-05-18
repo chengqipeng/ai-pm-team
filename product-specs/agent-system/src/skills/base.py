@@ -626,8 +626,6 @@ class SkillExecutor:
                 }},
             )
         except RuntimeError as rte:
-            # Event loop is closed — 缓存的 Agent graph 可能绑定了旧的 event loop
-            # 清除缓存后重试一次
             if "Event loop is closed" in str(rte) or "closed" in str(rte).lower():
                 logger.warning("[skill] Fork RuntimeError (event loop), invalidate cache and retry: %s", rte)
                 self._agent_factory.invalidate(agent_name)
@@ -651,10 +649,30 @@ class SkillExecutor:
                     detail=str(rte),
                 ) from rte
         except Exception as exc:
-            raise SkillExecutionError(
-                skill_name=skill.name,
-                detail=str(exc),
-            ) from exc
+            # 检查 cause chain 中是否有 Event loop is closed（可能被包装）
+            exc_str = str(exc) + str(exc.__cause__ or '')
+            if "Event loop is closed" in exc_str or "loop is closed" in exc_str.lower():
+                logger.warning("[skill] Fork Exception (event loop wrapped), invalidate cache and retry: %s", exc)
+                self._agent_factory.invalidate(agent_name)
+                agent = await self._agent_factory.build(agent_name, self._current_depth)
+                try:
+                    result = await agent.ainvoke(
+                        {"messages": messages},
+                        config={"configurable": {
+                            "thread_id": sub_thread_id,
+                            "skip_memory_extract": True,
+                        }},
+                    )
+                except Exception as exc2:
+                    raise SkillExecutionError(
+                        skill_name=skill.name,
+                        detail=str(exc2),
+                    ) from exc2
+            else:
+                raise SkillExecutionError(
+                    skill_name=skill.name,
+                    detail=str(exc),
+                ) from exc
 
         output = self._extract_output(result)
         logger.info("[skill] Fork 完成: name=%s, agent=%s, thread=%s, output_len=%d",

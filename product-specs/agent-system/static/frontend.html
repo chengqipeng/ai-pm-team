@@ -2256,6 +2256,8 @@ async function sendAgui(text, extra) {
     let textMsgActive = false;
     let textMsgFinalized = false; // 标记第一轮 TEXT_MESSAGE 已完成（防止 skill_result + LLM 双重输出）
     let seenToolCalls = new Set(); // 去重 TOOL_CALL_START
+    window._skillStepAdded = false; // 技能执行步骤只添加一次
+    window._subLoopCount = 0;
 
     // AG-UI SSE 格式: "event: TYPE\ndata: {...}\n\n"
     let currentEventType = '';
@@ -2288,15 +2290,15 @@ async function sendAgui(text, extra) {
           // TEXT_MESSAGE_START
           else if (type === 'TEXT_MESSAGE_START') {
             textMsgActive = true;
-            // 如果已经输出过一轮内容（skill_result 直出），忽略后续的 TEXT_MESSAGE 流
-            if (textMsgFinalized) continue;
+            // 如果已经输出过内容，忽略后续的 TEXT_MESSAGE 流（防止重复气泡）
+            if (textMsgFinalized || aiContent.length > 0) continue;
             if (!_aguiStreamEl) {
               addAiBubbleStart();
             }
           }
           // TEXT_MESSAGE_CONTENT
           else if (type === 'TEXT_MESSAGE_CONTENT') {
-            if (textMsgFinalized) continue; // 忽略重复输出
+            if (textMsgFinalized || (aiContent.length > 0 && !textMsgActive)) continue;
             const delta = data.delta || (data.data && data.data.delta) || '';
             if (delta) {
               aiContent += delta;
@@ -2319,10 +2321,15 @@ async function sendAgui(text, extra) {
             const dedupeKey = toolName + ':' + (toolCallId || String(Date.now()));
             if (!seenToolCalls.has(dedupeKey)) {
               seenToolCalls.add(dedupeKey);
-              // skills_tool 开始时显示"生成中"占位（fork skill 执行可能较长）
-              if (toolName === 'skills_tool' && !_aguiStreamEl) {
-                addAiBubbleStart();
-                updateAiBubble('<div class="flex items-center gap-2 text-gray-400 text-sm"><div class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>正在分析生成中...</div>');
+              // skills_tool 开始时显示"生成中"占位 + 左侧步骤标记（只执行一次）
+              if (toolName === 'skills_tool' && !window._skillStepAdded) {
+                window._skillStepAdded = true;
+                if (!_aguiStreamEl) {
+                  addAiBubbleStart();
+                  updateAiBubble('<div class="flex items-center gap-2 text-gray-400 text-sm"><div class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>正在分析生成中...</div>');
+                }
+                window._subLoopCount = 0;
+                addStep('⚡ 技能执行 (fork) 中...', 'run');
               }
             }
           }
@@ -2387,8 +2394,15 @@ async function sendAgui(text, extra) {
                 input_data: sp.input_data || {}, output_data: sp.output_data || {}, metadata: meta,
               });
               // 关键步骤也显示在左侧
-              if (['content_review', 'query_rewrite', 'context_build', 'memory_retrieval', 'intent_analysis', 'memory_extract'].includes(spanType)) {
+              if (['content_review', 'query_rewrite', 'context_build', 'memory_retrieval', 'memory_extract'].includes(spanType)) {
                 addStep(`${stepName}`, 'done');
+              } else if (spanType === 'skill_execution') {
+                // 技能执行完成 — 更新左侧步骤状态（从"执行中"变为"完成"）
+                const skillMeta = meta || {};
+                const sName = skillMeta.skill_name || '';
+                const sMode = skillMeta.context_mode || 'inline';
+                const sDur = sp.duration_ms ? ` ${Math.round(sp.duration_ms / 1000)}s` : '';
+                addStep(`✓ 技能: ${sName} (${sMode})${sDur}`, 'done');
               }
             }
             else if (name === 'sub_agent_span') {
@@ -2408,10 +2422,20 @@ async function sendAgui(text, extra) {
                   break;
                 }
               }
-              // 左侧步骤：只显示 tool_call 类型（关键操作），其他细节不显示
+              // 左侧步骤：参照右侧链路逻辑，按循环显示
               const subType = sp.type || '';
-              if (subType === 'tool_call') {
-                addStep(`子Agent: ${sp.name || ''}`, 'done', {indent: true});
+              const subMeta = sp.metadata || {};
+              const subMwName = subMeta.middleware_name || sp.name || '';
+              const subMwPhase = subMeta.phase || '';
+              if (subType === 'middleware' && (subMwName.includes('ContextWindow') || subMwName.includes('Summarization')) && subMwPhase === 'before_model') {
+                // before_model 标志新循环 — 更新步骤为"循环 N"
+                if (!window._subLoopCount) window._subLoopCount = 0;
+                window._subLoopCount++;
+              } else if (subType === 'tool_call') {
+                const toolName = (sp.name || '').replace('tool:', '');
+                const loopNum = window._subLoopCount || 1;
+                const dur = sp.duration_ms ? ` ${Math.round(sp.duration_ms)}ms` : '';
+                addStep(`  循环${loopNum}: ${toolName}${dur}`, 'done', {indent: true});
               }
             }
             else if (name === 'llm_start') {
