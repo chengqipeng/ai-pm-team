@@ -266,6 +266,10 @@ class MemoryMiddleware(AgentMiddleware):
         tenant_id = configurable.get("tenant_id", "default")
         user_id = configurable.get("user_id")
 
+        # 子 Agent（fork 模式）不提取记忆 — 由父 Agent 统一处理
+        if configurable.get("skip_memory_extract"):
+            return None
+
         # 1. 异步提取记忆 — 只传最近的用户原始消息（排除 middleware 注入的指令）
         #    取最后 N 条 HumanMessage 作为提取输入
         recent_user_messages = [m for m in messages if isinstance(m, HumanMessage)][-3:]

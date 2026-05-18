@@ -507,31 +507,52 @@ class SkillExecutor:
 
     @staticmethod
     def _collect_sub_agent_spans(sub_thread_id: str) -> list[dict]:
-        """从 TracingMiddleware 中收集子 Agent 的 tool_call spans 作为 children
+        """从 TracingMiddleware 中收集子 Agent 的完整执行链路 spans
 
         fork 模式的子 Agent 运行在独立 thread 中，其 spans 被写入了子 thread_id。
-        这里提取 tool_call 和 llm_call 类型的 spans，作为父级 skill_execution 的 children 展示。
+        提取完整的执行步骤链路：context_build、middleware、llm_call、tool_call 等，
+        按原始顺序保留，供前端展示子 Agent 的完整执行过程。
         """
         try:
             from src.middleware.tracing import tracing_middleware
             sub_spans = tracing_middleware.get_spans(sub_thread_id)
+            logger.info("[skill] Collecting sub-agent spans: thread=%s, total=%d, types=%s",
+                        sub_thread_id, len(sub_spans),
+                        [s.get("type", "") for s in sub_spans[:20]])
             children = []
             for s in sub_spans:
                 s_type = s.get("type", "")
-                if s_type in ("tool_call", "skill_execution", "llm_call"):
-                    children.append({
-                        "type": s_type,
-                        "name": s.get("name", ""),
-                        "duration_ms": s.get("duration_ms", 0),
-                        "metadata": {
-                            "tool_name": s.get("metadata", {}).get("tool_name", ""),
-                            "status": s.get("metadata", {}).get("status", "success"),
-                        },
-                    })
+                s_meta = s.get("metadata", {})
+                # 跳过纯日志类中间件（AgentLogging / Tracing 自身）
+                if s_type == "middleware":
+                    mw_name = s_meta.get("middleware_name", "")
+                    if mw_name in ("AgentLoggingMiddleware", "TracingMiddleware"):
+                        continue
+                # 跳过前端隐藏的类型（与主 Agent HIDDEN_SPAN_TYPES 一致）
+                if s_type in ("llm_input", "intent_analysis", "request", "clarification", "memory_extract"):
+                    continue
+                child = {
+                    "type": s_type,
+                    "name": s.get("name", ""),
+                    "duration_ms": s.get("duration_ms", 0),
+                    "detail": s.get("detail", ""),
+                    "input_data": s.get("input_data", {}),
+                    "output_data": s.get("output_data", {}),
+                    "metadata": {
+                        "tool_name": s_meta.get("tool_name", ""),
+                        "status": s_meta.get("status", s.get("status", "success")),
+                        "middleware_name": s_meta.get("middleware_name", ""),
+                        "phase": s_meta.get("phase", ""),
+                        "has_effect": s_meta.get("has_effect", False),
+                    },
+                }
+                children.append(child)
             # 清理子 Agent 的 spans（已合并到父级 children 中）
             tracing_middleware.clear(sub_thread_id)
+            logger.info("[skill] Collected %d children from sub-agent %s", len(children), sub_thread_id)
             return children
-        except Exception:
+        except Exception as e:
+            logger.warning("[skill] _collect_sub_agent_spans failed: %s", e)
             return []
 
     async def _async_optimize(self, skill_name: str) -> None:
@@ -589,7 +610,10 @@ class SkillExecutor:
         try:
             result = await agent.ainvoke(
                 {"messages": messages},
-                config={"configurable": {"thread_id": sub_thread_id}},
+                config={"configurable": {
+                    "thread_id": sub_thread_id,
+                    "skip_memory_extract": True,  # 子 Agent 不提取记忆，由父 Agent 统一处理
+                }},
             )
         except RuntimeError as rte:
             # Event loop is closed — 缓存的 Agent graph 可能绑定了旧的 event loop
@@ -601,7 +625,10 @@ class SkillExecutor:
                 try:
                     result = await agent.ainvoke(
                         {"messages": messages},
-                        config={"configurable": {"thread_id": sub_thread_id}},
+                        config={"configurable": {
+                            "thread_id": sub_thread_id,
+                            "skip_memory_extract": True,
+                        }},
                     )
                 except Exception as exc2:
                     raise SkillExecutionError(

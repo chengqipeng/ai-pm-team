@@ -242,22 +242,58 @@ class NeoAgentV2Adapter:
 
         astream = agent.astream_events(input_data, config=config, version="v2")
 
-        # 拦截流：RUN_FINISHED 暂存到最后，实时 flush mw_spans
+        # 实时推送 mw_spans：后台 task 消费 AG-UI 事件流放入 queue，
+        # 主循环从 queue 取事件并定期检查 tracing spans。
+        # 解决 skill fork 执行期间无 AG-UI 事件导致链路不实时更新的问题。
         _run_finished_event = None
         _last_mw_idx = 0
-        async for event in renderer.process(converter.convert(astream)):
-            t_val = getattr(event.type, "value", None) or str(event.type)
-            if "RUN_FINISHED" in t_val:
-                _run_finished_event = event
-            else:
-                yield event
+        _event_queue: asyncio.Queue = asyncio.Queue()
+        _SENTINEL = object()  # 标记流结束
 
-            # 每次事件循环检查是否有新的 mw_spans（实时推送）
-            _current_spans = tracing_middleware.get_spans(thread_id)
-            if len(_current_spans) > _last_mw_idx:
-                for sp in _current_spans[_last_mw_idx:]:
-                    yield _m.custom_event("mw_span", sp)
-                _last_mw_idx = len(_current_spans)
+        async def _consume_agui_stream():
+            """后台消费 AG-UI 事件流，写入 queue"""
+            try:
+                async for event in renderer.process(converter.convert(astream)):
+                    await _event_queue.put(event)
+            except Exception as exc:
+                await _event_queue.put(exc)
+            finally:
+                await _event_queue.put(_SENTINEL)
+
+        consume_task = asyncio.create_task(_consume_agui_stream())
+
+        try:
+            while True:
+                # 从 queue 取事件（150ms 超时，超时后检查 spans）
+                try:
+                    item = await asyncio.wait_for(_event_queue.get(), timeout=0.15)
+                except asyncio.TimeoutError:
+                    item = None  # 超时 = 暂无事件
+
+                if item is _SENTINEL:
+                    break
+                elif isinstance(item, Exception):
+                    break
+                elif item is not None:
+                    t_val = getattr(item.type, "value", None) or str(item.type)
+                    if "RUN_FINISHED" in t_val:
+                        _run_finished_event = item
+                    else:
+                        yield item
+
+                # 每次循环检查新的 mw_spans
+                _current_spans = tracing_middleware.get_spans(thread_id)
+                if len(_current_spans) > _last_mw_idx:
+                    for sp in _current_spans[_last_mw_idx:]:
+                        yield _m.custom_event("mw_span", sp)
+                    _last_mw_idx = len(_current_spans)
+        finally:
+            if not consume_task.done():
+                consume_task.cancel()
+                try:
+                    await consume_task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
         # ── 推送 Agent 执行期间剩余的中间件 spans（后处理阶段）──
         # 等待异步 memory_extract 任务完成（MemoryMiddleware.aafter_agent 使用 create_task 派发，

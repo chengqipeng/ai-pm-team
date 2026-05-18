@@ -59,7 +59,8 @@
 <li><a href="#八反思修正机制">八、反思修正机制</a></li>
 <li><a href="#九vikingfs-虚拟文件系统">九、VikingFS 虚拟文件系统</a></li>
 <li><a href="#十记忆与系统数据边界">十、记忆与系统数据边界</a></li>
-<li><a href="#十一记忆提取测试场景">十一、记忆提取测试场景</a></li>
+<li><a href="#十一子agent记忆提取限制">十一、子Agent记忆提取限制</a></li>
+<li><a href="#十二记忆提取测试场景">十二、记忆提取测试场景</a></li>
 </ul>
 <hr>
 <h2 id="_3">整体架构设计图</h2>
@@ -1956,9 +1957,212 @@ viking://agent/memories/
 <li>source_type="system_data" 的记忆在检索结果中附加提示：<code>[建议用工具实时查询确认最新数据]</code></li>
 </ul>
 <hr>
-<h2 id="_12">十一、记忆提取测试场景</h2>
+<h2 id="_12">十一、子Agent记忆提取限制</h2>
+<h3 id="111-design-principle">11.1 设计原则</h3>
+<p><strong>核心规则：子Agent（Sub-Agent）不具备记忆提取能力，不能触发记忆写入流水线。</strong></p>
+<p>记忆提取仅在主Agent（顶层Agent）的对话上下文中触发。子Agent 作为主Agent 分派的任务执行单元，其对话内容不进入记忆系统的提取链路。</p>
+<blockquote>
+<p>设计依据：记忆系统记录的是用户与 Agent 之间的直接交互中产生的长期认知。子Agent 的执行过程是主Agent 内部的"工作过程"，不代表用户意图的直接表达，也不包含需要跨会话复用的增量认知。</p>
+</blockquote>
+
+<h3 id="112-why">11.2 为什么子Agent不能提取记忆</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">维度</th>
+<th style="text-align: left;">问题</th>
+<th style="text-align: left;">说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">信息来源不可靠</td>
+<td style="text-align: left;">子Agent 的输出是中间推理产物，非用户直接表达</td>
+<td style="text-align: left;">用户说"帮我分析华为的情况"，子Agent 可能生成大量分析文本，但这些是 Agent 的推理结果而非用户透露的增量认知。将其作为记忆提取源会引入大量噪声。</td>
+</tr>
+<tr>
+<td style="text-align: left;">上下文污染</td>
+<td style="text-align: left;">子Agent 的对话历史混入会导致提取提示词语义漂移</td>
+<td style="text-align: left;">记忆提取依赖 <code>{existing_profile}</code>、<code>{existing_preferences}</code> 等已有状态注入。子Agent 的执行上下文不包含这些状态，盲目提取会导致重复记忆或分类错误。</td>
+</tr>
+<tr>
+<td style="text-align: left;">合并冲突</td>
+<td style="text-align: left;">子Agent 产出的"事实"可能与用户实际表达矛盾</td>
+<td style="text-align: left;">子Agent 可能基于工具返回数据做推断（如"华为ERP项目应该已签约"），但用户后续可能纠正。如果子Agent 的推断已被提取为记忆，会造成合并冲突和记忆污染。</td>
+</tr>
+<tr>
+<td style="text-align: left;">LLM 成本膨胀</td>
+<td style="text-align: left;">子Agent 执行频率远高于主Agent 对话轮次</td>
+<td style="text-align: left;">一次用户请求可能触发多个子Agent 并行执行，每个子Agent 可能有多轮内部对话。如果每轮都触发 4 路并行 LLM 提取，成本将不可控。</td>
+</tr>
+<tr>
+<td style="text-align: left;">权限边界</td>
+<td style="text-align: left;">子Agent 是受限执行环境，不应拥有持久化写入能力</td>
+<td style="text-align: left;">子Agent 的设计原则是"执行完即销毁"，不保留状态。赋予其记忆写入能力违背了最小权限原则。</td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="113-implementation">11.3 实现机制</h3>
+<h4 id="1131">11.3.1 MemoryMiddleware 调用方身份识别</h4>
+<pre><code>MemoryMiddleware.aafter_agent() 记忆提取入口:
+
+  def aafter_agent(self, context: AgentContext):
+      # 子Agent 直接跳过记忆提取
+      if context.agent_type == "sub_agent":
+          logger.debug(f"跳过子Agent记忆提取: agent_id={context.agent_id}")
+          return
+
+      # 只有主Agent（顶层Agent）才进入提取流水线
+      if context.agent_type != "main_agent":
+          return
+
+      # 正常提取流程...
+      await self._extract_and_update(context)
+</code></pre>
+
+<h4 id="1132">11.3.2 Agent 类型标识传递</h4>
+<pre><code>Agent 类型在创建时确定，通过 context 传递:
+
+主Agent 创建:
+  context.agent_type = "main_agent"
+  context.parent_agent_id = None
+
+子Agent 创建（由主Agent 分派）:
+  context.agent_type = "sub_agent"
+  context.parent_agent_id = main_agent.agent_id
+
+判断链路:
+  用户消息 → 主Agent → MemoryMiddleware.aafter_agent() → ✅ 触发提取
+  主Agent → 分派子Agent → 子Agent执行完毕 → MemoryMiddleware.aafter_agent() → ❌ 跳过提取
+</code></pre>
+
+<h4 id="1133">11.3.3 记忆读取权限（子Agent可读不可写）</h4>
+<pre><code>子Agent 的记忆访问权限:
+
+  ┌──────────────┬──────────┬──────────┐
+  │ 操作          │ 主Agent  │ 子Agent  │
+  ├──────────────┼──────────┼──────────┤
+  │ 记忆检索注入  │ ✅        │ ✅*      │
+  │ memory_read  │ ✅        │ ✅*      │
+  │ 记忆提取写入  │ ✅        │ ❌       │
+  │ 记忆合并      │ ✅        │ ❌       │
+  │ 记忆删除      │ ✅        │ ❌       │
+  └──────────────┴──────────┴──────────┘
+
+  * 子Agent 可以读取记忆（继承主Agent 的 user_id/tenant_id），
+    但读取结果不会触发 active_count 更新（避免子Agent 高频执行导致热度指标失真）。
+
+设计理由:
+  - 允许读取: 子Agent 执行任务时可能需要参考用户的偏好或历史信息
+    （如"帮我写邮件"的子Agent 需要知道用户偏好的邮件风格）
+  - 禁止写入: 子Agent 的执行产物不应污染用户的长期记忆
+  - 不更新热度: 子Agent 一次任务可能触发数十次检索，如果每次都更新
+    active_count，会导致热度指标失去"用户真实使用频率"的含义
+</code></pre>
+
+<h3 id="114-boundary">11.4 边界场景处理</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">场景</th>
+<th style="text-align: left;">处理方式</th>
+<th style="text-align: left;">说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">子Agent 执行中用户发了新消息</td>
+<td style="text-align: left;">新消息由主Agent 处理，正常触发提取</td>
+<td style="text-align: left;">用户直接交互始终走主Agent 链路</td>
+</tr>
+<tr>
+<td style="text-align: left;">子Agent 返回结果后主Agent 继续对话</td>
+<td style="text-align: left;">主Agent 的 aafter_agent 正常触发提取</td>
+<td style="text-align: left;">主Agent 整合子Agent 结果后回复用户，该轮对话正常进入提取</td>
+</tr>
+<tr>
+<td style="text-align: left;">子Agent 调用工具获得了用户相关的新信息</td>
+<td style="text-align: left;">不提取，由主Agent 回复时体现</td>
+<td style="text-align: left;">子Agent 工具返回的信息会传回主Agent，主Agent 如果将其体现在回复中，用户确认后的对话才会触发提取</td>
+</tr>
+<tr>
+<td style="text-align: left;">子Agent 嵌套调用子Agent（多层级）</td>
+<td style="text-align: left;">所有非顶层 Agent 一律不提取</td>
+<td style="text-align: left;">无论嵌套深度如何，只有 <code>agent_type == "main_agent"</code> 才触发提取</td>
+</tr>
+<tr>
+<td style="text-align: left;">Skill 执行（类子Agent）</td>
+<td style="text-align: left;">Skill 执行过程不触发记忆提取</td>
+<td style="text-align: left;">Skill 作为 Agent 的工具调用，其内部执行过程等同子Agent，不具备记忆写入能力</td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="115-data-flow">11.5 数据流对比</h3>
+<pre><code>━━━ 主Agent 对话（触发记忆提取）━━━
+
+  用户: "张伟说话很直接，汇报要用PPT"
+    │
+    ▼
+  主Agent 处理 → 回复用户
+    │
+    ▼
+  MemoryMiddleware.aafter_agent()
+    │ context.agent_type == "main_agent" → ✅ 进入提取
+    ▼
+  4路并行LLM提取 → entities: "华为科技/张伟: 说话直接，汇报用PPT"
+    │
+    ▼
+  写入向量库 + PG
+
+
+━━━ 子Agent 执行（不触发记忆提取）━━━
+
+  用户: "帮我分析华为所有联系人的沟通风格"
+    │
+    ▼
+  主Agent 分派子Agent:
+    子Agent-1: 查询华为联系人列表
+    子Agent-2: 分析各联系人沟通记录
+    │
+    ├── 子Agent-1 执行完毕
+    │   MemoryMiddleware.aafter_agent()
+    │   context.agent_type == "sub_agent" → ❌ 跳过
+    │
+    ├── 子Agent-2 执行完毕
+    │   MemoryMiddleware.aafter_agent()
+    │   context.agent_type == "sub_agent" → ❌ 跳过
+    │
+    ▼
+  主Agent 整合结果 → 回复用户: "华为联系人沟通风格分析..."
+    │
+    ▼
+  MemoryMiddleware.aafter_agent()
+    │ context.agent_type == "main_agent" → ✅ 进入提取
+    ▼
+  4路并行LLM提取 → 从主Agent回复+用户消息中提取
+  （子Agent的中间推理过程不进入提取源文本）
+</code></pre>
+
+<h3 id="116-config">11.6 配置与监控</h3>
+<pre><code>配置项（环境变量）:
+  MEMORY_EXTRACT_AGENT_TYPES=main_agent    # 允许触发提取的 agent_type 列表
+  MEMORY_READ_ACTIVE_COUNT_TYPES=main_agent # 触发 active_count 更新的 agent_type 列表
+
+监控指标:
+  memory.extract.skipped_sub_agent   # 被跳过的子Agent提取次数（应大于0）
+  memory.extract.triggered_main      # 主Agent正常触发提取次数
+  memory.read.sub_agent_access       # 子Agent读取记忆次数（观察是否合理）
+
+日志示例:
+  [INFO] MemoryMiddleware: 跳过子Agent记忆提取 agent_id=sub_abc123 parent=main_xyz789
+  [DEBUG] MemoryMiddleware: 子Agent读取记忆(不更新热度) agent_id=sub_abc123 query="邮件风格"
+</code></pre>
+<hr>
+<h2 id="_13">十二、记忆提取测试场景</h2>
 <p>本节提供四个维度（profile / preferences / agent_rules / entities）的记忆提取测试用例，每个维度至少 50 条，覆盖正例、边界、易混淆场景。用于验证提取 Prompt 的分类准确性。</p>
-<h3 id="111-profile">11.1 Profile 类别测试用例</h3>
+<h3 id="121-profile">12.1 Profile 类别测试用例</h3>
 <blockquote>
 <p><strong>提取规则回顾</strong>：用户稳定身份属性——"我/我们团队/我们公司"的角色、经验、地域、团队规模、组织业务/文化/工具。<br>
 <strong>排除</strong>：偏好(→preferences)、Agent指令(→agent_rules)、第三方事实(→entities)、一次性操作。</p>
@@ -2340,7 +2544,7 @@ viking://agent/memories/
 </tr>
 </tbody>
 </table>
-<h3 id="112-preferences">11.2 Preferences 类别测试用例</h3>
+<h3 id="122-preferences">12.2 Preferences 类别测试用例</h3>
 <blockquote>
 <p><strong>提取规则回顾</strong>：用户自身的习惯、喜好/厌恶、个人标准，可跨会话复用。<br>
 <strong>排除</strong>：Agent行为规则(→agent_rules)、身份/组织描述(→profile)、第三方偏好(→entities)、一次性反馈。</p>
@@ -2743,7 +2947,7 @@ viking://agent/memories/
 </tr>
 </tbody>
 </table>
-<h3 id="113-agent-rules">11.3 Agent Rules 类别测试用例</h3>
+<h3 id="123-agent-rules">12.3 Agent Rules 类别测试用例</h3>
 <blockquote>
 <p><strong>提取规则回顾</strong>：对Agent未来行为的持久约束。必须同时满足两个条件：(1) 行为目标是Agent的输出/过程；(2) 可跨未来场景复用。<br>
 <strong>排除</strong>：用户个人习惯(→preferences)、身份(→profile)、第三方事实(→entities)、一次性调整。</p>
@@ -3146,7 +3350,7 @@ viking://agent/memories/
 </tr>
 </tbody>
 </table>
-<h3 id="114-entities">11.4 Entities 类别测试用例</h3>
+<h3 id="124-entities">12.4 Entities 类别测试用例</h3>
 <blockquote>
 <p><strong>提取规则回顾</strong>：第三方客观事实——关系、业务、偏好、反馈、竞争情报。第三方 = 非用户本人、非用户组织、非Agent。只提取"增量洞察"，不提取CRM系统数据字段（金额、阶段、电话等）。<br>
 <strong>排除</strong>：用户简历(→profile)、用户偏好(→preferences)、Agent指令(→agent_rules)、提问/查询。</p>
@@ -3549,7 +3753,7 @@ viking://agent/memories/
 </tr>
 </tbody>
 </table>
-<h3 id="115">11.5 跨类别边界判断专项测试</h3>
+<h3 id="125">12.5 跨类别边界判断专项测试</h3>
 <blockquote>
 <p>以下用例专门测试容易混淆的边界场景，验证分类逻辑的鲁棒性。</p>
 </blockquote>

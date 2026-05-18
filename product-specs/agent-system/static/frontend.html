@@ -518,7 +518,7 @@ function saveTraceToStorage() {
       input_data: s.input_data || {},
       output_data: s.output_data || {},
       metadata: s.metadata || {},
-      children: s.children || [],
+      children: s.sub_agent_spans || s.children || [],
     }));
     localStorage.setItem(key, JSON.stringify(slim));
   } catch(e) {}
@@ -1079,15 +1079,166 @@ function renderTraceNode(span, idx, seqNum) {
   // ═══ 普通节点：[N] 步骤名 · Xms — 详细描述 ═══
   let subAgentHtml = '';
   if (hasSubAgent) {
-    subAgentHtml = `<div class="ml-[32px] pl-4 my-0.5 border-l-2 border-indigo-200 text-[10px] font-mono text-indigo-500 leading-[1.7]">`;
-    subAgentHtml += `<div>┌─ 子 Agent Loop (depth=${md.depth || 2}, thread=${esc(md.sub_thread_id || 'skill-*')}) ──┐</div>`;
-    span.sub_agent_spans.forEach((sub, si) => {
-      subAgentHtml += `<div>│  子循环 ${si + 1}: ${esc(sub.label || sub.name || '')}</div>`;
-    });
-    subAgentHtml += `<div>└${'─'.repeat(38)}┘</div>`;
-    if (md.sub_result) {
-      subAgentHtml += `<div class="text-gray-600">→ 返回: ${esc(truncStr(md.sub_result, 60))}</div>`;
+    // 子 Agent 链路：与主 Agent 相同的层级结构
+    subAgentHtml = `<div class="ml-[32px] pl-3 my-1 border-l-2 border-indigo-300/60 text-[10px] leading-[1.6]">`;
+
+    const subSpans = span.sub_agent_spans;
+
+    // 辅助：渲染输入/输出折叠
+    function subIO(s) {
+      const inp = s.input_data || {};
+      const out = s.output_data || {};
+      const hasData = (Object.keys(inp).length > 0) || (Object.keys(out).length > 0);
+      if (!hasData) return '';
+      const id = 'sub-io-' + Math.random().toString(36).slice(2,8);
+      let h = `<details class="pl-1 my-0.5 text-[9px]"><summary class="cursor-pointer text-blue-400 hover:text-blue-600 select-none">查看输入/输出</summary><div class="pl-2 text-gray-500 bg-gray-50 rounded p-1 my-0.5 max-h-[120px] overflow-auto">`;
+      if (Object.keys(inp).length > 0) h += `<div><span class="text-gray-600 font-medium">输入:</span> <pre class="inline whitespace-pre-wrap">${esc(JSON.stringify(inp, null, 2).slice(0, 500))}</pre></div>`;
+      if (Object.keys(out).length > 0) h += `<div class="mt-0.5"><span class="text-gray-600 font-medium">输出:</span> <pre class="inline whitespace-pre-wrap">${esc(JSON.stringify(out, null, 2).slice(0, 500))}</pre></div>`;
+      h += `</div></details>`;
+      return h;
     }
+
+    // 辅助：渲染一组中间件（按 phase 分组折叠）
+    function renderSubMwGroup(mws, indent) {
+      if (mws.length === 0) return '';
+      // 按 phase 分组
+      const groups = {};
+      mws.forEach(m => {
+        const ph = (m.metadata || {}).phase || 'other';
+        (groups[ph] = groups[ph] || []).push(m);
+      });
+      let h = '';
+      const phaseLabels = { 'before_model': '推理前', 'after_model': '推理后', 'wrap_tool_call': '调用前检查', 'before_agent': '准备阶段', 'after_agent': '结束阶段' };
+      for (const [ph, items] of Object.entries(groups)) {
+        const dur = items.reduce((s, m) => s + (m.duration_ms || 0), 0);
+        const durText = dur ? ` · ${Math.round(dur)}ms` : '';
+        const label = phaseLabels[ph] || ph;
+        h += `<details class="${indent} my-0.5"><summary class="cursor-pointer text-gray-400 hover:text-gray-600 select-none text-[9.5px]">⚙️ ${items.length} 个 ${label} 中间件${durText}</summary><div class="pl-3 text-gray-400 text-[9px]">`;
+        items.forEach(m => {
+          const mName = (m.metadata || {}).middleware_name || m.name || '';
+          const mDur = m.duration_ms ? ` ${Math.round(m.duration_ms)}ms` : '';
+          const effect = (m.metadata || {}).has_effect ? ' → 已修改' : '';
+          h += `<div>· ${esc(mName)}${mDur}${effect}</div>`;
+        });
+        h += `</div></details>`;
+      }
+      return h;
+    }
+
+    // 分离 context 和 reasoning 阶段
+    let contextEnd = 0;
+    for (let i = 0; i < subSpans.length; i++) {
+      const t = subSpans[i].type || '';
+      const mwPhase = (subSpans[i].metadata || {}).phase || '';
+      if (t === 'tool_call' || t === 'skill_execution') { contextEnd = i; break; }
+      if (t === 'middleware' && (mwPhase === 'before_model' || mwPhase === 'after_model' || mwPhase === 'wrap_tool_call')) { contextEnd = i; break; }
+      contextEnd = i + 1;
+    }
+
+    // ═══ 上下文准备 ═══
+    const ctxSpans = subSpans.slice(0, contextEnd);
+    if (ctxSpans.length > 0) {
+      subAgentHtml += `<div class="font-semibold text-gray-700 mb-0.5">📦 上下文准备</div>`;
+      const ctxMw = ctxSpans.filter(s => s.type === 'middleware');
+      const ctxNonMw = ctxSpans.filter(s => s.type !== 'middleware');
+      ctxNonMw.forEach(s => {
+        const dur = s.duration_ms ? ` · ${Math.round(s.duration_ms)}ms` : '';
+        const label = s.type === 'context_build' ? '上下文构建' : (s.type === 'memory_retrieval' ? '记忆检索' : (s.name || s.type));
+        subAgentHtml += `<div class="pl-3 text-gray-600">${esc(label)}${dur} <span class="text-gray-400">${esc(s.detail || '')}</span></div>`;
+        subAgentHtml += subIO(s);
+      });
+      subAgentHtml += renderSubMwGroup(ctxMw, 'pl-3');
+    }
+
+    // ═══ 模型推理 ═══
+    const reasonSpans = subSpans.slice(contextEnd);
+    if (reasonSpans.length > 0) {
+      subAgentHtml += `<div class="font-semibold text-gray-700 mt-1.5 mb-0.5">⚡ 模型推理</div>`;
+
+      let loopNum = 0;
+      let beforeModelBuf = [];
+      let afterModelBuf = [];
+      let wrapToolBuf = [];
+      let inLoop = false;
+
+      function flushBeforeModel() {
+        if (beforeModelBuf.length === 0) return '';
+        let h = renderSubMwGroup(beforeModelBuf, 'pl-5');
+        beforeModelBuf = [];
+        return h;
+      }
+      function flushAfterModel() {
+        if (afterModelBuf.length === 0) return '';
+        let h = renderSubMwGroup(afterModelBuf, 'pl-5');
+        afterModelBuf = [];
+        return h;
+      }
+      function flushWrapTool() {
+        if (wrapToolBuf.length === 0) return '';
+        let h = renderSubMwGroup(wrapToolBuf, 'pl-5');
+        wrapToolBuf = [];
+        return h;
+      }
+
+      for (let i = 0; i < reasonSpans.length; i++) {
+        const s = reasonSpans[i];
+        const sType = s.type || '';
+        const sMeta = s.metadata || {};
+        const mwPhase = sMeta.phase || '';
+
+        if (sType === 'middleware') {
+          const mwName = sMeta.middleware_name || s.name || '';
+          // SummarizationMiddleware(before_model) 标志新循环开始
+          if (mwName.includes('Summarization') && mwPhase === 'before_model' && beforeModelBuf.length === 0 && afterModelBuf.length === 0) {
+            // flush 上一轮剩余
+            subAgentHtml += flushAfterModel();
+            subAgentHtml += flushWrapTool();
+            loopNum++;
+            // 预扫描本轮的 tool_call 名称
+            let toolName = '';
+            for (let j = i + 1; j < reasonSpans.length; j++) {
+              if (reasonSpans[j].type === 'tool_call') { toolName = reasonSpans[j].name || ''; break; }
+              if (reasonSpans[j].type === 'middleware' && ((reasonSpans[j].metadata || {}).middleware_name || '').includes('Summarization') && (reasonSpans[j].metadata || {}).phase === 'before_model') break;
+            }
+            const loopLabel = toolName ? `调用 ${toolName.replace('tool:', '')}` : '生成最终回复 ✅';
+            subAgentHtml += `<div class="text-amber-600 font-medium mt-1.5 pl-2">├─ 循环 ${loopNum}</div>`;
+            inLoop = true;
+          }
+          // 按 phase 分桶
+          if (mwPhase === 'before_model') beforeModelBuf.push(s);
+          else if (mwPhase === 'after_model') afterModelBuf.push(s);
+          else if (mwPhase === 'wrap_tool_call') wrapToolBuf.push(s);
+          else beforeModelBuf.push(s); // fallback
+        } else if (sType === 'tool_call' || sType === 'skill_execution') {
+          // 正确的显示顺序：before_model → 推理节点 → after_model → wrap_tool_call → tool_call
+          subAgentHtml += flushBeforeModel();
+          // 插入推理节点（LLM 推理发生在 before_model 之后、after_model 之前）
+          const toolName = (s.name || '').replace('tool:', '');
+          subAgentHtml += `<div class="text-gray-700 pl-5">🧠 模型推理 → 决定调用 ${esc(toolName)}</div>`;
+          subAgentHtml += flushAfterModel();
+          subAgentHtml += flushWrapTool();
+          const toolStatus = sMeta.status === 'error' ? '<span class="text-red-500">❌</span>' : '<span class="text-green-600">✓</span>';
+          const dur = s.duration_ms ? ` · ${Math.round(s.duration_ms)}ms` : '';
+          subAgentHtml += `<div class="text-blue-600 pl-5 font-medium">${toolStatus} ${esc(s.name || '')}${dur}</div>`;
+          subAgentHtml += subIO(s);
+        } else {
+          subAgentHtml += flushBeforeModel();
+          subAgentHtml += flushAfterModel();
+          subAgentHtml += flushWrapTool();
+          const dur = s.duration_ms ? ` · ${Math.round(s.duration_ms)}ms` : '';
+          subAgentHtml += `<div class="pl-5 text-gray-600">${esc(s.name || sType)}${dur}</div>`;
+          subAgentHtml += subIO(s);
+        }
+      }
+      // flush 最终剩余（最后一轮是"生成最终回复"，没有 tool_call）
+      if (beforeModelBuf.length > 0 || afterModelBuf.length > 0) {
+        subAgentHtml += flushBeforeModel();
+        subAgentHtml += `<div class="text-gray-700 pl-5">🧠 模型推理 → 生成最终回复</div>`;
+        subAgentHtml += flushAfterModel();
+      }
+      subAgentHtml += flushWrapTool();
+    }
+
     subAgentHtml += `</div>`;
   }
 
@@ -2203,6 +2354,9 @@ async function sendAgui(text, extra) {
               if (sp.children && sp.children.length) {
                 children = sp.children.map(ch => ({
                   label: ch.name || ch.type || '', status: 'complete', duration_ms: ch.duration_ms || 0,
+                  type: ch.type || '', name: ch.name || '', detail: ch.detail || '',
+                  input_data: ch.input_data || {}, output_data: ch.output_data || {},
+                  metadata: ch.metadata || {},
                 }));
               }
               addLiveSpan({
@@ -2211,6 +2365,7 @@ async function sendAgui(text, extra) {
                 phase: sp.phase || '', detail: sp.detail || '',
                 desc: sp.detail || '', time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
                 duration_ms: sp.duration_ms || 0, children: children,
+                sub_agent_spans: (spanType === 'skill_execution' && children.length > 0) ? children : [],
                 input_data: sp.input_data || {}, output_data: sp.output_data || {}, metadata: meta,
               });
               // 关键步骤也显示在左侧
@@ -2402,6 +2557,9 @@ async function send(overrideText) {
                   label: ch.name || ch.type || '',
                   status: 'complete',
                   duration_ms: ch.duration_ms || 0,
+                  type: ch.type || '', name: ch.name || '', detail: ch.detail || '',
+                  input_data: ch.input_data || {}, output_data: ch.output_data || {},
+                  metadata: ch.metadata || {},
                 }));
               }
               if (meta.hit_count != null) {
@@ -2427,6 +2585,8 @@ async function send(overrideText) {
                 desc: sp.detail || (meta.query_used ? `查询: "${truncStr(meta.query_used, 30)}"` : (sp.description || '')),
                 time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,8),
                 children: children,
+                // skill_execution 的 children 同时映射为 sub_agent_spans（前端渲染子 Agent 循环用）
+                sub_agent_spans: (spanType === 'skill_execution' && children.length > 0) ? children : [],
                 input: sp.input_data || meta.input || '',
                 output: sp.output_data || meta.output || '',
                 metadata: meta,
@@ -2838,7 +2998,9 @@ async function loadChatHistory() {
   try {
     const r = await (await fetch(API + '/api/conversations?limit=50')).json();
     const convs = r.conversations || [];
-    chatHistory = convs.map(c => ({ id: c.thread_id, title: c.title || '对话', time: c.last_time || 0 }));
+    chatHistory = convs
+      .filter(c => !c.thread_id.startsWith('t-agui-') && !c.thread_id.startsWith('t-stream-'))  // 过滤测试数据
+      .map(c => ({ id: c.thread_id, title: c.title || '对话', time: c.last_time || 0 }));
   } catch(e) {
     chatHistory = [];
   }
@@ -3183,9 +3345,23 @@ function renderHistoricalTrace(spans) {
       children.push({ label: truncStr(String(md.output), 60), status: 'complete' });
     }
 
-    // 子 Agent 循环（fork 技能）
+    // 子 Agent 循环（fork 技能）— 从 children 字段恢复
     let subAgentSpans = [];
-    if (md.sub_agent_loops && Array.isArray(md.sub_agent_loops)) {
+    const rawChildren = s.children || md.children || [];
+    if (Array.isArray(rawChildren) && rawChildren.length > 0) {
+      // 检查是否是 skill_execution 的子 Agent spans（有 type 字段）
+      const hasStructured = rawChildren.some(ch => ch.type && ch.type !== '');
+      if (hasStructured && (s.type === 'skill_execution' || (s.step_name_en || '').includes('skill'))) {
+        subAgentSpans = rawChildren.map(ch => ({
+          label: ch.name || ch.label || ch.type || '',
+          type: ch.type || '', name: ch.name || '', detail: ch.detail || '',
+          duration_ms: ch.duration_ms || 0,
+          metadata: ch.metadata || {},
+        }));
+      }
+    }
+    // fallback: 旧格式 md.sub_agent_loops
+    if (subAgentSpans.length === 0 && md.sub_agent_loops && Array.isArray(md.sub_agent_loops)) {
       subAgentSpans = md.sub_agent_loops.map(loop => ({
         label: loop.label || loop.name || '',
         duration_ms: loop.duration_ms || 0,
