@@ -83,7 +83,7 @@ def build_middleware(
     if _file_upload:
         middleware.append(MultimodalInjectMiddleware())
 
-    middleware.append(SummarizationMiddleware())
+    middleware.append(SummarizationMiddleware(max_tokens=8_000))
 
     # 记忆中间件（按 features 开关）
     memory_enabled = getattr(features, "memory_enabled", True) if features else True

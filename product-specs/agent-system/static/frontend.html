@@ -2251,6 +2251,7 @@ async function sendAgui(text, extra) {
     let buffer = '';
     let aiContent = '';
     let textMsgActive = false;
+    let textMsgFinalized = false; // 标记第一轮 TEXT_MESSAGE 已完成（防止 skill_result + LLM 双重输出）
     let seenToolCalls = new Set(); // 去重 TOOL_CALL_START
 
     // AG-UI SSE 格式: "event: TYPE\ndata: {...}\n\n"
@@ -2284,12 +2285,15 @@ async function sendAgui(text, extra) {
           // TEXT_MESSAGE_START
           else if (type === 'TEXT_MESSAGE_START') {
             textMsgActive = true;
+            // 如果已经输出过一轮内容（skill_result 直出），忽略后续的 TEXT_MESSAGE 流
+            if (textMsgFinalized) continue;
             if (!_aguiStreamEl) {
               addAiBubbleStart();
             }
           }
           // TEXT_MESSAGE_CONTENT
           else if (type === 'TEXT_MESSAGE_CONTENT') {
+            if (textMsgFinalized) continue; // 忽略重复输出
             const delta = data.delta || (data.data && data.data.delta) || '';
             if (delta) {
               aiContent += delta;
@@ -2299,7 +2303,10 @@ async function sendAgui(text, extra) {
           // TEXT_MESSAGE_END
           else if (type === 'TEXT_MESSAGE_END') {
             textMsgActive = false;
-            finalizeAiBubble(aiContent);
+            if (!textMsgFinalized) {
+              finalizeAiBubble(aiContent);
+              textMsgFinalized = true;
+            }
           }
           // TOOL_CALL_START
           else if (type === 'TOOL_CALL_START') {
