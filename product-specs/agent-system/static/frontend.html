@@ -1190,8 +1190,8 @@ function renderTraceNode(span, idx, seqNum) {
 
         if (sType === 'middleware') {
           const mwName = sMeta.middleware_name || s.name || '';
-          // SummarizationMiddleware(before_model) 标志新循环开始
-          if (mwName.includes('Summarization') && mwPhase === 'before_model' && beforeModelBuf.length === 0 && afterModelBuf.length === 0) {
+          // ContextWindowMiddleware/SummarizationMiddleware(before_model) 标志新循环开始
+          if ((mwName.includes('Summarization') || mwName.includes('ContextWindow')) && mwPhase === 'before_model' && beforeModelBuf.length === 0 && afterModelBuf.length === 0) {
             // flush 上一轮剩余
             subAgentHtml += flushAfterModel();
             subAgentHtml += flushWrapTool();

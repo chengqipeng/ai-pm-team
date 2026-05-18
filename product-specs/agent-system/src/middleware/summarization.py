@@ -76,11 +76,21 @@ class SummarizationMiddleware(AgentMiddleware):
 
     def before_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
         messages = state.get("messages", [])
+
+        # Pass 0: MD5 去重（每轮都执行，开销极低）
+        dedup_result = self._md5_dedup(messages)
+        if dedup_result is not None:
+            messages = dedup_result["messages"]
+            # 继续检查是否还需要压缩（用去重后的 messages）
+
         if len(messages) < 4:
             self._record_span(
                 messages_count=len(messages), estimated_tokens=0,
                 action="skip", reason="消息数不足（<4条）",
+                messages_before=messages,
             )
+            if dedup_result:
+                return dedup_result
             return None
 
         # 熔断检查
@@ -235,6 +245,44 @@ class SummarizationMiddleware(AgentMiddleware):
                         break
         except Exception:
             pass
+
+    def _md5_dedup(self, messages: list) -> dict[str, Any] | None:
+        """Pass 0: MD5 去重 — 相同内容的 ToolMessage 只保留最新一份
+
+        从末尾向前遍历，第一次遇到某个哈希 = 最新的那条（保留），
+        后续遇到相同哈希 = 旧副本（替换为引用）。
+        短内容（<100 字符）不参与去重。
+
+        对齐设计文档 Layer 2 Pass 1。
+        """
+        import hashlib
+        seen: dict[str, int] = {}  # md5[:12] → 最新 index
+        modified = False
+        result = list(messages)
+
+        for i in range(len(result) - 1, -1, -1):
+            if not isinstance(result[i], ToolMessage):
+                continue
+            content = result[i].content or ""
+            if len(content) < 100:
+                continue
+
+            h = hashlib.md5(content.encode("utf-8")).hexdigest()[:12]
+            if h in seen:
+                # 当前这条是更旧的副本 → 替换
+                result[i] = ToolMessage(
+                    content="[重复结果 — 与最近一次相同查询结果一致]",
+                    tool_call_id=getattr(result[i], "tool_call_id", ""),
+                )
+                modified = True
+            else:
+                seen[h] = i
+
+        if modified:
+            logger.info("[SummarizationMW] MD5 dedup: removed %d duplicate ToolMessages",
+                        sum(1 for m in result if isinstance(m, ToolMessage) and "重复结果" in (m.content or "")))
+            return {"messages": result}
+        return None
 
     def _micro_compact(self, messages: list, estimated: int) -> dict[str, Any] | None:
         """Layer 1: MicroCompact — 裁剪旧 ToolMessage 输出，0 API 调用

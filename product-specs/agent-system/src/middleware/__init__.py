@@ -4,7 +4,7 @@ from langchain.agents.middleware.types import AgentMiddleware
 
 from .tool_error_handling import ToolErrorHandlingMiddleware
 from .dangling_tool_call import DanglingToolCallMiddleware
-from .summarization import SummarizationMiddleware
+from .context_window import ContextWindowMiddleware, SummarizationMiddleware
 from .loop_detection import LoopDetectionMiddleware
 from .guardrail import GuardrailMiddleware
 from .agent_logging import AgentLoggingMiddleware

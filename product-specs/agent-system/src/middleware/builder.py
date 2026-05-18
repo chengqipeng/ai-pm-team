@@ -48,6 +48,7 @@ def build_middleware(
     from src.middleware.input_transform import PIIRedactTransformer, ContentReviewTransformer
     from src.middleware.content_review import ContentReviewService
     from src.middleware.tracing import TracingMiddleware, tracing_middleware
+    from src.middleware.context_window import ContextWindowMiddleware
 
     # 检查 features 中的 file_upload_enabled
     _file_upload = file_upload_enabled or (
@@ -83,7 +84,7 @@ def build_middleware(
     if _file_upload:
         middleware.append(MultimodalInjectMiddleware())
 
-    middleware.append(SummarizationMiddleware(max_tokens=8_000))
+    middleware.append(ContextWindowMiddleware(max_tokens=8_000, llm=llm))
 
     # 记忆中间件（按 features 开关）
     memory_enabled = getattr(features, "memory_enabled", True) if features else True

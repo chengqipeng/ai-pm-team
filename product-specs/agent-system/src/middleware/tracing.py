@@ -753,7 +753,7 @@ class MiddlewareTracingWrapper(AgentMiddleware):
         'MultimodalInjectMiddleware': {'before_agent'},
         'MemoryMiddleware': {'before_agent', 'after_agent'},
         # before_model 层
-        'SummarizationMiddleware': {'before_model'},
+        'ContextWindowMiddleware': {'before_model'},
         # after_model 层
         'SubagentLimitMiddleware': {'after_model'},
         'LoopDetectionMiddleware': {'after_model'},
