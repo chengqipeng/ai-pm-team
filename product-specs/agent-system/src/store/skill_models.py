@@ -64,6 +64,7 @@ class SkillDefinitionRow:
     system_flg: int = 0                 # 1=系统预置（不可编辑/删除）, 0=用户创建
     output_mode: str = "text"            # text | card | component | table
     component_apikey: str = ""          # output_mode=component 时的目标组件
+    post_output_behavior: str = "silent"  # silent | summarize | continue | passthrough
 
     def __post_init__(self):
         if not self.id:

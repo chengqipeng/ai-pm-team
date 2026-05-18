@@ -2841,6 +2841,22 @@ async function loadChatHistory() {
     }
     const c = chatHistory.find(c => c.id === tid);
     if (c) document.getElementById('headerTitle').textContent = c.title || '对话';
+
+    // 异步加载推理链路数据（localStorage 只存消息，trace 从服务端恢复）
+    (async () => {
+      try {
+        const r = await (await fetch(API + '/api/conversations/' + tid + '/messages')).json();
+        const messages = r.messages || [];
+        if (messages.length > 0) {
+          const lastMsg = messages[messages.length - 1];
+          if (lastMsg && lastMsg.spans && lastMsg.spans.length) {
+            renderHistoricalTrace(lastMsg.spans);
+          }
+        }
+      } catch(e) {
+        console.debug('[Trace] 刷新后加载链路失败:', e);
+      }
+    })();
   } else {
     // fallback: 从服务端加载
     const current = chatHistory.find(c => c.id === tid);
@@ -2870,6 +2886,19 @@ async function loadChat(chatId) {
     for (const msg of localHist) {
       if (msg.role === 'user') addUserBubble(msg.content);
       else if (msg.role === 'assistant') addAIBubble(msg.content);
+    }
+    // 异步加载推理链路数据（localStorage 只存消息，trace 从服务端恢复）
+    try {
+      const r = await (await fetch(API + '/api/conversations/' + chatId + '/messages')).json();
+      const messages = r.messages || [];
+      if (messages.length > 0) {
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg && lastMsg.spans && lastMsg.spans.length) {
+          renderHistoricalTrace(lastMsg.spans);
+        }
+      }
+    } catch(e) {
+      console.debug('[Trace] loadChat 加载链路失败:', e);
     }
     return;
   }

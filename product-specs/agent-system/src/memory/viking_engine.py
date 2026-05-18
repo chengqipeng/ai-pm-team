@@ -1315,12 +1315,14 @@ class VikingMemoryEngine(MemoryEngine):
         """P0: profile 始终合并"""
         import asyncio
         merged_content = content
+        old_active_count = 0
         try:
             filter_expr = f'user_id = "{user_id}" and category = "profile"'
             existing = await asyncio.to_thread(self._vdb.search, vec, 1, filter_expr)
             if existing:
                 old_id = existing[0].get("id", "")
                 old_content = existing[0].get("content", "")
+                old_active_count = existing[0].get("active_count", 0) or 0
                 if old_content:
                     merged_content = old_content + "\n" + content
                 if old_id:
@@ -1336,6 +1338,7 @@ class VikingMemoryEngine(MemoryEngine):
                 "category": "profile", "merge_key": "profile",
                 "parent_entity": "", "user_id": user_id,
                 "thread_id": thread_id,
+                "active_count": old_active_count,
                 "created_at": now, "updated_at": now,
             }])
         except Exception as e:
@@ -1349,6 +1352,7 @@ class VikingMemoryEngine(MemoryEngine):
                             user_id, parent_entity, thread_id, now, source_type="insight") -> MemoryRecord | None:
         """P0: 按 merge_key 合并 — 同 key 时 LLM 生成合并内容（保留旧记忆中仍有效的信息）"""
         import asyncio
+        old_active_count = 0
         try:
             filter_expr = f'user_id = "{user_id}" and category = "{category}"'
             existing = await asyncio.to_thread(self._vdb.search, vec, 3, filter_expr)
@@ -1358,6 +1362,7 @@ class VikingMemoryEngine(MemoryEngine):
                     old_id = e.get("id", "")
                     old_content = e.get("content", "")
                     old_abstract = e.get("abstract", e.get("text", ""))
+                    old_active_count = e.get("active_count", 0) or 0
                     if old_id:
                         # 如果有 LLM，用 LLM 生成合并内容（保留旧记忆中仍有效的信息）
                         if self._llm and old_content and old_content != content:
@@ -1390,6 +1395,7 @@ class VikingMemoryEngine(MemoryEngine):
                 "uri": leaf_uri, "parent_uri": parent_uri, "is_leaf": "true",
                 "thread_id": thread_id, "source_type": source_type,
                 "status": "active",
+                "active_count": old_active_count,
                 "created_at": now, "updated_at": now,
             }])
             # 异步更新目录节点
@@ -1414,17 +1420,24 @@ class VikingMemoryEngine(MemoryEngine):
             existing = []
 
         decision = "create"
+        old_active_count = 0
         if existing and existing[0].get("score", 0) > 0.9 and self._llm:
             try:
                 decision, target_id, merged_abs, merged_ovw, merged_cont = await self._llm_dedup(abstract, content, existing)
                 if decision == "skip":
                     return None
                 if decision == "merge" and target_id:
+                    # 继承被合并记忆的 active_count
+                    for e in existing:
+                        if e.get("id") == target_id:
+                            old_active_count = e.get("active_count", 0) or 0
+                            break
                     await asyncio.to_thread(self._vdb.delete, [target_id])
                     abstract = merged_abs
                     overview = merged_ovw or overview
                     content = merged_cont
                 if decision == "delete" and target_id:
+                    # delete: 旧记忆完全失效，不继承 active_count
                     await asyncio.to_thread(self._vdb.delete, [target_id])
             except Exception:
                 pass
@@ -1441,6 +1454,7 @@ class VikingMemoryEngine(MemoryEngine):
                 "uri": leaf_uri, "parent_uri": parent_uri, "is_leaf": "true",
                 "thread_id": thread_id, "source_type": source_type,
                 "status": "active",
+                "active_count": old_active_count,
                 "created_at": now, "updated_at": now,
             }])
             if parent_entity:
@@ -1661,7 +1675,8 @@ class VikingMemoryEngine(MemoryEngine):
                         with conn.cursor() as cur:
                             sql = """
                                 SELECT memory_id, vector_id, status, created_at,
-                                       COALESCE(NULLIF(last_accessed_at, 0), updated_at, created_at) as last_access
+                                       COALESCE(NULLIF(last_accessed_at, 0), updated_at, created_at) as last_access,
+                                       COALESCE(active_count, 0) as active_count
                                 FROM ai_agent_memory
                                 WHERE category = %s AND delete_flg = 0
                             """
@@ -1687,12 +1702,16 @@ class VikingMemoryEngine(MemoryEngine):
                 status = row.get("status", "active")
                 created_at = row.get("created_at", 0) or 0
                 last_access = row.get("last_access", 0) or created_at
+                active_count = row.get("active_count", 0) or 0
 
                 age_days = (now_ms - created_at) / day_ms if created_at else 0
                 days_since_access = (now_ms - last_access) / day_ms if last_access else 9999
 
                 if status == "active":
+                    # 高热度豁免: active_count >= 3 的记忆即使过期也不进入淡化
                     if age_days > retention_days and days_since_access > _STALE_GRACE_DAYS:
+                        if active_count >= 3:
+                            continue  # 高热度豁免
                         to_stale.append(vid)
                 elif status == "stale":
                     if days_since_access > _ARCHIVE_GRACE_DAYS:
@@ -1727,6 +1746,121 @@ class VikingMemoryEngine(MemoryEngine):
                 stats["deleted"] += len(to_delete)
                 logger.info("Decay: %d %s deleted", len(to_delete), category)
 
+        return stats
+
+    async def detect_dormant_entities(self, user_id: str) -> dict:
+        """实体级沉寂检测 — 整个 parent_entity 60天无活动时渐进式降权
+
+        与逐条遗忘（decay_memories）互补：
+          - decay_memories: 按单条记忆的 age + 热度判断
+          - detect_dormant_entities: 按整个实体的活跃度判断
+
+        Returns:
+            {"dormant_entities": [...], "stale_entities": [...]}
+        """
+        import asyncio
+        stats: dict = {"dormant_entities": [], "stale_entities": []}
+        now_ms = int(time.time() * 1000)
+        day_ms = 86400 * 1000
+        _DORMANT_THRESHOLD_DAYS = 60
+        _DORMANT_CONFIRM_COUNT = 7  # 连续 7 天命中才进入 stale
+
+        try:
+            from src.store.pg_pool import get_conn
+        except Exception:
+            return stats
+
+        try:
+            def _query_entities():
+                with get_conn() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            SELECT parent_entity,
+                                   MAX(COALESCE(NULLIF(last_accessed_at, 0), updated_at, created_at)) as last_access,
+                                   MAX(created_at) as last_write,
+                                   COUNT(*) as total_count,
+                                   COALESCE(MAX(dormant_count), 0) as dormant_count
+                            FROM ai_agent_memory
+                            WHERE user_id = %s AND category = 'entities'
+                                  AND delete_flg = 0 AND status = 'active'
+                                  AND parent_entity IS NOT NULL AND parent_entity != ''
+                            GROUP BY parent_entity
+                        """, (user_id,))
+                        cols = [d[0] for d in cur.description]
+                        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+            entity_rows = await asyncio.to_thread(_query_entities)
+        except Exception as e:
+            logger.warning("Dormant entity query failed: %s", e)
+            return stats
+
+        for row in entity_rows:
+            pe = row.get("parent_entity", "")
+            last_access = row.get("last_access", 0) or 0
+            last_write = row.get("last_write", 0) or 0
+            dormant_count = row.get("dormant_count", 0) or 0
+
+            days_since_access = (now_ms - last_access) / day_ms if last_access else 9999
+            days_since_write = (now_ms - last_write) / day_ms if last_write else 9999
+
+            if days_since_write > _DORMANT_THRESHOLD_DAYS and days_since_access > _DORMANT_THRESHOLD_DAYS:
+                new_count = dormant_count + 1
+
+                if new_count >= _DORMANT_CONFIRM_COUNT:
+                    # 连续 7 天命中 → 整组进入 stale
+                    stats["stale_entities"].append(pe)
+                    try:
+                        def _stale_entity(parent=pe):
+                            with get_conn() as conn:
+                                with conn.cursor() as cur:
+                                    cur.execute("""
+                                        UPDATE ai_agent_memory
+                                        SET status = 'stale', dormant_count = %s, updated_at = %s
+                                        WHERE user_id = %s AND category = 'entities'
+                                              AND parent_entity = %s AND status = 'active'
+                                              AND delete_flg = 0
+                                    """, (new_count, now_ms, user_id, parent))
+                                    return cur.rowcount
+                        affected = await asyncio.to_thread(_stale_entity)
+                        logger.info("Dormant entity '%s' → stale (%d records)", pe, affected)
+                    except Exception as e:
+                        logger.warning("Dormant stale update failed for %s: %s", pe, e)
+                else:
+                    # 累加 dormant_count，不改变状态
+                    stats["dormant_entities"].append(f"{pe}（{int(days_since_access)}天无活动, 第{new_count}天）")
+                    try:
+                        def _inc_dormant(parent=pe, count=new_count):
+                            with get_conn() as conn:
+                                with conn.cursor() as cur:
+                                    cur.execute("""
+                                        UPDATE ai_agent_memory
+                                        SET dormant_count = %s, updated_at = %s
+                                        WHERE user_id = %s AND category = 'entities'
+                                              AND parent_entity = %s AND status = 'active'
+                                              AND delete_flg = 0
+                                    """, (count, now_ms, user_id, parent))
+                        await asyncio.to_thread(_inc_dormant)
+                    except Exception:
+                        pass
+            else:
+                # 不再沉寂 → 重置 dormant_count
+                if dormant_count > 0:
+                    try:
+                        def _reset_dormant(parent=pe):
+                            with get_conn() as conn:
+                                with conn.cursor() as cur:
+                                    cur.execute("""
+                                        UPDATE ai_agent_memory
+                                        SET dormant_count = 0
+                                        WHERE user_id = %s AND category = 'entities'
+                                              AND parent_entity = %s AND delete_flg = 0
+                                    """, (user_id, parent))
+                        await asyncio.to_thread(_reset_dormant)
+                    except Exception:
+                        pass
+
+        if stats["stale_entities"]:
+            logger.info("Dormant detection: %d entities → stale", len(stats["stale_entities"]))
         return stats
 
     async def _batch_update_status_pg(self, doc_ids: list[str], new_status: str,
@@ -2112,93 +2246,201 @@ class VikingMemoryEngine(MemoryEngine):
     # ── 定期全局反思 ──
 
     async def reflect_global(self, user_id: str) -> dict:
-        """定期全局反思 — 碎片合并 + 一致性检查 + 过时检测
+        """定期全局反思 — 场景驱动，单次遍历
 
-        参考 OpenViking 的 weekly_global_reflection 设计。
-        建议每天或每周执行一次。
+        每日凌晨执行，一次遍历所有 entities 按 parent_entity 分组，
+        根据场景指标决定执行哪些操作：
+          场景 A: 碎片堆积（同 merge_key 多条）→ LLM 合并
+          场景 B: 内部矛盾（跨 key 高相似度）→ LLM 判断关系
+          场景 C: 高活跃稀疏（频繁检索但记忆少）→ 输出建议
+
+        LLM 预算控制: 单次上限 20 次。
 
         Returns:
-            {"merged": N, "inconsistencies": N, "stale_marked": N}
+            {"merged": N, "conflicts_resolved": N, "inconsistencies": N,
+             "recommendations": [...], "entity_scenes": {...},
+             "decay": {...}, "llm_budget": {"used": N, "limit": 20, "pending": N}}
         """
         import asyncio
-        stats = {"merged": 0, "inconsistencies": 0, "stale_marked": 0}
+        _LLM_BUDGET = 20
+        llm_used = 0
+        pending_count = 0
+
+        stats: dict = {
+            "merged": 0,
+            "conflicts_resolved": 0,
+            "inconsistencies": 0,
+            "recommendations": [],
+            "entity_scenes": {},
+            "decay": {},
+            "llm_budget": {"used": 0, "limit": _LLM_BUDGET, "pending": 0},
+        }
 
         if not self._llm:
+            # 无 LLM 时仍执行 decay + dormancy
+            stats["decay"] = await self.decay_memories(user_id)
+            await self.detect_dormant_entities(user_id)
             return stats
 
-        # ── Step 1: 碎片化检测与合并 ──
-        logger.info("Global reflection Step 1: fragment detection for user %s", user_id)
+        # ── Step 0: 数据加载 ──
+        logger.info("reflect_global: loading data for user %s", user_id)
+        try:
+            filter_expr = f'user_id = "{user_id}" and category = "entities"'
+            all_memories = await asyncio.to_thread(
+                self._vdb.query_by_filter, filter_expr, 500,
+            )
+        except Exception as e:
+            logger.warning("reflect_global: load failed: %s", e)
+            all_memories = []
 
-        for category in ("entities", "preferences"):
-            try:
-                filter_expr = f'user_id = "{user_id}" and category = "{category}"'
-                all_memories = await asyncio.to_thread(
-                    self._vdb.query_by_filter, filter_expr, 200,
-                )
-                if len(all_memories) < 2:
-                    continue
+        # 按 parent_entity 分组
+        by_entity: dict[str, list[dict]] = {}
+        for m in all_memories:
+            pe = m.get("parent_entity", "") or ""
+            by_entity.setdefault(pe, []).append(m)
 
-                # 按 merge_key 分组
-                groups: dict[str, list[dict]] = {}
-                for m in all_memories:
-                    mk = m.get("merge_key", "")
-                    if mk:
-                        groups.setdefault(mk, []).append(m)
+        # ── Step 1: 逐实体场景判断 ──
+        for pe, memories in by_entity.items():
+            if not pe:
+                continue
 
-                # 同 merge_key 超过 1 条 → 需要合并
-                for mk, items in groups.items():
-                    if len(items) <= 1:
-                        continue
+            scenes_hit = []
 
-                    # LLM 合并
-                    abstracts = "\n".join(f"- [ID:{m.get('id','')}] {m.get('abstract','')}" for m in items)
+            # 计算场景指标
+            # fragment_count: 同 merge_key 多条
+            mk_groups: dict[str, list[dict]] = {}
+            for m in memories:
+                mk = m.get("merge_key", "")
+                if mk:
+                    mk_groups.setdefault(mk, []).append(m)
+            fragment_groups = {mk: items for mk, items in mk_groups.items() if len(items) > 1}
+            fragment_count = len(fragment_groups)
+
+            total_count = len(memories)
+
+            # recent_access_7d: 从 PG 统计（简化：用向量库 active_count 近似）
+            recent_access_7d = sum(m.get("active_count", 0) or 0 for m in memories)
+
+            # max_similarity: 抽样 top-5 不同 merge_key 间的相似度
+            max_similarity = 0.0
+            unique_keys = list(mk_groups.keys())
+            if len(unique_keys) >= 2 and fragment_count == 0:
+                # 只在无碎片时检查跨 key 矛盾
+                samples = memories[:10]
+                for i in range(len(samples)):
+                    for j in range(i + 1, min(len(samples), i + 5)):
+                        if samples[i].get("merge_key") != samples[j].get("merge_key"):
+                            score = samples[j].get("score", 0)
+                            if score > max_similarity:
+                                max_similarity = score
+
+            # ── 场景 A: 碎片堆积 ──（优先级最高）
+            if fragment_count >= 1 and llm_used < _LLM_BUDGET:
+                for mk, items in fragment_groups.items():
+                    if llm_used >= _LLM_BUDGET:
+                        pending_count += 1
+                        break
+
+                    # 按 updated_at 排序（最新在前）
+                    items.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+                    abstracts = "\n".join(
+                        f"- [{m.get('updated_at', '')[:10]}] {m.get('abstract', '')}"
+                        for m in items
+                    )
                     prompt = (
-                        f"以下是关于 '{mk}' 的 {len(items)} 条记忆，请合并为 1 条。\n\n"
+                        f"以下是关于 '{mk}' 的 {len(items)} 条记忆，按时间从新到旧排列：\n\n"
                         f"{abstracts}\n\n"
-                        "保留最新、最完整的信息，丢弃重复和过时的。\n"
-                        '返回 JSON: {"abstract":"合并后摘要","content":"合并后完整内容"}'
+                        "请合并为 1 条完整记忆，规则：\n"
+                        "1. 时间冲突时以最新信息为准\n"
+                        "2. 非冲突信息全部保留\n"
+                        "3. 标注关键变化时间点\n"
+                        "4. 保持可操作性（人名、数字、状态要精确）\n\n"
+                        '返回 JSON: {"abstract":"一句话摘要","content":"完整合并内容","key_changes":["变化1"]}'
                     )
                     try:
                         result = await self._llm.ainvoke(prompt)
+                        llm_used += 1
                         text = (getattr(result, "content", None) or str(result)).strip()
                         if "{" in text:
-                            merged = json.loads(text[text.index("{"):text.rindex("}") + 1])
-                            # 删除旧条目
+                            merged_data = json.loads(text[text.index("{"):text.rindex("}") + 1])
+                            total_active_count = sum(m.get("active_count", 0) or 0 for m in items)
                             old_ids = [m.get("id", "") for m in items if m.get("id")]
                             if old_ids:
                                 await asyncio.to_thread(self._vdb.delete, old_ids)
-                            # 写入合并后的新条目
-                            new_abstract = merged.get("abstract", items[0].get("abstract", ""))
+                            new_abstract = merged_data.get("abstract", items[0].get("abstract", ""))
                             new_vec = await asyncio.to_thread(self._emb.embed_query, new_abstract)
                             await asyncio.to_thread(self._vdb.upsert, [{
                                 "id": str(__import__("uuid").uuid4()),
                                 "vector": new_vec,
                                 "text": new_abstract,
                                 "abstract": new_abstract,
-                                "content": merged.get("content", new_abstract),
-                                "category": category,
+                                "content": merged_data.get("content", new_abstract),
+                                "category": "entities",
                                 "merge_key": mk,
-                                "parent_entity": items[0].get("parent_entity", ""),
+                                "parent_entity": pe,
                                 "user_id": user_id,
+                                "active_count": total_active_count,
+                                "status": "active",
                                 "updated_at": datetime.now(timezone.utc).isoformat(),
                             }])
                             stats["merged"] += len(items) - 1
-                            logger.debug("Merged %d fragments for %s/%s", len(items), category, mk)
                     except Exception as e:
                         logger.debug("Fragment merge failed for %s: %s", mk, e)
 
-            except Exception as e:
-                logger.warning("Global reflection fragment scan failed for %s: %s", category, e)
+                scenes_hit.append(f"A:合并{fragment_count}组碎片")
 
-        # ── Step 2: 一致性检查（profile vs preferences）──
-        logger.info("Global reflection Step 2: consistency check for user %s", user_id)
+            # ── 场景 B: 内部矛盾（跨 key 高相似度）──
+            if fragment_count == 0 and max_similarity > 0.85 and llm_used < _LLM_BUDGET:
+                # 找出高相似度对
+                for i in range(len(memories)):
+                    if llm_used >= _LLM_BUDGET:
+                        pending_count += 1
+                        break
+                    for j in range(i + 1, min(len(memories), i + 5)):
+                        if memories[i].get("merge_key") == memories[j].get("merge_key"):
+                            continue
+                        # 计算余弦相似度需要向量，这里用已有 score 近似
+                        # 对于更精确的检测，可以用向量库 search
+                        if memories[j].get("score", 0) > 0.85 or max_similarity > 0.85:
+                            relation = await self._classify_relation(
+                                memories[i].get("content", memories[i].get("abstract", "")),
+                                memories[j],
+                            )
+                            llm_used += 1
+                            if relation in ("identical", "evolution"):
+                                # archive 较旧的
+                                older = memories[j] if memories[i].get("updated_at", "") >= memories[j].get("updated_at", "") else memories[i]
+                                older_id = older.get("id", "")
+                                if older_id:
+                                    await self._sync_status_to_vdb(older_id, "archived")
+                                    await self._batch_update_status_pg([older_id], "archived")
+                                    stats["conflicts_resolved"] += 1
+                                    scenes_hit.append(f"B:解决1对{relation}")
+                            break
+                    else:
+                        continue
+                    break
 
+            # ── 场景 C: 高活跃但稀疏 ──
+            if recent_access_7d >= 3 and total_count <= 2:
+                stats["recommendations"].append({
+                    "entity": pe,
+                    "type": "coverage_gap",
+                    "message": f"近期被频繁检索但仅有{total_count}条记忆，信息覆盖不足",
+                })
+                scenes_hit.append("C:高活跃稀疏")
+
+            if scenes_hit:
+                stats["entity_scenes"][pe] = scenes_hit
+
+        # ── Step 2: 遗忘 + 全局检查 ──
+
+        # 一致性检查（profile ↔ preferences）
         try:
             profile = None
             if self._use_pg and self._pg:
                 profile = await asyncio.to_thread(self._pg.get_profile, user_id)
 
-            # preferences 从向量库查询
             prefs_results = []
             try:
                 prefs_filter = f'user_id = "{user_id}" and category = "preferences"'
@@ -2208,7 +2450,7 @@ class VikingMemoryEngine(MemoryEngine):
             except Exception:
                 pass
 
-            if profile and prefs_results:
+            if profile and prefs_results and llm_used < _LLM_BUDGET:
                 profile_text = profile.content or profile.abstract
                 prefs_text = "\n".join(f"- {p.get('abstract', '')}" for p in prefs_results)
 
@@ -2220,6 +2462,7 @@ class VikingMemoryEngine(MemoryEngine):
                     '返回 JSON: {"consistent": true/false, "issues": ["问题描述1","问题描述2"]}'
                 )
                 result = await self._llm.ainvoke(prompt)
+                llm_used += 1
                 text = (getattr(result, "content", None) or str(result)).strip()
                 if "{" in text:
                     data = json.loads(text[text.index("{"):text.rindex("}") + 1])
@@ -2230,14 +2473,24 @@ class VikingMemoryEngine(MemoryEngine):
         except Exception as e:
             logger.debug("Consistency check failed: %s", e)
 
-        # ── Step 3: 三阶段淡化 ──
+        # 遗忘: 逐条淡化 + 实体级沉寂
         decay_stats = await self.decay_memories(user_id)
-        stats["to_stale"] = decay_stats.get("to_stale", 0)
-        stats["to_archived"] = decay_stats.get("to_archived", 0)
-        stats["deleted"] = decay_stats.get("deleted", 0)
+        dormant_stats = await self.detect_dormant_entities(user_id)
+        stats["decay"] = {
+            **decay_stats,
+            "dormant_entities": dormant_stats.get("dormant_entities", []),
+            "stale_entities": dormant_stats.get("stale_entities", []),
+        }
 
-        logger.info("Global reflection done: merged=%d, inconsistencies=%d, decayed=%s",
-                     stats["merged"], stats["inconsistencies"], decay_stats)
+        # 预算统计
+        stats["llm_budget"] = {"used": llm_used, "limit": _LLM_BUDGET, "pending": pending_count}
+
+        logger.info(
+            "reflect_global done: merged=%d, conflicts=%d, inconsistencies=%d, "
+            "llm_used=%d/%d, entities_processed=%d",
+            stats["merged"], stats["conflicts_resolved"], stats["inconsistencies"],
+            llm_used, _LLM_BUDGET, len(stats["entity_scenes"]),
+        )
         return stats
 
     # ── 记忆管理 ──

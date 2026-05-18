@@ -22,6 +22,58 @@ logger = logging.getLogger(__name__)
 
 SKILL_CHAIN_PREFIX = "skill_"
 
+
+def _record_model_phase_middlewares(phase: str, thread_id: str) -> None:
+    """记录 before_model/after_model 阶段的中间件 span
+
+    LangGraph create_react_agent 不自动调用 middleware 的 before_model/after_model，
+    这里在 on_chat_model_start/end 事件时手动记录已知的中间件。
+    与 server.py SSE 模式的 _record_model_phase_middlewares 保持一致。
+
+    注意：如果 MiddlewareTracingWrapper 已经记录了该阶段的 span（LangGraph 自动调用的情况），
+    此函数会做去重检查以避免重复。
+    """
+    from src.middleware.tracing import tracing_middleware
+    MW_BY_PHASE = {
+        "before_model": ["SummarizationMiddleware"],
+        "after_model": ["SubagentLimitMiddleware", "LoopDetectionMiddleware", "OutputValidationMiddleware"],
+    }
+    mw_list = MW_BY_PHASE.get(phase, [])
+
+    # 去重检查：检查最近 N 个 span 中是否已有同阶段同名中间件（避免 MiddlewareTracingWrapper 重复）
+    existing_spans = tracing_middleware.get_spans(thread_id)
+    recent_mw_names = set()
+    for s in existing_spans[-20:]:  # 只检查最近 20 个 span
+        if s.get("type") == "middleware":
+            s_meta = s.get("metadata", {})
+            s_input = s.get("input_data", {})
+            s_phase = s_input.get("phase", "") or s_meta.get("phase", "")
+            s_name = s_meta.get("middleware_name", "")
+            if s_phase == phase and s_name:
+                recent_mw_names.add(s_name)
+
+    for mw_name in mw_list:
+        if mw_name in recent_mw_names:
+            continue  # 已被 MiddlewareTracingWrapper 记录，跳过
+        tracing_middleware._add_to_thread(
+            thread_id, "middleware", f"mw:{mw_name}", 0,
+            metadata={
+                "middleware_name": mw_name,
+                "phase": phase,
+                "has_effect": False,
+            },
+            input_data={
+                "middleware": mw_name,
+                "phase": phase,
+            },
+            output_data={
+                "has_effect": False,
+                "duration_ms": 0,
+            },
+            detail=f"{mw_name}.{phase} → 无变更",
+        )
+
+
 # ModelName → 事件分流（对齐 apps-agent ModelNameType）
 CUSTOM_MODEL_NAMES = frozenset({
     "component", "relevantData", "searchResults", "link",
@@ -72,6 +124,23 @@ class AGUIConverter:
         self._root_run_id: str | None = None
         # 消息缓冲
         self._messages: list[dict] = list(history_messages or [])
+        # ── Fork Skill 输出控制 ──
+        # 标记是否抑制后续 LLM 文本输出（silent 模式）
+        self._suppress_next_text: bool = False
+        # silent 模式：硬抑制 — 完全屏蔽 LLM 文本，直到下一次 tool call 或 run 结束
+        self._hard_suppress_text: bool = False
+        # 抑制计数器（累计被抑制的字符数，超过阈值时解除）
+        self._suppress_char_count: int = 0
+        # 抑制阈值（仅 summarize/continue 的软抑制下生效）
+        self._suppress_max_chars: int = 200
+        # 最近一次 skill_result 直出的内容 hash（用于去重）
+        self._last_skill_output_hash: int = 0
+        # 最近一次 skill_result 直出的内容前缀（用于 LLM stream 去重）
+        self._last_skill_output_prefix: str = ""
+        # LLM stream 累计文本缓冲区（用于检测与 skill_result 重复）
+        self._llm_text_buffer: str = ""
+        # LLM stream 去重：是否正在检测重复
+        self._dedup_checking: bool = False
 
     # ═══════════════════════════════════════════════════════════
     # 主入口
@@ -136,6 +205,8 @@ class AGUIConverter:
                 self._step_index += 1
                 try:
                     from src.middleware.tracing import tracing_middleware
+                    # before_model 中间件（SummarizationMiddleware）已由 MiddlewareTracingWrapper
+                    # 在 LangGraph 内部调用时自动记录，此处仅补充 llm_call span
                     tracing_middleware._add_to_thread(
                         self.thread_id, "llm_call", f"第 {self._step_index} 轮思考", 0,
                         {"iteration": self._step_index},
@@ -156,7 +227,7 @@ class AGUIConverter:
                     is_final = False
                 try:
                     from src.middleware.tracing import tracing_middleware
-                    desc = f"第 {self._step_index} 轮 → 最终回复" if is_final else f"第 {self._step_index} 轮 → 调用 {', '.join(tool_calls)}"
+                    desc = f"第{self._step_index}轮: {'生成最终回复 ✅' if is_final else '调用 ' + ', '.join(tool_calls)}"
                     tracing_middleware._add_to_thread(
                         self.thread_id, "llm_call", desc, 0,
                         {"iteration": self._step_index, "tool_calls": tool_calls, "is_final": is_final},
@@ -164,6 +235,9 @@ class AGUIConverter:
                         output_data={"tool_calls": tool_calls, "is_final": is_final},
                         detail=desc,
                     )
+                    # 记录 after_model 中间件执行（LangGraph 不自动调用 after_model，
+                    # 与 server.py SSE 模式对齐，手动补充 after_model 阶段中间件 span）
+                    _record_model_phase_middlewares("after_model", self.thread_id)
                 except Exception:
                     pass
         elif kind == "on_chain_start" and name.startswith(SKILL_CHAIN_PREFIX):
@@ -236,7 +310,17 @@ class AGUIConverter:
                 yield e
             async for e in self._close_reasoning_stream():
                 yield e
+            # 新 tool call 开始 → 解除文本抑制（LLM 决策了新动作）
+            # 注意：只有当 tool_call 有明确的 name 时才解除硬抑制，
+            # 避免 LLM streaming 中的虚假 tool_call_chunk 误解除 skill 直出后的抑制
             tool_name = tc.get("name") or ""
+            if tool_name:
+                self._suppress_next_text = False
+                self._hard_suppress_text = False
+                self._suppress_char_count = 0
+                # 进入新工具调用流程，清除去重检测状态
+                self._dedup_checking = False
+                self._llm_text_buffer = ""
             yield m.tool_call_start(tool_call_id, tool_call_name=tool_name)
 
         # args delta
@@ -247,6 +331,51 @@ class AGUIConverter:
     async def _emit_text(self, content: str) -> AsyncGenerator[m.AGUIEvent, None]:
         if not content:
             return
+
+        # ── Fork Skill 后续文本抑制 ──
+        # silent 模式：硬抑制 — 完全屏蔽，直到下一次 tool call 或 run 结束
+        if self._hard_suppress_text:
+            logger.debug("[AGUIConverter] _emit_text SUPPRESSED (hard): %s", content[:80])
+            return
+
+        # ── LLM stream 与 skill_result 直出内容去重 ──
+        # 如果 skill_result 已输出了报告，检测 LLM stream 是否在重复相同内容
+        if self._dedup_checking and self._last_skill_output_prefix:
+            self._llm_text_buffer += content
+            # 累计足够长度后做比较
+            if len(self._llm_text_buffer) >= 60:
+                buffer_stripped = self._llm_text_buffer.strip().lstrip("#").strip()
+                prefix_stripped = self._last_skill_output_prefix.strip().lstrip("#").strip()
+                # 如果 LLM 输出的前缀与 skill_result 内容前缀高度匹配，判定为重复
+                match_len = min(len(buffer_stripped), len(prefix_stripped), 60)
+                if match_len > 20 and buffer_stripped[:match_len] == prefix_stripped[:match_len]:
+                    # LLM 在重复 skill_result 已输出的内容 → 启动硬抑制
+                    logger.info(
+                        "[AGUIConverter] _emit_text DEDUP: LLM stream repeating skill_result content, "
+                        "activating hard suppress. buffer[:60]=%s",
+                        buffer_stripped[:60],
+                    )
+                    self._hard_suppress_text = True
+                    self._dedup_checking = False
+                    self._llm_text_buffer = ""
+                    return
+                else:
+                    # 不是重复内容，停止检测，正常输出（补发 buffer 中暂存的内容）
+                    self._dedup_checking = False
+                    # 用 buffer 内容替代当前 content 输出（因为之前的 chunks 被暂存了）
+                    content = self._llm_text_buffer
+                    self._llm_text_buffer = ""
+            else:
+                # buffer 不够长，暂存不输出，等待更多 chunks
+                return
+
+        # summarize/continue 模式：软抑制 — 噪音过滤
+        if self._suppress_next_text:
+            if self._is_post_skill_noise(content):
+                return
+            # LLM 产出了实质性内容（非噪音），解除抑制并正常输出
+            self._suppress_next_text = False
+
         # 切换：关闭推理流
         async for e in self._close_reasoning_stream():
             yield e
@@ -316,6 +445,13 @@ class AGUIConverter:
             yield e
         async for e in self._close_reasoning_stream():
             yield e
+        # 新 tool call 开始 → 解除文本抑制（on_tool_start 表示 tool 确实被调用了）
+        if tool_name:
+            self._suppress_next_text = False
+            self._hard_suppress_text = False
+            self._suppress_char_count = 0
+            self._dedup_checking = False
+            self._llm_text_buffer = ""
         yield m.tool_call_start(tool_call_id, tool_call_name=tool_name)
 
     async def _handle_tool_end(self, event: dict, data: dict, tool_name: str) -> AsyncGenerator[m.AGUIEvent, None]:
@@ -326,6 +462,23 @@ class AGUIConverter:
             output = output.content if isinstance(output.content, str) else str(output.content)
         elif not isinstance(output, str):
             output = str(output)
+
+        # ── Fork Skill 输出控制：检测 [SKILL_DONE:*] 标记 ──
+        if "[SKILL_DONE:" in output:
+            if "[SKILL_DONE:silent]" in output:
+                self._hard_suppress_text = True
+                self._suppress_next_text = False
+                logger.info("[AGUIConverter] tool_end detected SKILL_DONE:silent, hard suppress ON")
+            elif "[SKILL_DONE:summarize]" in output:
+                self._hard_suppress_text = False
+                self._suppress_next_text = True
+                self._suppress_char_count = 0
+            elif "[SKILL_DONE:passthrough]" in output:
+                # passthrough 模式：skill_result dispatch 失败，完整结果在 tool output 中
+                # LLM 会输出内容，但需要激活去重检测防止与可能的 skill_result 重复
+                self._dedup_checking = True
+                self._llm_text_buffer = ""
+
         # RESULT + END
         yield m.tool_call_result(tool_call_id, content=output, role="tool")
         yield m.tool_call_end(tool_call_id)
@@ -452,6 +605,15 @@ class AGUIConverter:
         if name == "agent_text":
             content = data.get("content", "") if isinstance(data, dict) else ""
             if content:
+                # 去重：如果此内容已通过 skill_result 输出过，跳过
+                content_hash = hash(content)
+                if content_hash == self._last_skill_output_hash and self._last_skill_output_hash != 0:
+                    logger.info("[AGUIConverter] agent_text DEDUP: same as skill_result, skipping")
+                    return
+                # 如果硬抑制生效，跳过
+                if self._hard_suppress_text:
+                    logger.debug("[AGUIConverter] agent_text SUPPRESSED (hard)")
+                    return
                 async for e in self._emit_text(content):
                     yield e
             return
@@ -490,6 +652,11 @@ class AGUIConverter:
             skill_apikey = data.get("skill_apikey", "")
             payload = data.get("data")
             async for e in self._convert_by_model_name(model_name, payload, skill_apikey):
+                yield e
+            return
+
+        if name == "skill_result":
+            async for e in self._handle_skill_result(data):
                 yield e
             return
 
@@ -546,6 +713,131 @@ class AGUIConverter:
                              {"skill_apikey": skill_apikey, "data": data})
 
     # ═══════════════════════════════════════════════════════════
+    # Fork Skill 直出结果处理
+    # ═══════════════════════════════════════════════════════════
+
+    async def _handle_skill_result(self, data: dict) -> AsyncGenerator[m.AGUIEvent, None]:
+        """处理 skill_result 自定义事件 — 子 Agent 结果直出 + 主 Agent 行为控制。
+
+        事件数据结构：
+            skill_apikey: str — Skill 标识
+            behavior: str — silent | summarize | continue | passthrough
+            content: str — 子 Agent 完整输出
+            summary: str — 摘要（供调试/日志）
+            output_mode: str — text | card | component | table
+        """
+        skill_apikey = data.get("skill_apikey", "")
+        behavior = data.get("behavior", "silent")
+        content = data.get("content", "")
+        output_mode = data.get("output_mode", "text")
+
+        logger.info(
+            "[AGUIConverter] skill_result received: skill=%s, behavior=%s, output_mode=%s, content_len=%d",
+            skill_apikey, behavior, output_mode, len(content),
+        )
+
+        if not content:
+            return
+
+        # 去重：如果相同内容已经通过 skill_result 输出过，跳过
+        content_hash = hash(content)
+        if content_hash == self._last_skill_output_hash and self._last_skill_output_hash != 0:
+            logger.info("[AGUIConverter] skill_result DEDUP: same content already output, skipping")
+            return
+        self._last_skill_output_hash = content_hash
+        # 记录前缀用于 LLM stream 去重（取前 200 字符，去除 Markdown 标记后比对）
+        self._last_skill_output_prefix = content[:200].strip()
+        # 激活 LLM stream 去重检测
+        self._dedup_checking = True
+        self._llm_text_buffer = ""
+
+        # 1. 关闭当前活跃流（三流互斥）
+        async for e in self._close_all_streams():
+            yield e
+
+        # 2. 按 output_mode 输出子 Agent 结果
+        async for e in self._emit_skill_direct_output(skill_apikey, content, output_mode):
+            yield e
+
+        # 3. 根据 behavior 设置后续主 Agent 文本输出控制
+        if behavior == "silent":
+            # 硬抑制：完全屏蔽 LLM 后续文本，直到下次 tool call 或 run 结束
+            self._hard_suppress_text = True
+            self._suppress_next_text = False
+            self._suppress_char_count = 0
+        elif behavior == "summarize":
+            # 软抑制：允许 LLM 产出简短总结，过滤噪音
+            self._hard_suppress_text = False
+            self._suppress_next_text = True
+            self._suppress_char_count = 0
+        elif behavior == "continue":
+            # 不抑制：允许 LLM 继续决策（包括调下一个 tool）
+            self._hard_suppress_text = False
+            self._suppress_next_text = False
+        else:
+            self._hard_suppress_text = False
+            self._suppress_next_text = False
+
+    async def _emit_skill_direct_output(
+        self,
+        skill_apikey: str,
+        content: str,
+        output_mode: str,
+    ) -> AsyncGenerator[m.AGUIEvent, None]:
+        """子 Agent 结果直出 — 根据 output_mode 选择事件通道。
+
+        与主 Agent 的 LLM 文本流独立，形成完整闭环。
+        注意：直出内容必须绕过 _hard_suppress_text（因为直出是正当输出，不应被抑制）。
+        """
+        if output_mode == "text" or output_mode == "streaming":
+            # 走 TEXT_MESSAGE 三段式，然后立即关闭（形成独立消息闭环）
+            # 临时解除硬抑制以确保直出内容不被吞掉（skill_result 可能在 on_tool_end 之后到达）
+            saved_hard_suppress = self._hard_suppress_text
+            saved_dedup_checking = self._dedup_checking
+            self._hard_suppress_text = False
+            self._dedup_checking = False  # 直出内容本身不参与去重检测
+            async for e in self._emit_text(content):
+                yield e
+            async for e in self._close_text_stream():
+                yield e
+            # 恢复硬抑制（后续 LLM 文本仍应被抑制）
+            self._hard_suppress_text = saved_hard_suppress
+            self._dedup_checking = saved_dedup_checking
+
+        elif output_mode == "card":
+            # 走 CUSTOM(component_complete) + 内置 doc_card
+            title = content.split("\n")[0][:60].lstrip("# ").strip() if content else ""
+            yield m.custom_event("component_complete", {
+                "apikey": "doc_card",
+                "state": "complete",
+                "data": {
+                    "title": title,
+                    "content": content,
+                    "skill_apikey": skill_apikey,
+                },
+            })
+
+        elif output_mode == "component":
+            # 走 CUSTOM(skill_output) → ProgressiveRenderer 匹配组件
+            yield m.custom_event("skill_output",
+                                 {"skill_apikey": skill_apikey, "data": content})
+
+        elif output_mode == "table":
+            # 走 CUSTOM(component_data) + searchResults 类型
+            yield m.custom_event("component_data", {
+                "model_name": "searchResults",
+                "skill_apikey": skill_apikey,
+                "data": content if isinstance(content, (dict, list)) else {"value": content},
+            })
+
+        else:
+            # auto / 兜底：走文本通道
+            async for e in self._emit_text(content):
+                yield e
+            async for e in self._close_text_stream():
+                yield e
+
+    # ═══════════════════════════════════════════════════════════
     # 流关闭（三流互斥）
     # ═══════════════════════════════════════════════════════════
 
@@ -572,6 +864,44 @@ class AGUIConverter:
 
     # 兼容老方法名
     _close_active_streams = _close_all_streams
+
+    # ═══════════════════════════════════════════════════════════
+    # Fork Skill 文本抑制辅助
+    # ═══════════════════════════════════════════════════════════
+
+    def _is_post_skill_noise(self, content: str) -> bool:
+        """判断是否是 fork skill 执行后 LLM 的无用确认性回复。
+
+        当 _suppress_next_text=True 时调用：
+        - 累计字符数 < 阈值 且内容匹配噪音模式 → 返回 True（丢弃）
+        - 累计字符数 >= 阈值 → 返回 False（可能是实质性内容，解除抑制）
+        """
+        self._suppress_char_count += len(content)
+
+        # 超过阈值 → 解除抑制（LLM 可能在产出实质性内容）
+        if self._suppress_char_count > self._suppress_max_chars:
+            return False
+
+        # 常见噪音模式检测
+        trimmed = content.strip()
+        if not trimmed:
+            return True
+
+        noise_patterns = (
+            "好的", "以上是", "报告已", "分析完成", "执行完毕",
+            "如上所示", "以上就是", "如有疑问", "希望对您有帮助",
+            "如果您", "请问还有", "还有什么", "需要我",
+            "已经为您", "上述", "综上",
+        )
+        # 短内容且匹配噪音模式 → 丢弃
+        if len(trimmed) < 100 and any(p in trimmed for p in noise_patterns):
+            return True
+
+        # 极短内容（< 20字）大概率是确认性回复
+        if len(trimmed) < 20:
+            return True
+
+        return False
 
     # ═══════════════════════════════════════════════════════════
     # 断线重连 / 初始化快照

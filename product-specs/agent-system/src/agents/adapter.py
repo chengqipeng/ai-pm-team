@@ -211,6 +211,11 @@ class NeoAgentV2Adapter:
             history_messages=history,
         )
 
+        from src.middleware.tracing import tracing_middleware
+        # 清除上一轮可能残留的中间件 spans（防止异步 memory_extract 延迟写入导致串轮）
+        # 必须在入口层预处理之前清除，否则会把本轮的 content_review/query_rewrite spans 清掉
+        tracing_middleware.clear(thread_id)
+
         # ── 入口层预处理：毒性检测 → 查询改写 ──
         passed, blocked_reason = await _apply_content_review(user_input, thread_id)
         if not passed:
@@ -235,10 +240,6 @@ class NeoAgentV2Adapter:
         input_data = {"messages": messages}
         config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 300}
 
-        from src.middleware.tracing import tracing_middleware
-        # 清除残留 spans，避免重复
-        tracing_middleware.clear(thread_id)
-
         astream = agent.astream_events(input_data, config=config, version="v2")
 
         # 拦截流：RUN_FINISHED 暂存到最后，实时 flush mw_spans
@@ -259,6 +260,20 @@ class NeoAgentV2Adapter:
                 _last_mw_idx = len(_current_spans)
 
         # ── 推送 Agent 执行期间剩余的中间件 spans（后处理阶段）──
+        # 等待异步 memory_extract 任务完成（MemoryMiddleware.aafter_agent 使用 create_task 派发，
+        # 可能在 event 流结束时尚未写入 span）
+        try:
+            _wait_rounds = 0
+            while _wait_rounds < 10:  # 最多等待 ~500ms
+                mw_spans = tracing_middleware.get_spans(thread_id)
+                has_memory_extract = any(s.get("type") == "memory_extract" for s in mw_spans)
+                if has_memory_extract:
+                    break
+                await asyncio.sleep(0.05)
+                _wait_rounds += 1
+        except Exception:
+            pass
+
         try:
             mw_spans = tracing_middleware.get_spans(thread_id)
             if len(mw_spans) > _last_mw_idx:

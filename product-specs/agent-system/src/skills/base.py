@@ -51,6 +51,7 @@ class SkillDefinition:
     owner: str = ""
     output_mode: str = "text"
     component_apikey: str = ""
+    post_output_behavior: str = "silent"         # silent | summarize | continue | passthrough
     tenant_id: int = 0                           # 0 = 平台级
 
     def format_prompt(self, arguments: dict[str, str]) -> str:
@@ -94,6 +95,7 @@ class SkillDefinition:
             owner=row.owner or "",
             output_mode=getattr(row, "output_mode", "text") or "text",
             component_apikey=getattr(row, "component_apikey", "") or "",
+            post_output_behavior=getattr(row, "post_output_behavior", "silent") or "silent",
             tenant_id=row.tenant_id or 0,
         )
 
@@ -198,6 +200,9 @@ class SkillRegistry:
             version=getattr(skill, "version", "1.0.0"),
             status=status,
             published_at=now if status == "published" else 0,
+            output_mode=getattr(skill, "output_mode", "text") or "text",
+            component_apikey=getattr(skill, "component_apikey", "") or "",
+            post_output_behavior=getattr(skill, "post_output_behavior", "silent") or "silent",
         )
         SkillDefinitionDAO.upsert(row)
 

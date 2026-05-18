@@ -1430,34 +1430,10 @@ Token 开销对比：
 <td style="text-align: left;"><code>_merge_by_key()</code>: 按 merge_key 搜索 → 替换</td>
 </tr>
 <tr>
-<td style="text-align: left;">events</td>
-<td style="text-align: left;">不合并</td>
-<td style="text-align: left;">相似度 &gt; 0.9 时 LLM 判断</td>
-<td style="text-align: left;"><code>_dedup_create()</code>: 向量预筛 + LLM 精判</td>
-</tr>
-<tr>
-<td style="text-align: left;">cases</td>
-<td style="text-align: left;">不合并</td>
-<td style="text-align: left;">相似度 &gt; 0.9 时 LLM 判断</td>
-<td style="text-align: left;"><code>_dedup_create()</code>: 向量预筛 + LLM 精判</td>
-</tr>
-<tr>
-<td style="text-align: left;">patterns</td>
-<td style="text-align: left;">同流程合并</td>
-<td style="text-align: left;">merge_key 相同</td>
-<td style="text-align: left;"><code>_merge_by_key()</code></td>
-</tr>
-<tr>
-<td style="text-align: left;">tools</td>
-<td style="text-align: left;">同工具合并</td>
-<td style="text-align: left;">merge_key = 工具名</td>
-<td style="text-align: left;"><code>_merge_by_key()</code></td>
-</tr>
-<tr>
-<td style="text-align: left;">skills</td>
-<td style="text-align: left;">同技能合并</td>
-<td style="text-align: left;">merge_key = 技能名</td>
-<td style="text-align: left;"><code>_merge_by_key()</code></td>
+<td style="text-align: left;">agent_rules</td>
+<td style="text-align: left;">始终合并（融合）</td>
+<td style="text-align: left;">每次 agent_rules 记忆写入</td>
+<td style="text-align: left;"><code>_merge_agent_rules()</code>: 搜索已有 → LLM 融合新旧 → 删旧写新</td>
 </tr>
 </tbody>
 </table>
@@ -1522,8 +1498,46 @@ LLM 判断: create（虽然主体相同，但是全新的时效性信息，不�
 注: 如果该候选有 merge_key=&quot;华为科技/张伟&quot;，则走 _merge_by_key 逻辑直接合并，
     不会进入语义去重流程。语义去重只处理无 merge_key 的情况。
 </code></pre>
+
+<h3 id="63-active-count">6.3 合并/去重后 active_count 继承策略</h3>
+<p><code>active_count</code> 是记忆的检索热度指标，直接影响遗忘策略（active_count &gt;= 3 的记忆享有高热度豁免）。合并或去重操作会删除旧记忆并创建新记忆，必须正确继承热度，否则高价值记忆可能因合并后热度归零而被错误遗忘。</p>
+
+<h4>6.3.1 各场景继承规则</h4>
+<table>
+<thead><tr><th>操作场景</th><th>旧记忆数</th><th>继承规则</th><th>设计依据</th></tr></thead>
+<tbody>
+<tr><td><code>_merge_by_key</code> 写入时合并</td><td>1 条旧 → 1 条新</td><td>新 active_count = 旧 active_count</td><td>信息演进，热度延续</td></tr>
+<tr><td><code>_merge_profile</code> profile 追加</td><td>1 条旧 → 1 条新</td><td>新 active_count = 旧 active_count</td><td>profile 每次检索都命中，热度必须延续</td></tr>
+<tr><td><code>_merge_agent_rules</code> 规则融合</td><td>1 条旧 → 1 条新</td><td>新 active_count = 旧 active_count</td><td>同 profile</td></tr>
+<tr><td><code>_dedup_create</code> 去重 merge</td><td>1 条旧 → 1 条新</td><td>新 active_count = 旧 active_count</td><td>合并内容是旧记忆的演进</td></tr>
+<tr><td><code>_dedup_create</code> 去重 delete</td><td>1 条旧 → 1 条新</td><td>新 active_count = 0</td><td>旧记忆完全失效，不继承</td></tr>
+<tr><td><code>reflect_global</code> 碎片合并</td><td>N 条旧 → 1 条新</td><td>新 active_count = sum(各碎片)</td><td>各碎片被命中总次数即实际使用频率</td></tr>
+<tr><td><code>reflect_on_session</code> update_old</td><td>1 条旧 → 1 条新</td><td>新 active_count = 旧 + 1</td><td>被更新说明仍有价值，热度 +1</td></tr>
+</tbody>
+</table>
+
+<h4>6.3.2 为什么碎片合并用 sum 而非 max</h4>
+<pre><code>碎片 A: active_count = 5, 碎片 B: active_count = 3, 碎片 C: active_count = 1
+
+sum = 9 → 各碎片是同一 merge_key 的不同侧面，命中任一条都是"用这组信息"
+         合并后 1 条承载原 N 条的检索负载，sum 准确反映实际使用频率
+
+1对1 合并不用 sum: 始终只有 1 条记忆的演进，直接继承即可
+</code></pre>
+
 <hr>
 <h2 id="_9">七、记忆遗忘策略</h2>
+<table>
+<thead><tr><th>遗忘机制</th><th>判断粒度</th><th>判断条件</th><th>处理方式</th><th>执行时机</th></tr></thead>
+<tbody>
+<tr><td>逐条遗忘（7.2）</td><td>单条记忆</td><td>age &gt; 180d + active_count &lt; 3</td><td>三阶段淡化: active → stale → archived → deleted</td><td>每日定时</td></tr>
+<tr><td>高热度豁免（7.2）</td><td>单条记忆</td><td>age &gt; 180d + active_count &gt;= 3</td><td>保留为 active，不进入淡化</td><td>每日定时</td></tr>
+<tr><td>实体级沉寂（7.3）</td><td>parent_entity 整体</td><td>60d 无写入 + 60d 无检索</td><td>渐进式: dormant → stale → archived</td><td>每日定时</td></tr>
+<tr><td>全量清理（7.4）</td><td>用户/租户级</td><td>租户注销或用户离职</td><td>物理删除全部记忆（PG + 向量库）</td><td>事件驱动</td></tr>
+</tbody>
+</table>
+<blockquote><p>遗忘策略由 <code>decay_memories()</code> 统一执行，纯规则判断，0 LLM 消耗。profile / preferences / agent_rules 永不遗忘。</p></blockquote>
+<hr>
 <p><strong>为什么需要记忆遗忘：</strong></p>
 <p>记忆系统不是无限增长的数据库，而是模拟人类记忆的"有选择性保留"机制。没有遗忘的记忆系统会面临三个核心问题：</p>
 <ol>
@@ -1624,6 +1638,21 @@ profile / preferences / agent_rules:
 </table>
 <hr>
 <h2 id="_10">八、反思修正机制</h2>
+<table>
+<thead><tr><th>反思类型</th><th>函数</th><th>触发时机</th><th>处理对象</th><th>LLM 消耗</th><th>频率</th></tr></thead>
+<tbody>
+<tr><td>失败驱动反思</td><td><code>reflect_on_failure()</code></td><td>Agent 任务失败后</td><td>本轮使用的记忆</td><td>1 次</td><td>事件驱动</td></tr>
+<tr><td>用户反馈反思</td><td><code>reflect_on_correction()</code></td><td>用户说"不对/错了"</td><td>与纠正相关的记忆</td><td>1-2 次</td><td>事件驱动</td></tr>
+<tr><td>会话结束反思</td><td><code>reflect_on_session()</code></td><td>extract_and_update 完成后（异步）</td><td>本次提取的新记忆 vs 存量</td><td>每条 1 次</td><td>每次写入</td></tr>
+<tr><td>定期全局反思</td><td><code>reflect_global()</code></td><td>每日凌晨定时任务</td><td>entities 全量存量</td><td>0-20 次（预算控制）</td><td>每日</td></tr>
+</tbody>
+</table>
+<p><strong>职责划分：</strong></p>
+<ul>
+<li>8.1 ~ 8.3 为<strong>实时反思</strong>（事件驱动，处理"刚发生的"）</li>
+<li>8.4 为<strong>定期反思</strong>（批量执行，处理"积累的"）</li>
+<li>遗忘策略（第七章）负责时间驱动的状态转换，不属于反思</li>
+</ul>
 <h3 id="81-reflect_on_failure">8.1 失败驱动反思 <code>reflect_on_failure()</code></h3>
 <pre><code>触发: Agent 任务失败后
 流程:
@@ -1666,24 +1695,191 @@ profile / preferences / agent_rules:
   → 解决: update_old（用800万更新旧记忆）
 </code></pre>
 <h3 id="84-reflect_global">8.4 定期全局反思 <code>reflect_global()</code></h3>
-<p>参考 OpenViking 的 <code>weekly_global_reflection</code> 设计。建议每天或每周执行一次。</p>
-<pre><code>触发: 定时任务（每天/每周）或手动调用
+<p>每日凌晨定时执行，单次遍历完成全部反思工作。通过<strong>场景判断</strong>决定每个实体需要做哪些分析，避免固定分频带来的复杂度。</p>
 
-Step 1: 碎片化检测与合并
-  ├── 遍历向量库中所有类别（entities/events/cases/patterns）
-  ├── 按 merge_key 分组
-  ├── 同 merge_key 超过 1 条 → LLM 合并为 1 条
-  └── 删除旧碎片，写入合并后的新条目
+<h4 id="841">8.4.1 设计原则</h4>
+<pre><code>1. 单次执行，场景驱动
+   不按"碎片/质量/一致性/洞察"分阶段分频，而是一次遍历所有 entities，
+   按每个 parent_entity 的数据状态匹配场景，命中什么就处理什么。
 
-Step 2: 一致性检查（profile vs preferences）
-  ├── 从 PG 获取 profile 和 preferences
-  ├── LLM 检查两者是否矛盾
-  └── 记录不一致项（不自动修复，留给人工确认）
+2. LLM 按需调用
+   场景指标全部是数据库统计（0 LLM 开销），只在需要合并或判断矛盾时调用 LLM。
+   设置单次执行 LLM 调用上限（20 次），超出则记录跳过项，下次优先处理。
 
-Step 3: 过时检测
-  └── 调用 cleanup_expired() 清理过期 + 低热度记忆
+3. 与 session 反思互补
+   session 反思处理"刚写入的单条新记忆"与存量的矛盾（增量、实时）。
+   global 反思处理"存量整体"的健康状态（批量、每日）。
+   global 的场景 C 兜底 session 可能遗漏的矛盾。
+</code></pre>
 
-返回: {&quot;merged&quot;: N, &quot;inconsistencies&quot;: N, &quot;stale_marked&quot;: N}
+<h4 id="842">8.4.2 执行流程</h4>
+<pre><code>触发: 每日凌晨定时任务（或手动调用）
+输入: user_id
+范围: entities 类别全量 + profile + preferences
+
+Step 0: 数据加载
+  ├── 从向量库拉取 user_id 下所有 entities 记忆
+  ├── 从 PG 获取 profile + preferences
+  ├── 按 parent_entity 分组
+  └── 计算每组的场景指标
+
+Step 1: 逐实体场景判断 + 对应处理
+  对每个 parent_entity:
+    1. 计算场景指标（纯数据统计，0 LLM）
+    2. 匹配场景，一个实体可命中多个:
+       A(碎片堆积) / B(内部矛盾) / C(高活跃稀疏)
+    3. 按优先级 A &gt; B &gt; C 依次执行处理逻辑
+    4. 检查 LLM 预算，超出则跳过并记录
+
+Step 2: 遗忘 + 全局级检查
+  ├── decay_memories(): 逐条遗忘 + 实体级沉寂检测（7.2/7.3）
+  └── profile ↔ preferences 一致性检查（仅 profile 有变更时执行）
+
+Step 3: 输出反思报告
+</code></pre>
+
+<h4 id="843">8.4.3 场景指标定义</h4>
+<p>对每个 parent_entity 计算以下指标（纯数据库统计，不消耗 LLM）：</p>
+<table>
+<thead><tr><th>指标</th><th>来源</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>fragment_count</code></td><td>向量库 group by merge_key having count &gt; 1</td><td>同 merge_key 碎片组数</td></tr>
+<tr><td><code>total_count</code></td><td>向量库 count</td><td>该实体下记忆总条数</td></tr>
+<tr><td><code>max_similarity</code></td><td>向量库 pairwise cosine（抽样 top-5 对）</td><td>不同 merge_key 间最高相似度</td></tr>
+<tr><td><code>recent_write_7d</code></td><td>PG created_at &gt; now-7d</td><td>近 7 天新增记忆条数</td></tr>
+<tr><td><code>recent_access_7d</code></td><td>PG last_accessed_at &gt; now-7d</td><td>近 7 天被检索命中次数</td></tr>
+<tr><td><code>days_since_last_write</code></td><td>PG max(created_at)</td><td>最后写入距今天数</td></tr>
+<tr><td><code>days_since_last_access</code></td><td>PG max(last_accessed_at)</td><td>最后检索距今天数</td></tr>
+<tr><td><code>avg_age_days</code></td><td>PG avg(now - created_at)</td><td>平均存活天数</td></tr>
+</tbody>
+</table>
+
+<h4 id="844">8.4.4 场景 A: 碎片堆积</h4>
+<p><strong>业务背景：</strong>CRM 销售场景中，用户多次提及同一项目/联系人的不同侧面信息，session 反思只处理"矛盾"关系，互补信息（<code>no_conflict</code>）会被跳过，导致同一 merge_key 下碎片积累。</p>
+<pre><code>业务示例:
+  周一: "华为ERP金额从500调到800万" → merge_key="华为科技/ERP项目"
+  周三: "华为ERP明天开评审会"         → merge_key="华为科技/ERP项目"
+  周五: "华为评审通过了，下周签合同"   → merge_key="华为科技/ERP项目"
+  → session 反思: 三条互补不矛盾，全部 no_conflict 跳过
+  → 结果: 同 key 3 条碎片，应合并为 1 条完整项目时间线
+
+判断条件: fragment_count &gt;= 1
+
+处理逻辑:
+  1. 按 updated_at 排序（最新在前）
+  2. LLM 合并（1 次调用/组）
+  3. 质量校验: 合并后 content 长度 ≥ 原始最长条目的 50%
+  4. 继承碎片中最高的 active_count
+  5. 原子操作: 写入新条目 → 删除旧碎片
+
+合并后示例:
+  abstract: "华为科技/ERP项目: 金额800万，评审已通过，下周签合同"
+  content: "华为ERP项目。金额800万（2026-03从500万调整）。
+            2026-04-28评审通过。预计下周签合同。决策人: 张总(CTO)。"
+  key_changes: ["2026-03 金额500→800万", "2026-04-28 评审通过"]
+
+LLM 消耗: 每组 1 次。典型日 1-2 组，极端日 8-10 组。
+</code></pre>
+
+<h4 id="845">8.4.5 场景 B: 内部矛盾（session 反思兜底）</h4>
+<p><strong>业务背景：</strong>session 反思遗漏矛盾的三种情况：网络异常、merge_key 不一致、间接矛盾（关联失效）。</p>
+<pre><code>判断条件: max_similarity &gt; 0.85 AND fragment_count == 0
+
+处理逻辑:
+  Step 1: 找出相似度 &gt; 0.85 的记忆对（跨 merge_key）
+  Step 2: LLM 判断关系（复用 _classify_relation，1 次/对）:
+    identical → archive 热度低的
+    evolution → 保留新的，archive 旧的
+    contradiction → 记录异常日志，不自动处理
+    unrelated → 跳过
+  Step 3: 间接矛盾检测（P1 实现）
+    包含状态变更关键词（离职/调岗/取消）→ 级联检查关联记忆 → 标记"待确认"
+
+LLM 消耗: 每对 1 次。通常 0-2 对/天。
+</code></pre>
+
+<h4 id="846">8.4.6 场景 C: 高活跃但稀疏</h4>
+<p><strong>业务背景：</strong>用户密集问某客户问题，但该客户记忆很薄，Agent 只能给出泛泛回答。</p>
+<pre><code>判断条件: recent_access_7d &gt;= 3 AND total_count &lt;= 2
+
+处理逻辑（不消耗 LLM）:
+  不做自动修改。输出建议:
+  recommendations += {"entity": "阿里巴巴", "type": "coverage_gap",
+                      "message": "近7天被检索3次但仅有1条记忆"}
+
+后续利用:
+  方式1: 下次对话注入提示"你对该客户记忆较少，可主动追问补充"
+  方式2: 管理后台可视化展示"记忆覆盖度预警"
+</code></pre>
+
+<h4 id="847">8.4.7 场景优先级与 LLM 预算控制</h4>
+<pre><code>优先级: A（碎片堆积） &gt; B（内部矛盾） &gt; C（高活跃稀疏）
+
+LLM 预算: 单次上限 20 次
+  碎片合并（A）: 每组 1 次，优先
+  矛盾检测（B）: 每对 1 次
+  一致性检查: 1 次（仅 profile 变更时）
+  超出: 记录到 pending 队列，下次优先
+</code></pre>
+<table>
+<thead><tr><th>情况</th><th>场景 A</th><th>场景 B</th><th>一致性</th><th>合计</th></tr></thead>
+<tbody>
+<tr><td>典型日（3-5 轮对话）</td><td>1-2</td><td>0</td><td>0</td><td><strong>1-2</strong></td></tr>
+<tr><td>活跃日（汇报 5 客户）</td><td>4-5</td><td>0-1</td><td>0</td><td><strong>4-6</strong></td></tr>
+<tr><td>极端日（月初 10+ 客户）</td><td>8-10</td><td>2-3</td><td>1</td><td><strong>11-14</strong></td></tr>
+</tbody>
+</table>
+
+<h4 id="848">8.4.8 遗忘 + 全局级检查（Step 2）</h4>
+<pre><code>遗忘（由 decay_memories 统一执行）:
+  逐条遗忘（7.2）: active → stale → archived → deleted（各阶段间隔 30 天）
+  实体级沉寂（7.3）: 整个 parent_entity 60天无活动 → 渐进式降权
+
+profile ↔ preferences 一致性检查:
+  触发: profile updated_at 在上次反思之后有变更（增量触发）
+  流程: PG获取profile + 向量库获取preferences → 1次LLM判断 → 记录不一致项
+</code></pre>
+
+<h4 id="849">8.4.9 自适应触发</h4>
+<pre><code>触发点: extract_and_update 完成写入后
+检查: 该 merge_key 下碎片数 &gt;= 3
+操作: 异步触发单 key 级碎片合并（场景 A 子集）
+约束: 不阻塞主流程
+
+阈值 3（而非 2）: 2条可能是"进行中对话"，3条是明确堆积信号
+</code></pre>
+
+<h4 id="8410">8.4.10 输出格式</h4>
+<pre><code>返回: {
+    "merged": N,
+    "conflicts_resolved": N,
+    "stale_marked": N,
+    "inconsistencies": N,
+    "recommendations": [
+        {"entity": "阿里巴巴", "type": "coverage_gap", "message": "..."},
+        {"entity": "腾讯", "type": "dormant", "message": "..."},
+        {"entity": "华为科技/张伟", "type": "cascading_invalidation", "message": "..."}
+    ],
+    "dormant_entities": ["腾讯", "字节跳动"],
+    "decay": {"to_stale": N, "to_archived": N, "deleted": N},
+    "entity_scenes": {"华为科技": ["A:合并2组"], "腾讯": ["E:沉寂(第5天)"]},
+    "llm_budget": {"used": 5, "limit": 20, "pending": 0}
+}
+</code></pre>
+
+<h4 id="8411">8.4.11 与实时反思的职责边界</h4>
+<pre><code>session 反思（实时，异步）          全局反思（每日定时，批量）
+├── 新记忆 vs 存量矛盾检测          ├── 场景 A: 合并互补碎片
+├── contradiction/evolution/         ├── 场景 B: 兜底遗漏矛盾
+│   duplicate → archive/update       └── 场景 C: 覆盖度预警
+├── no_conflict → 不处理
+│   （留给 global 场景 A 合并）      遗忘（由 decay_memories 执行）
+└── 可能遗漏（网络/key不一致）       ├── 逐条遗忘: age+热度 → stale（7.2）
+                                     └── 实体级沉寂: 60d无活动 → 降权（7.3）
+
+反思 = 分析记忆内容质量并修正（需要 LLM 或语义计算）
+遗忘 = 基于时间和热度的状态转换（纯规则，0 LLM）
+同一每日任务中顺序执行: 先反思，再遗忘
 </code></pre>
 <hr>
 <h2 id="vikingfs">九、VikingFS 虚拟文件系统</h2>

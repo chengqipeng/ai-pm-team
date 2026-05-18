@@ -45,15 +45,32 @@ class SkillDefinitionDAO:
         "output_mode, component_apikey"
     )
 
-    _use_v2: bool = False  # 是否已检测到新字段存在
+    # V3: 包含 post_output_behavior（需要执行 alter_skill_post_output_behavior.sql 后可用）
+    _ALL_COLUMNS_V3 = (
+        "id, api_key, tenant_id, name, description, when_to_use, owner, "
+        "context, agent, model, allowed_tools, arguments, prompt, "
+        "risk_level, requires_confirmation, max_tool_calls, timeout_ms, idempotent_flg, "
+        "version, status, published_at, "
+        "exec_count, success_count, avg_duration_ms, ext_info, "
+        "delete_flg, created_at, created_by, updated_at, updated_by, "
+        "enabled_flg, category, tags, icon, sort_num, system_flg, "
+        "output_mode, component_apikey, post_output_behavior"
+    )
+
+    _use_v2: bool = False  # 是否已检测到 enabled_flg 存在
+    _use_v3: bool = False  # 是否已检测到 post_output_behavior 存在
     _detected: bool = False  # 是否已完成检测
 
     @classmethod
     def _get_columns(cls) -> str:
         """自动检测并返回可用的列列表（只探测一次）"""
         if cls._detected:
-            return cls._ALL_COLUMNS_V2 if cls._use_v2 else cls._ALL_COLUMNS
-        # 首次调用时检测新字段是否存在
+            if cls._use_v3:
+                return cls._ALL_COLUMNS_V3
+            if cls._use_v2:
+                return cls._ALL_COLUMNS_V2
+            return cls._ALL_COLUMNS
+        # 首次调用时逐级探测
         cls._detected = True
         try:
             with get_conn() as conn:
@@ -62,10 +79,21 @@ class SkillDefinitionDAO:
                     "SELECT enabled_flg FROM ai_skill_definition LIMIT 1"
                 )
                 cls._use_v2 = True
-                return cls._ALL_COLUMNS_V2
         except Exception:
             cls._use_v2 = False
             return cls._ALL_COLUMNS
+        # 探测 V3 字段
+        try:
+            with get_conn() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT post_output_behavior FROM ai_skill_definition LIMIT 1"
+                )
+                cls._use_v3 = True
+                return cls._ALL_COLUMNS_V3
+        except Exception:
+            cls._use_v3 = False
+            return cls._ALL_COLUMNS_V2
 
     # ── 查询 ──
 
