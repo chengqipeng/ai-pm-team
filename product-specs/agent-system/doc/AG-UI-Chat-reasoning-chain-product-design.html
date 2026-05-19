@@ -44,17 +44,10 @@ tr:nth-child(even) { background: #f9fafb; }
 <div><span style="color:#94a3b8;">[2]</span> <span style="color:#e2e8f0;">标题生成</span> — <span style="color:#94a3b8;">规则同步生成（取前 20 字）+ 后台 LLM 异步优化</span></div>
 <div><span style="color:#94a3b8;">[3]</span> <span style="color:#e2e8f0;">内容审查</span> <span style="color:#64748b;">· 1800ms</span> — <span style="color:#94a3b8;">敏感词 + LLM 语义审查 → </span><span style="color:#4ade80;">✅ 通过</span></div>
 <div><span style="color:#94a3b8;">[4]</span> <span style="color:#e2e8f0;">查询改写</span> <span style="color:#64748b;">· 3200ms</span> — <span style="color:#94a3b8;">「分析华东区商机」→「分析华东区销售总监管辖的商机 Pipeline 并给出重点客户画像」</span></div>
-<div><span style="color:#94a3b8;">[5]</span> <span style="color:#e2e8f0;">AG-UI Pipeline 创建</span> — <span style="color:#94a3b8;">create_agui_pipeline(run_id, thread_id) → AGUIConverter + ProgressiveRenderer</span></div>
 </div>
 <div style="text-align:center;color:#475569;">▼</div>
 
-<!-- ===== AG-UI 事件流开始 ===== -->
-<div style="color:#4ade80;font-weight:600;margin-bottom:0.3rem;">📡 AG-UI 事件流开始</div>
-<div style="padding-left:1rem;border-left:2px solid #4ade80;margin-bottom:1rem;">
-<div><span style="color:#94a3b8;">[6]</span> <span style="color:#4ade80;">▶ RUN_STARTED</span> — <span style="color:#94a3b8;">{thread_id: "t-abc", run_id: "r-001"}</span></div>
-<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">→ 前端: 显示"正在思考..."加载态，禁用输入框</div>
-</div>
-<div style="text-align:center;color:#475569;">▼</div>
+
 
 <!-- ===== 上下文准备 ===== -->
 <div style="color:#60a5fa;font-weight:600;margin-bottom:0.3rem;">📦 上下文准备（before_agent 中间件，执行 1 次）</div>
@@ -70,49 +63,20 @@ tr:nth-child(even) { background: #f9fafb; }
 <div style="border:2px solid #f472b6;border-radius:10px;padding:1rem;margin:0.5rem 0;background:rgba(244,114,182,0.03);">
 <div style="color:#f472b6;font-weight:600;margin-bottom:0.6rem;">⚡ Agent Loop（LLM 推理循环）+ AG-UI 事件流转换</div>
 
-<div style="border:1px dashed #f472b6;border-radius:8px;padding:0.6rem 0.8rem;margin-bottom:0.6rem;background:rgba(244,114,182,0.02);">
-<div style="color:#f472b6;font-size:0.7rem;font-weight:500;margin-bottom:0.3rem;">三流互斥状态机（AGUIConverter 核心约束）</div>
-<div style="display:flex;align-items:center;gap:0.3rem;flex-wrap:wrap;color:#94a3b8;font-size:0.68rem;">
-<span style="background:#1e293b;border:1px solid #fbbf24;padding:0.15rem 0.4rem;border-radius:3px;">推理流 REASONING_*</span>
-<span style="color:#f472b6;">⊕</span>
-<span style="background:#1e293b;border:1px solid #4ade80;padding:0.15rem 0.4rem;border-radius:3px;">文本流 TEXT_MESSAGE_*</span>
-<span style="color:#f472b6;">⊕</span>
-<span style="background:#1e293b;border:1px solid #38bdf8;padding:0.15rem 0.4rem;border-radius:3px;">工具调用流 TOOL_CALL_*</span>
-<span style="color:#f472b6;margin-left:0.5rem;">← 任一开启前先关闭其他两个</span>
-</div>
-</div>
+
 
 <!-- ===== 循环 1: 推理 + 决策 ===== -->
 <div style="color:#e2e8f0;font-weight:500;margin:0.5rem 0 0.2rem;">├─ 循环 1（LLM 推理 → 决定调用 pipeline_analysis skill）</div>
 <div style="padding-left:1rem;">
 <div><span style="color:#94a3b8;">[11]</span> · <span style="color:#a78bfa;">⚙️ SummarizationMiddleware</span> <span style="color:#64748b;">(before_model)</span> — <span style="color:#94a3b8;">上下文压缩: 15条→10条</span></div>
 <div><span style="color:#94a3b8;">[12]</span> <span style="color:#fbbf24;">模型推理</span> <span style="color:#64748b;">· 4500ms</span> — <span style="color:#94a3b8;">LLM 产出 thinking block + tool_use</span></div>
-<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">
-<span style="color:#fbbf24;">AG-UI 事件产出（AGUIConverter 实时转换）:</span><br>
-├─ <span style="color:#fbbf24;">REASONING_START</span> {message_id: "r_001"}<br>
-├─ <span style="color:#fbbf24;">REASONING_MESSAGE_START</span> {message_id: "r_001_m", role: "reasoning"}<br>
-├─ <span style="color:#fbbf24;">REASONING_MESSAGE_CONTENT</span> × 5 {delta: "用户想分析华东区Pipeline..."}<br>
-├─ <span style="color:#fbbf24;">REASONING_MESSAGE_END</span> {message_id: "r_001_m"}<br>
-├─ <span style="color:#fbbf24;">REASONING_END</span> {message_id: "r_001"}<br>
-│&nbsp;&nbsp; <span style="color:#64748b;">→ 前端: 折叠面板"💭 思考中..."，用户可展开查看</span><br>
-├─ <span style="color:#38bdf8;">TOOL_CALL_START</span> {tool_call_id: "tc_01", tool_call_name: "skills_tool"}<br>
-├─ <span style="color:#38bdf8;">TOOL_CALL_ARGS</span> {delta: '{"skill_name":"pipeline_analysis",...}'}<br>
-├─ <span style="color:#38bdf8;">TOOL_CALL_END</span> {tool_call_id: "tc_01"}<br>
-│&nbsp;&nbsp; <span style="color:#64748b;">→ 前端: 显示工具标签 ⚙️ skills_tool(pipeline_analysis) [执行中]</span>
-</div>
+
 <div><span style="color:#94a3b8;">[13]</span> · <span style="color:#a78bfa;">⚙️ SubagentLimitMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">无子Agent并发</span></div>
 <div><span style="color:#94a3b8;">[14]</span> · <span style="color:#a78bfa;">⚙️ LoopDetectionMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">首次调用，无循环</span></div>
 <div><span style="color:#94a3b8;">[15]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ GuardrailMiddleware</span> <span style="color:#64748b;">(wrap_tool_call)</span> — <span style="color:#94a3b8;">skills_tool → 放行</span></div>
 <div><span style="color:#94a3b8;">[16]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 8500ms</span> — <span style="color:#94a3b8;">skills_tool(pipeline_analysis) [fork 模式]</span></div>
 
-<!-- ===== STEP 事件 + 子 Agent 详细链路 ===== -->
-<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">
-<span style="color:#c084fc;">AG-UI STEP 事件:</span><br>
-├─ <span style="color:#c084fc;">STEP_STARTED</span> {step_name: "pipeline_analysis"}<br>
-├─ <span style="color:#c084fc;">CUSTOM("step_metadata")</span> {skill_apikey: "pipeline_analysis", step_index: 0, skill_context: "fork", phase: "started"}<br>
-├─ <span style="color:#c084fc;">CUSTOM("component_loading")</span> {apikey: "pipeline_table", state: "loading"}<br>
-│&nbsp;&nbsp; <span style="color:#64748b;">→ 前端: 显示 PipelineTable 骨架屏</span>
-</div>
+
 
 <!-- ===== 子 Agent 详细链路 ===== -->
 <div style="margin:0.5rem 0 0.3rem 1.5rem;padding:0.8rem 1rem;border:1.5px solid #fb923c;border-radius:8px;background:rgba(251,146,60,0.04);">
@@ -120,54 +84,44 @@ tr:nth-child(even) { background: #f9fafb; }
 <div style="color:#94a3b8;font-size:0.68rem;margin-bottom:0.5rem;">
 thread_id: "skill-pipeline_analysis-x7f2" | depth: 2 | max_depth: 3<br>
 工具集: 主Agent工具 ∩ skill.allowed_tools = [query_data, analyze_data]<br>
-System Prompt: pipeline_analysis 的 SOP prompt（含业务步骤指引）
+System Prompt: pipeline_analysis 的 SOP prompt（含业务步骤指引）<br>
+<span style="color:#fb923c;">中间件: before_model(Summarization) · after_model(LoopDetection, OutputValidation) · wrap_tool_call(Guardrail)</span>
 </div>
 
 <div style="padding-left:0.5rem;border-left:2px solid #fb923c;">
 <!-- 子循环 1 -->
 <div style="color:#e2e8f0;font-weight:500;margin:0.3rem 0 0.2rem;">子循环 1（查询商机数据）</div>
 <div style="padding-left:0.8rem;">
-<div><span style="color:#94a3b8;">[S1]</span> <span style="color:#fbbf24;">子Agent 模型推理</span> <span style="color:#64748b;">· 2800ms</span> — <span style="color:#94a3b8;">决定调用 query_data 获取商机</span></div>
-<div><span style="color:#94a3b8;">[S2]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ GuardrailMiddleware</span> — <span style="color:#94a3b8;">query_data → 放行 (自动注入 tenant_id)</span></div>
-<div><span style="color:#94a3b8;">[S3]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 800ms</span> — <span style="color:#94a3b8;">query_data(entity="opportunity", filters={region:"华东"}) → 23条商机</span></div>
-<div style="padding-left:1.5rem;color:#64748b;font-size:0.65rem;">
-子Agent 事件过滤规则: parent_ids[0] != root_run_id → 丢弃<br>
-例外: on_custom_event("agent_text"/"agent_data") 穿透到主流
-</div>
+<div><span style="color:#94a3b8;">[S1]</span> · <span style="color:#a78bfa;">⚙️ SummarizationMiddleware</span> <span style="color:#64748b;">(before_model)</span> — <span style="color:#94a3b8;">子Agent首轮，无需压缩</span></div>
+<div><span style="color:#94a3b8;">[S2]</span> <span style="color:#fbbf24;">子Agent 模型推理</span> <span style="color:#64748b;">· 2800ms</span> — <span style="color:#94a3b8;">决定调用 query_data 获取商机</span></div>
+<div><span style="color:#94a3b8;">[S3]</span> · <span style="color:#a78bfa;">⚙️ LoopDetectionMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">子循环1，无循环</span></div>
+<div><span style="color:#94a3b8;">[S4]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ GuardrailMiddleware</span> <span style="color:#64748b;">(wrap_tool_call)</span> — <span style="color:#94a3b8;">query_data ∈ allowed_tools → 放行</span></div>
+<div><span style="color:#94a3b8;">[S5]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 800ms</span> — <span style="color:#94a3b8;">query_data(entity="opportunity", filters={region:"华东"}) → 23条商机</span></div>
 </div>
 
 <!-- 子循环 2 -->
 <div style="color:#e2e8f0;font-weight:500;margin:0.5rem 0 0.2rem;">子循环 2（分析 Pipeline 数据）</div>
 <div style="padding-left:0.8rem;">
-<div><span style="color:#94a3b8;">[S4]</span> <span style="color:#fbbf24;">子Agent 模型推理</span> <span style="color:#64748b;">· 3200ms</span> — <span style="color:#94a3b8;">决定调用 analyze_data 做阶段分析</span></div>
-<div><span style="color:#94a3b8;">[S5]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 1200ms</span> — <span style="color:#94a3b8;">analyze_data(type="pipeline_stage") → 阶段分布统计</span></div>
+<div><span style="color:#94a3b8;">[S6]</span> · <span style="color:#a78bfa;">⚙️ SummarizationMiddleware</span> <span style="color:#64748b;">(before_model)</span> — <span style="color:#94a3b8;">上下文未超限，跳过压缩</span></div>
+<div><span style="color:#94a3b8;">[S7]</span> <span style="color:#fbbf24;">子Agent 模型推理</span> <span style="color:#64748b;">· 3200ms</span> — <span style="color:#94a3b8;">决定调用 analyze_data 做阶段分析</span></div>
+<div><span style="color:#94a3b8;">[S8]</span> · <span style="color:#a78bfa;">⚙️ LoopDetectionMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">子循环2，无循环</span></div>
+<div><span style="color:#94a3b8;">[S9]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ GuardrailMiddleware</span> <span style="color:#64748b;">(wrap_tool_call)</span> — <span style="color:#94a3b8;">analyze_data ∈ allowed_tools → 放行</span></div>
+<div><span style="color:#94a3b8;">[S10]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 1200ms</span> — <span style="color:#94a3b8;">analyze_data(type="pipeline_stage") → 阶段分布统计</span></div>
 </div>
 
 <!-- 子循环 3 -->
 <div style="color:#e2e8f0;font-weight:500;margin:0.5rem 0 0.2rem;">子循环 3（生成结论）</div>
 <div style="padding-left:0.8rem;">
-<div><span style="color:#94a3b8;">[S6]</span> <span style="color:#fbbf24;">子Agent 模型推理</span> <span style="color:#64748b;">· 3800ms</span> — <span style="color:#94a3b8;">生成 Pipeline 分析结论（纯文本回复，结束子循环）</span></div>
-<div style="padding-left:1.5rem;color:#64748b;font-size:0.65rem;">
-子Agent 产出通过 on_custom_event("skill_result") 穿透:<br>
-output_mode=table → AGUIConverter 走 CUSTOM("component_data") 通道
-</div>
+<div><span style="color:#94a3b8;">[S11]</span> · <span style="color:#a78bfa;">⚙️ SummarizationMiddleware</span> <span style="color:#64748b;">(before_model)</span> — <span style="color:#94a3b8;">上下文未超限，跳过压缩</span></div>
+<div><span style="color:#94a3b8;">[S12]</span> <span style="color:#fbbf24;">子Agent 模型推理</span> <span style="color:#64748b;">· 3800ms</span> — <span style="color:#94a3b8;">生成 Pipeline 分析结论（纯文本回复，结束子循环）</span></div>
+<div><span style="color:#94a3b8;">[S13]</span> · <span style="color:#a78bfa;">⚙️ OutputValidationMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">子Agent输出校验通过</span></div>
 </div>
 
 <div style="color:#4ade80;margin-top:0.5rem;font-size:0.7rem;">→ 子Agent 完成，提取最后 AIMessage 作为 ToolResult 返回主 Agent</div>
 </div>
 </div>
 
-<!-- ===== 子Agent结束后的AG-UI事件 ===== -->
-<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">
-<span style="color:#c084fc;">AG-UI output_mode 路由（pipeline_analysis → output_mode=table）:</span><br>
-├─ <span style="color:#38bdf8;">TOOL_CALL_RESULT</span> {tool_call_id: "tc_01", content: "Pipeline分析完成..."}<br>
-├─ <span style="color:#c084fc;">CUSTOM("component_data")</span> {model_name: "searchResults", skill_apikey: "pipeline_analysis", data: [{stage:"prospecting",count:8,amount:1.2M}...]}<br>
-├─ <span style="color:#60a5fa;">STATE_DELTA</span> [{op:"replace", path:"/data/pipeline", value:{stages:[...], total:3.6M}}]<br>
-├─ <span style="color:#c084fc;">CUSTOM("component_complete")</span> {apikey: "pipeline_table", state: "complete"}<br>
-├─ <span style="color:#c084fc;">CUSTOM("step_metadata")</span> {skill_apikey: "pipeline_analysis", status: "completed", phase: "finished"}<br>
-├─ <span style="color:#c084fc;">STEP_FINISHED</span> {step_name: "pipeline_analysis"}<br>
-│&nbsp;&nbsp; <span style="color:#64748b;">→ 前端: 骨架屏替换为 PipelineTable 完整组件，标签变为 ✅ 完成</span>
-</div>
+
 </div>
 
 
@@ -176,24 +130,13 @@ output_mode=table → AGUIConverter 走 CUSTOM("component_data") 通道
 <div style="padding-left:1rem;">
 <div><span style="color:#94a3b8;">[17]</span> · <span style="color:#a78bfa;">⚙️ SummarizationMiddleware</span> <span style="color:#64748b;">(before_model)</span> — <span style="color:#94a3b8;">无需压缩</span></div>
 <div><span style="color:#94a3b8;">[18]</span> <span style="color:#fbbf24;">模型推理</span> <span style="color:#64748b;">· 3200ms</span> — <span style="color:#94a3b8;">LLM 判断需要客户画像，调用 skills_tool(customer_360_analysis)</span></div>
-<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">
-<span style="color:#fbbf24;">AG-UI 事件产出:</span><br>
-├─ <span style="color:#38bdf8;">TOOL_CALL_START</span> {tool_call_id: "tc_02", tool_call_name: "skills_tool"}<br>
-├─ <span style="color:#38bdf8;">TOOL_CALL_ARGS</span> {delta: '{"skill_name":"customer_360_analysis","account_id":"C001"}'}<br>
-├─ <span style="color:#38bdf8;">TOOL_CALL_END</span> {tool_call_id: "tc_02"}<br>
-│&nbsp;&nbsp; <span style="color:#64748b;">→ 前端: 显示 ⚙️ skills_tool(customer_360_analysis) [执行中]</span>
-</div>
-<div><span style="color:#94a3b8;">[19]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ GuardrailMiddleware</span> <span style="color:#64748b;">(wrap_tool_call)</span> — <span style="color:#94a3b8;">放行</span></div>
-<div><span style="color:#94a3b8;">[20]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 12000ms</span> — <span style="color:#94a3b8;">skills_tool(customer_360_analysis) [fork 模式]</span></div>
 
-<!-- STEP 事件 -->
-<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">
-<span style="color:#c084fc;">AG-UI STEP 事件:</span><br>
-├─ <span style="color:#c084fc;">STEP_STARTED</span> {step_name: "customer_360_analysis"}<br>
-├─ <span style="color:#c084fc;">CUSTOM("step_metadata")</span> {skill_apikey: "customer_360_analysis", step_index: 1, skill_context: "fork"}<br>
-├─ <span style="color:#c084fc;">CUSTOM("component_loading")</span> {apikey: "crm_record_card", state: "loading"}<br>
-│&nbsp;&nbsp; <span style="color:#64748b;">→ 前端: 显示 CrmRecordCard 骨架屏</span>
-</div>
+<div><span style="color:#94a3b8;">[19]</span> · <span style="color:#a78bfa;">⚙️ SubagentLimitMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">当前1个子Agent已完成，允许新调用</span></div>
+<div><span style="color:#94a3b8;">[20]</span> · <span style="color:#a78bfa;">⚙️ LoopDetectionMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">第2轮，无循环</span></div>
+<div><span style="color:#94a3b8;">[21]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ GuardrailMiddleware</span> <span style="color:#64748b;">(wrap_tool_call)</span> — <span style="color:#94a3b8;">放行</span></div>
+<div><span style="color:#94a3b8;">[22]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 12000ms</span> — <span style="color:#94a3b8;">skills_tool(customer_360_analysis) [fork 模式]</span></div>
+
+
 
 <!-- ===== 子 Agent 详细链路 2 ===== -->
 <div style="margin:0.5rem 0 0.3rem 1.5rem;padding:0.8rem 1rem;border:1.5px solid #fb923c;border-radius:8px;background:rgba(251,146,60,0.04);">
@@ -201,76 +144,65 @@ output_mode=table → AGUIConverter 走 CUSTOM("component_data") 通道
 <div style="color:#94a3b8;font-size:0.68rem;margin-bottom:0.5rem;">
 thread_id: "skill-customer_360-m9k1" | depth: 2 | max_depth: 3<br>
 工具集: [query_data, search_contacts, get_opportunities, get_activities]<br>
-System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）
+System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）<br>
+<span style="color:#fb923c;">中间件: before_model(Summarization) · after_model(LoopDetection, OutputValidation) · wrap_tool_call(Guardrail)</span>
 </div>
 
 <div style="padding-left:0.5rem;border-left:2px solid #fb923c;">
 <!-- 子循环 1 -->
 <div style="color:#e2e8f0;font-weight:500;margin:0.3rem 0 0.2rem;">子循环 1（获取客户基本信息）</div>
 <div style="padding-left:0.8rem;">
-<div><span style="color:#94a3b8;">[S1]</span> <span style="color:#fbbf24;">子Agent 推理</span> <span style="color:#64748b;">· 2200ms</span> — <span style="color:#94a3b8;">调用 query_data(entity="account", id="C001")</span></div>
-<div><span style="color:#94a3b8;">[S2]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 600ms</span> — <span style="color:#94a3b8;">→ {name:"工商银行", industry:"金融", level:"战略客户"}</span></div>
+<div><span style="color:#94a3b8;">[S1]</span> · <span style="color:#a78bfa;">⚙️ SummarizationMiddleware</span> <span style="color:#64748b;">(before_model)</span> — <span style="color:#94a3b8;">子Agent首轮，无需压缩</span></div>
+<div><span style="color:#94a3b8;">[S2]</span> <span style="color:#fbbf24;">子Agent 推理</span> <span style="color:#64748b;">· 2200ms</span> — <span style="color:#94a3b8;">调用 query_data(entity="account", id="C001")</span></div>
+<div><span style="color:#94a3b8;">[S3]</span> · <span style="color:#a78bfa;">⚙️ LoopDetectionMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">子循环1，无循环</span></div>
+<div><span style="color:#94a3b8;">[S4]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ GuardrailMiddleware</span> <span style="color:#64748b;">(wrap_tool_call)</span> — <span style="color:#94a3b8;">query_data ∈ allowed_tools → 放行</span></div>
+<div><span style="color:#94a3b8;">[S5]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 600ms</span> — <span style="color:#94a3b8;">→ {name:"工商银行", industry:"金融", level:"战略客户"}</span></div>
 </div>
 
 <!-- 子循环 2 -->
 <div style="color:#e2e8f0;font-weight:500;margin:0.5rem 0 0.2rem;">子循环 2（获取商机 + 联系人）</div>
 <div style="padding-left:0.8rem;">
-<div><span style="color:#94a3b8;">[S3]</span> <span style="color:#fbbf24;">子Agent 推理</span> <span style="color:#64748b;">· 2500ms</span> — <span style="color:#94a3b8;">并行调用 get_opportunities + search_contacts</span></div>
-<div><span style="color:#94a3b8;">[S4]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 900ms</span> — <span style="color:#94a3b8;">get_opportunities(account_id="C001") → 8个活跃商机</span></div>
-<div><span style="color:#94a3b8;">[S5]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 700ms</span> — <span style="color:#94a3b8;">search_contacts(account_id="C001") → 12个联系人</span></div>
+<div><span style="color:#94a3b8;">[S6]</span> · <span style="color:#a78bfa;">⚙️ SummarizationMiddleware</span> <span style="color:#64748b;">(before_model)</span> — <span style="color:#94a3b8;">上下文未超限，跳过压缩</span></div>
+<div><span style="color:#94a3b8;">[S7]</span> <span style="color:#fbbf24;">子Agent 推理</span> <span style="color:#64748b;">· 2500ms</span> — <span style="color:#94a3b8;">并行调用 get_opportunities + search_contacts</span></div>
+<div><span style="color:#94a3b8;">[S8]</span> · <span style="color:#a78bfa;">⚙️ LoopDetectionMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">子循环2，无循环</span></div>
+<div><span style="color:#94a3b8;">[S9]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ GuardrailMiddleware</span> <span style="color:#64748b;">(wrap_tool_call)</span> — <span style="color:#94a3b8;">get_opportunities ∈ allowed_tools → 放行</span></div>
+<div><span style="color:#94a3b8;">[S10]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 900ms</span> — <span style="color:#94a3b8;">get_opportunities(account_id="C001") → 8个活跃商机</span></div>
+<div><span style="color:#94a3b8;">[S11]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ GuardrailMiddleware</span> <span style="color:#64748b;">(wrap_tool_call)</span> — <span style="color:#94a3b8;">search_contacts ∈ allowed_tools → 放行</span></div>
+<div><span style="color:#94a3b8;">[S12]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 700ms</span> — <span style="color:#94a3b8;">search_contacts(account_id="C001") → 12个联系人</span></div>
 </div>
 
 <!-- 子循环 3 -->
 <div style="color:#e2e8f0;font-weight:500;margin:0.5rem 0 0.2rem;">子循环 3（获取活动记录）</div>
 <div style="padding-left:0.8rem;">
-<div><span style="color:#94a3b8;">[S6]</span> <span style="color:#fbbf24;">子Agent 推理</span> <span style="color:#64748b;">· 1800ms</span> — <span style="color:#94a3b8;">调用 get_activities</span></div>
-<div><span style="color:#94a3b8;">[S7]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 500ms</span> — <span style="color:#94a3b8;">get_activities(account_id="C001", limit=20) → 最近20条拜访/邮件</span></div>
+<div><span style="color:#94a3b8;">[S13]</span> · <span style="color:#a78bfa;">⚙️ SummarizationMiddleware</span> <span style="color:#64748b;">(before_model)</span> — <span style="color:#94a3b8;">上下文未超限，跳过压缩</span></div>
+<div><span style="color:#94a3b8;">[S14]</span> <span style="color:#fbbf24;">子Agent 推理</span> <span style="color:#64748b;">· 1800ms</span> — <span style="color:#94a3b8;">调用 get_activities</span></div>
+<div><span style="color:#94a3b8;">[S15]</span> · <span style="color:#a78bfa;">⚙️ LoopDetectionMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">子循环3，无循环</span></div>
+<div><span style="color:#94a3b8;">[S16]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ GuardrailMiddleware</span> <span style="color:#64748b;">(wrap_tool_call)</span> — <span style="color:#94a3b8;">get_activities ∈ allowed_tools → 放行</span></div>
+<div><span style="color:#94a3b8;">[S17]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 500ms</span> — <span style="color:#94a3b8;">get_activities(account_id="C001", limit=20) → 最近20条拜访/邮件</span></div>
 </div>
 
 <!-- 子循环 4 -->
 <div style="color:#e2e8f0;font-weight:500;margin:0.5rem 0 0.2rem;">子循环 4（综合分析生成画像）</div>
 <div style="padding-left:0.8rem;">
-<div><span style="color:#94a3b8;">[S8]</span> <span style="color:#fbbf24;">子Agent 推理</span> <span style="color:#64748b;">· 4200ms</span> — <span style="color:#94a3b8;">综合所有数据生成结构化客户画像（纯文本回复，结束子循环）</span></div>
-<div style="padding-left:1.5rem;color:#64748b;font-size:0.65rem;">
-output_mode=component → AGUIConverter 走 CUSTOM("component_complete") + STATE_DELTA 通道<br>
-ComponentMatcher 5层匹配: Layer 1 bind 命中 → crm_record_card
-</div>
+<div><span style="color:#94a3b8;">[S18]</span> · <span style="color:#a78bfa;">⚙️ SummarizationMiddleware</span> <span style="color:#64748b;">(before_model)</span> — <span style="color:#94a3b8;">上下文未超限，跳过压缩</span></div>
+<div><span style="color:#94a3b8;">[S19]</span> <span style="color:#fbbf24;">子Agent 推理</span> <span style="color:#64748b;">· 4200ms</span> — <span style="color:#94a3b8;">综合所有数据生成结构化客户画像（纯文本回复，结束子循环）</span></div>
+<div><span style="color:#94a3b8;">[S20]</span> · <span style="color:#a78bfa;">⚙️ OutputValidationMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">子Agent输出校验通过</span></div>
 </div>
 
 <div style="color:#4ade80;margin-top:0.5rem;font-size:0.7rem;">→ 子Agent 完成 (12s)，返回结构化数据给主 Agent</div>
 </div>
 </div>
 
-<!-- ===== 子Agent结束后的AG-UI事件 ===== -->
-<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">
-<span style="color:#c084fc;">AG-UI output_mode 路由（customer_360_analysis → output_mode=component）:</span><br>
-├─ <span style="color:#38bdf8;">TOOL_CALL_RESULT</span> {tool_call_id: "tc_02", content: "客户画像分析完成"}<br>
-├─ <span style="color:#60a5fa;">STATE_DELTA</span> [{op:"replace", path:"/panels/crm_record_card/state", value:"complete"}, {op:"replace", path:"/panels/crm_record_card/data", value:{accountName:"工商银行", industry:"金融", ...}}]<br>
-├─ <span style="color:#c084fc;">CUSTOM("component_complete")</span> {apikey: "crm_record_card", state: "complete", data: {accountName:"工商银行",...}}<br>
-├─ <span style="color:#a78bfa;">ACTIVITY_SNAPSHOT</span> {activity_type: "a2ui-surface", content: {operations: [surfaceUpdate, beginRendering]}}<br>
-│&nbsp;&nbsp; <span style="color:#64748b;">→ 前端: 骨架屏替换为完整 CrmRecordCard 组件</span><br>
-├─ <span style="color:#c084fc;">CUSTOM("step_metadata")</span> {status: "completed", phase: "finished"}<br>
-├─ <span style="color:#c084fc;">STEP_FINISHED</span> {step_name: "customer_360_analysis"}<br>
-├─ <span style="color:#60a5fa;">MESSAGES_SNAPSHOT</span> {messages: [...]}<br>
-│&nbsp;&nbsp; <span style="color:#64748b;">→ 前端: 工具标签变为 ✅ customer_360_analysis 完成 (12s)</span>
-</div>
+
 </div>
 
 <!-- ===== 循环 3: 最终回复 ===== -->
 <div style="color:#e2e8f0;font-weight:500;margin:0.8rem 0 0.2rem;">├─ 循环 3 <span style="color:#4ade80;">[FINAL]</span>（LLM 生成最终总结 — post_output_behavior=summarize）</div>
 <div style="padding-left:1rem;">
-<div><span style="color:#94a3b8;">[21]</span> · <span style="color:#a78bfa;">⚙️ SummarizationMiddleware</span> <span style="color:#64748b;">(before_model)</span> — <span style="color:#94a3b8;">无需压缩</span></div>
-<div><span style="color:#94a3b8;">[22]</span> <span style="color:#fbbf24;">模型推理</span> <span style="color:#64748b;">· 3500ms</span> — <span style="color:#94a3b8;">生成最终引导文本（纯文本回复，结束循环）</span></div>
-<div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">
-<span style="color:#4ade80;">AG-UI 文本流事件（三流互斥 → 此时推理流和工具流已关闭）:</span><br>
-├─ <span style="color:#4ade80;">TEXT_MESSAGE_START</span> {message_id: "msg_final", role: "assistant"}<br>
-├─ <span style="color:#4ade80;">TEXT_MESSAGE_CONTENT</span> {delta: "以上是华东区 Pipeline 分析"}<br>
-├─ <span style="color:#4ade80;">TEXT_MESSAGE_CONTENT</span> {delta: "和工商银行的客户画像。"}<br>
-├─ <span style="color:#4ade80;">TEXT_MESSAGE_CONTENT</span> {delta: "需要我深入分析某个商机阶段吗？"}<br>
-├─ <span style="color:#4ade80;">TEXT_MESSAGE_END</span> {message_id: "msg_final"}<br>
-│&nbsp;&nbsp; <span style="color:#64748b;">→ 前端: 逐字渲染 ChatBubble，显示主Agent引导文本</span>
-</div>
-<div><span style="color:#94a3b8;">[23]</span> · <span style="color:#a78bfa;">⚙️ OutputValidationMiddleware</span> <span style="color:#64748b;">· 2ms (after_model)</span> — <span style="color:#94a3b8;">输出敏感词校验通过</span></div>
+<div><span style="color:#94a3b8;">[23]</span> · <span style="color:#a78bfa;">⚙️ SummarizationMiddleware</span> <span style="color:#64748b;">(before_model)</span> — <span style="color:#94a3b8;">无需压缩</span></div>
+<div><span style="color:#94a3b8;">[24]</span> <span style="color:#fbbf24;">模型推理</span> <span style="color:#64748b;">· 3500ms</span> — <span style="color:#94a3b8;">生成最终引导文本（纯文本回复，结束循环）</span></div>
+
+<div><span style="color:#94a3b8;">[25]</span> · <span style="color:#a78bfa;">⚙️ OutputValidationMiddleware</span> <span style="color:#64748b;">· 2ms (after_model)</span> — <span style="color:#94a3b8;">输出敏感词校验通过</span></div>
 </div>
 
 </div><!-- Agent Loop 结束 -->
@@ -279,14 +211,14 @@ ComponentMatcher 5层匹配: Layer 1 bind 命中 → crm_record_card
 <!-- ===== 输出转换 ===== -->
 <div style="color:#f472b6;font-weight:600;margin-bottom:0.3rem;">🔄 输出转换（流式输出前）</div>
 <div style="padding-left:1rem;border-left:2px solid #f472b6;margin-bottom:1rem;">
-<div><span style="color:#94a3b8;">[24]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ StreamPIIRestorer</span> <span style="color:#64748b;">· 逐token</span> — <span style="color:#94a3b8;">PII 占位符还原（本次无脱敏项）</span></div>
+<div><span style="color:#94a3b8;">[26]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ StreamPIIRestorer</span> <span style="color:#64748b;">· 逐token</span> — <span style="color:#94a3b8;">PII 占位符还原（本次无脱敏项）</span></div>
 </div>
 <div style="text-align:center;color:#475569;">▼</div>
 
 <!-- ===== RUN_FINISHED ===== -->
 <div style="color:#4ade80;font-weight:600;margin-bottom:0.3rem;">✅ AG-UI 事件流结束</div>
 <div style="padding-left:1rem;border-left:2px solid #4ade80;margin-bottom:1rem;">
-<div><span style="color:#94a3b8;">[25]</span> <span style="color:#4ade80;">▶ RUN_FINISHED</span> — <span style="color:#94a3b8;">{thread_id: "t-abc", run_id: "r-001"}</span></div>
+<div><span style="color:#94a3b8;">[27]</span> <span style="color:#4ade80;">▶ RUN_FINISHED</span> — <span style="color:#94a3b8;">{thread_id: "t-abc", run_id: "r-001"}</span></div>
 <div style="padding-left:1.5rem;color:#64748b;font-size:0.7rem;">→ 前端: 恢复输入框可用状态，工具标签全部显示完成态</div>
 </div>
 <div style="text-align:center;color:#475569;">▼</div>
@@ -294,64 +226,17 @@ ComponentMatcher 5层匹配: Layer 1 bind 命中 → crm_record_card
 <!-- ===== 后处理 ===== -->
 <div style="color:#c084fc;font-weight:600;margin-bottom:0.3rem;">💾 后处理（after_agent，异步执行，不阻塞回复）</div>
 <div style="padding-left:1rem;border-left:2px solid #c084fc;margin-bottom:1rem;">
-<div><span style="color:#94a3b8;">[26]</span> · <span style="color:#a78bfa;">⚙️ OutputRenderMiddleware</span> <span style="color:#64748b;">· 5ms</span> — <span style="color:#94a3b8;">state 持久化</span></div>
-<div><span style="color:#94a3b8;">[27]</span> <span style="color:#e2e8f0;">记忆提取</span> <span style="color:#64748b;">· 3500ms</span> — <span style="color:#94a3b8;">提取 3 条新记忆（用户关注华东区、工商银行是重点客户...）</span></div>
+<div><span style="color:#94a3b8;">[28]</span> · <span style="color:#a78bfa;">⚙️ OutputRenderMiddleware</span> <span style="color:#64748b;">· 5ms</span> — <span style="color:#94a3b8;">state 持久化</span></div>
+<div><span style="color:#94a3b8;">[29]</span> <span style="color:#e2e8f0;">记忆提取</span> <span style="color:#64748b;">· 3500ms</span> — <span style="color:#94a3b8;">提取 3 条新记忆（用户关注华东区、工商银行是重点客户...）</span></div>
 <div style="padding-left:1rem;">
 <div><span style="color:#94a3b8;">├─</span> <span style="color:#64748b;">[异步]</span> <span style="color:#e2e8f0;">记忆合并</span> — <span style="color:#94a3b8;">LLM 语义去重</span></div>
 <div><span style="color:#94a3b8;">└─</span> <span style="color:#64748b;">[异步]</span> <span style="color:#e2e8f0;">记忆反思</span> — <span style="color:#94a3b8;">冲突检测</span></div>
 </div>
 </div>
 
-<!-- ===== 前端事件分发汇总 ===== -->
-<div style="border:1px solid #475569;border-radius:8px;padding:0.8rem 1rem;margin-top:1rem;background:rgba(71,85,105,0.2);">
-<div style="color:#60a5fa;font-weight:600;margin-bottom:0.5rem;">📺 前端事件分发路由汇总</div>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;font-size:0.7rem;">
-<div style="background:#1e293b;border:1px solid #334155;padding:0.4rem 0.6rem;border-radius:5px;">
-<span style="color:#4ade80;">TEXT_MESSAGE_*</span><br>
-<span style="color:#94a3b8;">→ ChatBubble（Markdown 渲染，逐字流式）</span>
-</div>
-<div style="background:#1e293b;border:1px solid #334155;padding:0.4rem 0.6rem;border-radius:5px;">
-<span style="color:#fbbf24;">REASONING_*</span><br>
-<span style="color:#94a3b8;">→ ReasoningPanel（折叠面板，默认收起）</span>
-</div>
-<div style="background:#1e293b;border:1px solid #334155;padding:0.4rem 0.6rem;border-radius:5px;">
-<span style="color:#38bdf8;">TOOL_CALL_*</span><br>
-<span style="color:#94a3b8;">→ ToolCallBadge（黄色执行中/绿色完成）</span>
-</div>
-<div style="background:#1e293b;border:1px solid #334155;padding:0.4rem 0.6rem;border-radius:5px;">
-<span style="color:#c084fc;">CUSTOM("component_*")</span><br>
-<span style="color:#94a3b8;">→ SurfaceRenderer（骨架屏→完整组件）</span>
-</div>
-<div style="background:#1e293b;border:1px solid #334155;padding:0.4rem 0.6rem;border-radius:5px;">
-<span style="color:#c084fc;">CUSTOM("step_metadata")</span><br>
-<span style="color:#94a3b8;">→ TraceSidebar（链路追踪面板）</span>
-</div>
-<div style="background:#1e293b;border:1px solid #334155;padding:0.4rem 0.6rem;border-radius:5px;">
-<span style="color:#a78bfa;">ACTIVITY_SNAPSHOT</span><br>
-<span style="color:#94a3b8;">→ A2UIBridge → SurfaceStore 渲染</span>
-</div>
-<div style="background:#1e293b;border:1px solid #334155;padding:0.4rem 0.6rem;border-radius:5px;">
-<span style="color:#60a5fa;">STATE_SNAPSHOT/DELTA</span><br>
-<span style="color:#94a3b8;">→ SharedState 更新（组件绑定读取）</span>
-</div>
-<div style="background:#1e293b;border:1px solid #334155;padding:0.4rem 0.6rem;border-radius:5px;">
-<span style="color:#60a5fa;">MESSAGES_SNAPSHOT</span><br>
-<span style="color:#94a3b8;">→ 消息历史重建（重连用）</span>
-</div>
-</div>
-</div>
 
-<!-- ===== 断线重连 ===== -->
-<div style="border:1px solid #475569;border-radius:8px;padding:0.8rem 1rem;margin-top:1rem;background:rgba(71,85,105,0.2);">
-<div style="color:#fbbf24;font-weight:600;margin-bottom:0.5rem;">🔌 断线重连首包顺序（POST /agent/chat/reconnect）</div>
-<div style="font-size:0.7rem;">
-<div><span style="color:#94a3b8;">①</span> <span style="color:#4ade80;">RUN_STARTED</span> {parent_run_id: "r-001"} <span style="color:#64748b;">— 前端清空临时气泡</span></div>
-<div><span style="color:#94a3b8;">②</span> <span style="color:#60a5fa;">MESSAGES_SNAPSHOT</span> {messages: [...]} <span style="color:#64748b;">— 覆盖本地消息缓存</span></div>
-<div><span style="color:#94a3b8;">③</span> <span style="color:#60a5fa;">STATE_SNAPSHOT</span> {snapshot: {phase, data, panelLayoutOrder,...}} <span style="color:#64748b;">— 覆盖 SharedState</span></div>
-<div><span style="color:#94a3b8;">④</span> <span style="color:#a78bfa;">ACTIVITY_SNAPSHOT × N</span> {replace:true, surfaceUpdate+beginRendering} <span style="color:#64748b;">— 重建 Surface</span></div>
-<div><span style="color:#94a3b8;">⑤</span> <span style="color:#94a3b8;">恢复增量推送...</span></div>
-</div>
-</div>
+
+
 
 </div><!-- 主容器结束 -->
 
@@ -412,18 +297,17 @@ ComponentMatcher 5层匹配: Layer 1 bind 命中 → crm_record_card
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">M 次/轮</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">操作耗时、输入/输出大小、错误码</td>
 </tr>
-<tr>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:600;color:#38bdf8;">L4 · 事件</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>ag_ui_event</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">每个 AG-UI SSE 事件的产出时刻</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">K 次/请求</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">事件类型、时间戳、关联 span_id</td>
-</tr>
+
 </tbody>
 </table>
 </div>
 
 <h3>2.3 各链路节点埋点记录规则表</h3>
+
+<blockquote>
+<p>仅列出推理链路中实际执行的节点（上下文准备 → Agent Loop → 子Agent），<br>
+入口预处理（SSE/标题/审查/改写）、输出转换、后处理、AG-UI 事件产出等属于外围流程，不在此表覆盖。</p>
+</blockquote>
 
 <div style="margin:1rem 0;overflow-x:auto;">
 <table style="width:100%;border-collapse:collapse;font-size:0.78rem;background:#fff;">
@@ -440,60 +324,6 @@ ComponentMatcher 5层匹配: Layer 1 bind 命中 → crm_record_card
 </thead>
 <tbody>
 <tr>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">[1]</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">SSE 连接建立</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#fbbf24;">入口预处理</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>sse_connect</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">tenant_id, user_id, thread_id, client_ip, user_agent, a2ui_catalog_ids</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">connect_ms</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">connect_ms > 3000</td>
-</tr>
-<tr style="background:#f9fafb;">
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">[2]</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">标题生成</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#fbbf24;">入口预处理</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>title_gen</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">generated_title, method: "rule"|"llm", is_first_message</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">—</td>
-</tr>
-<tr>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">[3]</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">内容审查</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#fbbf24;">入口预处理</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>content_review</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">result: "pass"|"block", block_reason, block_category, matched_keywords[], llm_score</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms, llm_review_ms</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms > 5000; result="block"时必须告警</td>
-</tr>
-<tr style="background:#f9fafb;">
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">[4]</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">查询改写</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#fbbf24;">入口预处理</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>query_rewrite</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">original_query(前80字), rewritten_query(前80字), rewrite_applied: bool, skip_reason</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms, input_tokens, output_tokens</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms > 8000; rewrite 后语义偏移</td>
-</tr>
-<tr>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">[5]</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">AG-UI Pipeline 创建</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#fbbf24;">入口预处理</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>pipeline_init</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">run_id, thread_id, converter_version, renderer_enabled, catalog_negotiated</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">init_ms</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">—</td>
-</tr>
-<tr style="background:#f9fafb;">
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">[6]</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">RUN_STARTED 事件</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#4ade80;">AG-UI 事件</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>agui_run_start</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">run_id, thread_id, parent_run_id, timestamp</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">time_since_request_ms (首事件延迟)</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">首事件延迟 > 500ms</td>
-</tr>
-<tr>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">[7-10]</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">Middleware 执行 (before_agent)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#60a5fa;">上下文准备</td>
@@ -504,6 +334,15 @@ ComponentMatcher 5层匹配: Layer 1 bind 命中 → crm_record_card
 </tr>
 <tr style="background:#f9fafb;">
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">Middleware (before_model)</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>mw_summarization</code></td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">middleware_name, tokens_before, tokens_after, compression_applied: bool, compression_ratio</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms, tokens_saved</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">duration > 3000ms; compression_ratio < 0.3</td>
+</tr>
+<tr>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">LLM 推理</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>llm_call</code></td>
@@ -511,25 +350,7 @@ ComponentMatcher 5层匹配: Layer 1 bind 命中 → crm_record_card
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms, ttft_ms (首token延迟), tokens_per_sec</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration > 30s; ttft > 5s; error/retry</td>
 </tr>
-<tr>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">REASONING 事件产出</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>agui_reasoning</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">message_id, chunk_count, total_chars, reasoning_duration_ms</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">reasoning_duration_ms, chars_per_sec</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">—</td>
-</tr>
 <tr style="background:#f9fafb;">
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">TOOL_CALL 事件产出</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>agui_tool_call</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">tool_call_id, tool_call_name, args_chars, iteration_index</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">—</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">—</td>
-</tr>
-<tr>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">Middleware (after_model)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
@@ -538,7 +359,7 @@ ComponentMatcher 5层匹配: Layer 1 bind 命中 → crm_record_card
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">loop_detected=true; output_blocked=true</td>
 </tr>
-<tr style="background:#f9fafb;">
+<tr>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">Middleware (wrap_tool_call)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
@@ -547,7 +368,7 @@ ComponentMatcher 5层匹配: Layer 1 bind 命中 → crm_record_card
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">guardrail_result="block"; hitl_pending</td>
 </tr>
-<tr>
+<tr style="background:#f9fafb;">
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">工具执行</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
@@ -556,7 +377,7 @@ ComponentMatcher 5层匹配: Layer 1 bind 命中 → crm_record_card
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration > 10s; error != null; retry > 1</td>
 </tr>
-<tr style="background:#f9fafb;">
+<tr>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">Skill 执行</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
@@ -565,69 +386,17 @@ ComponentMatcher 5层匹配: Layer 1 bind 命中 → crm_record_card
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration > 30s; error; component_match=null(降级)</td>
 </tr>
-<tr>
+<tr style="background:#f9fafb;">
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">子 Agent 执行</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#fb923c;">子Agent</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>sub_agent_{apikey}</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">skill_apikey, sub_thread_id, depth, max_depth, allowed_tools[], loop_iterations, llm_calls, tool_calls, input_tokens, output_tokens, cost_credits, final_output_chars, events_filtered, events_passthrough, termination_reason</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">skill_apikey, sub_thread_id, depth, max_depth, allowed_tools[], loop_iterations, llm_calls, tool_calls, input_tokens, output_tokens, cost_credits, final_output_chars, termination_reason</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms, cost_credits</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration > 60s; loop > 10; termination="error"</td>
 </tr>
-<tr style="background:#f9fafb;">
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">STEP 事件 (开始/结束)</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#c084fc;">AG-UI 事件</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>agui_step</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">step_name, skill_apikey, step_index, skill_context, phase: "started"|"finished", status: "completed"|"failed"</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">step_duration_ms</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">status="failed"</td>
-</tr>
-<tr>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">STATE_DELTA / ACTIVITY_SNAPSHOT</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#60a5fa;">AG-UI 事件</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>agui_state</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">event_type, surface_id, render_type, payload_bytes, patch_ops_count, is_snapshot: bool</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">payload_bytes</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">payload > 100KB (考虑拆分)</td>
-</tr>
-<tr style="background:#f9fafb;">
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">TEXT_MESSAGE 事件</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#4ade80;">AG-UI 事件</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>agui_text_msg</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">message_id, role, total_chars, chunk_count, stream_duration_ms, source: "main_agent"|"sub_agent"</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">stream_duration_ms, chars_per_sec</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">—</td>
-</tr>
-<tr>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">[24]</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">PII 还原</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">输出转换</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>pii_restore</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">restored_count, restore_failures</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">—</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">restore_failures > 0</td>
-</tr>
-<tr style="background:#f9fafb;">
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">[25]</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">RUN_FINISHED 事件</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#4ade80;">AG-UI 事件</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>agui_run_end</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">run_id, final_status, total_events_count, total_duration_ms, total_sse_bytes</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">total_duration_ms, total_events_count</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">total_duration > 120s; status="error"</td>
-</tr>
-<tr>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">[26-27]</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">后处理 (记忆提取/合并/反思)</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#c084fc;">后处理</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>post_memory</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">memories_extracted, memories_merged, memories_conflicted, extraction_method: "4-parallel", conflict_resolution</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">duration > 10s; conflict > 3</td>
-</tr>
+
+
 </tbody>
 </table>
 </div>

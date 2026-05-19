@@ -529,7 +529,7 @@ class SkillExecutor:
                     if mw_name in ("AgentLoggingMiddleware", "TracingMiddleware"):
                         continue
                 # 跳过前端隐藏的类型（与主 Agent HIDDEN_SPAN_TYPES 一致）
-                if s_type in ("llm_input", "intent_analysis", "request", "clarification", "memory_extract", "tool_result_compact"):
+                if s_type in ("llm_input", "intent_analysis", "request", "clarification", "memory_extract"):
                     continue
                 child = {
                     "type": s_type,

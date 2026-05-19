@@ -1219,10 +1219,16 @@ function renderTraceNode(span, idx, seqNum) {
           subAgentHtml += flushAfterModel();
           const toolStatus = sMeta.status === 'error' ? '<span class="text-red-500">❌</span>' : '<span class="text-green-600">✓</span>';
           const dur = s.duration_ms ? ` · ${Math.round(s.duration_ms)}ms` : '';
-          // wrap_tool_call 护栏折叠在 tool_call 内部（它包裹了工具执行）
+          // wrap_tool_call 护栏折叠在 tool_call 内部
           const wrapHtml = flushWrapTool();
           subAgentHtml += `<div class="text-blue-600 pl-5 font-medium">${toolStatus} ${esc(s.name || '')}${dur}</div>`;
           if (wrapHtml) subAgentHtml += `<div class="pl-7">${wrapHtml}</div>`;
+          subAgentHtml += subIO(s);
+        } else if (sType === 'tool_result_compact') {
+          // 上下文压缩节点（tool_call 之后）
+          const compactDetail = s.detail || '';
+          const compactDur = s.duration_ms ? ` · ${Math.round(s.duration_ms)}ms` : '';
+          subAgentHtml += `<div class="text-purple-600 pl-5">📦 ${esc(compactDetail || s.name || '上下文压缩')}${compactDur}</div>`;
           subAgentHtml += subIO(s);
         } else {
           subAgentHtml += flushBeforeModel();
@@ -1554,7 +1560,7 @@ function refreshTrace() {
     // 上下文准备
     if (['context_build', 'memory_retrieval', 'user_input'].includes(typeKey)) return 'context';
     // Agent Loop
-    if (['llm_call', 'tool_call', 'skill_execution', 'hierarchical_search', 'error'].includes(typeKey)) return 'reasoning';
+    if (['llm_call', 'tool_call', 'skill_execution', 'hierarchical_search', 'tool_result_compact', 'error'].includes(typeKey)) return 'reasoning';
     // 回复输出
     if (['response_complete', 'response', 'stream_pii_restore', 'output_render'].includes(typeKey)) return 'output';
     // 后处理
