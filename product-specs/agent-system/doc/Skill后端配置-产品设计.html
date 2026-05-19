@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skill 后端配置 - 产品设计</title>
+<style>
+:root { --bg:#fff; --text:#1a1a2e; --heading:#16213e; --accent:#0f3460; --border:#e0e0e0; --code-bg:#f5f5f5; --table-header:#f0f4f8; --table-border:#d0d7de; --link:#0969da; --blockquote-bg:#f6f8fa; --blockquote-border:#d0d7de; --purple:#7c3aed; --purple-bg:#f5f3ff; --green:#059669; --green-bg:#ecfdf5; --orange:#d97706; --orange-bg:#fffbeb; --red:#dc2626; --red-bg:#fef2f2; --blue:#2563eb; --blue-bg:#eff6ff; }
+* { box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; line-height: 1.75; color: var(--text); background: var(--bg); max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; font-size: 15px; }
+h1 { font-size: 2em; color: var(--heading); border-bottom: 3px solid var(--purple); padding-bottom: 12px; margin-top: 48px; }
+h2 { font-size: 1.5em; color: var(--heading); border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-top: 48px; }
+h3 { font-size: 1.25em; color: var(--heading); margin-top: 32px; }
+h4 { font-size: 1.1em; color: var(--heading); margin-top: 24px; }
+p { margin: 12px 0; }
+blockquote { background: var(--blockquote-bg); border-left: 4px solid var(--blockquote-border); margin: 16px 0; padding: 12px 20px; color: #57606a; }
+blockquote p { margin: 4px 0; }
+code { font-family: "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace; font-size: 0.88em; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; }
+pre { background: #1e1e2e; color: #cdd6f4; padding: 20px; border-radius: 8px; overflow-x: auto; line-height: 1.5; margin: 16px 0; }
+pre code { background: none; padding: 0; font-size: 0.85em; color: inherit; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.92em; }
+thead { background: var(--table-header); }
+th, td { border: 1px solid var(--table-border); padding: 10px 14px; text-align: left; }
+th { font-weight: 600; color: var(--heading); }
+tr:nth-child(even) { background: #f9fafb; }
+ul, ol { padding-left: 24px; margin: 8px 0; }
+li { margin: 4px 0; }
+hr { border: none; border-top: 2px solid var(--border); margin: 40px 0; }
+strong { color: var(--heading); }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; font-weight: 600; margin-right: 4px; }
+.badge-purple { background: var(--purple-bg); color: var(--purple); border: 1px solid #c4b5fd; }
+.badge-green { background: var(--green-bg); color: var(--green); border: 1px solid #6ee7b7; }
+.badge-orange { background: var(--orange-bg); color: var(--orange); border: 1px solid #fcd34d; }
+.badge-red { background: var(--red-bg); color: var(--red); border: 1px solid #fca5a5; }
+.badge-blue { background: var(--blue-bg); color: var(--blue); border: 1px solid #93c5fd; }
+.card { border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 16px 0; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.card-header { font-weight: 600; font-size: 1.05em; margin-bottom: 12px; color: var(--heading); }
+.field-group { margin: 16px 0; padding: 16px; background: #f9fafb; border-radius: 8px; border: 1px solid var(--border); }
+.field-group-title { font-weight: 600; font-size: 0.95em; color: var(--purple); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px dashed #c4b5fd; }
+.field-row { display: flex; align-items: flex-start; margin: 8px 0; gap: 12px; }
+.field-label { min-width: 140px; font-weight: 500; color: #374151; font-size: 0.9em; padding-top: 2px; }
+.field-value { flex: 1; font-size: 0.9em; color: #6b7280; }
+.field-required { color: var(--red); font-weight: 600; }
+.wireframe { border: 2px solid var(--border); border-radius: 12px; padding: 0; margin: 20px 0; overflow: hidden; background: #fafbfc; }
+.wireframe-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; padding: 12px 20px; font-weight: 600; font-size: 0.95em; }
+.wireframe-body { padding: 20px; }
+.wireframe-sidebar { display: flex; gap: 0; }
+.wireframe-menu { width: 180px; background: #f1f5f9; border-right: 1px solid var(--border); padding: 16px 0; min-height: 400px; }
+.wireframe-menu-item { padding: 10px 20px; font-size: 0.85em; color: #475569; cursor: pointer; border-left: 3px solid transparent; }
+.wireframe-menu-item.active { background: #fff; color: var(--purple); border-left-color: var(--purple); font-weight: 600; }
+.wireframe-content { flex: 1; padding: 20px; }
+.mock-input { border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 12px; background: #fff; color: #9ca3af; font-size: 0.85em; margin: 4px 0; }
+.mock-btn { display: inline-block; padding: 6px 16px; border-radius: 6px; font-size: 0.82em; font-weight: 500; cursor: pointer; }
+.mock-btn-primary { background: var(--purple); color: #fff; }
+.mock-btn-default { background: #fff; border: 1px solid var(--border); color: #374151; }
+.mock-btn-danger { background: #fff; border: 1px solid #fca5a5; color: var(--red); }
+.mock-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.78em; background: var(--purple-bg); color: var(--purple); border: 1px solid #c4b5fd; margin: 2px; }
+.mock-switch { display: inline-block; width: 36px; height: 20px; border-radius: 10px; background: #10b981; position: relative; }
+.mock-switch::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #fff; top: 2px; right: 2px; }
+.mock-switch.off { background: #d1d5db; }
+.mock-switch.off::after { right: auto; left: 2px; }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.status-dot.green { background: #10b981; }
+.status-dot.gray { background: #9ca3af; }
+.flow-diagram { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.flow-step { background: var(--purple-bg); border: 1px solid #c4b5fd; border-radius: 8px; padding: 8px 14px; font-size: 0.82em; color: var(--purple); font-weight: 500; }
+.flow-arrow { color: #9ca3af; font-size: 1.2em; }
+.section-intro { background: linear-gradient(135deg, var(--purple-bg) 0%, #ede9fe 100%); border-radius: 12px; padding: 20px 24px; margin: 20px 0; border: 1px solid #c4b5fd; }
+.section-intro p { margin: 4px 0; color: #5b21b6; font-size: 0.92em; }
+@media print { body { max-width: 100%; padding: 20px; font-size: 12px; } pre { background: #f5f5f5 !important; color: #333 !important; border: 1px solid #ddd; } }
+@media (max-width: 768px) { body { padding: 20px 16px; font-size: 14px; } table { display: block; overflow-x: auto; } .wireframe-sidebar { flex-direction: column; } .wireframe-menu { width: 100%; min-height: auto; border-right: none; border-bottom: 1px solid var(--border); } }
+</style>
+</head>
+<body>
+
+<h1>Skill 后端配置 — 产品设计</h1>
+
+<blockquote>
+<p><strong>文档定位</strong>：Skill 后端管理配置页面的产品设计规范，面向前端开发与后端 API 对接。</p>
+<p><strong>适用范围</strong>：Agent 管理后台 → 技能管理模块（/admin/skills）</p>
+<p><strong>设计依据</strong>：《Skill 管理体系设计方案》、《CRM-Tool-Skill 通用工具体系设计》</p>
+</blockquote>
+
+<div class="section-intro">
+<p><strong>🎯 核心目标</strong></p>
+<p>将 Skill 的定义、管理全流程从"文件导入"模式升级为"数据库定义 + 后台管理"模式，提供完整的 Skill CRUD、启用/禁用、分类管理、执行监控能力。</p>
+</div>
+
+<hr/>
+
+<h2>一、页面信息架构</h2>
+
+<h3>1.1 整体布局</h3>
+
+<div class="card" style="border-left:4px solid var(--purple);background:linear-gradient(135deg,#faf5ff 0%,#f5f3ff 100%);">
+<div class="card-header" style="color:var(--purple);">💡 为什么需要 Skill 后端配置能力</div>
+<p style="font-size:0.9em;color:#374151;margin:8px 0;">当前 Skill 定义依赖本地 Markdown 文件 + SQL 初始化脚本，存在以下核心痛点：</p>
+<ul style="font-size:0.88em;color:#4b5563;">
+<li><strong>运营无法自主管理</strong>：新增/调整技能必须开发介入修改文件并重新部署，响应周期长</li>
+<li><strong>无法按租户定制</strong>：所有租户共享同一套技能定义，无法满足不同客户的差异化场景需求</li>
+<li><strong>缺乏运行可观测性</strong>：技能执行效果（成功率、耗时、调用频次）无法量化，无法驱动持续优化</li>
+<li><strong>上线风险不可控</strong>：没有启用/禁用开关，问题技能无法快速下线止血</li>
+<li><strong>技能组织混乱</strong>：技能数量增长后缺乏分类体系，运营人员难以快速定位和管理目标技能</li>
+<li><strong>问题排查困难</strong>：技能执行过程无日志记录，出现异常时无法追溯调用链路和失败原因</li>
+</ul>
+<p style="font-size:0.9em;color:#374151;margin:12px 0 4px;"><strong>产品价值：</strong></p>
+<ul style="font-size:0.88em;color:#4b5563;">
+<li><strong>运营自助化</strong>：业务人员通过后台界面即可完成技能的创建、编辑、测试、上下线，无需开发排期</li>
+<li><strong>租户级定制</strong>：支持按租户配置专属技能，满足不同行业客户的个性化 Agent 能力诉求</li>
+<li><strong>分类体系化管理</strong>：通过动态分类对技能进行归类组织，支持按业务域快速筛选，技能数量增长后仍可高效管理</li>
+<li><strong>执行日志全链路追踪</strong>：记录每次技能执行的参数、工具调用、耗时、Token 消耗和错误信息，支持按 Thread ID 追踪完整对话链路，快速定位问题根因</li>
+<li><strong>数据驱动优化</strong>：执行日志 + 统计面板提供技能效果量化数据，指导 Prompt 调优和工具编排优化</li>
+<li><strong>风险可控</strong>：启用/禁用即时生效 + 确认机制 + 工具读写属性自动推断，保障生产环境稳定性</li>
+</ul>
+</div>
+
+<div class="wireframe">
+<div class="wireframe-header">技能管理 — 整体布局</div>
+<div class="wireframe-sidebar">
+<div class="wireframe-menu">
+<div class="wireframe-menu-item active">📋 技能列表</div>
+<div class="wireframe-menu-item">🏷️ 分类管理</div>
+<div class="wireframe-menu-item">🔧 工具管理</div>
+<div class="wireframe-menu-item">📊 执行日志</div>
+</div>
+<div class="wireframe-content" style="min-height:120px;">
+<p style="color:#9ca3af;font-size:0.85em;text-align:center;padding-top:40px;">← 根据左侧菜单选中项切换右侧内容区</p>
+</div>
+</div>
+</div>
+
+<hr/>
+
+<h2>二、技能列表页</h2>
+
+<div class="card">
+<p style="font-size:0.9em;color:#374151;margin:4px 0;">技能列表页是 Skill 后端配置的核心管理入口，运营人员在此完成技能的全生命周期管理。页面提供以下核心能力：</p>
+<ul style="font-size:0.88em;color:#4b5563;">
+<li><strong>全局总览</strong>：以卡片形式展示所有已配置的技能，一目了然掌握技能数量、状态分布和执行效果</li>
+<li><strong>分类筛选</strong>：通过顶部分类 Tab 快速定位目标业务域的技能，避免在大量技能中逐一查找</li>
+<li><strong>即时管控</strong>：支持在列表页直接启用/禁用技能，操作即时生效无需进入编辑页</li>
+<li><strong>快捷操作</strong>：每个技能卡片提供编辑、日志、克隆、删除等常用操作入口</li>
+</ul>
+</div>
+
+<h3>2.1 页面线框</h3>
+
+<div class="wireframe">
+<div class="wireframe-header">技能列表</div>
+<div class="wireframe-sidebar">
+<div class="wireframe-menu">
+<div class="wireframe-menu-item active">📋 技能列表</div>
+<div class="wireframe-menu-item">🏷️ 分类管理</div>
+<div class="wireframe-menu-item">🔧 工具管理</div>
+<div class="wireframe-menu-item">📊 执行日志</div>
+</div>
+<div class="wireframe-content">
+<!-- 顶部操作栏 -->
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+<div style="font-size:1.1em;font-weight:600;color:#1e293b;">技能列表</div>
+<div class="mock-btn mock-btn-primary">+ 创建技能</div>
+</div>
+
+<!-- 筛选栏 -->
+<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+<span class="mock-btn mock-btn-primary" style="font-size:0.78em;">全部</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.78em;">CRM 业务</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.78em;">元数据管理</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.78em;">数据分析</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.78em;">自动化操作</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.78em;">自定义</span>
+<div style="flex:1;"></div>
+<div class="mock-input" style="width:200px;">🔍 搜索技能名称/关键词...</div>
+</div>
+
+<!-- 技能卡片 1 -->
+<div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px;background:#fff;">
+<div style="display:flex;justify-content:space-between;align-items:center;">
+<div style="display:flex;align-items:center;gap:10px;">
+<strong style="font-size:0.95em;">客户 360 全景（customer_360）</strong>
+<span class="badge badge-blue">v1.0.0</span>
+<span><span class="status-dot green"></span><span style="font-size:0.8em;color:#10b981;">启用</span></span>
+</div>
+<div style="display:flex;gap:8px;">
+<span class="mock-btn mock-btn-default" style="font-size:0.75em;">编辑</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.75em;">日志</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.75em;">克隆</span>
+<span class="mock-btn mock-btn-danger" style="font-size:0.75em;">删除</span>
+</div>
+</div>
+<div style="margin-top:8px;font-size:0.85em;color:#64748b;">客户 360 全景视图 — 生成客户全方位画像分析</div>
+<div style="margin-top:8px;display:flex;gap:16px;font-size:0.78em;color:#94a3b8;">
+<span class="badge badge-purple">CRM 业务</span>
+<span>执行 42 次</span>
+<span>成功率 90%</span>
+<span>平均耗时 12.5s</span>
+</div>
+</div>
+
+<!-- 技能卡片 2 -->
+<div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px;background:#fff;">
+<div style="display:flex;justify-content:space-between;align-items:center;">
+<div style="display:flex;align-items:center;gap:10px;">
+<strong style="font-size:0.95em;">客户洞察（customer_insight）</strong>
+<span class="badge badge-blue">v1.0.0</span>
+<span><span class="status-dot green"></span><span style="font-size:0.8em;color:#10b981;">启用</span></span>
+</div>
+<div style="display:flex;gap:8px;">
+<span class="mock-btn mock-btn-default" style="font-size:0.75em;">编辑</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.75em;">日志</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.75em;">克隆</span>
+<span class="mock-btn mock-btn-danger" style="font-size:0.75em;">删除</span>
+</div>
+</div>
+<div style="margin-top:8px;font-size:0.85em;color:#64748b;">基于客户行为数据生成画像分析与关键事件洞察</div>
+<div style="margin-top:8px;display:flex;gap:16px;font-size:0.78em;color:#94a3b8;">
+<span class="badge badge-purple">CRM 业务</span>
+<span>执行 15 次</span>
+<span>成功率 87%</span>
+<span>平均耗时 18.2s</span>
+</div>
+</div>
+
+<!-- 技能卡片 3 (禁用) -->
+<div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px;background:#f9fafb;opacity:0.75;">
+<div style="display:flex;justify-content:space-between;align-items:center;">
+<div style="display:flex;align-items:center;gap:10px;">
+<strong style="font-size:0.95em;">多维数据分析（data_analysis）</strong>
+<span class="badge badge-blue">v1.0.0</span>
+<span><span class="status-dot gray"></span><span style="font-size:0.8em;color:#9ca3af;">禁用</span></span>
+</div>
+<div style="display:flex;gap:8px;">
+<span class="mock-btn mock-btn-default" style="font-size:0.75em;">编辑</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.75em;">日志</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.75em;">克隆</span>
+<span class="mock-btn mock-btn-danger" style="font-size:0.75em;">删除</span>
+</div>
+</div>
+<div style="margin-top:8px;font-size:0.85em;color:#64748b;">对业务数据进行多维度聚合分析，生成趋势洞察与决策建议</div>
+<div style="margin-top:8px;display:flex;gap:16px;font-size:0.78em;color:#94a3b8;">
+<span class="badge badge-purple">数据分析</span>
+<span>执行 8 次</span>
+<span>成功率 88%</span>
+<span>平均耗时 22.5s</span>
+</div>
+</div>
+
+<!-- 分页 -->
+<div style="text-align:center;margin-top:20px;font-size:0.82em;color:#94a3b8;">
+[1] [2] [3] ...
+</div>
+</div>
+</div>
+</div>
+
+<hr/>
+
+<h2>三、创建/编辑技能页</h2>
+
+<h3>3.1 页面线框</h3>
+
+<div class="wireframe">
+<div class="wireframe-header">编辑: 智能客户洞察（accountInsight）</div>
+<div style="display:flex;gap:0;">
+
+<!-- 左侧：资源文件树 -->
+<div style="width:240px;background:#f8fafc;border-right:1px solid #e2e8f0;padding:12px 0;font-size:0.78em;min-height:560px;">
+<div style="padding:6px 12px;display:flex;justify-content:space-between;align-items:center;">
+<span style="font-weight:600;color:#475569;">📁 资源文件 <span style="font-weight:400;color:#94a3b8;">4目录 · 10文件</span></span>
+</div>
+<div style="padding:4px 12px;display:flex;gap:4px;margin-bottom:8px;">
+<span style="border:1px solid #d1d5db;border-radius:4px;padding:2px 6px;font-size:0.9em;cursor:pointer;">📄+</span>
+<span style="border:1px solid #d1d5db;border-radius:4px;padding:2px 6px;font-size:0.9em;cursor:pointer;">📁+</span>
+<span style="border:1px solid #d1d5db;border-radius:4px;padding:2px 6px;font-size:0.9em;cursor:pointer;">🗑</span>
+<span style="border:1px solid #d1d5db;border-radius:4px;padding:2px 6px;font-size:0.9em;cursor:pointer;">🔄</span>
+</div>
+
+<!-- 树结构 -->
+<div style="padding:4px 12px;color:var(--purple);font-weight:600;background:#f5f3ff;">📄 Skill 配置</div>
+<div style="padding:4px 12px;color:#475569;padding-left:20px;">📄 SKILL.md</div>
+<div style="padding:6px 12px;color:#475569;">📁 knowledge</div>
+<div style="padding:4px 12px;color:#475569;padding-left:28px;">📁 industries</div>
+<div style="padding:4px 12px;color:#475569;padding-left:44px;">📄 _index.md</div>
+<div style="padding:4px 12px;color:#475569;padding-left:44px;">📄 manufacturing.md</div>
+<div style="padding:4px 12px;color:#475569;padding-left:44px;">📄 technology.md</div>
+<div style="padding:6px 12px;color:#475569;">📁 analysis-strategies</div>
+<div style="padding:4px 12px;color:#475569;padding-left:28px;">📄 signal-patterns.md</div>
+<div style="padding:4px 12px;color:#475569;padding-left:28px;">📄 business-model-patt...</div>
+<div style="padding:4px 12px;color:#475569;padding-left:28px;">📄 risk-scoring-models.md</div>
+<div style="padding:4px 12px;color:#475569;padding-left:28px;">📄 value-proposition-fr...</div>
+<div style="padding:6px 12px;color:#475569;">📁 competitor-playbooks</div>
+<div style="padding:4px 12px;color:#475569;padding-left:28px;">📄 incumbent-replacem...</div>
+<div style="padding:4px 12px;color:#475569;padding-left:28px;">📄 price-war.md</div>
+<div style="padding:4px 12px;color:#475569;padding-left:28px;">📄 self-build.md</div>
+</div>
+
+<!-- 右侧：配置表单 -->
+<div style="flex:1;padding:24px;overflow-y:auto;">
+
+<!-- 顶部操作栏 -->
+<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:20px;">
+<span class="mock-btn mock-btn-default">▶ 测试</span>
+<span class="mock-btn mock-btn-primary">保存</span>
+<span class="mock-btn mock-btn-default">取消</span>
+</div>
+
+<!-- 双列：API Key + 名称 -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+<div>
+<div style="font-size:0.82em;color:#374151;margin-bottom:4px;">API Key <span class="field-required">*</span></div>
+<div class="mock-input">accountInsight</div>
+</div>
+<div>
+<div style="font-size:0.82em;color:#374151;margin-bottom:4px;">名称 <span class="field-required">*</span></div>
+<div class="mock-input">智能客户洞察</div>
+</div>
+</div>
+
+<!-- 双列：分类 + 输出类型 -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+<div>
+<div style="font-size:0.82em;color:#374151;margin-bottom:4px;">分类 <span class="field-required">*</span></div>
+<div class="mock-input">📊 CRM 业务 ▼</div>
+</div>
+<div>
+<div style="font-size:0.82em;color:#374151;margin-bottom:4px;">输出类型</div>
+<div class="mock-input">文档面板（右侧独立面板，适合长报告） ▼</div>
+</div>
+</div>
+
+<!-- 执行模式 -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+<div>
+<div style="font-size:0.82em;color:#374151;margin-bottom:4px;">执行模式</div>
+<div class="mock-input">fork（独立子Agent） ▼</div>
+</div>
+<div>
+<div style="font-size:0.82em;color:#374151;margin-bottom:4px;">执行模式</div>
+<div class="mock-input">fork（独立子Agent） ▼</div>
+</div>
+</div>
+
+<!-- 描述 -->
+<div style="margin-bottom:16px;">
+<div style="font-size:0.82em;color:#374151;margin-bottom:4px;">描述 <span class="field-required">*</span></div>
+<div class="mock-input" style="height:64px;">整合 CRM、工商信息、AI 知识库、互联网数据，生成咨询级客户洞察报告与行动建议</div>
+</div>
+
+<!-- 触发关键词 -->
+<div style="margin-bottom:16px;">
+<div style="font-size:0.82em;color:#374151;margin-bottom:4px;">触发关键词（|分隔）</div>
+<div class="mock-input">客户洞察|客户分析|客户画像|account分析|客户情况|了解客户|分析一下|续约风险|客户动态|客户背...</div>
+</div>
+
+<!-- 双列：最大工具调用 + 超时 -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+<div>
+<div style="font-size:0.82em;color:#374151;margin-bottom:4px;">最大工具调用</div>
+<div class="mock-input">20</div>
+</div>
+<div>
+<div style="font-size:0.82em;color:#374151;margin-bottom:4px;">超时(ms)</div>
+<div class="mock-input">90000</div>
+</div>
+</div>
+
+<!-- 允许的工具 -->
+<div style="margin-bottom:16px;">
+<div style="font-size:0.82em;color:#374151;margin-bottom:8px;">允许的工具（从工具管理中选择）</div>
+<div style="display:flex;flex-wrap:wrap;gap:8px;">
+<span style="border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#6b7280;">☐ knowledge_doc_detail <span class="badge badge-green">安全</span></span>
+<span style="border:1px solid #2563eb;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#2563eb;background:#eff6ff;">☑ ask_user <span class="badge badge-green">安全</span></span>
+<span style="border:1px solid #2563eb;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#2563eb;background:#eff6ff;">☑ read_skill_resource <span class="badge badge-green">安全</span></span>
+<span style="border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#6b7280;">☐ query_schema <span class="badge badge-green">安全</span></span>
+<span style="border:1px solid #2563eb;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#2563eb;background:#eff6ff;">☑ query_data <span class="badge badge-green">安全</span></span>
+<span style="border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#6b7280;">☐ modify_data <span class="badge badge-red">高风险</span></span>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+
+<h3>3.2 配置结构说明</h3>
+
+<div class="card">
+<div class="card-header">页面布局</div>
+<p style="font-size:0.88em;color:#64748b;margin-bottom:12px;">技能创建/编辑页采用左右分栏布局：</p>
+<ul style="font-size:0.88em;color:#4b5563;">
+<li><strong>左侧 — 资源文件树</strong>：展示该 Skill 关联的知识文件和资源目录，支持新增文件/文件夹、删除、刷新操作</li>
+<li><strong>右侧 — 配置表单</strong>：Skill 的核心配置项，采用双列紧凑布局，减少页面滚动</li>
+<li><strong>顶部标题栏</strong>：显示"编辑: 名称（apiKey）"格式，右侧放置测试/保存/取消按钮</li>
+</ul>
+</div>
+
+<div class="card">
+<div class="card-header">资源文件树</div>
+<p style="font-size:0.88em;color:#64748b;margin-bottom:12px;">每个 Skill 可关联一组知识资源文件，作为技能执行时的上下文参考：</p>
+<ul style="font-size:0.88em;color:#4b5563;">
+<li><strong>SKILL.md</strong>：技能的 Prompt 定义文件（Markdown 格式）</li>
+<li><strong>knowledge/</strong>：知识库目录，存放行业知识、分析策略、竞品手册等参考文档</li>
+<li><strong>操作栏</strong>：支持新增文件（📄+）、新增文件夹（📁+）、删除（🗑）、刷新（🔄）</li>
+<li><strong>文件统计</strong>：顶部显示"N目录 · M文件"统计信息</li>
+</ul>
+</div>
+
+<hr/>
+
+<h2>四、分类管理页</h2>
+
+<h3>4.1 页面线框</h3>
+
+<div class="wireframe">
+<div class="wireframe-header">分类管理</div>
+<div class="wireframe-sidebar">
+<div class="wireframe-menu">
+<div class="wireframe-menu-item">📋 技能列表</div>
+<div class="wireframe-menu-item active">🏷️ 分类管理</div>
+<div class="wireframe-menu-item">🔧 工具管理</div>
+<div class="wireframe-menu-item">📊 执行日志</div>
+</div>
+<div class="wireframe-content">
+<!-- 顶部 -->
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+<div style="font-size:1.1em;font-weight:600;color:#1e293b;">分类管理</div>
+<div class="mock-btn mock-btn-primary">+ 新增分类</div>
+</div>
+
+<!-- 分类表格 -->
+<table style="font-size:0.85em;">
+<thead><tr><th style="width:50px;">排序</th><th>分类名称</th><th style="width:80px;">技能数</th><th style="width:60px;">状态</th><th style="width:120px;">操作</th></tr></thead>
+<tbody>
+<tr><td>⠿ 1</td><td>CRM 业务 <span class="badge badge-green" style="font-size:0.7em;">系统</span></td><td>5</td><td><span class="mock-switch"></span></td><td><span class="mock-btn mock-btn-default" style="font-size:0.72em;">编辑</span></td></tr>
+<tr><td>⠿ 2</td><td>元数据管理 <span class="badge badge-green" style="font-size:0.7em;">系统</span></td><td>3</td><td><span class="mock-switch"></span></td><td><span class="mock-btn mock-btn-default" style="font-size:0.72em;">编辑</span></td></tr>
+<tr><td>⠿ 3</td><td>数据分析 <span class="badge badge-green" style="font-size:0.7em;">系统</span></td><td>2</td><td><span class="mock-switch"></span></td><td><span class="mock-btn mock-btn-default" style="font-size:0.72em;">编辑</span></td></tr>
+<tr><td>⠿ 4</td><td>自动化操作 <span class="badge badge-green" style="font-size:0.7em;">系统</span></td><td>1</td><td><span class="mock-switch"></span></td><td><span class="mock-btn mock-btn-default" style="font-size:0.72em;">编辑</span></td></tr>
+<tr><td>⠿ 5</td><td>自定义 <span class="badge badge-green" style="font-size:0.7em;">系统</span></td><td>0</td><td><span class="mock-switch"></span></td><td><span class="mock-btn mock-btn-default" style="font-size:0.72em;">编辑</span></td></tr>
+<tr><td>⠿ 6</td><td>报表生成</td><td>0</td><td><span class="mock-switch off"></span></td><td><span class="mock-btn mock-btn-default" style="font-size:0.72em;">编辑</span> <span class="mock-btn mock-btn-danger" style="font-size:0.72em;">删除</span></td></tr>
+</tbody>
+</table>
+
+<div style="margin-top:16px;padding:12px;background:#f0f9ff;border-radius:8px;font-size:0.8em;color:#0369a1;">
+💡 拖拽 ⠿ 图标可调整分类排序<br/>
+💡 系统预置分类（<span class="badge badge-green" style="font-size:0.85em;">系统</span>）不可删除，仅可编辑名称
+</div>
+</div>
+</div>
+</div>
+
+<h3>4.2 分类创建/编辑弹框</h3>
+
+<div class="wireframe" style="max-width:500px;">
+<div class="wireframe-header">创建/编辑分类</div>
+<div class="wireframe-body">
+<div class="field-row">
+<div class="field-label">API Key</div>
+<div class="field-value"><div class="mock-input" style="background:#f3f4f6;color:#6b7280;">crm 🔒</div><span style="font-size:0.75em;color:#94a3b8;">不可修改</span></div>
+</div>
+<div class="field-row">
+<div class="field-label">分类名称 <span class="field-required">*</span></div>
+<div class="field-value"><div class="mock-input">CRM 业务</div></div>
+</div>
+<div class="field-row">
+<div class="field-label">描述</div>
+<div class="field-value"><div class="mock-input">CRM 业务相关技能</div></div>
+</div>
+<div class="field-row">
+<div class="field-label">状态</div>
+<div class="field-value"><span class="mock-switch"></span> <span style="font-size:0.82em;color:#64748b;">启用</span></div>
+</div>
+<div style="margin-top:20px;display:flex;justify-content:flex-end;gap:8px;">
+<span class="mock-btn mock-btn-default">取消</span>
+<span class="mock-btn mock-btn-primary">保存</span>
+</div>
+</div>
+</div>
+
+<h3>4.3 分类管理规则</h3>
+
+<div class="card">
+<table>
+<thead><tr><th>规则</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>系统预置分类不可删除</td><td>system_flg=1 的分类只能编辑名称/图标/颜色/排序，不能删除</td></tr>
+<tr><td>删除分类需校验关联技能</td><td>删除前校验该分类下是否存在关联的 Skill（category=该分类 api_key），若存在则拒绝删除并提示"该分类下仍有 N 个技能，请先移除或变更分类后再删除"</td></tr>
+<tr><td>禁用分类需所有技能已禁用</td><td>禁用分类前校验该分类下所有 Skill 是否均为禁用状态（enabled_flg=0），若存在启用中的技能则拒绝操作并提示"该分类下仍有 N 个启用中的技能，请先禁用后再操作"</td></tr>
+<tr><td>拖拽排序即时保存</td><td>拖拽结束后自动调用 <code>PUT /api/skill-categories/sort</code> 批量更新 sort_num</td></tr>
+<tr><td>新增分类默认排序</td><td>sort_num = 当前最大值 + 10</td></tr>
+</tbody>
+</table>
+</div>
+
+<hr/>
+
+<h2>五、工具管理页</h2>
+
+<div class="card">
+<p style="font-size:0.9em;color:#374151;margin:4px 0;">工具管理页展示 Agent 系统中所有已注册的工具（Tool），供运营人员查看工具能力、了解读写属性，并在 Skill 配置时作为"允许的工具"选择依据。</p>
+<ul style="font-size:0.88em;color:#4b5563;">
+<li><strong>工具总览</strong>：以列表形式展示所有已注册工具的名称、描述、读写属性和启用状态</li>
+<li><strong>分类筛选</strong>：按工具标签（read/write/external 等）快速筛选</li>
+<li><strong>Skill 关联查看</strong>：查看每个工具被哪些 Skill 引用</li>
+</ul>
+</div>
+
+<h3>5.1 页面线框</h3>
+
+<div class="wireframe">
+<div class="wireframe-header">工具管理</div>
+<div class="wireframe-sidebar">
+<div class="wireframe-menu">
+<div class="wireframe-menu-item">📋 技能列表</div>
+<div class="wireframe-menu-item">🏷️ 分类管理</div>
+<div class="wireframe-menu-item active">🔧 工具管理</div>
+<div class="wireframe-menu-item">📊 执行日志</div>
+</div>
+<div class="wireframe-content">
+<!-- 顶部 -->
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+<div style="font-size:1.1em;font-weight:600;color:#1e293b;">工具管理</div>
+</div>
+
+<!-- 筛选栏 -->
+<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+<span class="mock-btn mock-btn-primary" style="font-size:0.78em;">全部</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.78em;">🟢 安全</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.78em;">🟡 敏感</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.78em;">🔴 高风险</span>
+<div style="flex:1;"></div>
+<div class="mock-input" style="width:200px;">🔍 搜索工具名称...</div>
+</div>
+
+<!-- 工具列表表格 -->
+<table style="font-size:0.82em;">
+<thead><tr><th>工具名称</th><th>描述</th><th>风险类型</th><th>状态</th><th>关联 Skill</th></tr></thead>
+<tbody>
+<tr>
+<td><strong>query_data</strong></td>
+<td style="color:#64748b;">查询业务数据（支持 list/get/count）</td>
+<td><span class="badge badge-green">🟢 安全</span></td>
+<td><span class="status-dot green"></span>启用</td>
+<td><span style="font-size:0.9em;color:#6b7280;">customer_360, accountInsight, data_analysis</span></td>
+</tr>
+<tr>
+<td><strong>analyze_data</strong></td>
+<td style="color:#64748b;">对业务数据进行聚合分析</td>
+<td><span class="badge badge-green">🟢 安全</span></td>
+<td><span class="status-dot green"></span>启用</td>
+<td><span style="font-size:0.9em;color:#6b7280;">customer_360, data_analysis</span></td>
+</tr>
+<tr>
+<td><strong>query_schema</strong></td>
+<td style="color:#64748b;">查询元数据定义（实体/字段/关联）</td>
+<td><span class="badge badge-green">🟢 安全</span></td>
+<td><span class="status-dot green"></span>启用</td>
+<td><span style="font-size:0.9em;color:#6b7280;">accountInsight</span></td>
+</tr>
+<tr>
+<td><strong>modify_data</strong></td>
+<td style="color:#64748b;">创建/更新/删除业务数据</td>
+<td><span class="badge badge-red">🔴 高风险</span></td>
+<td><span class="status-dot green"></span>启用</td>
+<td><span style="font-size:0.9em;color:#6b7280;">—</span></td>
+</tr>
+<tr>
+<td><strong>ask_user</strong></td>
+<td style="color:#64748b;">向用户发起澄清或确认请求</td>
+<td><span class="badge badge-green">🟢 安全</span></td>
+<td><span class="status-dot green"></span>启用</td>
+<td><span style="font-size:0.9em;color:#6b7280;">accountInsight</span></td>
+</tr>
+<tr>
+<td><strong>read_skill_resource</strong></td>
+<td style="color:#64748b;">读取 Skill 关联的资源文件内容</td>
+<td><span class="badge badge-green">🟢 安全</span></td>
+<td><span class="status-dot green"></span>启用</td>
+<td><span style="font-size:0.9em;color:#6b7280;">accountInsight</span></td>
+</tr>
+<tr>
+<td><strong>web_search</strong></td>
+<td style="color:#64748b;">搜索互联网信息</td>
+<td><span class="badge badge-orange">🟡 敏感</span></td>
+<td><span class="status-dot green"></span>启用</td>
+<td><span style="font-size:0.9em;color:#6b7280;">accountInsight</span></td>
+</tr>
+<tr>
+<td><strong>knowledge_doc_detail</strong></td>
+<td style="color:#64748b;">检索知识库文档详情</td>
+<td><span class="badge badge-green">🟢 安全</span></td>
+<td><span class="status-dot green"></span>启用</td>
+<td><span style="font-size:0.9em;color:#6b7280;">—</span></td>
+</tr>
+<tr>
+<td><strong>send_notification</strong></td>
+<td style="color:#64748b;">发送通知消息给用户</td>
+<td><span class="badge badge-orange">🟡 敏感</span></td>
+<td><span class="status-dot gray"></span>禁用</td>
+<td><span style="font-size:0.9em;color:#6b7280;">—</span></td>
+</tr>
+</tbody>
+</table>
+
+<!-- 风险类型说明 -->
+<div style="margin-top:16px;padding:12px;background:#f9fafb;border-radius:8px;border:1px solid #e2e8f0;">
+<div style="font-size:0.82em;font-weight:600;color:#374151;margin-bottom:8px;">风险类型说明</div>
+<table style="font-size:0.78em;margin:0;">
+<tbody>
+<tr><td style="border:none;padding:4px 12px 4px 0;"><span class="badge badge-green">🟢 安全</span></td><td style="border:none;padding:4px 0;">只读操作，不修改任何数据，Agent 可自主执行</td></tr>
+<tr><td style="border:none;padding:4px 12px 4px 0;"><span class="badge badge-orange">🟡 敏感</span></td><td style="border:none;padding:4px 0;">涉及外部调用或信息发送，Agent 可执行但会记录审计日志</td></tr>
+<tr><td style="border:none;padding:4px 12px 4px 0;"><span class="badge badge-red">🔴 高风险</span></td><td style="border:none;padding:4px 0;">会修改/删除业务数据，<strong>必须经用户确认后才能执行</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<div style="margin-top:12px;padding:12px;background:#f0f9ff;border-radius:8px;font-size:0.8em;color:#0369a1;">
+💡 工具由系统注册，此页面仅供查看，不支持新增/删除工具<br/>
+💡 "关联 Skill"列展示哪些技能的 allowed_tools 中包含该工具<br/>
+💡 Skill 引用了高风险工具时，执行过程中调用该工具前会自动触发用户确认
+</div>
+</div>
+</div>
+</div>
+
+<hr/>
+
+<h2>六、执行日志页</h2>
+
+<h3>5.1 页面线框</h3>
+
+<div class="wireframe">
+<div class="wireframe-header">执行日志 — /admin/skills/logs</div>
+<div class="wireframe-sidebar">
+<div class="wireframe-menu">
+<div class="wireframe-menu-item">📋 技能列表</div>
+<div class="wireframe-menu-item">🏷️ 分类管理</div>
+<div class="wireframe-menu-item">🔧 工具管理</div>
+<div class="wireframe-menu-item active">📊 执行日志</div>
+</div>
+<div class="wireframe-content">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+<div style="font-size:1.1em;font-weight:600;color:#1e293b;">执行日志</div>
+</div>
+
+<!-- 筛选栏 -->
+<div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+<div class="mock-input" style="width:180px;">全部技能 ▼</div>
+<div class="mock-input" style="width:120px;">全部状态 ▼</div>
+<div class="mock-input" style="width:200px;">📅 开始时间 ~ 结束时间</div>
+<div class="mock-input" style="width:200px;">🔗 Thread ID</div>
+<div style="flex:1;"></div>
+<div class="mock-input" style="width:180px;">🔍 搜索参数/错误信息...</div>
+</div>
+
+<!-- 日志条目 1 -->
+<div style="border-left:3px solid #10b981;padding:12px 16px;margin-bottom:12px;background:#f0fdf4;border-radius:0 8px 8px 0;">
+<div style="display:flex;justify-content:space-between;font-size:0.85em;">
+<span><strong>2025-05-10 14:32</strong> &nbsp; ✅ 成功 &nbsp; <span class="badge badge-purple">customer_360</span></span>
+<span style="color:#64748b;">耗时 12.3s &nbsp;|&nbsp; tokens: 2840</span>
+</div>
+<div style="font-size:0.8em;color:#64748b;margin-top:6px;">
+参数: account_id=ACC001 &nbsp;|&nbsp; 工具调用: query_data×3, analyze_data×1
+</div>
+<div style="margin-top:6px;"><span class="mock-btn mock-btn-default" style="font-size:0.72em;">查看详情</span></div>
+</div>
+
+<!-- 日志条目 2 -->
+<div style="border-left:3px solid #10b981;padding:12px 16px;margin-bottom:12px;background:#f0fdf4;border-radius:0 8px 8px 0;">
+<div style="display:flex;justify-content:space-between;font-size:0.85em;">
+<span><strong>2025-05-10 11:05</strong> &nbsp; ✅ 成功 &nbsp; <span class="badge badge-purple">diagnose</span></span>
+<span style="color:#64748b;">耗时 15.1s &nbsp;|&nbsp; tokens: 3200</span>
+</div>
+<div style="font-size:0.8em;color:#64748b;margin-top:6px;">
+参数: account_id=ACC007 &nbsp;|&nbsp; 工具调用: query_data×4, query_permission×2
+</div>
+<div style="margin-top:6px;"><span class="mock-btn mock-btn-default" style="font-size:0.72em;">查看详情</span></div>
+</div>
+
+<!-- 日志条目 3 (失败) -->
+<div style="border-left:3px solid #ef4444;padding:12px 16px;margin-bottom:12px;background:#fef2f2;border-radius:0 8px 8px 0;">
+<div style="display:flex;justify-content:space-between;font-size:0.85em;">
+<span><strong>2025-05-09 16:48</strong> &nbsp; ❌ 失败 &nbsp; <span class="badge badge-purple">customer_360</span></span>
+<span style="color:#64748b;">耗时 45.0s &nbsp;|&nbsp; tokens: 1200</span>
+</div>
+<div style="font-size:0.8em;color:#64748b;margin-top:6px;">
+参数: account_id=ACC999 &nbsp;|&nbsp; 错误: 执行超时
+</div>
+<div style="margin-top:6px;"><span class="mock-btn mock-btn-default" style="font-size:0.72em;">查看详情</span></div>
+</div>
+
+<!-- 日志条目 4 -->
+<div style="border-left:3px solid #10b981;padding:12px 16px;margin-bottom:12px;background:#f0fdf4;border-radius:0 8px 8px 0;">
+<div style="display:flex;justify-content:space-between;font-size:0.85em;">
+<span><strong>2025-05-09 10:22</strong> &nbsp; ✅ 成功 &nbsp; <span class="badge badge-purple">data_analysis</span></span>
+<span style="color:#64748b;">耗时 22.8s &nbsp;|&nbsp; tokens: 4100</span>
+</div>
+<div style="font-size:0.8em;color:#64748b;margin-top:6px;">
+参数: entity=opportunity, period=Q1 &nbsp;|&nbsp; 工具调用: query_data×2, analyze_data×3
+</div>
+<div style="margin-top:6px;"><span class="mock-btn mock-btn-default" style="font-size:0.72em;">查看详情</span></div>
+</div>
+
+<div style="text-align:center;margin-top:20px;font-size:0.82em;color:#94a3b8;">
+[1] [2] [3] ...
+</div>
+</div>
+</div>
+</div>
+
+<h3>5.2 筛选与交互规则</h3>
+
+<div class="card">
+<div class="card-header">筛选条件</div>
+<table>
+<thead><tr><th>筛选项</th><th>类型</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>技能筛选</td><td>下拉选择</td><td>选项来自已有技能列表（含已禁用/已删除的技能），支持"全部技能"</td></tr>
+<tr><td>状态筛选</td><td>下拉选择</td><td>全部 / 成功 / 失败</td></tr>
+<tr><td>时间范围</td><td>日期范围选择器</td><td>默认最近 7 天，支持自定义范围</td></tr>
+<tr><td>Thread ID</td><td>文本输入</td><td>精确匹配会话线程 ID，用于追踪某次对话中所有技能的执行记录</td></tr>
+<tr><td>关键词搜索</td><td>文本输入</td><td>模糊匹配参数值、错误信息</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="card">
+<div class="card-header">入口方式</div>
+<ul>
+<li><strong>左侧菜单入口</strong>：点击"📊 执行日志"菜单，展示所有技能的执行日志（默认）</li>
+<li><strong>技能卡片入口</strong>：从技能列表页点击某个技能的"查看日志"按钮，跳转到执行日志页并自动筛选该技能（URL 带 <code>?skill=xxx</code> 参数）</li>
+</ul>
+</div>
+
+
+<div style="margin-top:40px;padding:20px;background:#f8fafc;border-radius:12px;border:1px solid var(--border);text-align:center;font-size:0.85em;color:#64748b;">
+<p>— 文档结束 —</p>
+<p>设计依据：《Skill 管理体系设计方案》 · 《CRM-Tool-Skill 通用工具体系设计》</p>
+<p>最后更新：2026-05-19</p>
+</div>
+
+</body>
+</html>
