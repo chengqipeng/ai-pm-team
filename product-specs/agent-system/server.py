@@ -666,6 +666,14 @@ try:
 except ImportError as exc:
     logger.warning("Skill 管理 API 未启用: %s", exc)
 
+# ── 挂载 Skill 测试调试 API ──
+try:
+    from src.api.skill_test_api import router as skill_test_router
+    app.include_router(skill_test_router)
+    logger.info("已挂载 Skill 测试调试 API: /api/skills/*/test/*")
+except ImportError as exc:
+    logger.warning("Skill 测试调试 API 未启用: %s", exc)
+
 # ── 挂载 Skill 分类管理 API ──
 try:
     from src.api import skill_category_router

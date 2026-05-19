@@ -623,7 +623,285 @@ strong { color: var(--heading); }
 
 <hr/>
 
-<h2>六、执行日志页</h2>
+<h2>六、测试调试</h2>
+
+<div class="card">
+<p style="font-size:0.9em;color:#374151;margin:4px 0;">Skill 测试调试是保障技能质量的核心能力，支持运营人员在技能上线前充分验证 Prompt 效果、工具调用链路和输出质量，避免问题技能影响生产环境。</p>
+</div>
+
+<h3>6.1 测试入口</h3>
+
+<div class="card">
+<p style="font-size:0.88em;color:#64748b;margin-bottom:12px;">测试调试从 Skill 编辑页顶部的"▶ 测试"按钮进入，打开独立的测试面板：</p>
+<div class="wireframe" style="max-width:100%;">
+<div class="wireframe-header">测试调试 — 智能客户洞察（accountInsight）</div>
+<div style="padding:20px;">
+
+<!-- 顶部操作栏 -->
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+<div style="display:flex;gap:8px;align-items:center;">
+<span class="mock-btn mock-btn-primary">▶ 执行</span>
+<span class="mock-btn mock-btn-default">⏸ 逐步模式</span>
+<span class="mock-btn mock-btn-default">🔄 重置</span>
+</div>
+<div style="display:flex;gap:8px;align-items:center;">
+<span style="font-size:0.8em;color:#64748b;">执行模式:</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.78em;">完整执行</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.78em;">逐步调试</span>
+</div>
+</div>
+
+<!-- 参数输入区 -->
+<div style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px;background:#f8fafc;">
+<div style="font-size:0.85em;font-weight:600;color:#374151;margin-bottom:10px;">输入参数</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+<div>
+<div style="font-size:0.78em;color:#64748b;margin-bottom:4px;">account_id <span class="field-required">*</span></div>
+<div class="mock-input">ACC001</div>
+</div>
+<div>
+<div style="font-size:0.78em;color:#64748b;margin-bottom:4px;">context（可选）</div>
+<div class="mock-input">续约风险评估</div>
+</div>
+</div>
+</div>
+
+<!-- 执行过程面板 -->
+<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+
+<!-- Step 1 -->
+<div style="border-bottom:1px solid #e2e8f0;padding:12px 16px;background:#f0fdf4;">
+<div style="display:flex;justify-content:space-between;align-items:center;">
+<div style="display:flex;align-items:center;gap:8px;">
+<span style="background:#10b981;color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:0.7em;">1</span>
+<strong style="font-size:0.82em;">LLM 推理</strong>
+<span style="font-size:0.75em;color:#64748b;">决定调用 query_data</span>
+</div>
+<div style="font-size:0.75em;color:#64748b;">1.2s · 320 tokens</div>
+</div>
+<div style="margin-top:8px;font-size:0.78em;color:#475569;background:#fff;border-radius:6px;padding:8px;border:1px solid #d1d5db;">
+<span style="color:#94a3b8;">思考:</span> 需要先获取客户基本信息，调用 query_data 查询 account 实体...
+</div>
+</div>
+
+<!-- Step 2 -->
+<div style="border-bottom:1px solid #e2e8f0;padding:12px 16px;background:#eff6ff;">
+<div style="display:flex;justify-content:space-between;align-items:center;">
+<div style="display:flex;align-items:center;gap:8px;">
+<span style="background:#2563eb;color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:0.7em;">2</span>
+<strong style="font-size:0.82em;">工具调用: query_data</strong>
+<span class="badge badge-green">安全</span>
+</div>
+<div style="font-size:0.75em;color:#64748b;">0.8s</div>
+</div>
+<div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.78em;">
+<div style="background:#fff;border-radius:6px;padding:8px;border:1px solid #d1d5db;">
+<div style="color:#94a3b8;margin-bottom:4px;">输入参数:</div>
+<code style="font-size:0.9em;">{"action":"get","entity":"account","id":"ACC001"}</code>
+</div>
+<div style="background:#fff;border-radius:6px;padding:8px;border:1px solid #d1d5db;">
+<div style="color:#94a3b8;margin-bottom:4px;">返回结果:</div>
+<code style="font-size:0.9em;">{"name":"华为技术","industry":"ICT","arr":"$2.4M"...}</code>
+</div>
+</div>
+</div>
+
+<!-- Step 3 -->
+<div style="border-bottom:1px solid #e2e8f0;padding:12px 16px;background:#f0fdf4;">
+<div style="display:flex;justify-content:space-between;align-items:center;">
+<div style="display:flex;align-items:center;gap:8px;">
+<span style="background:#10b981;color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:0.7em;">3</span>
+<strong style="font-size:0.82em;">LLM 推理</strong>
+<span style="font-size:0.75em;color:#64748b;">决定调用 web_search</span>
+</div>
+<div style="font-size:0.75em;color:#64748b;">0.9s · 280 tokens</div>
+</div>
+</div>
+
+<!-- Step 4 -->
+<div style="border-bottom:1px solid #e2e8f0;padding:12px 16px;background:#eff6ff;">
+<div style="display:flex;justify-content:space-between;align-items:center;">
+<div style="display:flex;align-items:center;gap:8px;">
+<span style="background:#2563eb;color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:0.7em;">4</span>
+<strong style="font-size:0.82em;">工具调用: web_search</strong>
+<span class="badge badge-orange">敏感</span>
+</div>
+<div style="font-size:0.75em;color:#64748b;">2.1s</div>
+</div>
+</div>
+
+<!-- Step 5: 最终输出 -->
+<div style="padding:12px 16px;background:#f5f3ff;">
+<div style="display:flex;justify-content:space-between;align-items:center;">
+<div style="display:flex;align-items:center;gap:8px;">
+<span style="background:var(--purple);color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:0.7em;">✓</span>
+<strong style="font-size:0.82em;">最终输出</strong>
+</div>
+<div style="font-size:0.75em;color:#64748b;">总耗时 8.5s · 总 tokens: 2,840</div>
+</div>
+<div style="margin-top:8px;font-size:0.78em;color:#475569;background:#fff;border-radius:6px;padding:12px;border:1px solid #d1d5db;max-height:80px;overflow:hidden;">
+# 华为技术 — 客户洞察报告<br/>
+## 基本画像<br/>
+- 行业: ICT · ARR: $2.4M · 合作年限: 3年...<br/>
+</div>
+</div>
+
+</div>
+
+<!-- 底部统计 -->
+<div style="margin-top:16px;display:flex;gap:24px;font-size:0.8em;color:#64748b;padding:12px;background:#f9fafb;border-radius:8px;">
+<span>⏱ 总耗时: <strong>8.5s</strong></span>
+<span>🔤 总 Tokens: <strong>2,840</strong></span>
+<span>🔧 工具调用: <strong>4 次</strong></span>
+<span>🔄 LLM 轮次: <strong>5 轮</strong></span>
+</div>
+
+</div>
+</div>
+</div>
+
+<h3>6.2 逐步调试模式</h3>
+
+<div class="card">
+<div class="card-header">逐步调试交互流程</div>
+<div class="flow-diagram">
+<div class="flow-step">输入参数</div>
+<span class="flow-arrow">→</span>
+<div class="flow-step">LLM 推理（暂停）</div>
+<span class="flow-arrow">→</span>
+<div class="flow-step">确认/修改工具参数</div>
+<span class="flow-arrow">→</span>
+<div class="flow-step">执行工具（暂停）</div>
+<span class="flow-arrow">→</span>
+<div class="flow-step">查看结果 → 继续/终止</div>
+</div>
+<p style="font-size:0.88em;color:#64748b;margin-top:12px;">逐步模式下，每一步执行后暂停，运营人员可以：</p>
+<ul style="font-size:0.88em;color:#4b5563;">
+<li><strong>查看 LLM 推理过程</strong>：展示 LLM 的思考内容（thinking），理解为什么选择调用某个工具</li>
+<li><strong>修改工具参数</strong>：在工具实际执行前，修改 LLM 生成的参数后再执行</li>
+<li><strong>查看工具返回</strong>：展示工具的完整输入和输出，判断数据是否符合预期</li>
+<li><strong>跳过某步</strong>：跳过当前工具调用，手动输入模拟返回值继续后续流程</li>
+<li><strong>终止执行</strong>：发现问题后随时终止，回到 Prompt 编辑修改后重跑</li>
+<li><strong>继续执行</strong>：确认当前步骤无误，继续下一步</li>
+</ul>
+</div>
+
+<div class="card">
+<div class="card-header">逐步调试面板状态</div>
+<table>
+<thead><tr><th>步骤状态</th><th>颜色</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>LLM 推理</td><td style="color:#10b981;">🟢 绿色背景</td><td>展示 LLM 思考过程和决策</td></tr>
+<tr><td>工具调用</td><td style="color:#2563eb;">🔵 蓝色背景</td><td>展示工具名称、输入参数、返回结果</td></tr>
+<tr><td>等待确认</td><td style="color:#f59e0b;">🟡 黄色背景</td><td>逐步模式下暂停，等待用户操作</td></tr>
+<tr><td>高风险确认</td><td style="color:#ef4444;">🔴 红色背景</td><td>高风险工具调用前，必须用户确认</td></tr>
+<tr><td>最终输出</td><td style="color:var(--purple);">🟣 紫色背景</td><td>Skill 执行完成，展示最终结果</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>6.3 工具 Mock 能力</h3>
+
+<div class="card">
+<div class="card-header">Mock 数据配置</div>
+<p style="font-size:0.88em;color:#64748b;margin-bottom:12px;">调试时可以对某些工具设置 Mock 返回值，不实际调用后端，适用于：</p>
+<ul style="font-size:0.88em;color:#4b5563;">
+<li>测试环境没有真实业务数据时，模拟工具返回</li>
+<li>验证 Prompt 对不同数据场景的处理逻辑（正常数据 / 空数据 / 异常数据）</li>
+<li>避免调试过程中产生真实的数据修改（高风险工具）</li>
+</ul>
+
+<div style="margin-top:12px;border:1px solid #e2e8f0;border-radius:8px;padding:16px;background:#f8fafc;">
+<div style="font-size:0.82em;font-weight:600;color:#374151;margin-bottom:10px;">Mock 配置示例</div>
+<div style="display:flex;gap:12px;align-items:flex-start;">
+<div style="flex:1;">
+<div style="font-size:0.78em;color:#64748b;margin-bottom:4px;">工具名称</div>
+<div class="mock-input">query_data</div>
+</div>
+<div style="flex:2;">
+<div style="font-size:0.78em;color:#64748b;margin-bottom:4px;">Mock 返回值（JSON）</div>
+<div class="mock-input" style="height:48px;font-family:monospace;font-size:0.85em;">{"name":"测试客户","industry":"互联网","arr":"$500K"}</div>
+</div>
+<div style="padding-top:18px;">
+<span class="mock-btn mock-btn-default" style="font-size:0.78em;">启用 Mock</span>
+</div>
+</div>
+</div>
+</div>
+
+<h3>6.4 测试用例管理</h3>
+
+<div class="card">
+<div class="card-header">保存与回归</div>
+<p style="font-size:0.88em;color:#64748b;margin-bottom:12px;">支持将调试过程中的参数和期望结果保存为测试用例，用于后续 Prompt 修改后的回归验证：</p>
+
+<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-top:12px;">
+<table style="font-size:0.82em;margin:0;">
+<thead><tr><th>用例名称</th><th>输入参数</th><th>期望关键词</th><th>上次结果</th><th>操作</th></tr></thead>
+<tbody>
+<tr>
+<td>正常客户</td>
+<td><code>account_id=ACC001</code></td>
+<td>华为, ARR, 续约</td>
+<td><span style="color:#10b981;">✅ 通过</span></td>
+<td><span class="mock-btn mock-btn-default" style="font-size:0.72em;">执行</span></td>
+</tr>
+<tr>
+<td>不存在的客户</td>
+<td><code>account_id=ACC999</code></td>
+<td>未找到, 不存在</td>
+<td><span style="color:#10b981;">✅ 通过</span></td>
+<td><span class="mock-btn mock-btn-default" style="font-size:0.72em;">执行</span></td>
+</tr>
+<tr>
+<td>高风险客户</td>
+<td><code>account_id=ACC007</code></td>
+<td>风险, 流失, 建议</td>
+<td><span style="color:#ef4444;">❌ 失败</span></td>
+<td><span class="mock-btn mock-btn-default" style="font-size:0.72em;">执行</span></td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div style="margin-top:12px;display:flex;gap:8px;">
+<span class="mock-btn mock-btn-primary" style="font-size:0.82em;">▶ 批量执行全部用例</span>
+<span class="mock-btn mock-btn-default" style="font-size:0.82em;">+ 新增用例</span>
+</div>
+</div>
+
+<div class="card">
+<div class="card-header">测试用例验证规则</div>
+<table>
+<thead><tr><th>验证方式</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>关键词匹配</td><td>最终输出中必须包含指定关键词（逗号分隔，全部命中=通过）</td></tr>
+<tr><td>排除词检查</td><td>最终输出中不能包含指定词汇（如脏数据、错误格式）</td></tr>
+<tr><td>工具调用断言</td><td>验证执行过程中是否调用了预期的工具（如必须调用 query_data）</td></tr>
+<tr><td>耗时阈值</td><td>执行总耗时不超过指定阈值（超时=失败）</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>6.5 测试调试与正式执行的区别</h3>
+
+<div class="card">
+<table>
+<thead><tr><th>维度</th><th>测试调试</th><th>正式执行</th></tr></thead>
+<tbody>
+<tr><td>触发方式</td><td>手动点击"测试"按钮</td><td>用户对话中 Agent 自动触发</td></tr>
+<tr><td>执行统计</td><td>不计入 exec_count / success_count</td><td>计入统计</td></tr>
+<tr><td>执行日志</td><td>标记为 test 类型，独立查看</td><td>正常记录到执行日志</td></tr>
+<tr><td>高风险工具</td><td>可选 Mock 或跳过</td><td>必须用户确认后执行</td></tr>
+<tr><td>逐步暂停</td><td>支持</td><td>不支持（全自动执行）</td></tr>
+<tr><td>上下文</td><td>无历史对话上下文，纯净环境</td><td>有完整对话上下文</td></tr>
+</tbody>
+</table>
+</div>
+
+<hr/>
+
+<h2>七、执行日志页</h2>
 
 <h3>5.1 页面线框</h3>
 

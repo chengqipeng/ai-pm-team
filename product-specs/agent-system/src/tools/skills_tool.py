@@ -65,6 +65,10 @@ class SkillsTool(BaseTool):
         is_inline = skill and skill.context == "inline"
 
         if is_inline:
+            # inline 模式：设置 Skill 执行上下文，后续工具调用将受 allowed_tools 约束
+            if skill and skill.allowed_tools:
+                from src.skills.context import set_skill_context
+                set_skill_context(skill_name, skill.allowed_tools, "inline")
             # inline 模式：Skill 已通过 allowed-tools 完成执行，result 就是最终结果
             return result
 

@@ -40,6 +40,7 @@ def build_middleware(
         MultimodalTransformer,
         OutputRenderMiddleware,
         OutputValidationMiddleware,
+        SkillToolScopeMiddleware,
         SubagentLimitMiddleware,
         SummarizationMiddleware,
         TitleMiddleware,
@@ -160,6 +161,9 @@ def build_middleware(
     if guardrail_enabled:
         middleware.append(GuardrailMiddleware())
 
+    # Skill 工具作用域隔离（始终启用，空 allowed_tools 时自动放行）
+    middleware.append(SkillToolScopeMiddleware())
+
     middleware += [
         LoopDetectionMiddleware(),
         ToolErrorHandlingMiddleware(),
@@ -196,6 +200,7 @@ def _build_middleware_by_names(
         MemoryMiddleware,
         OutputRenderMiddleware,
         OutputValidationMiddleware,
+        SkillToolScopeMiddleware,
         SubagentLimitMiddleware,
         SummarizationMiddleware,
         TitleMiddleware,
@@ -211,6 +216,7 @@ def _build_middleware_by_names(
         "memory": MemoryMiddleware,
         "subagent_limit": SubagentLimitMiddleware,
         "guardrail": GuardrailMiddleware,
+        "skill_tool_scope": SkillToolScopeMiddleware,
         "loop_detection": LoopDetectionMiddleware,
         "tool_error_handling": ToolErrorHandlingMiddleware,
         "clarification": ClarificationMiddleware,

@@ -618,6 +618,12 @@ class SkillExecutor:
             parent_tid = ""
 
         try:
+            from src.skills.context import set_skill_context, clear_skill_context
+            _scope_token = set_skill_context(skill.name, skill.allowed_tools, "fork")
+        except Exception:
+            _scope_token = None
+
+        try:
             result = await agent.ainvoke(
                 {"messages": messages},
                 config={"configurable": {
@@ -673,6 +679,13 @@ class SkillExecutor:
                     skill_name=skill.name,
                     detail=str(exc),
                 ) from exc
+        finally:
+            # 清除 fork 模式的 Skill 执行上下文
+            if _scope_token is not None:
+                try:
+                    clear_skill_context(_scope_token)
+                except Exception:
+                    pass
 
         output = self._extract_output(result)
         logger.info("[skill] Fork 完成: name=%s, agent=%s, thread=%s, output_len=%d",

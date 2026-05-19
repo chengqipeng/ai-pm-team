@@ -19,6 +19,7 @@ from .title import TitleMiddleware
 from .file_process import FileProcessMiddleware
 from .multimodal_inject import MultimodalInjectMiddleware
 from .tracing import TracingMiddleware, tracing_middleware, MiddlewareTracingWrapper, wrap_middlewares_with_tracing
+from .skill_tool_scope import SkillToolScopeMiddleware
 
 __all__ = [
     "AgentMiddleware",
@@ -53,4 +54,5 @@ __all__ = [
     "tracing_middleware",
     "MiddlewareTracingWrapper",
     "wrap_middlewares_with_tracing",
+    "SkillToolScopeMiddleware",
 ]

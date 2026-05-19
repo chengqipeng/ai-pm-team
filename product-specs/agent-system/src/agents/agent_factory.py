@@ -131,12 +131,18 @@ class AgentFactory:
                     parent_thread_id=agent_name,
                 ))
 
-            # 校验 inline 技能的 allowed_tools
+            # 校验技能的 allowed_tools（inline + fork 均校验）
             if self._tool_registry:
-                for skill in self._skill_registry.list_by_context("inline"):
+                for skill in self._skill_registry.list_all():
                     for tn in skill.allowed_tools:
+                        if tn in ("skills_tool", "ask_user", "ask_clarification"):
+                            continue  # 豁免工具不需要在 registry 中
                         if self._tool_registry.find_by_name(tn) is None:
-                            logger.warning("技能 '%s' 引用了不存在的工具 '%s'", skill.name, tn)
+                            logger.warning(
+                                "技能 '%s' 引用了不存在的工具 '%s'，"
+                                "运行时 SkillToolScopeMiddleware 将阻止该技能调用此工具",
+                                skill.name, tn,
+                            )
 
         # 3. AgentTool（精确模式检查）
         if not explicit_tools or "agent_tool" in self._tool_names:
