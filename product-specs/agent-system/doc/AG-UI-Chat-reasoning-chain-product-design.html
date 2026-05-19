@@ -30,6 +30,35 @@ tr:nth-child(even) { background: #f9fafb; }
 场景示例：用户询问"分析华东区商机 Pipeline 并给出客户画像"</p>
 </blockquote>
 
+<h2>产品概述</h2>
+
+<p><strong>AG-UI Chat</strong> 是 aPaaS 平台的智能对话交互层，基于 AG-UI（Agent-User Interface）协议，为终端用户提供自然语言驱动的业务操作能力。用户通过 Chat 界面发起请求，系统自动完成意图理解、数据查询、业务分析等复杂任务，并以结构化方式呈现结果。</p>
+
+<p>本文档聚焦于 AG-UI Chat 的<strong>推理链路</strong>——即从用户输入到最终回复之间，Agent 系统内部经历的完整处理流程，以及该流程如何通过前端界面实时透出给用户。</p>
+
+<h3>核心能力</h3>
+<table>
+<thead>
+<tr><th style="width:25%;">能力</th><th style="width:75%;">说明</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>多轮对话推理</strong></td><td>支持 Agent Loop 多轮循环推理，LLM 自主决策调用工具链，直到任务完成</td></tr>
+<tr><td><strong>Skill 编排执行</strong></td><td>通过 skills_tool 调用预定义的业务技能（inline 注入 SOP / fork 独立子 Agent），实现复杂业务流程自动化</td></tr>
+<tr><td><strong>实时推理可视化</strong></td><td>右侧推理链路面板实时展示 Agent 的思考过程、工具调用、子 Agent 执行状态，消除用户等待焦虑</td></tr>
+<tr><td><strong>全链路可观测</strong></td><td>每个节点生成标准化 Trace Span，支持性能分析、异常定位、成本归因</td></tr>
+<tr><td><strong>异常容错与标记</strong></td><td>工具调用超时/失败时自动重试，异常节点在链路中以红色高亮标记，支持快速定位问题</td></tr>
+<tr><td><strong>安全合规保障</strong></td><td>入口内容审查 + PII 脱敏 + 工具护栏校验 + 输出敏感词过滤，全链路安全闭环</td></tr>
+</tbody>
+</table>
+
+<h3>适用场景</h3>
+<ul>
+<li>CRM 业务分析：商机 Pipeline 分析、客户 360 画像、销售预测</li>
+<li>数据查询与报表：自然语言查询业务数据，自动生成结构化报告</li>
+<li>流程自动化：跨系统数据聚合、多步骤业务操作编排</li>
+<li>知识问答：基于企业知识库的智能检索与回答</li>
+</ul>
+
 <h2>一、AG-UI Chat 完整推理链路结构图</h2>
 
 <h3>1.1 产品价值</h3>
@@ -150,7 +179,8 @@ tr:nth-child(even) { background: #f9fafb; }
 <div style="border-left:2px solid #a78bfa;padding-left:8px;margin-bottom:6px;">
 <div style="font-size:9px;color:#7c3aed;font-weight:600;margin-bottom:2px;">├─ 循环 2（LLM 决定调用 customer_360）</div>
 <div style="font-size:9px;color:#6b7280;padding:1px 0;"><span style="color:#9ca3af;">[7]</span> 🧠 模型推理 · <span style="color:#94a3b8;">3200ms</span></div>
-<div style="font-size:9px;color:#6b7280;padding:1px 0;"><span style="color:#9ca3af;">[8]</span> 🔧 skills_tool(customer_360) · <span style="color:#94a3b8;">12000ms</span></div>
+<div style="font-size:9px;padding:1px 0;background:#fef2f2;border-left:2px solid #ef4444;padding-left:4px;margin:2px 0;border-radius:2px;"><span style="color:#9ca3af;">[8]</span> <span style="color:#dc2626;">❌ skills_tool(customer_360) · <span style="color:#94a3b8;">15000ms</span> — timeout, 重试 1 次后成功</span></div>
+<div style="font-size:9px;color:#6b7280;padding:1px 0;"><span style="color:#9ca3af;">[9]</span> 🔧 skills_tool(customer_360) · <span style="color:#94a3b8;">12000ms</span> — <span style="color:#22c55e;">✓ 重试成功</span></div>
 
 <!-- 子 Agent 2 -->
 <div style="margin:4px 0 4px 12px;padding:6px 8px;border:1px solid #fb923c;border-radius:6px;background:rgba(251,146,60,0.03);">
@@ -158,8 +188,9 @@ tr:nth-child(even) { background: #f9fafb; }
 <div style="font-size:8px;color:#9ca3af;padding-left:4px;border-left:1.5px solid #fdba74;">
 <div>├─ 循环 1: query_data · 600ms</div>
 <div>├─ 循环 2: get_opportunities + search_contacts · 900ms</div>
-<div>├─ 循环 3: get_activities · 500ms</div>
-<div>└─ 循环 4: 生成画像 ✅</div>
+<div style="color:#dc2626;">├─ 循环 3: get_activities · ❌ 500ms — connection refused</div>
+<div>├─ 循环 4: get_activities · 500ms — <span style="color:#22c55e;">✓ 重试成功</span></div>
+<div>└─ 循环 5: 生成画像 ✅</div>
 </div>
 </div>
 </div>
@@ -336,7 +367,9 @@ System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）<br>
 <div><span style="color:#94a3b8;">[S14]</span> <span style="color:#fbbf24;">子Agent 推理</span> <span style="color:#64748b;">· 1800ms</span> — <span style="color:#94a3b8;">调用 get_activities</span></div>
 <div><span style="color:#94a3b8;">[S15]</span> · <span style="color:#a78bfa;">⚙️ LoopDetectionMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">子循环3，无循环</span></div>
 <div><span style="color:#94a3b8;">[S16]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ GuardrailMiddleware</span> <span style="color:#64748b;">(wrap_tool_call)</span> — <span style="color:#94a3b8;">get_activities ∈ allowed_tools → 放行</span></div>
-<div><span style="color:#94a3b8;">[S17]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 500ms</span> — <span style="color:#94a3b8;">get_activities(account_id="C001", limit=20) → 最近20条拜访/邮件</span></div>
+<div style="background:rgba(239,68,68,0.15);border-left:3px solid #ef4444;padding:2px 6px;margin:2px 0;border-radius:2px;"><span style="color:#94a3b8;">[S17]</span> <span style="color:#f87171;">❌ 工具调用</span> <span style="color:#64748b;">· 5000ms</span> — <span style="color:#f87171;">get_activities(account_id="C001") → connection timeout</span></div>
+<div><span style="color:#94a3b8;">[S17r]</span> · <span style="color:#a78bfa;">⚙️ ToolErrorHandlingMiddleware</span> — <span style="color:#fbbf24;">触发重试 (retry=1/3)</span></div>
+<div><span style="color:#94a3b8;">[S18]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 500ms</span> — <span style="color:#94a3b8;">get_activities(account_id="C001", limit=20) → </span><span style="color:#4ade80;">✓ 重试成功</span><span style="color:#94a3b8;"> 最近20条拜访/邮件</span></div>
 </div>
 
 <!-- 子循环 4 -->
