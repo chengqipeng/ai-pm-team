@@ -430,30 +430,37 @@ System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）<br>
 <tr>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:600;color:#fbbf24;">L0 · 请求</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>request</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">整个用户请求生命周期（入口→回复完成）</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">整个用户请求生命周期（SSE 连接建立 → RUN_FINISHED → 后处理完成）</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">1 次/请求</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">总耗时、总 token、总成本</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">总耗时、总 token、总成本(cost_credits)、循环总数</td>
 </tr>
 <tr style="background:#f9fafb;">
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:600;color:#60a5fa;">L1 · 阶段</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>phase</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">入口预处理 / 上下文准备 / Agent Loop / 输出转换 / 后处理</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">入口预处理(entry) / 上下文准备(context) / Agent Loop(reasoning) / 输出转换(output) / 后处理(post)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">5 次/请求</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">阶段耗时、阶段状态</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">阶段耗时、阶段状态、阶段内节点数</td>
 </tr>
 <tr>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:600;color:#f472b6;">L2 · 循环</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>loop_iteration</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">Agent Loop 每一轮（before_model → LLM → after_model → tool）</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">Agent Loop 每一轮（Summarization → LLM 推理 → after_model 中间件 → Guardrail → 工具/Skill 执行）</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">N 次/请求</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">轮次号、LLM 耗时、工具耗时</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">轮次号、LLM 耗时、工具耗时、是否 FINAL</td>
 </tr>
 <tr style="background:#f9fafb;">
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:600;color:#a78bfa;">L3 · 操作</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>operation</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">单次 LLM 调用 / 单次工具执行 / 单次 Middleware / 子 Agent</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">单次 LLM 调用 / 单次工具执行 / 单次 Middleware / 单次 Skill 执行</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">M 次/轮</td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">操作耗时、输入/输出大小、错误码</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">操作耗时、输入/输出大小、错误码、cost_credits</td>
+</tr>
+<tr>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:600;color:#fb923c;">L4 · 子Agent</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>sub_agent</code></td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">fork 模式 Skill 的子 Agent 完整生命周期（独立 thread_id，内含子循环 L2 + 子操作 L3）</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">K 次/请求</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">子循环数、子LLM调用数、子工具调用数、depth、总耗时、cost_credits</td>
 </tr>
 
 </tbody>
