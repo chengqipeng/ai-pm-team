@@ -328,7 +328,7 @@ System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）<br>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">Middleware 执行 (before_agent)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#60a5fa;">上下文准备</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>mw_{name}</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">middleware_name, action_taken, tokens_before, tokens_after, memory_count, pii_count</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">中间件名称(middleware_name), 执行动作(action_taken), 处理前token数(tokens_before), 处理后token数(tokens_after), 记忆命中数(memory_count), PII脱敏数(pii_count)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms, tokens_saved</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">memory_retrieval > 5000ms; 单个mw > 3000ms</td>
 </tr>
@@ -337,7 +337,7 @@ System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）<br>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">Middleware (before_model)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>mw_summarization</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">middleware_name, tokens_before, tokens_after, compression_applied: bool, compression_ratio</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">中间件名称(middleware_name), 压缩前token数(tokens_before), 压缩后token数(tokens_after), 是否执行压缩(compression_applied: bool), 压缩比(compression_ratio)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms, tokens_saved</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration > 3000ms; compression_ratio < 0.3</td>
 </tr>
@@ -346,7 +346,7 @@ System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）<br>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">LLM 推理</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>llm_call</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">model_name, provider, iteration_index, input_tokens, output_tokens, has_thinking, thinking_tokens, has_tool_use, tool_use_count, temperature, cache_hit, cache_read_tokens, cost_credits</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">模型名称(model_name), 供应商(provider), 循环轮次(iteration_index), 输入token数(input_tokens), 输出token数(output_tokens), 是否含思考(has_thinking), 思考token数(thinking_tokens), 是否调用工具(has_tool_use), 工具调用数(tool_use_count), 温度(temperature), 缓存命中(cache_hit), 缓存读取token(cache_read_tokens), 消耗资源点(cost_credits)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms, ttft_ms (首token延迟), tokens_per_sec</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration > 30s; ttft > 5s; error/retry</td>
 </tr>
@@ -355,7 +355,7 @@ System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）<br>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">Middleware (after_model)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>mw_{name}</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">middleware_name, loop_detected: bool, output_blocked: bool, subagent_queued: bool</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">中间件名称(middleware_name), 是否检测到循环(loop_detected: bool), 是否拦截输出(output_blocked: bool), 是否排队子Agent(subagent_queued: bool)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">loop_detected=true; output_blocked=true</td>
 </tr>
@@ -364,7 +364,7 @@ System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）<br>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">Middleware (wrap_tool_call)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>mw_guardrail</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">tool_name, guardrail_result: "pass"|"block"|"hitl", is_destructive, clarification_triggered, error_level</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">工具名称(tool_name), 护栏结果(guardrail_result: "pass"|"block"|"hitl"), 是否破坏性操作(is_destructive), 是否触发澄清(clarification_triggered), 错误等级(error_level)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">guardrail_result="block"; hitl_pending</td>
 </tr>
@@ -373,7 +373,7 @@ System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）<br>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">工具执行</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>tool_{name}</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">tool_name, tool_call_id, input_args_chars, output_result_chars, output_records_count, result_compressed, retry_count, error, error_level</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">工具名称(tool_name), 调用ID(tool_call_id), 入参字符数(input_args_chars), 输出字符数(output_result_chars), 输出记录数(output_records_count), 结果是否压缩(result_compressed), 重试次数(retry_count), 错误信息(error), 错误等级(error_level)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration > 10s; error != null; retry > 1</td>
 </tr>
@@ -382,7 +382,7 @@ System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）<br>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">Skill 执行</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>skill_{apikey}</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">skill_apikey, skill_context: "inline"|"fork", output_mode, component_apikey, post_output_behavior, output_chars, output_route, component_match_layer</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">技能标识(skill_apikey), 执行模式(skill_context: "inline"|"fork"), 输出模式(output_mode), 组件标识(component_apikey), 输出后行为(post_output_behavior), 输出字符数(output_chars), 输出路由(output_route), 组件匹配层级(component_match_layer)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration > 30s; error; component_match=null(降级)</td>
 </tr>
@@ -391,7 +391,7 @@ System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）<br>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">子 Agent 执行</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;color:#fb923c;">子Agent</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>sub_agent_{apikey}</code></td>
-<td style="padding:0.4rem;border:1px solid #e2e8f0;">skill_apikey, sub_thread_id, depth, max_depth, allowed_tools[], loop_iterations, llm_calls, tool_calls, input_tokens, output_tokens, cost_credits, final_output_chars, termination_reason</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">技能标识(skill_apikey), 子线程ID(sub_thread_id), 当前深度(depth), 最大深度(max_depth), 允许工具列表(allowed_tools[]), 循环轮次(loop_iterations), LLM调用次数(llm_calls), 工具调用次数(tool_calls), 输入token数(input_tokens), 输出token数(output_tokens), 消耗资源点(cost_credits), 最终输出字符数(final_output_chars), 终止原因(termination_reason)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms, cost_credits</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration > 60s; loop > 10; termination="error"</td>
 </tr>
