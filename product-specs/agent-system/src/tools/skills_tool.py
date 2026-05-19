@@ -82,6 +82,10 @@ class SkillsTool(BaseTool):
         if result:
             try:
                 from langchain_core.callbacks import adispatch_custom_event
+                logger.info(
+                    "[SkillsTool] attempting dispatch skill_result: skill=%s, output_mode=%s, config=%s",
+                    skill_name, output_mode, type(_parent_config).__name__ if _parent_config else "None",
+                )
                 await adispatch_custom_event("skill_result", {
                     "skill_apikey": skill_name,
                     "behavior": behavior,

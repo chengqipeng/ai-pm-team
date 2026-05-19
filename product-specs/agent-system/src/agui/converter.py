@@ -129,6 +129,8 @@ class AGUIConverter:
         self._suppress_next_text: bool = False
         # silent 模式：硬抑制 — 完全屏蔽 LLM 文本，直到下一次 tool call 或 run 结束
         self._hard_suppress_text: bool = False
+        # doc_stream 模式：硬抑制对话区文本，但通过 doc_stream 事件流式推送到右侧面板
+        self._doc_stream_mode: bool = False
         # 抑制计数器（累计被抑制的字符数，超过阈值时解除）
         self._suppress_char_count: int = 0
         # 抑制阈值（仅 summarize/continue 的软抑制下生效）
@@ -301,12 +303,18 @@ class AGUIConverter:
             # 避免 LLM streaming 中的虚假 tool_call_chunk 误解除 skill 直出后的抑制
             tool_name = tc.get("name") or ""
             if tool_name:
-                self._suppress_next_text = False
-                self._hard_suppress_text = False
-                self._suppress_char_count = 0
-                # 进入新工具调用流程，清除去重检测状态
-                self._dedup_checking = False
-                self._llm_text_buffer = ""
+                # skills_tool 特殊处理：主动激活硬抑制
+                # 子 Agent 的 LLM stream 会泄漏到主事件流，需要在 tool 开始时就抑制
+                # 等到 on_tool_end 时通过 component_complete 或解除抑制来输出
+                if tool_name == "skills_tool":
+                    self._hard_suppress_text = True
+                    self._doc_stream_mode = True  # 流式推送到右侧面板
+                elif not self._hard_suppress_text:
+                    # 只有当前没有硬抑制时才重置（避免子 Agent 工具调用解除 skills_tool 的抑制）
+                    self._suppress_next_text = False
+                    self._suppress_char_count = 0
+                    self._dedup_checking = False
+                    self._llm_text_buffer = ""
             yield m.tool_call_start(tool_call_id, tool_call_name=tool_name)
 
         # args delta
@@ -321,7 +329,11 @@ class AGUIConverter:
         # ── Fork Skill 后续文本抑制 ──
         # silent 模式：硬抑制 — 完全屏蔽，直到下一次 tool call 或 run 结束
         if self._hard_suppress_text:
-            logger.debug("[AGUIConverter] _emit_text SUPPRESSED (hard): %s", content[:80])
+            # doc_stream 模式：不在对话区显示，但流式推送到右侧面板
+            if self._doc_stream_mode:
+                yield m.custom_event("doc_stream", {"delta": content})
+            else:
+                logger.debug("[AGUIConverter] _emit_text SUPPRESSED (hard): %s", content[:80])
             return
 
         # ── LLM stream 与 skill_result 直出内容去重 ──
@@ -433,11 +445,16 @@ class AGUIConverter:
             yield e
         # 新 tool call 开始 → 解除文本抑制（on_tool_start 表示 tool 确实被调用了）
         if tool_name:
-            self._suppress_next_text = False
-            self._hard_suppress_text = False
-            self._suppress_char_count = 0
-            self._dedup_checking = False
-            self._llm_text_buffer = ""
+            # skills_tool 特殊处理：主动激活硬抑制（子 Agent LLM stream 泄漏防护）
+            if tool_name == "skills_tool":
+                self._hard_suppress_text = True
+                self._doc_stream_mode = True
+            elif not self._hard_suppress_text:
+                # 只有当前没有硬抑制时才重置（避免子 Agent 工具调用解除 skills_tool 的抑制）
+                self._suppress_next_text = False
+                self._suppress_char_count = 0
+                self._dedup_checking = False
+                self._llm_text_buffer = ""
         yield m.tool_call_start(tool_call_id, tool_call_name=tool_name)
 
     async def _handle_tool_end(self, event: dict, data: dict, tool_name: str) -> AsyncGenerator[m.AGUIEvent, None]:
@@ -453,17 +470,48 @@ class AGUIConverter:
         if "[SKILL_DONE:" in output:
             if "[SKILL_DONE:silent]" in output:
                 self._hard_suppress_text = True
+                self._doc_stream_mode = False  # skill 完成，停止 doc_stream
                 self._suppress_next_text = False
                 logger.info("[AGUIConverter] tool_end detected SKILL_DONE:silent, hard suppress ON")
             elif "[SKILL_DONE:summarize]" in output:
                 self._hard_suppress_text = False
+                self._doc_stream_mode = False
                 self._suppress_next_text = True
                 self._suppress_char_count = 0
             elif "[SKILL_DONE:passthrough]" in output:
                 # passthrough 模式：skill_result dispatch 失败，完整结果在 tool output 中
-                # LLM 会输出内容，但需要激活去重检测防止与可能的 skill_result 重复
-                self._dedup_checking = True
-                self._llm_text_buffer = ""
+                # 检查该 skill 的 output_mode，如果不是 text 则直接渲染并抑制 LLM
+                skill_content = output.split("\n\n", 1)[1] if "\n\n" in output else output
+                # 从 output 中提取 skill_apikey
+                import re as _re
+                _skill_match = _re.search(r"\[SKILL_DONE:passthrough\]\s*(\S+)", output)
+                _skill_apikey = _skill_match.group(1) if _skill_match else ""
+                _output_mode = self._resolve_output_mode(_skill_apikey) if _skill_apikey else "text"
+
+                if _output_mode == "card" and skill_content:
+                    # 直接渲染为 doc_card，抑制 LLM 后续输出
+                    title = skill_content.split("\n")[0][:60].lstrip("# ").strip()
+                    yield m.custom_event("component_complete", {
+                        "apikey": "doc_card",
+                        "state": "complete",
+                        "data": {"title": title, "content": skill_content, "skill_apikey": _skill_apikey},
+                    })
+                    self._hard_suppress_text = True
+                    self._last_skill_output_hash = hash(skill_content)
+                    self._doc_stream_mode = False  # skill 完成
+                    logger.info("[AGUIConverter] tool_end SKILL_DONE:passthrough → card mode, emitted component_complete, hard suppress ON")
+                elif _output_mode in ("component", "table") and skill_content:
+                    # 非 text 模式：抑制 LLM 输出（组件渲染由前端处理）
+                    self._hard_suppress_text = True
+                    self._last_skill_output_hash = hash(skill_content)
+                    self._doc_stream_mode = False
+                    logger.info("[AGUIConverter] tool_end SKILL_DONE:passthrough → %s mode, hard suppress ON", _output_mode)
+                else:
+                    # text 模式或无法识别：解除硬抑制，让 LLM 正常输出
+                    self._hard_suppress_text = False
+                    self._doc_stream_mode = False
+                    self._dedup_checking = True
+                    self._llm_text_buffer = ""
 
         # RESULT + END
         yield m.tool_call_result(tool_call_id, content=output, role="tool")
@@ -481,6 +529,15 @@ class AGUIConverter:
         step_name = skill_apikey
         # 查询 skill 的 context 模式（inline/fork）
         skill_context = self._resolve_skill_context(skill_apikey)
+
+        # 如果 skill 的 output_mode 不是 text/streaming，抑制子 Agent 的 LLM stream
+        # （子 Agent 的最终输出将通过 _handle_skill_end 以正确的模式渲染）
+        output_mode = self._resolve_output_mode(skill_apikey)
+        if output_mode in ("card", "component", "table"):
+            self._hard_suppress_text = True
+            logger.info("[AGUIConverter] skill_start %s: output_mode=%s, suppressing text stream",
+                        skill_apikey, output_mode)
+
         yield m.step_started(step_name)
         yield m.step_metadata(step_name, skill_apikey=skill_apikey,
                               step_index=self._step_index, phase="started",
@@ -499,7 +556,11 @@ class AGUIConverter:
         if status == "completed" and output:
             output_text = str(output) if not isinstance(output, str) else output
 
-            if output_mode == "text" or output_mode == "streaming":
+            # 去重：如果此内容已通过 skill_result 直出，跳过渲染（避免双重输出）
+            content_hash = hash(output_text)
+            if content_hash == self._last_skill_output_hash and self._last_skill_output_hash != 0:
+                logger.info("[AGUIConverter] _handle_skill_end DEDUP: content already output via skill_result, skipping")
+            elif output_mode == "text" or output_mode == "streaming":
                 # 走 TEXT_MESSAGE 通道 → 前端渲染为 Markdown 文本气泡
                 async for e in self._emit_text(output_text):
                     yield e
@@ -511,6 +572,11 @@ class AGUIConverter:
                     "state": "complete",
                     "data": {"title": title, "content": output_text, "skill_apikey": skill_apikey},
                 })
+                # 记录 hash 防止 skill_result 重复输出 + 激活硬抑制防止 LLM 重复
+                self._last_skill_output_hash = hash(output_text)
+                self._last_skill_output_prefix = output_text[:200].strip()
+                self._hard_suppress_text = True
+                self._dedup_checking = True
             elif output_mode == "component":
                 # 走 CUSTOM(skill_output) → Renderer 匹配组件
                 comp_apikey = self._resolve_component_apikey(skill_apikey)

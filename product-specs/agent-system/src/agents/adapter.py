@@ -32,6 +32,7 @@ class NeoAgentV2Adapter:
     def __init__(self):
         self._agent: CompiledStateGraph | None = None
         self._init_lock = asyncio.Lock()
+        self._skill_registry: Any = None  # SkillRegistry，Agent 初始化后可用
         # A2UI userAction / 外部消息注入队列：thread_id → [message, ...]
         self._pending_messages: dict[str, list[Any]] = {}
 
@@ -75,6 +76,9 @@ class NeoAgentV2Adapter:
             skill_reg.load_from_db(tenant_id=0)
         except Exception as exc:
             logger.warning("从 DB 加载 Skill 失败（Agent 将跳过技能）: %s", exc)
+
+        # 暴露给 execute_agui 使用
+        self._skill_registry = skill_reg
 
         # 使用内存 checkpointer（支持 interrupt 中断确认，重启后状态丢失）
         from langgraph.checkpoint.memory import MemorySaver
@@ -209,6 +213,7 @@ class NeoAgentV2Adapter:
         converter, renderer = create_agui_pipeline(
             run_id=_run_id, thread_id=thread_id,
             history_messages=history,
+            skill_registry=self._skill_registry,
         )
 
         from src.middleware.tracing import tracing_middleware

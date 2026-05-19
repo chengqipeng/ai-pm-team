@@ -32,6 +32,164 @@ tr:nth-child(even) { background: #f9fafb; }
 
 <h2>一、AG-UI Chat 完整推理链路结构图</h2>
 
+<h3>1.1 产品价值</h3>
+<p>AG-UI Chat 推理链路是连接用户自然语言输入与 Agent 智能执行的核心管道。通过将复杂的多步推理过程结构化、可观测化，它为产品带来以下核心价值：</p>
+<ul>
+<li><strong>端到端透明度</strong> — 将 Agent 的"黑盒"推理过程转化为可追踪、可回放的事件流，让运营和研发团队能够精确定位每一步的耗时、成本与异常，大幅降低排障成本。</li>
+<li><strong>用户体验可控</strong> — 通过 AG-UI 事件协议将推理进度实时映射到前端 UI（思考中 → 工具调用中 → 生成中），消除用户等待焦虑，提升交互信任感。</li>
+<li><strong>质量与安全保障</strong> — 在链路关键节点嵌入内容审查、护栏校验、循环检测等中间件，确保 Agent 输出合规、可控、不失控。</li>
+<li><strong>成本可归因</strong> — 每次 LLM 调用和子 Agent 执行均记录资源消耗，支持按租户、按 Skill、按请求维度的精细化成本核算。</li>
+<li><strong>架构可扩展</strong> — 中间件 + 事件流的分层设计使得新增能力（如新的 Skill、新的审查策略）无需改动核心链路，即插即用。</li>
+</ul>
+
+<h3>1.2 产品目标</h3>
+<p>本推理链路设计需达成以下可量化的产品目标：</p>
+<table>
+<thead>
+<tr><th style="width:30%;">目标维度</th><th style="width:70%;">具体目标</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>响应体验</strong></td><td>首 token 延迟（TTFT）≤ 3s；用户感知等待时间通过进度事件降低 50%（对比无推理链路展示的方案）</td></tr>
+<tr><td><strong>全链路可观测</strong></td><td>100% 请求生成完整 Trace；关键节点（LLM 调用、工具执行、子 Agent）埋点覆盖率 100%</td></tr>
+<tr><td><strong>异常检测</strong></td><td>循环调用、超时、护栏拦截等异常在 ≤ 1s 内被识别并触发告警或自动降级</td></tr>
+<tr><td><strong>成本透明</strong></td><td>每次请求的 token 消耗和资源点成本可精确归因到具体 Skill / 子 Agent，误差 ≤ 1%</td></tr>
+<tr><td><strong>安全合规</strong></td><td>所有用户输入经过内容审查 + PII 脱敏；所有工具调用经过护栏校验；敏感操作触发人工确认</td></tr>
+<tr><td><strong>扩展性</strong></td><td>新增 Middleware 或 Skill 不需要修改核心 Agent Loop 代码；子 Agent 支持最大 3 层嵌套深度</td></tr>
+</tbody>
+</table>
+
+<h3>1.3 前端界面整体布局</h3>
+
+<div style="margin:1.5rem 0;padding:1.5rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;">
+
+<!-- 布局示意图 -->
+<div style="display:flex;gap:12px;font-family:-apple-system,sans-serif;font-size:12px;">
+
+<!-- 左侧对话区 -->
+<div style="flex:1;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:16px;min-height:400px;">
+<div style="font-size:11px;color:#64748b;font-weight:600;margin-bottom:12px;text-align:center;">💬 对话区（左侧主区域）</div>
+
+<!-- 用户消息 -->
+<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+<div style="background:#3b82f6;color:#fff;padding:8px 12px;border-radius:12px 12px 2px 12px;font-size:11px;max-width:70%;">分析华东区商机 Pipeline 并给出客户画像</div>
+</div>
+
+<!-- 内联推理链路（折叠态） -->
+<div style="margin:8px 0 8px 40px;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb;overflow:hidden;">
+<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;cursor:pointer;">
+<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+<span style="font-size:10px;font-weight:500;color:#6b7280;">⚡ 推理链路</span>
+<span style="font-size:9px;color:#9ca3af;">12 步 · 35200ms</span>
+</div>
+</div>
+
+<!-- AI 回复 -->
+<div style="display:flex;justify-content:flex-start;margin-bottom:8px;">
+<div style="background:#f1f5f9;color:#1e293b;padding:10px 14px;border-radius:12px 12px 12px 2px;font-size:11px;max-width:80%;line-height:1.6;">
+<strong>华东区商机 Pipeline 分析</strong><br>
+当前共 23 个活跃商机，总金额 ¥4,520 万...<br>
+<span style="color:#64748b;">重点客户画像：工商银行（战略客户）...</span>
+</div>
+</div>
+</div>
+
+<!-- 右侧推理链路面板 -->
+<div style="width:280px;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:12px;display:flex;flex-direction:column;">
+<div style="font-size:11px;color:#64748b;font-weight:600;margin-bottom:10px;text-align:center;">⚡ 右侧推理链路面板</div>
+
+<!-- Tab 切换 -->
+<div style="display:flex;gap:4px;background:#f1f5f9;padding:3px;border-radius:10px;margin-bottom:10px;">
+<div style="flex:1;text-align:center;padding:5px;font-size:9px;font-weight:600;background:#fff;border-radius:8px;color:#2563eb;box-shadow:0 1px 2px rgba(0,0,0,0.05);">⚡ 推理链路</div>
+<div style="flex:1;text-align:center;padding:5px;font-size:9px;font-weight:600;color:#6b7280;border-radius:8px;">📄 参考上下文</div>
+</div>
+
+<!-- 阶段：入口预处理 -->
+<div style="margin-bottom:8px;">
+<div style="font-size:10px;font-weight:700;color:#374151;margin-bottom:3px;">🚀 入口预处理 <span style="font-size:9px;color:#9ca3af;font-weight:400;">(server.py 入口层)</span></div>
+<div style="padding-left:8px;border-left:2px solid #e5e7eb;">
+<div style="font-size:9px;color:#6b7280;padding:1px 0;"><span style="color:#9ca3af;">[1]</span> 标题生成 · <span style="color:#94a3b8;">5ms</span></div>
+<div style="font-size:9px;color:#6b7280;padding:1px 0;"><span style="color:#9ca3af;">[2]</span> 内容审查 · <span style="color:#94a3b8;">1800ms</span> — <span style="color:#22c55e;">✓ 通过</span></div>
+<div style="font-size:9px;color:#6b7280;padding:1px 0;"><span style="color:#9ca3af;">[3]</span> 查询改写 · <span style="color:#94a3b8;">3200ms</span></div>
+</div>
+</div>
+
+<!-- 阶段：上下文准备 -->
+<div style="margin-bottom:8px;">
+<div style="font-size:10px;font-weight:700;color:#374151;margin-bottom:3px;">📦 上下文准备 <span style="font-size:9px;color:#9ca3af;font-weight:400;">(before_agent)</span></div>
+<div style="padding-left:8px;border-left:2px solid #e5e7eb;">
+<div style="font-size:9px;color:#6b7280;padding:1px 0;"><span style="color:#9ca3af;">[4]</span> 记忆检索 · <span style="color:#94a3b8;">2800ms</span> — 命中 5 条</div>
+<details style="font-size:9px;color:#9ca3af;padding:1px 0;margin-left:0;">
+<summary style="cursor:pointer;color:#9ca3af;">⚙️ 4 个 before_agent 中间件，全部通过 · 35ms</summary>
+</details>
+</div>
+</div>
+
+<!-- 阶段：模型推理 -->
+<div style="margin-bottom:8px;">
+<div style="font-size:10px;font-weight:700;color:#374151;margin-bottom:3px;">⚡ 模型推理 Agent Loop</div>
+<div style="padding-left:8px;">
+
+<!-- 循环 1 -->
+<div style="border-left:2px solid #a78bfa;padding-left:8px;margin-bottom:6px;">
+<div style="font-size:9px;color:#7c3aed;font-weight:600;margin-bottom:2px;">├─ 循环 1（LLM 决定调用 pipeline_analysis）</div>
+<div style="font-size:9px;color:#6b7280;padding:1px 0;"><span style="color:#9ca3af;">[5]</span> 🧠 模型推理 · <span style="color:#94a3b8;">4500ms</span></div>
+<div style="font-size:9px;color:#6b7280;padding:1px 0;"><span style="color:#9ca3af;">[6]</span> 🔧 skills_tool(pipeline_analysis) · <span style="color:#94a3b8;">8500ms</span></div>
+
+<!-- 子 Agent -->
+<div style="margin:4px 0 4px 12px;padding:6px 8px;border:1px solid #fb923c;border-radius:6px;background:rgba(251,146,60,0.03);">
+<div style="font-size:9px;color:#ea580c;font-weight:600;margin-bottom:3px;">🤖 子 Agent: pipeline_analysis [fork]</div>
+<div style="font-size:8px;color:#9ca3af;padding-left:4px;border-left:1.5px solid #fdba74;">
+<div>├─ 循环 1: query_data · 800ms</div>
+<div>├─ 循环 2: analyze_data · 1200ms</div>
+<div>└─ 循环 3: 生成结论 ✅</div>
+</div>
+</div>
+</div>
+
+<!-- 循环 2 -->
+<div style="border-left:2px solid #a78bfa;padding-left:8px;margin-bottom:6px;">
+<div style="font-size:9px;color:#7c3aed;font-weight:600;margin-bottom:2px;">├─ 循环 2（LLM 决定调用 customer_360）</div>
+<div style="font-size:9px;color:#6b7280;padding:1px 0;"><span style="color:#9ca3af;">[7]</span> 🧠 模型推理 · <span style="color:#94a3b8;">3200ms</span></div>
+<div style="font-size:9px;color:#6b7280;padding:1px 0;"><span style="color:#9ca3af;">[8]</span> 🔧 skills_tool(customer_360) · <span style="color:#94a3b8;">12000ms</span></div>
+
+<!-- 子 Agent 2 -->
+<div style="margin:4px 0 4px 12px;padding:6px 8px;border:1px solid #fb923c;border-radius:6px;background:rgba(251,146,60,0.03);">
+<div style="font-size:9px;color:#ea580c;font-weight:600;margin-bottom:3px;">🤖 子 Agent: customer_360 [fork]</div>
+<div style="font-size:8px;color:#9ca3af;padding-left:4px;border-left:1.5px solid #fdba74;">
+<div>├─ 循环 1: query_data · 600ms</div>
+<div>├─ 循环 2: get_opportunities + search_contacts · 900ms</div>
+<div>├─ 循环 3: get_activities · 500ms</div>
+<div>└─ 循环 4: 生成画像 ✅</div>
+</div>
+</div>
+</div>
+
+<!-- 循环 3 FINAL -->
+<div style="border-left:2px solid #22c55e;padding-left:8px;">
+<div style="font-size:9px;color:#16a34a;font-weight:600;margin-bottom:2px;">├─ 循环 3 [FINAL]（生成最终回复）</div>
+<div style="font-size:9px;color:#6b7280;padding:1px 0;"><span style="color:#9ca3af;">[9]</span> 🧠 模型推理 · <span style="color:#94a3b8;">3500ms</span></div>
+</div>
+
+</div>
+</div>
+
+<!-- 阶段：后处理 -->
+<div>
+<div style="font-size:10px;font-weight:700;color:#374151;margin-bottom:3px;">💾 后处理 <span style="font-size:9px;color:#9ca3af;font-weight:400;">(after_agent)</span></div>
+<div style="padding-left:8px;border-left:2px solid #e5e7eb;">
+<div style="font-size:9px;color:#6b7280;padding:1px 0;"><span style="color:#9ca3af;">[10]</span> 记忆提取 · <span style="color:#94a3b8;">3500ms</span> — 3 条新记忆</div>
+</div>
+</div>
+
+<!-- 底部状态栏 -->
+<div style="margin-top:auto;padding-top:10px;border-top:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;">
+<div style="font-size:9px;color:#9ca3af;font-weight:600;letter-spacing:0.5px;">✅ 完成 · 35.2s</div>
+</div>
+
+</div>
+</div>
+</div>
+
 
 <div style="font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Consolas, monospace; font-size: 0.76rem; line-height: 1.55; background: #0f172a; color: #e2e8f0; padding: 1.5rem 2rem; border-radius: 10px; overflow-x: auto; margin: 1rem 0; border: 1px solid #334155;">
 
@@ -423,6 +581,11 @@ System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）<br>
 </tbody>
 </table>
 </div>
+
+
+<!-- ================================================================== -->
+<!-- 第三页：推理链路前端界面设计 -->
+<!-- ================================================================== -->
 
 </body>
 </html>
