@@ -77,7 +77,7 @@ class SkillDefinition:
                 arguments = []
         except (json.JSONDecodeError, TypeError):
             arguments = []
-        return cls(
+        skill = cls(
             name=row.api_key,
             description=row.description or row.name,
             prompt=row.prompt or "",
@@ -98,6 +98,9 @@ class SkillDefinition:
             post_output_behavior=getattr(row, "post_output_behavior", "silent") or "silent",
             tenant_id=row.tenant_id or 0,
         )
+        # 保留 ext_info 供 ResourcePreloader 使用（不作为 dataclass 字段，避免序列化问题）
+        skill._ext_info = getattr(row, "ext_info", None) or "{}"
+        return skill
 
 
 # ═══════════════════════════════════════════════════════════
@@ -583,6 +586,8 @@ class SkillExecutor:
         - 与 AgentTool 共用同一套 AgentFactory.build() 逻辑
         - skill.agent 为空时用 "default"
         - skill.prompt 作为 HumanMessage（任务指令），不是 system_prompt
+        - 支持资源预加载：根据 ext_info.preload_resources 配置，在子 Agent 启动前
+          批量加载基础知识文件，减少子 Agent 的推理轮次
         """
         if self._agent_factory is None:
             raise SkillExecutionError(
@@ -603,9 +608,15 @@ class SkillExecutor:
 
         # 构建任务指令（skill.prompt 作为 HumanMessage，不是 system_prompt）
         task_instruction = self._build_task_instruction(skill, arguments)
-        messages = [HumanMessage(content=task_instruction)]
 
         sub_thread_id = f"skill-{skill.name}-{uuid4().hex[:8]}"
+
+        # ── 资源预加载：在子 Agent 启动前批量注入基础知识文件 ──
+        preload_context = await self._preload_resources(skill, arguments, sub_thread_id)
+        if preload_context:
+            task_instruction += preload_context
+
+        messages = [HumanMessage(content=task_instruction)]
 
         # 注册子 thread 供主 Agent 实时 polling 子 Agent 链路
         try:
@@ -714,6 +725,207 @@ class SkillExecutor:
         if formatted_prompt:
             parts.append(f"\n{formatted_prompt}")
         return "\n".join(parts)
+
+    async def _preload_resources(
+        self, skill: SkillDefinition, arguments: dict[str, str],
+        sub_thread_id: str = "",
+    ) -> str:
+        """预加载 Skill 关联的基础知识文件
+
+        根据 skill 的 ext_info.preload_resources 配置，在子 Agent 启动前
+        批量加载知识文件并格式化为注入文本。
+
+        降级策略：
+        - 有 preload_resources 配置 → 按配置加载
+        - 无配置但 allowed_tools 包含 read_skill_resource → 自动加载索引文件
+        - 都不满足 → 跳过
+
+        Args:
+            skill: 技能定义
+            arguments: 用户传入的参数（用于场景匹配）
+            sub_thread_id: 子 Agent 的 thread_id（用于写入 tracing span）
+
+        Returns:
+            格式化的预加载知识文本（空字符串表示无需预加载）
+        """
+        # 前置检查：只有 fork 模式且 allowed_tools 包含 read_skill_resource 才有意义
+        if "read_skill_resource" not in skill.allowed_tools:
+            return ""
+
+        try:
+            from src.skills.resource_preloader import ResourcePreloader, PreloadConfig
+
+            preloader = ResourcePreloader(tenant_id=skill.tenant_id)
+
+            # 从 SkillDefinition 获取 ext_info（可能是 DB 加载时存入的）
+            ext_info = getattr(skill, "_ext_info", None)
+            if ext_info is None:
+                # 尝试从 DB 重新获取 ext_info
+                ext_info = self._load_skill_ext_info(skill.name, skill.tenant_id)
+
+            config = preloader.parse_config(ext_info)
+
+            # 降级：无显式配置时，自动发现并加载索引文件
+            if config is None:
+                config = await self._auto_discover_preload(preloader, skill.name)
+                if config is None:
+                    return ""
+
+            # 根据 arguments 匹配场景，确定需要加载的文件
+            resource_paths = preloader.match_scene(config, arguments)
+            if not resource_paths:
+                return ""
+
+            # 批量加载
+            result = await preloader.preload(skill.name, resource_paths)
+            if not result.files:
+                return ""
+
+            # 记录预加载 tracing span（写入子 Agent 的 thread，作为执行链路第一步）
+            self._record_preload_span(
+                skill_name=skill.name,
+                requested=len(resource_paths),
+                loaded=len(result.files),
+                duration_ms=result.duration_ms,
+                paths=[f["path"] for f in result.files],
+                thread_id=sub_thread_id,
+            )
+
+            # 格式化为注入文本
+            return ResourcePreloader.format_preloaded_context(result)
+
+        except Exception as e:
+            logger.warning("[skill] 资源预加载失败（降级为运行时加载）: skill=%s, err=%s",
+                           skill.name, e)
+            return ""
+
+    @staticmethod
+    async def _auto_discover_preload(preloader, skill_name: str):
+        """自动发现 Skill 的索引文件作为最小预加载配置
+
+        当 ext_info 中没有 preload_resources 配置时，
+        尝试查找 knowledge/industries/_index.md 或 knowledge/_index.md 作为基础加载。
+        """
+        from src.skills.resource_preloader import PreloadConfig
+
+        # 尝试列出该 skill 下的可用文件
+        try:
+            from src.store.pg_pool import get_conn
+
+            names = preloader._build_name_variants(skill_name)
+            with get_conn() as conn:
+                cur = conn.cursor()
+                name_placeholders = ",".join(["%s"] * len(names))
+                cur.execute(f"""
+                    SELECT path FROM ai_skill_resource
+                    WHERE skill_api_key IN ({name_placeholders})
+                      AND node_type = 'file'
+                      AND tenant_id = %s
+                      AND delete_flg = 0 AND enabled_flg = 1
+                      AND path LIKE '%%/_index.md'
+                    ORDER BY depth, sort_num
+                    LIMIT 3
+                """, (*names, preloader._tenant_id))
+                index_files = [r[0] for r in cur.fetchall()]
+
+            if not index_files:
+                return None
+
+            return PreloadConfig(
+                always=index_files[:2],  # 最多自动加载 2 个索引文件
+                scene_map={},
+                max_preload=2,
+            )
+        except Exception:
+            return None
+
+    @staticmethod
+    def _load_skill_ext_info(skill_name: str, tenant_id: int) -> str:
+        """从 DB 加载 Skill 的 ext_info 字段"""
+        try:
+            from src.store.pg_pool import get_conn
+            import re
+
+            # 构建名称变体
+            names = [skill_name]
+            if "-" in skill_name:
+                names.append(skill_name.replace("-", "_"))
+            elif "_" in skill_name:
+                names.append(skill_name.replace("_", "-"))
+            if any(c.isupper() for c in skill_name):
+                kebab = re.sub(r'([a-z])([A-Z])', r'\1-\2', skill_name).lower()
+                if kebab not in names:
+                    names.append(kebab)
+
+            with get_conn() as conn:
+                cur = conn.cursor()
+                placeholders = ",".join(["%s"] * len(names))
+                cur.execute(f"""
+                    SELECT ext_info FROM ai_skill_definition
+                    WHERE api_key IN ({placeholders})
+                      AND tenant_id = %s AND delete_flg = 0 AND enabled_flg = 1
+                    LIMIT 1
+                """, (*names, tenant_id))
+                row = cur.fetchone()
+                return row[0] if row else "{}"
+        except Exception as e:
+            logger.debug("[skill] _load_skill_ext_info failed: %s", e)
+            return "{}"
+
+    @staticmethod
+    def _record_preload_span(
+        skill_name: str, requested: int, loaded: int,
+        duration_ms: float, paths: list[str],
+        thread_id: str = "",
+    ) -> None:
+        """记录资源预加载 tracing span（写入子 Agent 的 thread）
+
+        预加载是子 Agent 执行链路的第一步（context 阶段），
+        写入 sub_thread_id 后会被 _collect_sub_agent_spans 收集为 skill_execution 的 children。
+        """
+        try:
+            from src.middleware.tracing import tracing_middleware
+            if thread_id:
+                tracing_middleware._add_to_thread(
+                    thread_id,
+                    "resource_preload", f"resource_preload:{skill_name}", duration_ms,
+                    metadata={
+                        "skill_name": skill_name,
+                        "preload_requested": requested,
+                        "preload_loaded": loaded,
+                    },
+                    input_data={
+                        "skill_name": skill_name,
+                        "requested_paths": paths,
+                    },
+                    output_data={
+                        "loaded_count": loaded,
+                        "loaded_paths": paths[:loaded],
+                        "duration_ms": round(duration_ms, 1),
+                    },
+                    detail=f"预加载 {loaded}/{requested} 个知识文件 · {round(duration_ms)}ms",
+                )
+            else:
+                tracing_middleware._add(
+                    "resource_preload", f"resource_preload:{skill_name}", duration_ms,
+                    metadata={
+                        "skill_name": skill_name,
+                        "preload_requested": requested,
+                        "preload_loaded": loaded,
+                    },
+                    input_data={
+                        "skill_name": skill_name,
+                        "requested_paths": paths,
+                    },
+                    output_data={
+                        "loaded_count": loaded,
+                        "loaded_paths": paths[:loaded],
+                        "duration_ms": round(duration_ms, 1),
+                    },
+                    detail=f"预加载 {loaded}/{requested} 个知识文件 · {round(duration_ms)}ms",
+                )
+        except Exception:
+            pass
 
     @staticmethod
     def _extract_output(result: dict[str, Any]) -> str:

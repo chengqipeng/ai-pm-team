@@ -217,7 +217,11 @@ class ManageSkillTool(Tool):
         return ToolResult(content="\n".join(lines))
 
     def _validate_tools(self, tool_names: list[str]) -> str | None:
-        """校验 allowed_tools 中的工具是否在数据库中存在且启用"""
+        """校验 allowed_tools 中的工具是否在数据库中存在且启用
+
+        Raises:
+            如果数据库不可用，返回错误信息（不再静默跳过）
+        """
         try:
             from src.store.tool_dao import ToolDefinitionDAO
             db_tools = ToolDefinitionDAO.list_all(tenant_id=0, enabled_only=True)
@@ -225,8 +229,8 @@ class ManageSkillTool(Tool):
             invalid = [n for n in tool_names if n not in valid_names]
             if invalid:
                 return f"以下工具不存在或未启用: {', '.join(invalid)}。可用工具: {', '.join(sorted(valid_names))}"
-        except Exception:
-            pass  # 数据库不可用时跳过校验
+        except Exception as e:
+            return f"工具校验失败（数据库不可用）: {e}。无法确认工具 {tool_names} 是否有效，请检查数据库连接后重试"
         return None
 
     def prompt(self) -> str:

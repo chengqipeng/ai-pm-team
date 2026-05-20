@@ -133,16 +133,31 @@ class AgentFactory:
 
             # 校验技能的 allowed_tools（inline + fork 均校验）
             if self._tool_registry:
+                missing_tools_errors: list[str] = []
                 for skill in self._skill_registry.list_all():
                     for tn in skill.allowed_tools:
                         if tn in ("skills_tool", "ask_user", "ask_clarification"):
                             continue  # 豁免工具不需要在 registry 中
                         if self._tool_registry.find_by_name(tn) is None:
-                            logger.warning(
-                                "技能 '%s' 引用了不存在的工具 '%s'，"
-                                "运行时 SkillToolScopeMiddleware 将阻止该技能调用此工具",
-                                skill.name, tn,
+                            missing_tools_errors.append(
+                                f"技能 '{skill.name}' 引用了不存在的工具 '{tn}'"
                             )
+                if missing_tools_errors:
+                    from src.core.exceptions import SkillActivationError
+                    all_missing = [e.split("'")[3] for e in missing_tools_errors]
+                    error_detail = "; ".join(missing_tools_errors)
+                    logger.error(
+                        "Agent 构建失败: Skill allowed_tools 引用了不存在的工具 — %s",
+                        error_detail,
+                    )
+                    raise SkillActivationError(
+                        skill_name=", ".join(s.name for s in self._skill_registry.list_all() if any(
+                            tn for tn in s.allowed_tools
+                            if tn not in ("skills_tool", "ask_user", "ask_clarification")
+                            and self._tool_registry.find_by_name(tn) is None
+                        )),
+                        missing_tools=all_missing,
+                    )
 
         # 3. AgentTool（精确模式检查）
         if not explicit_tools or "agent_tool" in self._tool_names:

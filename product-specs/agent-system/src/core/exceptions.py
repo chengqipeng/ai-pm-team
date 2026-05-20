@@ -45,6 +45,26 @@ class SkillExecutionError(DeepAgentError):
         super().__init__(msg)
 
 
+# ── 工具系统 ──
+
+class ToolNotFoundError(DeepAgentError):
+    """工具不存在或未注册"""
+    def __init__(self, tool_name: str, context: str = ""):
+        self.tool_name = tool_name
+        self.context = context
+        msg = f"工具不存在: '{tool_name}'"
+        if context:
+            msg += f" ({context})"
+        super().__init__(msg)
+
+
+class ToolNotEnabledError(DeepAgentError):
+    """工具存在但未启用"""
+    def __init__(self, tool_name: str):
+        self.tool_name = tool_name
+        super().__init__(f"工具未启用: '{tool_name}'，请在 ai_tool_definition 中启用后重试")
+
+
 # ── 护栏系统 ──
 
 class AuthorizationDeniedError(DeepAgentError):

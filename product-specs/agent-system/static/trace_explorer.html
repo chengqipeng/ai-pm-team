@@ -97,7 +97,7 @@ function fT(ts){if(!ts)return'—';const d=new Date(typeof ts==='number'&&ts>1e1
 function fD(ms){if(!ms||ms<=0)return'0ms';return ms>=1000?(ms/1000).toFixed(1)+'s':Math.round(ms)+'ms'}
 function fK(n){if(!n)return'0';return n>=1000?(n/1000).toFixed(1)+'K':String(n)}
 
-const SC={context_build:{icon:'📋',cls:'bg-indigo-50 text-indigo-600'},memory_retrieval:{icon:'🔍',cls:'bg-blue-50 text-blue-600'},intent_analysis:{icon:'🧠',cls:'bg-purple-50 text-purple-600'},llm_call:{icon:'⚡',cls:'bg-blue-50 text-blue-600'},tool_call:{icon:'🔧',cls:'bg-amber-50 text-amber-600'},memory_extract:{icon:'💾',cls:'bg-indigo-50 text-indigo-600'},hierarchical_search:{icon:'🌲',cls:'bg-green-50 text-green-600'},error:{icon:'❌',cls:'bg-red-50 text-red-600'},done:{icon:'🏁',cls:'bg-green-50 text-green-600'}};
+const SC={context_build:{icon:'📋',cls:'bg-indigo-50 text-indigo-600'},resource_preload:{icon:'📚',cls:'bg-teal-50 text-teal-600'},memory_retrieval:{icon:'🔍',cls:'bg-blue-50 text-blue-600'},intent_analysis:{icon:'🧠',cls:'bg-purple-50 text-purple-600'},llm_call:{icon:'⚡',cls:'bg-blue-50 text-blue-600'},tool_call:{icon:'🔧',cls:'bg-amber-50 text-amber-600'},memory_extract:{icon:'💾',cls:'bg-indigo-50 text-indigo-600'},hierarchical_search:{icon:'🌲',cls:'bg-green-50 text-green-600'},error:{icon:'❌',cls:'bg-red-50 text-red-600'},done:{icon:'🏁',cls:'bg-green-50 text-green-600'}};
 function gc(type){return SC[type]||{icon:'📋',cls:'bg-gray-50 text-gray-600'}}
 
 // ═══ 加载 Trace 列表 ═══

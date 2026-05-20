@@ -13,6 +13,8 @@ from typing import Any
 
 from langchain_core.tools import BaseTool
 
+from src.core.exceptions import ToolNotFoundError
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,14 +29,21 @@ class ToolLoader:
         self._registry[name] = tool
 
     def load_tools_by_names(self, tool_names: list[str]) -> list[BaseTool]:
-        """按名称加载指定工具列表，找不到的跳过并警告"""
+        """按名称加载指定工具列表，找不到的抛出 ToolNotFoundError"""
         tools: list[BaseTool] = []
+        missing: list[str] = []
         for name in tool_names:
             tool = self._registry.get(name)
             if tool is not None:
                 tools.append(tool)
             else:
-                logger.warning("工具 '%s' 未在注册表中找到，已跳过", name)
+                missing.append(name)
+        if missing:
+            available = sorted(self._registry.keys())
+            raise ToolNotFoundError(
+                tool_name=", ".join(missing),
+                context=f"load_tools_by_names 失败，可用工具: {available}",
+            )
         return tools
 
     def load_tools(self) -> list[BaseTool]:

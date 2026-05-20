@@ -119,6 +119,10 @@ class NeoAgentV2Adapter:
         from src.tools.knowledge_tools import register_knowledge_tools
         register_knowledge_tools(reg, provider=None, tenant_id=0)
 
+        # 注册 ManageSkillTool（供 create_skill 技能使用）
+        from src.tools.manage_skill_tool import ManageSkillTool
+        reg.register(ManageSkillTool())
+
         # 注册 ReadSkillResourceTool（供 fork 模式子 Agent 加载知识文件）
         from src.tools.skill_resource_tool import ReadSkillResourceTool
         reg.register(ReadSkillResourceTool(tenant_id=0))

@@ -134,6 +134,7 @@ class TracingMiddleware(AgentMiddleware):
         "query_rewrite":        {"phase": "entry",     "name": "查询改写",       "name_en": "query_rewrite"},
         "user_input":           {"phase": "context",   "name": "用户输入",       "name_en": "user_input"},
         "context_build":        {"phase": "context",   "name": "上下文构建",     "name_en": "context_build"},
+        "resource_preload":     {"phase": "context",   "name": "知识预加载",     "name_en": "resource_preload"},
         "middleware":           {"phase": "context",   "name": "中间件",         "name_en": "middleware"},
         "title_generation":     {"phase": "entry",     "name": "标题生成",       "name_en": "title_generation"},
         "memory_retrieval":     {"phase": "context",   "name": "记忆检索",       "name_en": "memory_retrieval"},

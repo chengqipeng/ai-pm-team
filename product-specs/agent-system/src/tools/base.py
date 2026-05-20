@@ -111,7 +111,11 @@ class ToolRegistry:
         self._db_enabled_tools: set[str] | None = None
 
     def _load_db_config(self) -> set[str]:
-        """从数据库加载已启用的工具 api_key 集合（只加载一次）"""
+        """从数据库加载已启用的工具 api_key 集合（只加载一次）
+
+        Raises:
+            ConfigurationError: 数据库不可用时抛出异常，不再静默降级
+        """
         if self._db_enabled_tools is not None:
             return self._db_enabled_tools
         try:
@@ -120,23 +124,33 @@ class ToolRegistry:
             self._db_enabled_tools = {r.api_key for r in rows}
         except Exception as e:
             import logging
-            logging.getLogger(__name__).warning(
-                "ToolRegistry: 无法加载数据库工具配置，将允许所有工具注册: %s", e
+            from src.core.exceptions import ConfigurationError
+            logging.getLogger(__name__).error(
+                "ToolRegistry: 无法加载数据库工具配置: %s", e
             )
-            self._db_enabled_tools = None  # 标记为加载失败
-            self._skip_db_check = True  # 降级为不检查
+            if not self._skip_db_check:
+                raise ConfigurationError(
+                    f"ToolRegistry 无法加载数据库工具配置: {e}。"
+                    f"请检查数据库连接，或使用 skip_db_check=True 跳过校验（仅限测试环境）"
+                ) from e
+            # skip_db_check=True 时（测试环境）允许降级
+            self._db_enabled_tools = None
         return self._db_enabled_tools or set()
 
     def register(self, tool: Tool) -> None:
-        """注册工具 — 结合数据库验证"""
+        """注册工具 — 结合数据库验证
+
+        Raises:
+            ToolNotEnabledError: 工具在数据库中未启用或不存在时抛出异常
+        """
         import logging
+        from src.core.exceptions import ToolNotEnabledError
         logger = logging.getLogger(__name__)
 
         if not self._skip_db_check:
             enabled_tools = self._load_db_config()
             if enabled_tools and tool.name not in enabled_tools:
-                logger.info("ToolRegistry: 跳过工具 '%s'（数据库中未启用或不存在）", tool.name)
-                return
+                raise ToolNotEnabledError(tool.name)
 
         self._tools[tool.name] = tool
         for alias in tool.aliases:

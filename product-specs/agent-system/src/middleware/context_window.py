@@ -62,13 +62,12 @@ TOOL_THRESHOLDS: dict[str, dict] = {
     "query_schema":        {"threshold": 500, "max_summary": 150},
     "web_search":          {"threshold": 500, "max_summary": 150},
     "analyze_data":        {"threshold": 800, "max_summary": 200},
-    "read_skill_resource": {"threshold": 1000, "max_summary": 250},
     "query_metadata":      {"threshold": 500, "max_summary": 150},
 }
 DEFAULT_TOOL_THRESHOLD = {"threshold": 500, "max_summary": 150}
 
-# 不压缩的工具（skills_tool 由 SkillExecutor 自行处理）
-SKIP_COMPACT_TOOLS = {"skills_tool", "agent_tool", "ask_user", "scratchpad"}
+# 不压缩的工具（skills_tool 由 SkillExecutor 自行处理；read_skill_resource 是知识文件，不能源头压缩）
+SKIP_COMPACT_TOOLS = {"skills_tool", "agent_tool", "ask_user", "scratchpad", "read_skill_resource"}
 
 
 

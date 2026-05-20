@@ -29,7 +29,7 @@ INSERT INTO ai_skill_definition (
     'fork',
     'account-insight',  -- 指定独立子 Agent
     'account_insight_v4f',  -- 专用模型
-    '["query_data","analyze_data","search_web","search_documents","read_skill_resource"]',
+    '["query_data","analyze_data","search_web","knowledge_search","read_skill_resource"]',
     '["data_id","user_intent"]',
     '# 智能客户洞察 — 入口
 
@@ -56,7 +56,7 @@ INSERT INTO ai_skill_definition (
 | `query_data` | 查询 CRM 业务数据（客户/商机/联系人/活动） | 始终可用 |
 | `analyze_data` | 聚合统计分析 CRM 数据 | 始终可用 |
 | `search_web` | 搜索互联网（行业动态、竞品信息、外部环境） | 始终可用 |
-| `search_documents` | 搜索 AI 知识库（产品手册、FAQ、内部文档） | 始终可用 |
+| `knowledge_search` | 搜索 AI 知识库（产品手册、FAQ、内部文档） | 始终可用 |
 | `read_skill_resource` | 加载知识文件（行业包、策略库、竞争剧本） | 始终可用 |
 
 **知识文件**（通过 `read_skill_resource` 工具按需加载，可持续扩展）：
@@ -93,8 +93,9 @@ knowledge/competitor-playbooks/<竞争场景>.md   — 各类竞争场景应对�
    - **D 定时巡检**：侧重变更检测 + 新增信号
 
 3. **按需加载知识**：
-   调用 `read_skill_resource(skill_name="accountInsight", resource_name="knowledge/industries/_index.md")`
-   按场景加载商业模式库/信号库等
+   检查上下文中是否已有「📚 预加载知识文件」部分——如果有，直接使用，不要重复加载。
+   如果没有预加载，或需要加载预加载中未包含的文件，再调用 `read_skill_resource`。
+   按场景加载商业模式库/信号库/竞争剧本等（参考知识文件列表）
 
 4. **制定数据获取计划**：为每个分析方向规划应使用哪些数据源和搜索
 
@@ -106,7 +107,7 @@ knowledge/competitor-playbooks/<竞争场景>.md   — 各类竞争场景应对�
   - `query_data` 获取商机、联系人、活动等关联数据
   - `analyze_data` 按阶段/时间/金额做聚合统计
 - **第二轮（外部非结构化数据）**：
-  - `search_documents`（AI 知识库）— 产品手册、FAQ、内部文档
+  - `knowledge_search`（AI 知识库）— 产品手册、FAQ、内部文档
   - `search_web`（网络）— 行业动态、竞品信息、工商信息、外部环境
 - **第三轮（补采）**：针对质量不足的方向做定向补充搜索
 
@@ -128,7 +129,7 @@ knowledge/competitor-playbooks/<竞争场景>.md   — 各类竞争场景应对�
 
 #### 行业定位——三层下钻
 - **大行业** → **细分赛道** → **概念板块**（国产替代/出海/新能源/AI/数字化/并购整合/专精特新）
-- 先查 `_index.md` 是否有行业包；没有则 `search_web` + `search_documents` 自主获取
+- 先查 `_index.md` 是否有行业包；没有则 `search_web` + `knowledge_search` 自主获取
 
 #### 行业周期
 | 阶段 | 增速 | 对销售的含义 |
@@ -229,7 +230,7 @@ knowledge/competitor-playbooks/<竞争场景>.md   — 各类竞争场景应对�
     'published',
     1747353600000,  -- 2025-05-16 发布
     0, 0, 0,
-    '{"tags":["crm","account","analysis","insight"],"changelog":"v2.0: 对齐 apps-agent account-insight，支持4场景×10方法论，知识文件按需加载","argument_descriptions":{"data_id":"客户记录 ID","user_intent":"用户意图描述（如：分析客户、续约评估、商机推进）"}}',
+    '{"tags":["crm","account","analysis","insight"],"changelog":"v2.0: 对齐 apps-agent account-insight，支持4场景×10方法论，知识文件按需加载","argument_descriptions":{"data_id":"客户记录 ID","user_intent":"用户意图描述（如：分析客户、续约评估、商机推进）"},"preload_resources":{"always":["knowledge/industries/_index.md"],"scene_map":{"新客开拓|新客|开拓|了解客户|客户背景":["knowledge/analysis-strategies/business-model-patterns.md","knowledge/analysis-strategies/signal-patterns.md"],"续约|续费|流失|健康度|续约评审|续约风险":["knowledge/analysis-strategies/risk-scoring-models.md","knowledge/analysis-strategies/signal-patterns.md"],"商机|推进|赢单|竞争|商机推进":["knowledge/analysis-strategies/value-proposition-frameworks.md","knowledge/competitor-playbooks/incumbent-replacement.md"],"巡检|定时|变更|客户动态":["knowledge/analysis-strategies/signal-patterns.md"]},"max_preload":4}}',
     0,
     1747353600000,
     0,
@@ -256,7 +257,7 @@ INSERT INTO ai_skill_version (
     'fork',
     'account-insight',
     'account_insight_v4f',
-    '["query_data","analyze_data","search_web","search_documents","read_skill_resource"]',
+    '["query_data","analyze_data","search_web","knowledge_search","read_skill_resource"]',
     '["data_id","user_intent"]',
     '（prompt 同 ai_skill_definition 主表，此处省略——运行时从主表加载）',
     'read_only',

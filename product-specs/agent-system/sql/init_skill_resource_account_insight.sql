@@ -58,7 +58,7 @@ INSERT INTO ai_skill_resource (
 
 当客户所在行业没有对应知识包时，Agent 应：
 1. 通过 `search_web` 搜索行业基础信息（产业链、市场规模、竞争格局、关键指标）
-2. 通过 `search_documents` 搜索内部是否有相关行业报告
+2. 通过 `knowledge_search` 搜索内部是否有相关行业报告
 3. 按照 SKILL prompt 中 M1 方法论自主完成行业分析
 4. 在输出中标注「该行业暂无预置知识包，分析基于网络搜索和通用框架」',
  'text/markdown', 0, '行业知识包索引', '📋', 0, 1,
