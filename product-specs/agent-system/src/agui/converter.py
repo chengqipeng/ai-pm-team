@@ -143,6 +143,9 @@ class AGUIConverter:
         self._llm_text_buffer: str = ""
         # LLM stream 去重：是否正在检测重复
         self._dedup_checking: bool = False
+        # ── REF 标记缓冲区（处理流式 chunk 中跨 chunk 的 <!-- REF: ... --> 标记）──
+        self._ref_buffer: str = ""
+        self._ref_buffering: bool = False
 
     # ═══════════════════════════════════════════════════════════
     # 主入口
@@ -206,22 +209,29 @@ class AGUIConverter:
             if not is_sub_agent and len(parent_ids) <= 2:
                 self._step_index += 1
         elif kind == "on_chat_model_end":
-            # 记录完整的 llm_call span（含推理结果：tool_calls / is_final）
+            # 记录完整的 llm_call span（含推理结果：tool_calls / is_final / knowledge_refs）
             if not is_sub_agent and len(parent_ids) <= 2:
                 output = data.get("output", None)
                 tool_calls = []
                 is_final = True
+                knowledge_refs = []
                 if output and hasattr(output, "tool_calls") and output.tool_calls:
                     tool_calls = [tc.get("name", "") for tc in output.tool_calls if isinstance(tc, dict)]
                     is_final = False
+                # 解析知识文件引用标记 <!-- REF: file1.md, file2.md -->
+                if output and hasattr(output, "content"):
+                    content_text = output.content if isinstance(output.content, str) else str(output.content)
+                    knowledge_refs = self._parse_knowledge_refs(content_text)
                 try:
                     from src.middleware.tracing import tracing_middleware
                     desc = f"第{self._step_index}轮: {'生成最终回复 ✅' if is_final else '调用 ' + ', '.join(tool_calls)}"
+                    if knowledge_refs:
+                        desc += f" | 引用: {', '.join(knowledge_refs)}"
                     tracing_middleware._add_to_thread(
                         self.thread_id, "llm_call", desc, 0,
-                        {"iteration": self._step_index, "tool_calls": tool_calls, "is_final": is_final},
+                        {"iteration": self._step_index, "tool_calls": tool_calls, "is_final": is_final, "knowledge_refs": knowledge_refs},
                         input_data={"iteration": self._step_index},
-                        output_data={"tool_calls": tool_calls, "is_final": is_final},
+                        output_data={"tool_calls": tool_calls, "is_final": is_final, "knowledge_refs": knowledge_refs},
                         detail=desc,
                     )
                 except Exception:
@@ -323,6 +333,11 @@ class AGUIConverter:
             yield m.tool_call_args(tool_call_id, args_delta)
 
     async def _emit_text(self, content: str) -> AsyncGenerator[m.AGUIEvent, None]:
+        if not content:
+            return
+
+        # ── 剥离知识引用标记（处理流式 chunk 跨越 <!-- REF: ... --> 的情况）──
+        content = self._strip_ref_markers(content)
         if not content:
             return
 
@@ -482,6 +497,8 @@ class AGUIConverter:
                 # passthrough 模式：skill_result dispatch 失败，完整结果在 tool output 中
                 # 检查该 skill 的 output_mode，如果不是 text 则直接渲染并抑制 LLM
                 skill_content = output.split("\n\n", 1)[1] if "\n\n" in output else output
+                # 剥离知识引用标记
+                skill_content = self._strip_ref_markers_full(skill_content)
                 # 从 output 中提取 skill_apikey
                 import re as _re
                 _skill_match = _re.search(r"\[SKILL_DONE:passthrough\]\s*(\S+)", output)
@@ -555,6 +572,9 @@ class AGUIConverter:
 
         if status == "completed" and output:
             output_text = str(output) if not isinstance(output, str) else output
+
+            # ── 剥离知识引用标记 ──
+            output_text = self._strip_ref_markers_full(output_text)
 
             # 去重：如果此内容已通过 skill_result 直出，跳过渲染（避免双重输出）
             content_hash = hash(output_text)
@@ -636,6 +656,106 @@ class AGUIConverter:
         except Exception:
             pass
         return None
+
+    @staticmethod
+    def _parse_knowledge_refs(content: str) -> list[str]:
+        """从 LLM 输出中解析知识文件引用标记。
+
+        格式: <!-- REF: file1.md, file2.md -->
+        返回: ["file1.md", "file2.md"]
+        """
+        import re
+        # 匹配 <!-- REF: ... --> 标记（可能出现在内容开头或中间）
+        pattern = r'<!--\s*REF:\s*(.+?)\s*-->'
+        matches = re.findall(pattern, content)
+        if not matches:
+            return []
+        # 合并所有匹配（可能有多个 REF 标记）
+        refs = []
+        for match in matches:
+            for ref in match.split(","):
+                ref = ref.strip()
+                if ref and ref not in refs:
+                    refs.append(ref)
+        return refs
+
+    def _strip_ref_markers(self, content: str) -> str:
+        """从流式 chunk 中剥离 <!-- REF: ... --> 标记。
+
+        处理跨 chunk 的情况：
+        - chunk 中包含完整标记 → 直接正则替换
+        - chunk 以 '<' 或 '<!-' 等开头可能是标记前缀 → 缓冲等待
+        - 缓冲区累积后发现不是 REF 标记 → 释放缓冲内容
+        - 缓冲区累积后发现完整标记 → 剥离后释放剩余内容
+        """
+        import re
+
+        # 如果正在缓冲（上一个 chunk 留下了不完整的标记前缀）
+        if self._ref_buffering:
+            self._ref_buffer += content
+            # 检查缓冲区是否包含完整的 --> 结束标记
+            if '-->' in self._ref_buffer:
+                # 完整标记已到达，剥离
+                result = re.sub(r'<!--\s*REF:.*?-->\s*', '', self._ref_buffer)
+                self._ref_buffer = ""
+                self._ref_buffering = False
+                return result
+            # 缓冲区过长（>200 字符）说明不是 REF 标记，释放
+            if len(self._ref_buffer) > 200:
+                result = self._ref_buffer
+                self._ref_buffer = ""
+                self._ref_buffering = False
+                return result
+            # 继续缓冲，不输出
+            return ""
+
+        # 正常模式：检查是否包含完整标记
+        full_pattern = r'<!--\s*REF:.*?-->\s*'
+        if re.search(full_pattern, content):
+            return re.sub(full_pattern, '', content)
+
+        # 检查是否以可能的标记前缀结尾（< 或 <! 或 <!- 或 <!-- 或 <!-- R...）
+        # 这些情况说明标记可能跨 chunk
+        if content.endswith('<') or content.endswith('<!') or content.endswith('<!-') or content.endswith('<!--'):
+            # 分离安全部分和可能的前缀
+            for prefix_len in range(1, min(5, len(content)) + 1):
+                suffix = content[-prefix_len:]
+                if '<!--'[:len(suffix)] == suffix or '<!'[:len(suffix)] == suffix:
+                    safe_part = content[:-prefix_len]
+                    self._ref_buffer = suffix
+                    self._ref_buffering = True
+                    return safe_part
+            return content
+
+        # 检查 content 是否以 <!-- 开头（整个 chunk 就是标记的开始）
+        stripped = content.lstrip()
+        if stripped.startswith('<!--') and '-->' not in stripped:
+            # 可能是跨 chunk 的 REF 标记开头
+            # 检查是否像 REF 标记（包含 REF 或刚开始）
+            if 'REF' in stripped or len(stripped) < 10:
+                self._ref_buffer = content
+                self._ref_buffering = True
+                return ""
+
+        # 检查 content 开头是否有 <!-- REF 但没有 -->（标记开始但未结束）
+        if '<!--' in content and '-->' not in content:
+            idx = content.index('<!--')
+            # <!-- 之前的部分安全输出，之后的部分缓冲
+            safe_part = content[:idx]
+            self._ref_buffer = content[idx:]
+            self._ref_buffering = True
+            return safe_part
+
+        return content
+
+    @staticmethod
+    def _strip_ref_markers_full(content: str) -> str:
+        """从完整文本中剥离 <!-- REF: ... --> 标记（非流式场景）。
+
+        用于 skill_result / skill_end 等一次性获得完整内容的场景。
+        """
+        import re
+        return re.sub(r'<!--\s*REF:.*?-->\s*', '', content)
 
     # ═══════════════════════════════════════════════════════════
     # on_custom_event 适配层（Skill / Tool / Middleware 自定义事件）
@@ -790,6 +910,9 @@ class AGUIConverter:
 
         if not content:
             return
+
+        # ── 剥离知识引用标记（完整内容，非流式）──
+        content = self._strip_ref_markers_full(content)
 
         # 去重：如果相同内容已经通过 skill_result 输出过，跳过
         content_hash = hash(content)

@@ -236,7 +236,6 @@ tr:nth-child(even) { background: #f9fafb; }
 <div><span style="color:#94a3b8;">[9]</span> · <span style="color:#a78bfa;">⚙️ InputTransformMiddleware</span> <span style="color:#64748b;">· 3ms</span> — <span style="color:#94a3b8;">敏感词 + PII脱敏 → 无变更</span></div>
 <div><span style="color:#94a3b8;">[10]</span> · <span style="color:#a78bfa;">⚙️ MemoryMiddleware</span> <span style="color:#64748b;">· 2800ms</span> — <span style="color:#94a3b8;">检索记忆命中 5 条 → 注入 SystemMessage</span></div>
 </div>
-<div style="text-align:center;color:#475569;">▼</div>
 
 <!-- ===== Agent Loop ===== -->
 <div style="border:2px solid #f472b6;border-radius:10px;padding:1rem;margin:0.5rem 0;background:rgba(244,114,182,0.03);">
@@ -262,17 +261,39 @@ tr:nth-child(even) { background: #f9fafb; }
 <div style="color:#fb923c;font-weight:600;margin-bottom:0.5rem;">🤖 子 Agent Loop（pipeline_analysis, fork 模式）</div>
 <div style="color:#94a3b8;font-size:0.68rem;margin-bottom:0.5rem;">
 thread_id: "skill-pipeline_analysis-x7f2" | depth: 2 | max_depth: 3<br>
-工具集: 主Agent工具 ∩ skill.allowed_tools = [query_data, analyze_data]<br>
+工具集: 主Agent工具 ∩ skill.allowed_tools = [query_data, analyze_data, read_skill_resource]<br>
 System Prompt: pipeline_analysis 的 SOP prompt（含业务步骤指引）<br>
 <span style="color:#fb923c;">中间件: before_model(Summarization) · after_model(LoopDetection, OutputValidation) · wrap_tool_call(Guardrail)</span>
 </div>
 
 <div style="padding-left:0.5rem;border-left:2px solid #fb923c;">
+
+<!-- 知识预加载 -->
+<div style="color:#2dd4bf;font-weight:500;margin:0.3rem 0 0.2rem;">📚 知识预加载（子 Agent 启动前，~2ms）</div>
+<div style="padding-left:0.8rem;margin-bottom:0.5rem;">
+<div style="color:#94a3b8;font-size:0.68rem;">
+从 ai_skill_resource 表批量加载 → 注入 task_instruction 末尾<br>
+<span style="color:#2dd4bf;">已加载 10 个知识文件（~3400 tokens）：</span><br>
+├─ knowledge/industries/_index.md（行业索引）<br>
+├─ knowledge/industries/manufacturing.md（制造业知识包）<br>
+├─ knowledge/industries/technology.md（科技/SaaS 知识包）<br>
+├─ knowledge/analysis-strategies/signal-patterns.md（信号模式库）<br>
+├─ knowledge/analysis-strategies/business-model-patterns.md（商业模式库）<br>
+├─ knowledge/analysis-strategies/risk-scoring-models.md（风险评分模型）<br>
+├─ knowledge/analysis-strategies/value-proposition-frameworks.md（价值主张框架）<br>
+├─ knowledge/competitor-playbooks/incumbent-replacement.md（替换供应商剧本）<br>
+├─ knowledge/competitor-playbooks/price-war.md（价格战应对）<br>
+└─ knowledge/competitor-playbooks/self-build.md（自建应对）<br>
+<span style="color:#64748b;">→ 子 Agent 启动时已拥有全部知识上下文，无需额外调用 read_skill_resource</span>
+</div>
+</div>
+
 <!-- 子循环 1 -->
 <div style="color:#e2e8f0;font-weight:500;margin:0.3rem 0 0.2rem;">子循环 1（查询商机数据）</div>
 <div style="padding-left:0.8rem;">
 <div><span style="color:#94a3b8;">[S1]</span> · <span style="color:#a78bfa;">⚙️ SummarizationMiddleware</span> <span style="color:#64748b;">(before_model)</span> — <span style="color:#94a3b8;">子Agent首轮，无需压缩</span></div>
 <div><span style="color:#94a3b8;">[S2]</span> <span style="color:#fbbf24;">子Agent 模型推理</span> <span style="color:#64748b;">· 2800ms</span> — <span style="color:#94a3b8;">决定调用 query_data 获取商机</span></div>
+<div style="padding-left:1.5rem;"><span style="color:#2dd4bf;font-size:0.68rem;">📚 引用: _index.md, manufacturing.md</span></div>
 <div><span style="color:#94a3b8;">[S3]</span> · <span style="color:#a78bfa;">⚙️ LoopDetectionMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">子循环1，无循环</span></div>
 <div><span style="color:#94a3b8;">[S4]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ GuardrailMiddleware</span> <span style="color:#64748b;">(wrap_tool_call)</span> — <span style="color:#94a3b8;">query_data ∈ allowed_tools → 放行</span></div>
 <div><span style="color:#94a3b8;">[S5]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 800ms</span> — <span style="color:#94a3b8;">query_data(entity="opportunity", filters={region:"华东"}) → 23条商机</span></div>
@@ -283,6 +304,7 @@ System Prompt: pipeline_analysis 的 SOP prompt（含业务步骤指引）<br>
 <div style="padding-left:0.8rem;">
 <div><span style="color:#94a3b8;">[S6]</span> · <span style="color:#a78bfa;">⚙️ SummarizationMiddleware</span> <span style="color:#64748b;">(before_model)</span> — <span style="color:#94a3b8;">上下文未超限，跳过压缩</span></div>
 <div><span style="color:#94a3b8;">[S7]</span> <span style="color:#fbbf24;">子Agent 模型推理</span> <span style="color:#64748b;">· 3200ms</span> — <span style="color:#94a3b8;">决定调用 analyze_data 做阶段分析</span></div>
+<div style="padding-left:1.5rem;"><span style="color:#2dd4bf;font-size:0.68rem;">📚 引用: business-model-patterns.md, signal-patterns.md</span></div>
 <div><span style="color:#94a3b8;">[S8]</span> · <span style="color:#a78bfa;">⚙️ LoopDetectionMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">子循环2，无循环</span></div>
 <div><span style="color:#94a3b8;">[S9]</span> <span style="color:#4ade80;">✓</span> <span style="color:#a78bfa;">⚙️ GuardrailMiddleware</span> <span style="color:#64748b;">(wrap_tool_call)</span> — <span style="color:#94a3b8;">analyze_data ∈ allowed_tools → 放行</span></div>
 <div><span style="color:#94a3b8;">[S10]</span> <span style="color:#38bdf8;">工具调用</span> <span style="color:#64748b;">· 1200ms</span> — <span style="color:#94a3b8;">analyze_data(type="pipeline_stage") → 阶段分布统计</span></div>
@@ -293,6 +315,7 @@ System Prompt: pipeline_analysis 的 SOP prompt（含业务步骤指引）<br>
 <div style="padding-left:0.8rem;">
 <div><span style="color:#94a3b8;">[S11]</span> · <span style="color:#a78bfa;">⚙️ SummarizationMiddleware</span> <span style="color:#64748b;">(before_model)</span> — <span style="color:#94a3b8;">上下文未超限，跳过压缩</span></div>
 <div><span style="color:#94a3b8;">[S12]</span> <span style="color:#fbbf24;">子Agent 模型推理</span> <span style="color:#64748b;">· 3800ms</span> — <span style="color:#94a3b8;">生成 Pipeline 分析结论（纯文本回复，结束子循环）</span></div>
+<div style="padding-left:1.5rem;"><span style="color:#2dd4bf;font-size:0.68rem;">📚 引用: value-proposition-frameworks.md, risk-scoring-models.md</span></div>
 <div><span style="color:#94a3b8;">[S13]</span> · <span style="color:#a78bfa;">⚙️ OutputValidationMiddleware</span> <span style="color:#64748b;">(after_model)</span> — <span style="color:#94a3b8;">子Agent输出校验通过</span></div>
 </div>
 
@@ -420,6 +443,105 @@ System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）<br>
 
 
 </div><!-- 主容器结束 -->
+
+
+<div style="page-break-before: always;"></div>
+
+<h2 style="margin-top:64px;">1.4 知识预加载与引用追踪</h2>
+
+<blockquote>
+<p>fork 模式子 Agent 的知识文件加载优化方案。<br>
+解决问题：子 Agent 需要多轮 LLM 推理才能逐个加载知识文件（read_skill_resource），导致不必要的延迟和 token 消耗。<br>
+核心思路：在子 Agent 启动前批量预加载全部知识文件，并在每轮推理中追踪模型引用了哪些知识。</p>
+</blockquote>
+
+<h3>1.4.1 预加载机制</h3>
+
+<table>
+<thead>
+<tr><th style="width:20%;">环节</th><th style="width:40%;">说明</th><th style="width:40%;">实现</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>触发条件</strong></td><td>Skill 的 allowed_tools 包含 read_skill_resource</td><td>SkillExecutor._preload_resources() 前置检查</td></tr>
+<tr><td><strong>配置来源</strong></td><td>ai_skill_definition.ext_info.preload_resources</td><td>PreloadConfig: always[] + scene_map{} + max_preload</td></tr>
+<tr><td><strong>降级策略</strong></td><td>无配置时自动发现 _index.md 文件</td><td>_auto_discover_preload() 查询 path LIKE '%/_index.md'</td></tr>
+<tr><td><strong>加载方式</strong></td><td>一次 SQL 批量查询 ai_skill_resource 表</td><td>ResourcePreloader.preload() → ~2ms</td></tr>
+<tr><td><strong>注入位置</strong></td><td>task_instruction 末尾，子 Agent 的 HumanMessage 中</td><td>format_preloaded_context() → Markdown 文本块</td></tr>
+<tr><td><strong>链路记录</strong></td><td>写入子 Agent 的 sub_thread_id，type=resource_preload</td><td>_record_preload_span() → _add_to_thread()</td></tr>
+</tbody>
+</table>
+
+<h3>1.4.2 引用追踪机制</h3>
+
+<p>预加载的知识文件作为上下文注入后，模型在推理时"引用"它们不会产生工具调用事件。为了在链路中体现模型每轮引用了哪些知识文件，采用<strong>标记解析</strong>方案：</p>
+
+<table>
+<thead>
+<tr><th style="width:20%;">环节</th><th style="width:80%;">说明</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Prompt 指令</strong></td><td>Skill prompt 要求模型每轮回复开头输出 <code>&lt;!-- REF: file1.md, file2.md --&gt;</code> 标注本轮引用的知识文件</td></tr>
+<tr><td><strong>后端解析</strong></td><td>AGUIConverter.on_chat_model_end 中调用 _parse_knowledge_refs() 从 LLM 输出提取引用列表</td></tr>
+<tr><td><strong>Span 记录</strong></td><td>knowledge_refs 写入 llm_call span 的 metadata 和 output_data</td></tr>
+<tr><td><strong>文本剥离</strong></td><td>_emit_text() 中用正则剥离 REF 标记，不显示给用户</td></tr>
+<tr><td><strong>前端展示</strong></td><td>在"🧠 模型推理"行下方显示 <span style="color:#2dd4bf;">📚 引用: file1.md, file2.md</span></td></tr>
+</tbody>
+</table>
+
+<h3>1.4.3 链路展示效果</h3>
+
+<div style="font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; line-height: 1.6; background: #0f172a; color: #e2e8f0; padding: 1rem 1.5rem; border-radius: 8px; margin: 1rem 0; border: 1px solid #334155;">
+<div style="color:#fb923c;font-weight:600;margin-bottom:0.5rem;">🤖 子 Agent: accountInsight [fork] · 65891ms</div>
+<div style="padding-left:0.5rem;border-left:2px solid #fb923c;">
+<div style="color:#2dd4bf;font-weight:500;">📚 知识预加载 · 2ms — 预加载 10/10 个知识文件</div>
+<div style="color:#60a5fa;">📋 上下文构建 — 1 条消息, 预估 5400 tokens</div>
+<div style="color:#60a5fa;">🔍 记忆检索 · 223ms — 命中 5 条</div>
+<div style="color:#94a3b8;">⚙️ 3 个 准备阶段 中间件 · 2486ms</div>
+<div style="color:#fbbf24;margin-top:0.3rem;">⚡ 模型推理</div>
+<div style="padding-left:1rem;">
+<div style="color:#a78bfa;">├─ 循环 1</div>
+<div style="padding-left:1rem;">
+<div>🧠 模型推理 → 决定调用 query_data</div>
+<div style="color:#2dd4bf;font-size:0.65rem;">📚 引用: _index.md, manufacturing.md</div>
+<div style="color:#38bdf8;">✓ tool:query_data · 6ms</div>
+</div>
+<div style="color:#a78bfa;">├─ 循环 2</div>
+<div style="padding-left:1rem;">
+<div>🧠 模型推理 → 决定调用 search_web</div>
+<div style="color:#2dd4bf;font-size:0.65rem;">📚 引用: business-model-patterns.md, signal-patterns.md</div>
+<div style="color:#38bdf8;">✓ tool:search_web · 3200ms</div>
+</div>
+<div style="color:#a78bfa;">├─ 循环 3</div>
+<div style="padding-left:1rem;">
+<div>🧠 模型推理 → 生成最终回复 ✅</div>
+<div style="color:#2dd4bf;font-size:0.65rem;">📚 引用: value-proposition-frameworks.md, risk-scoring-models.md, incumbent-replacement.md</div>
+</div>
+</div>
+</div>
+</div>
+
+<h3>1.4.4 配置示例（ext_info.preload_resources）</h3>
+
+<div style="font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; line-height: 1.5; background: #f8fafc; padding: 1rem 1.5rem; border-radius: 8px; margin: 1rem 0; border: 1px solid #e2e8f0;">
+<pre style="margin:0;white-space:pre-wrap;">{
+  "preload_resources": {
+    "always": [                          // 所有场景始终加载
+      "knowledge/industries/_index.md",
+      "knowledge/analysis-strategies/signal-patterns.md",
+      "knowledge/industries/manufacturing.md",
+      "knowledge/industries/technology.md",
+      "knowledge/analysis-strategies/business-model-patterns.md",
+      "knowledge/analysis-strategies/risk-scoring-models.md",
+      "knowledge/analysis-strategies/value-proposition-frameworks.md",
+      "knowledge/competitor-playbooks/incumbent-replacement.md",
+      "knowledge/competitor-playbooks/price-war.md",
+      "knowledge/competitor-playbooks/self-build.md"
+    ],
+    "scene_map": {},                     // 全量加载时无需场景匹配
+    "max_preload": 10                    // 最大预加载文件数
+  }
+}</pre>
+</div>
 
 
 <!-- ================================================================== -->
@@ -573,6 +695,24 @@ System Prompt: 客户 360 全景分析 SOP（含数据聚合步骤）<br>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">技能标识(skill_apikey), 执行模式(skill_context: "inline"|"fork"), 输出模式(output_mode), 组件标识(component_apikey), 输出后行为(post_output_behavior), 输出字符数(output_chars), 输出路由(output_route), 组件匹配层级(component_match_layer)</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms</td>
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">duration > 30s; error; component_match=null(降级)</td>
+</tr>
+<tr style="background:#f9fafb;">
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">知识预加载</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#fb923c;">子Agent</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>resource_preload</code></td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">技能标识(skill_name), 请求文件数(preload_requested), 加载成功数(preload_loaded), 加载文件路径列表(loaded_paths[]), 总字符数(total_chars), 配置来源(config_source: "ext_info"|"auto_discover")</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">duration_ms</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">loaded < requested; duration > 500ms; DB 连接失败降级</td>
+</tr>
+<tr>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;font-weight:500;">知识引用追踪</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;color:#f472b6;">Agent Loop</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>llm_call.knowledge_refs</code></td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">引用文件列表(knowledge_refs[]), 循环轮次(iteration), 解析来源(parse_source: "REF_marker"), 标记格式(&lt;!-- REF: file1.md, file2.md --&gt;)</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">refs_count per iteration</td>
+<td style="padding:0.4rem;border:1px solid #e2e8f0;">模型未输出 REF 标记（prompt 遵从度问题）</td>
 </tr>
 <tr style="background:#f9fafb;">
 <td style="padding:0.4rem;border:1px solid #e2e8f0;">[N]</td>

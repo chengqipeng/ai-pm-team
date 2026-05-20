@@ -1238,10 +1238,23 @@ function renderTraceNode(span, idx, seqNum) {
           else if (mwPhase === 'wrap_tool_call') wrapToolBuf.push(s);
           else beforeModelBuf.push(s); // fallback
         } else if (sType === 'tool_call' || sType === 'skill_execution') {
-          // 显示顺序：before_model → 推理节点 → after_model → tool_call（含护栏）
+          // 显示顺序：before_model → 推理节点（含知识引用）→ after_model → tool_call（含护栏）
           subAgentHtml += flushBeforeModel();
           const toolName = (s.name || '').replace('tool:', '');
+          // 查找本轮的 llm_call span 获取 knowledge_refs
+          let refsHtml = '';
+          for (let j = i - 1; j >= 0; j--) {
+            if (reasonSpans[j].type === 'llm_call') {
+              const refs = (reasonSpans[j].metadata || {}).knowledge_refs || (reasonSpans[j].output_data || {}).knowledge_refs || [];
+              if (refs.length > 0) {
+                refsHtml = `<div class="text-teal-600 pl-5 text-[9px]">📚 引用: ${refs.map(r => esc(r)).join(', ')}</div>`;
+              }
+              break;
+            }
+            if (reasonSpans[j].type === 'tool_call') break; // 上一轮的 tool_call，停止回溯
+          }
           subAgentHtml += `<div class="text-gray-700 pl-5">🧠 模型推理 → 决定调用 ${esc(toolName)}</div>`;
+          if (refsHtml) subAgentHtml += refsHtml;
           subAgentHtml += flushAfterModel();
           const toolStatus = sMeta.status === 'error' ? '<span class="text-red-500">❌</span>' : '<span class="text-green-600">✓</span>';
           const dur = s.duration_ms ? ` · ${Math.round(s.duration_ms)}ms` : '';
@@ -1256,6 +1269,9 @@ function renderTraceNode(span, idx, seqNum) {
           const compactDur = s.duration_ms ? ` · ${Math.round(s.duration_ms)}ms` : '';
           subAgentHtml += `<div class="text-purple-600 pl-5">📦 ${esc(compactDetail || s.name || '上下文压缩')}${compactDur}</div>`;
           subAgentHtml += subIO(s);
+        } else if (sType === 'llm_call') {
+          // llm_call span 不单独渲染行（其 knowledge_refs 已在 tool_call/最终回复处展示）
+          // 跳过
         } else {
           subAgentHtml += flushBeforeModel();
           subAgentHtml += flushAfterModel();
@@ -1268,7 +1284,19 @@ function renderTraceNode(span, idx, seqNum) {
       // flush 最终剩余（最后一轮是"生成最终回复"，没有 tool_call）
       if (beforeModelBuf.length > 0 || afterModelBuf.length > 0) {
         subAgentHtml += flushBeforeModel();
+        // 查找最后一个 llm_call span 获取 knowledge_refs
+        let finalRefsHtml = '';
+        for (let j = reasonSpans.length - 1; j >= 0; j--) {
+          if (reasonSpans[j].type === 'llm_call') {
+            const refs = (reasonSpans[j].metadata || {}).knowledge_refs || (reasonSpans[j].output_data || {}).knowledge_refs || [];
+            if (refs.length > 0) {
+              finalRefsHtml = `<div class="text-teal-600 pl-5 text-[9px]">📚 引用: ${refs.map(r => esc(r)).join(', ')}</div>`;
+            }
+            break;
+          }
+        }
         subAgentHtml += `<div class="text-gray-700 pl-5">🧠 模型推理 → 生成最终回复</div>`;
+        if (finalRefsHtml) subAgentHtml += finalRefsHtml;
         subAgentHtml += flushAfterModel();
       }
       subAgentHtml += flushWrapTool();
