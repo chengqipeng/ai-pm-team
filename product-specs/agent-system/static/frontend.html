@@ -1118,7 +1118,9 @@ function renderTraceNode(span, idx, seqNum) {
       const out = s.output_data || {};
       const hasData = (Object.keys(inp).length > 0) || (Object.keys(out).length > 0);
       if (!hasData) return '';
-      let h = `<details class="pl-2 my-0.5 text-[9px]"><summary class="cursor-pointer text-blue-400 hover:text-blue-600 select-none">查看输入/输出</summary><div class="pl-2 text-gray-500 bg-gray-50/80 rounded p-1.5 my-0.5 max-h-[150px] overflow-auto text-[8.5px] font-mono">`;
+      const sType = s.type || '';
+      const defaultOpen = (sType === 'tool_result_compact') ? 'open' : '';
+      let h = `<details class="pl-2 my-0.5 text-[9px]" ${defaultOpen}><summary class="cursor-pointer text-blue-400 hover:text-blue-600 select-none">查看输入/输出</summary><div class="pl-2 text-gray-500 bg-gray-50/80 rounded p-1.5 my-0.5 max-h-[150px] overflow-auto text-[8.5px] font-mono">`;
       if (Object.keys(inp).length > 0) h += `<div><span class="text-gray-600 font-semibold font-sans">输入:</span><pre class="whitespace-pre-wrap mt-0.5">${esc(JSON.stringify(inp, null, 2).slice(0, 400))}</pre></div>`;
       if (Object.keys(out).length > 0) h += `<div class="mt-1"><span class="text-gray-600 font-semibold font-sans">输出:</span><pre class="whitespace-pre-wrap mt-0.5">${esc(JSON.stringify(out, null, 2).slice(0, 400))}</pre></div>`;
       h += `</div></details>`;
@@ -1397,12 +1399,18 @@ function _buildIOSection(span) {
   if (stepType === 'llm_call') {
     inputStr = _formatLlmInput(inputData);
     outputStr = _formatLlmOutput(outputData);
+  } else if (stepType === 'tool_result_compact') {
+    inputStr = _formatCompactInput(inputData);
+    outputStr = _formatCompactOutput(outputData);
   } else {
     inputStr = _formatIOData(inputData);
     outputStr = _formatIOData(outputData);
   }
 
   if (!inputStr && !outputStr) return '';
+
+  // tool_result_compact 默认展开（压缩结果需要直接可见）
+  const defaultOpen = (stepType === 'tool_result_compact') ? 'open' : '';
 
   let content = '';
   if (inputStr) {
@@ -1413,7 +1421,7 @@ function _buildIOSection(span) {
   }
 
   return `
-    <details class="trace-io-details mt-0.5">
+    <details class="trace-io-details mt-0.5" ${defaultOpen}>
       <summary class="cursor-pointer text-[10px] text-blue-500 hover:text-blue-700 select-none inline-flex items-center gap-0.5">
         <svg class="trace-io-chevron w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
         <span>查看输入/输出</span>
@@ -1429,16 +1437,26 @@ function _formatLlmInput(inputData) {
   if (!preview || !Array.isArray(preview) || preview.length === 0) {
     return _formatIOData(inputData);
   }
-  // 格式化消息列表为可读格式
+  // 格式化消息列表为完整上下文格式
   const lines = [];
   for (const msg of preview) {
     const role = msg.role || 'unknown';
+    const name = msg.name || '';
     const content = msg.content || '';
-    const truncated = content.length > 500 ? content.slice(0, 500) + '...' : content;
-    lines.push(`[${role}] ${truncated}`);
+    // 角色标签：tool 类型显示工具名
+    let roleLabel = role;
+    if (role === 'tool' && name) {
+      roleLabel = `tool:${name}`;
+    } else if (role === 'ai' || role === 'assistant') {
+      roleLabel = 'ai';
+    }
+    const truncated = content.length > 1500 ? content.slice(0, 1500) + '\n... (已截断)' : content;
+    lines.push(`[${roleLabel}] ${truncated}`);
   }
-  const result = lines.join('\n\n');
-  return result.length > 3000 ? result.slice(0, 3000) + '\n... (已截断)' : result;
+  const msgCount = inputData.message_count || preview.length;
+  const header = `共 ${msgCount} 条消息:\n${'─'.repeat(40)}`;
+  const result = header + '\n' + lines.join('\n\n');
+  return result.length > 8000 ? result.slice(0, 8000) + '\n... (已截断)' : result;
 }
 
 function _formatLlmOutput(outputData) {
@@ -1448,6 +1466,10 @@ function _formatLlmOutput(outputData) {
   if (outputData.output) {
     const text = outputData.output;
     parts.push(text.length > 2000 ? text.slice(0, 2000) + '...' : text);
+  }
+  // 知识文件引用
+  if (outputData.knowledge_refs && outputData.knowledge_refs.length > 0) {
+    parts.push(`\n[知识引用] 📚 ${outputData.knowledge_refs.join(', ')}`);
   }
   // tool_calls 决策
   if (outputData.tool_calls && outputData.tool_calls.length > 0) {
@@ -1462,6 +1484,32 @@ function _formatLlmOutput(outputData) {
     parts.push(`\n[Token] 输入: ${tok.input_tokens || '?'}, 输出: ${tok.output_tokens || '?'}`);
   }
   return parts.join('') || _formatIOData(outputData);
+}
+
+function _formatCompactInput(inputData) {
+  if (!inputData || typeof inputData !== 'object') return '';
+  const parts = [];
+  if (inputData.tool_name) parts.push(`[工具] ${inputData.tool_name}`);
+  if (inputData.original_length) parts.push(`[原始长度] ${inputData.original_length} 字符`);
+  if (inputData.threshold) parts.push(`[压缩阈值] ${inputData.threshold} 字符`);
+  if (inputData.original_content) {
+    const content = inputData.original_content;
+    const preview = content.length > 1500 ? content.slice(0, 1500) + '\n... (已截断)' : content;
+    parts.push(`\n[原文内容]\n${preview}`);
+  }
+  return parts.join('\n') || _formatIOData(inputData);
+}
+
+function _formatCompactOutput(outputData) {
+  if (!outputData || typeof outputData !== 'object') return '';
+  const parts = [];
+  if (outputData.action) parts.push(`[动作] ${outputData.action}`);
+  if (outputData.summary_length) parts.push(`[压缩后长度] ${outputData.summary_length} 字符`);
+  if (outputData.compression_ratio) parts.push(`[压缩率] 节省 ${outputData.compression_ratio}`);
+  if (outputData.summary_content) {
+    parts.push(`\n[压缩后内容]\n${outputData.summary_content}`);
+  }
+  return parts.join('\n') || _formatIOData(outputData);
 }
 
 function _formatIOData(data) {

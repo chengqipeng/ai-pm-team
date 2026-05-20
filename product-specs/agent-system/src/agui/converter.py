@@ -146,6 +146,8 @@ class AGUIConverter:
         # ── REF 标记缓冲区（处理流式 chunk 中跨 chunk 的 <!-- REF: ... --> 标记）──
         self._ref_buffer: str = ""
         self._ref_buffering: bool = False
+        # ── LLM 输入消息缓存（on_chat_model_start 时捕获，on_chat_model_end 时写入 span）──
+        self._llm_input_preview: list[dict] = []
 
     # ═══════════════════════════════════════════════════════════
     # 主入口
@@ -204,24 +206,65 @@ class AGUIConverter:
             async for e in self._handle_chat_stream(event, data):
                 yield e
         elif kind == "on_chat_model_start":
-            # 记录 LLM 推理开始 — 仅计数，不立即写入 span
-            # span 在 on_chat_model_end 时统一写入（包含完整的 tool_calls/is_final 结果）
+            # 记录 LLM 推理开始 — 缓存完整输入上下文，span 在 on_chat_model_end 时统一写入
             if not is_sub_agent and len(parent_ids) <= 2:
                 self._step_index += 1
+                # 提取 LLM 完整输入上下文（所有消息）
+                try:
+                    raw_input = data.get("input", {}) or {}
+                    msgs = raw_input.get("messages") or []
+                    if msgs and isinstance(msgs[0], list):
+                        msgs = msgs[0]
+                    preview = []
+                    for m in msgs:
+                        m_type = getattr(m, "type", None) or (m.get("type") if isinstance(m, dict) else "unknown")
+                        m_content = getattr(m, "content", None)
+                        if m_content is None and isinstance(m, dict):
+                            m_content = m.get("content", "")
+                        if isinstance(m_content, list):
+                            m_content = "".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in m_content)
+                        m_content = str(m_content or "")
+                        # system prompt 保留更多（2000字符），其他消息 1000 字符
+                        max_len = 2000 if m_type == "system" else 1000
+                        if len(m_content) > max_len:
+                            m_content = m_content[:max_len] + f"... (截断，原始{len(m_content)}字符)"
+                        # tool message 额外提取 tool name
+                        m_name = getattr(m, "name", None) or (m.get("name") if isinstance(m, dict) else "")
+                        entry = {"role": m_type, "content": m_content}
+                        if m_name:
+                            entry["name"] = m_name
+                        preview.append(entry)
+                    self._llm_input_preview = preview
+                except Exception:
+                    self._llm_input_preview = []
         elif kind == "on_chat_model_end":
-            # 记录完整的 llm_call span（含推理结果：tool_calls / is_final / knowledge_refs）
+            # 记录完整的 llm_call span（含推理结果：tool_calls / is_final / knowledge_refs / 输入输出）
             if not is_sub_agent and len(parent_ids) <= 2:
                 output = data.get("output", None)
                 tool_calls = []
                 is_final = True
                 knowledge_refs = []
+                output_preview = ""
+                token_info = {}
+
                 if output and hasattr(output, "tool_calls") and output.tool_calls:
                     tool_calls = [tc.get("name", "") for tc in output.tool_calls if isinstance(tc, dict)]
                     is_final = False
-                # 解析知识文件引用标记 <!-- REF: file1.md, file2.md -->
+
+                # 提取输出内容预览
                 if output and hasattr(output, "content"):
                     content_text = output.content if isinstance(output.content, str) else str(output.content)
                     knowledge_refs = self._parse_knowledge_refs(content_text)
+                    output_preview = content_text[:800]
+
+                # 提取 token 用量
+                if output and hasattr(output, "usage_metadata") and output.usage_metadata:
+                    um = output.usage_metadata
+                    token_info = {
+                        "input_tokens": um.get("input_tokens", 0),
+                        "output_tokens": um.get("output_tokens", 0),
+                    }
+
                 try:
                     from src.middleware.tracing import tracing_middleware
                     desc = f"第{self._step_index}轮: {'生成最终回复 ✅' if is_final else '调用 ' + ', '.join(tool_calls)}"
@@ -229,9 +272,26 @@ class AGUIConverter:
                         desc += f" | 引用: {', '.join(knowledge_refs)}"
                     tracing_middleware._add_to_thread(
                         self.thread_id, "llm_call", desc, 0,
-                        {"iteration": self._step_index, "tool_calls": tool_calls, "is_final": is_final, "knowledge_refs": knowledge_refs},
-                        input_data={"iteration": self._step_index},
-                        output_data={"tool_calls": tool_calls, "is_final": is_final, "knowledge_refs": knowledge_refs},
+                        {
+                            "iteration": self._step_index,
+                            "tool_calls": tool_calls,
+                            "is_final": is_final,
+                            "knowledge_refs": knowledge_refs,
+                            "output_preview": output_preview[:300],
+                            **token_info,
+                        },
+                        input_data={
+                            "iteration": self._step_index,
+                            "messages_preview": getattr(self, '_llm_input_preview', []),
+                            "message_count": len(getattr(self, '_llm_input_preview', [])),
+                        },
+                        output_data={
+                            "tool_calls": tool_calls,
+                            "is_final": is_final,
+                            "knowledge_refs": knowledge_refs,
+                            "output": output_preview[:500],
+                            "tokens": token_info if token_info else {},
+                        },
                         detail=desc,
                     )
                 except Exception:

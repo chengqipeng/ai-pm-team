@@ -143,8 +143,9 @@ class ContextWindowMiddleware(AgentMiddleware):
                     tool_name, original_len, len(summary),
                     (1 - len(summary) / max(original_len, 1)) * 100)
 
-        # Tracing
-        self._record_compact_span(tool_name, original_len, len(summary))
+        # Tracing（含原文和摘要内容）
+        self._record_compact_span(tool_name, original_len, len(summary),
+                                  original_content=content, summary_content=summary)
         return result
 
     async def _llm_summarize(self, content: str, tool_name: str, max_words: int) -> str | None:
@@ -405,8 +406,10 @@ class ContextWindowMiddleware(AgentMiddleware):
     # Tracing
     # ═══════════════════════════════════════════════════════════
 
-    def _record_compact_span(self, tool_name: str, original_len: int, summary_len: int, skipped: bool = False) -> None:
-        """记录源头压缩 span（无论是否触发压缩都记录）"""
+    def _record_compact_span(self, tool_name: str, original_len: int, summary_len: int,
+                             skipped: bool = False,
+                             original_content: str = "", summary_content: str = "") -> None:
+        """记录源头压缩 span（含原文和压缩后内容）"""
         try:
             from src.middleware.tracing import tracing_middleware
             config = TOOL_THRESHOLDS.get(tool_name, DEFAULT_TOOL_THRESHOLD)
@@ -422,10 +425,18 @@ class ContextWindowMiddleware(AgentMiddleware):
                 ratio = round(1 - summary_len / max(original_len, 1), 2)
                 tracing_middleware._add("tool_result_compact", f"compact:{tool_name}", 0,
                     metadata={"tool_name": tool_name},
-                    input_data={"tool_name": tool_name, "original_length": original_len,
-                                "threshold": config["threshold"]},
-                    output_data={"summary_length": summary_len, "compression_ratio": f"{ratio:.0%}",
-                                 "action": "compressed"},
+                    input_data={
+                        "tool_name": tool_name,
+                        "original_length": original_len,
+                        "threshold": config["threshold"],
+                        "original_content": original_content[:2000],
+                    },
+                    output_data={
+                        "summary_length": summary_len,
+                        "compression_ratio": f"{ratio:.0%}",
+                        "action": "compressed",
+                        "summary_content": summary_content[:500],
+                    },
                     detail=f"源头压缩: {tool_name} {original_len}→{summary_len}字符 (节省{ratio:.0%})",
                 )
         except Exception:
