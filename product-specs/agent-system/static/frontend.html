@@ -1120,9 +1120,17 @@ function renderTraceNode(span, idx, seqNum) {
       if (!hasData) return '';
       const sType = s.type || '';
       const defaultOpen = (sType === 'tool_result_compact') ? 'open' : '';
-      let h = `<details class="pl-2 my-0.5 text-[9px]" ${defaultOpen}><summary class="cursor-pointer text-blue-400 hover:text-blue-600 select-none">查看输入/输出</summary><div class="pl-2 text-gray-500 bg-gray-50/80 rounded p-1.5 my-0.5 max-h-[150px] overflow-auto text-[8.5px] font-mono">`;
-      if (Object.keys(inp).length > 0) h += `<div><span class="text-gray-600 font-semibold font-sans">输入:</span><pre class="whitespace-pre-wrap mt-0.5">${esc(JSON.stringify(inp, null, 2).slice(0, 400))}</pre></div>`;
-      if (Object.keys(out).length > 0) h += `<div class="mt-1"><span class="text-gray-600 font-semibold font-sans">输出:</span><pre class="whitespace-pre-wrap mt-0.5">${esc(JSON.stringify(out, null, 2).slice(0, 400))}</pre></div>`;
+      let h = `<details class="pl-2 my-0.5 text-[9px]" ${defaultOpen}><summary class="cursor-pointer text-blue-400 hover:text-blue-600 select-none">查看输入/输出</summary><div class="pl-2 text-gray-500 bg-gray-50/80 rounded p-1.5 my-0.5 max-h-[300px] overflow-auto text-[8.5px] font-mono">`;
+      if (Object.keys(inp).length > 0) {
+        const inpStr = JSON.stringify(inp, null, 2);
+        const inpDisplay = inpStr.length > 2000 ? inpStr.slice(0, 2000) + '\n... (已截断)' : inpStr;
+        h += `<div><span class="text-gray-600 font-semibold font-sans">输入:</span><pre class="whitespace-pre-wrap mt-0.5">${esc(inpDisplay)}</pre></div>`;
+      }
+      if (Object.keys(out).length > 0) {
+        const outStr = JSON.stringify(out, null, 2);
+        const outDisplay = outStr.length > 2000 ? outStr.slice(0, 2000) + '\n... (已截断)' : outStr;
+        h += `<div class="mt-1"><span class="text-gray-600 font-semibold font-sans">输出:</span><pre class="whitespace-pre-wrap mt-0.5">${esc(outDisplay)}</pre></div>`;
+      }
       h += `</div></details>`;
       return h;
     }

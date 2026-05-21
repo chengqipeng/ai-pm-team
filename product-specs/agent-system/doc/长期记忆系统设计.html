@@ -60,7 +60,8 @@
 <li><a href="#九vikingfs-虚拟文件系统">九、VikingFS 虚拟文件系统</a></li>
 <li><a href="#十记忆与系统数据边界">十、记忆与系统数据边界</a></li>
 <li><a href="#十一子agent记忆提取限制">十一、子Agent记忆提取限制</a></li>
-<li><a href="#十二记忆提取测试场景">十二、记忆提取测试场景</a></li>
+<li><a href="#十二核心提示词全集">十二、核心提示词全集（LLM 调用链路）</a></li>
+<li><a href="#十三记忆提取测试场景">十三、记忆提取测试场景</a></li>
 </ul>
 <hr>
 <h2 id="_3">整体架构设计图</h2>
@@ -2160,9 +2161,465 @@ viking://agent/memories/
   [DEBUG] MemoryMiddleware: 子Agent读取记忆(不更新热度) agent_id=sub_abc123 query="邮件风格"
 </code></pre>
 <hr>
-<h2 id="_13">十二、记忆提取测试场景</h2>
+<h2 id="十二核心提示词全集">十二、核心提示词全集（LLM 调用链路）</h2>
+<blockquote>
+<p>单轮对话最坏情况 LLM 调用次数：4（提取）+ 2（合并）+ 1（精炼）+ 2（聚合）+ 2（反思）= <strong>11 次</strong>。典型情况约 4-6 次。<br>
+代码位置：<code>src/memory/extraction/prompts.py</code> + <code>src/memory/viking_engine.py</code></p>
+</blockquote>
+
+<h3 id="121-llm-chain">12.1 LLM 调用全链路总览</h3>
+<pre><code>用户消息 → 预过滤（规则，0 LLM）
+  │
+  ▼
+四路并行提取（4 次 LLM）
+  ├── PROFILE_EXTRACT_PROMPT
+  ├── PREFERENCES_EXTRACT_PROMPT
+  ├── AGENT_RULES_EXTRACT_PROMPT
+  └── ENTITIES_EXTRACT_PROMPT
+  │
+  ▼
+分类合并（0~2 次 LLM）
+  ├── profile → PROFILE_MERGE_PROMPT（1 次）
+  ├── agent_rules → AGENT_RULES_MERGE_PROMPT（1 次）
+  ├── preferences（同 slug）→ DEDUP_PROMPT（1 次）
+  └── entities（有/无 merge_key）→ DEDUP_PROMPT（1 次）
+  │
+  ▼
+精炼（0~1 次 LLM，超长时触发）
+  └── REFINE_PROMPT
+  │
+  ▼
+目录聚合（0~2 次 LLM，有 parent_entity 时触发）
+  ├── AGGREGATE_L1_PROMPT（1 次）
+  └── AGGREGATE_L0_PROMPT（1 次）
+  │
+  ▼
+异步反思（0~2 次 LLM，仅 entities 类别）
+  ├── REFLECTION_RELATION_PROMPT（1 次）
+  └── EVOLUTION_MERGE_PROMPT（evolution 时 1 次）
+</code></pre>
+
+<h3 id="122-extract">12.2 提取阶段提示词（4 次 LLM）</h3>
+<blockquote>
+<p>四路提示词共享统一章节结构：识别原则 → 排除规则 → 边界判定 → 输出格式。<br>
+设计原则：语义规则驱动，不枚举具体句式，避免过拟合。</p>
+</blockquote>
+<h4>① PROFILE_EXTRACT_PROMPT — 用户画像提取</h4>
+<p><strong>触发场景</strong>：每轮对话 after_agent 时并行调用，从用户发言中提取稳定身份属性。</p>
+<pre><code>从用户发言中提取【稳定、长期有效】的身份背景，合并到已有画像后输出完整版本。
+
+## 识别原则
+用户对【我 / 我们团队 / 我们公司】的稳定属性描述：
+- 职位 / 履历 / 所在区域 / 长期可量化指标（KPI、预算、团队或客户规模）
+- 职场状态（新入职 / 在熟悉业务 / 调岗等当前身份阶段）
+- 所属组织的业务、规模、文化、工具、覆盖行业
+- 允许省略主语；从语义可判为用户自述即可
+
+判别：该信息在下一个新会话里对 Agent 理解"这个用户是谁"是否仍有帮助。
+
+## 排除规则
+以下内容不属于本路，即使句中出现"我"字：
+- 个人喜好、习惯、厌恶（态度动词：喜欢/讨厌/习惯/在意）→ preferences
+- 对 Agent 行为的持久指令（动作指向 Agent 产物）→ agent_rules
+- 第三方事实（核心主语是第三方，含"客户反馈我们…"）→ entities
+- 单次操作、临时状态、孤立数值 → 不提取
+
+## 边界判定
+- profile vs preferences：集体属性（"我们部门/团队/公司"的文化、制度、工具）→ profile；个人态度（"我个人喜欢/习惯/在意"）→ preferences
+- profile vs entities：主语是"我/我们"描述自身特征 → profile；主语是第三方或描述第三方事实 → entities
+- 提取 vs 不提取：稳定身份信息（跨会话仍有效）→ 提取；临时状态 → 不提取
+
+## 输出格式
+- 有新增：{"profile": {"content": "&lt;合并后完整画像&gt;"}}
+- 无新增：{"profile": {}}
+</code></pre>
+
+<h4>② PREFERENCES_EXTRACT_PROMPT — 用户偏好提取</h4>
+<p><strong>触发场景</strong>：每轮对话 after_agent 时并行调用，从用户发言中提取个人喜好、习惯、标准。</p>
+<pre><code>从用户发言中提取【用户自己】的喜好、习惯、厌恶或个人标准。
+
+## 识别原则
+提取"描述用户本人是什么样的人"的可复用信息：
+- 个人喜好与厌恶（喜欢/讨厌/受不了/偏好/倾向）
+- 稳定的行为习惯（频率 / 条件 / 时间模式）
+- 个人要求的品质标准（在意/要求/觉得应该）
+
+判别：该信息脱离当前上下文后，在下一个新会话里对理解"这个用户"是否仍有价值。
+
+## 排除规则
+以下内容不属于本路，本路返空：
+- 动作指向 Agent 产物的持久指令 → agent_rules。判定标准：如果去掉这句话 Agent 的输出行为会改变，则属于 agent_rules 而非 preferences。
+- 描述组织/团队的集体属性 → profile
+- 描述第三方的偏好或事实 → entities
+- 单次反馈或操作指令（"这次 X"、"帮我 X"）→ 不提取
+
+## 边界判定
+- preferences vs agent_rules：核心主语是"我"且表达个人态度（无行为约束意图）→ preferences；句子的效果是约束 Agent 未来输出行为 → agent_rules。同时含两者时仅提取个人态度部分。
+- preferences vs profile："我个人"的态度/习惯/风格 → preferences；"我们部门/团队/公司"的集体属性 → profile
+- 提取 vs 不提取：可跨会话复用的稳定偏好 → 提取；单次场景的临时调整 → 不提取
+
+## 输出格式
+{"preferences": [{"slug": "&lt;英文下划线&gt;", "abstract": "&lt;1句&gt;", "overview": "&lt;Markdown&gt;", "content": "&lt;完整叙述&gt;"}]}
+无偏好返回 {"preferences": []}。
+</code></pre>
+
+<h4>③ AGENT_RULES_EXTRACT_PROMPT — Agent 行为准则提取</h4>
+<p><strong>触发场景</strong>：每轮对话 after_agent 时并行调用，从用户发言中提取对 Agent 未来行为的持久约束。</p>
+<pre><code>从用户发言中提取【对 Agent 未来行为的持久约束】，合并到已有规则后输出完整版本。
+
+## 识别原则
+两个条件同时满足：
+1. 行为指向 Agent：约束 Agent 的输出、沟通、流程、角色或禁止事项。标志：主语或隐含主语是 Agent / 报告 / 回复 / 邮件 / 分析等 Agent 产物。
+2. 持久性：规则可复用到未来同类场景，不是"这次/刚才"的单次调整。
+
+判别：该规则在下一次类似请求中 Agent 是否应继续遵守。
+
+## 排除规则
+以下内容不属于本路，本路返空：
+- 句子整体描述用户本人的态度/习惯/性格（主语是"我"，谓语是态度动词）→ preferences
+- 纯身份或组织描述 → profile
+- 对第三方事实的纯陈述（动作未指向 Agent，而是描述第三方的要求/特点/状态）→ entities。判定标准：句子是在"告知 Agent 一个事实"还是"命令 Agent 做某事"？前者是 entities，后者是 agent_rules。
+- 单次调整（"这次 X"）、评价（"感觉你像 X"）、感叹 → 不提取
+
+## 边界判定
+- agent_rules vs preferences：句中存在泛化的 Agent 行为约束（格式/长度/频率/渠道/流程）→ agent_rules；仅表达个人态度无 Agent 行为约束 → preferences。同时含两者时各路独立提取。
+- agent_rules vs entities：动作指向 Agent → agent_rules；纯陈述第三方要求 → entities
+- 提取 vs 不提取：持久性（"以后/每次/所有"等泛化标志）→ 提取；单次性（"这次/刚才/算了"）→ 不提取
+
+## 输出格式
+- 有新指令：{"agent_rules": {"content": "&lt;合并后完整规则&gt;"}}
+- 无新指令：{"agent_rules": {}}
+</code></pre>
+
+<h4>④ ENTITIES_EXTRACT_PROMPT — 第三方事实提取</h4>
+<p><strong>触发场景</strong>：每轮对话 after_agent 时并行调用，从对话中提取关于第三方的客观事实。只提取增量认知，排除 CRM 系统已有字段。</p>
+<pre><code>从对话中提取关于【第三方】的客观事实。第三方指非用户本人、非用户所在组织、非 Agent 的对象。
+
+## 识别原则
+任何关于第三方的可复用事实：
+- 角色关系 / 业务与规模 / 偏好与风格
+- 第三方的要求或规则（陈述式）
+- 对用户方的反馈、评价、承诺
+- 竞争情报、时效性信息
+- 用户对第三方的判断（主语"我"但内容描述的是第三方）
+
+第三方主体识别：具名公司/人名/品牌、可锁定的代词、关系动词的宾语。
+
+## 排除规则
+以下内容不属于本路，本路返空：
+- 用户自身的履历/团队/公司特征（无关系动词串联到第三方当前事实）→ profile
+- 用户自己的偏好 → preferences
+- 命令 Agent 行为的持久指令（动作指向 Agent）→ agent_rules
+- 疑问句 / 纯查询 / 操作指令 → 不提取
+- CRM 系统已有的结构化字段值（金额/阶段/电话/邮箱）→ 不提取
+
+## 边界判定
+- entities vs profile：主语是第三方或描述第三方事实 → entities；主语是"我/我们"描述自身特征 → profile。纯履历提到公司名但无关系动词 → profile；履历+关系动词串联到第三方当前事实 → entities
+- entities vs agent_rules：纯陈述第三方的要求/特点 → entities；命令 Agent 针对该实体采取行动 → agent_rules
+- 提取 vs 不提取：增量认知（系统中查不到的洞察）→ 提取；系统数据字段值 → 不提取
+
+## 输出格式
+{"entities": [{"abstract": "&lt;1句&gt;", "overview": "&lt;Markdown&gt;", "content": "&lt;完整叙述&gt;", "merge_key": "&lt;公司/项目&gt;", "parent_entity": "&lt;父实体&gt;"}]}
+无有效实体返回 {"entities": []}。
+</code></pre>
+
+<h4>⑤ _COMMON_OUTPUT_RULES — 共享输出规则（附加在每个提取提示词末尾）</h4>
+<pre><code>## 输出规则
+- abstract ≤50 字；overview 为 Markdown ≤200 字；content 完整叙述
+- 文本使用 {output_language}（auto 则跟随对话主要语言）
+- 多维度混合：同句含多维度时，各维度独立判断，各自提取属于自己的部分
+- 只输出 JSON，不写其他说明
+</code></pre>
+
+
+<hr>
+<h3 id="123-merge">12.3 合并阶段提示词（0~2 次 LLM）</h3>
+<h4>⑥ PROFILE_MERGE_PROMPT — 用户画像合并</h4>
+<p><strong>触发场景</strong>：提取到新 profile 内容时，与 PG 中已有画像 LLM 合并为一条。每用户始终只保留 1 条 profile。</p>
+<pre><code>将以下用户身份信息整合为一段连贯的用户画像描述。
+
+已有用户画像:
+{existing_profile}
+
+新增信息:
+{new_info}
+
+要求:
+1. 合并已有画像和新增信息，保留所有有效的身份信息
+2. 如果新增信息和已有画像矛盾，以新增为准（如职位变更）
+3. 用第三人称描述（"用户是..."）
+4. 控制在 200 字以内
+
+直接输出合并后的用户画像文本，不要其他内容。
+</code></pre>
+
+<h4>⑦ AGENT_RULES_MERGE_PROMPT — Agent 规则融合</h4>
+<p><strong>触发场景</strong>：提取到新 agent_rules 内容时，与 PG 中已有规则 LLM 融合为一条。每用户始终只保留 1 条 agent_rules。</p>
+<pre><code>将以下用户对 Agent 的角色定义和行为准则整合为一段连贯的描述。
+
+已有行为准则:
+{existing_rules}
+
+新增定义:
+{new_definitions}
+
+要求:
+1. 合并已有准则和新增定义，保留所有有效的角色定义和行为准则
+2. 如果新增定义和已有准则矛盾，以新增为准
+3. 用第二人称描述（"你是..."、"你要..."）
+4. 控制在 300 字以内
+
+直接输出合并后的行为准则文本，不要其他内容。
+</code></pre>
+
+<h4>⑧ DEDUP_PROMPT — 语义去重决策</h4>
+<p><strong>触发场景</strong>：preferences 同 slug 合并时 / entities 有 merge_key 合并时 / entities 无 merge_key 且向量相似度 &gt;0.9 时调用。LLM 判断 4 种决策。</p>
+<pre><code>判断如何更新长期记忆。
+
+候选记忆:
+  摘要: {candidate_abstract}
+  内容: {candidate_content}
+
+已有相似记忆:
+{existing_memories}
+
+## 候选级别决策
+- skip: 候选冗余（重复/改写/过于模糊），不存储，不修改已有记忆
+- create: 候选是有效的新信息，独立存储
+- merge: 候选和某条已有记忆是同一主题，应合并（提供合并后的内容）
+- delete: 候选使某条已有记忆完全失效
+
+## 关键删除边界（非破坏性优先）
+- 部分冲突（某些陈述冲突，其他仍有效）→ 用 merge，不要 delete
+- 仅在整个已有记忆完全过时/失效时才 delete
+- 绝不能因为主题/方面不匹配而删除（不同方面的记忆互不影响）
+- 不确定时选择 skip 或 merge，而非 delete
+
+## 决策优先级
+1. 候选冗余 → skip
+2. 同主题更新/部分矛盾 → merge（生成合并后内容）
+3. 明显独立的新信息 → create
+4. 已有记忆完全失效 → delete（极少使用）
+
+返回 JSON:
+{"decision":"skip|create|merge|delete","target_id":"目标ID（merge/delete时必填）",
+ "reason":"原因","merged_abstract":"合并后摘要（merge时必填）",
+ "merged_overview":"合并后概览（merge时必填）",
+ "merged_content":"合并后完整内容（merge时必填，保留旧记忆中仍有效的信息+候选的新信息）"}
+</code></pre>
+
+<hr>
+<h3 id="124-refine">12.4 精炼阶段提示词（0~1 次 LLM）</h3>
+<h4>⑨ REFINE_PROMPT — 超长内容压缩</h4>
+<p><strong>触发场景</strong>：profile 合并后超过 200 字 / agent_rules 合并后超过 300 字时自动触发，压缩到阈值以内。</p>
+<pre><code>压缩以下{type_name}到{max_chars}字以内。
+保留所有关键信息（身份、职责、约束、流程、禁止），去掉冗余修饰语。
+用简洁短句，不要套话。
+
+原文:
+{content}
+
+直接输出压缩后的文本。
+</code></pre>
+
+<hr>
+<h3 id="125-aggregate">12.5 目录聚合阶段提示词（0~2 次 LLM）</h3>
+<h4>⑩ AGGREGATE_L1_PROMPT — 目录 L1 结构化聚合</h4>
+<p><strong>触发场景</strong>：叶子节点写入后，异步触发该叶子所属目录（parent_entity）的重新聚合。收集目录下所有叶子的 content，LLM 生成结构化 Markdown 导航。</p>
+<pre><code>将以下多条记忆聚合为一个结构化 Markdown 目录。
+
+目录路径: {directory_path}
+记忆条目:
+{l2_list}
+
+要求:
+1. 用 ## 标题分组，相关信息归到同一标题下
+2. 用 - 列表列出具体信息
+3. 保留所有有效信息，不要遗漏
+4. 如果有矛盾信息，保留最新的
+
+直接输出 Markdown，不要包裹在代码块中。
+</code></pre>
+
+<h4>⑪ AGGREGATE_L0_PROMPT — 目录 L0 一句话压缩</h4>
+<p><strong>触发场景</strong>：L1 生成后，进一步压缩为一句话摘要。该摘要会被向量化后参与检索匹配（embed(L0) → 目录节点的 vector 字段）。</p>
+<pre><code>将以下结构化目录压缩为一句话摘要（不超过100字）。
+
+目录路径: {directory_path}
+目录内容:
+{l1_content}
+
+直接输出一句话摘要，不要其他内容。
+</code></pre>
+
+<hr>
+<h3 id="126-reflect">12.6 反思阶段提示词（0~2 次 LLM）</h3>
+<h4>⑫ REFLECTION_RELATION_PROMPT — 关系判断（4 选 1）</h4>
+<p><strong>触发场景</strong>：会话结束反思时，新提取的 entities 记忆与已有记忆向量相似度 &gt;0.7 时调用。极简分类任务，只返回一个词。后续 action 由规则映射决定（不靠 LLM）。</p>
+<pre><code>判断新记忆与已有记忆的关系。
+
+新记忆: {new}
+已有记忆: {old}
+
+关系类型只有 4 种：
+- identical: 完全相同的信息（字面重复）
+- contradiction: 直接矛盾（相同主体，不同结论，如"张伟是对接人" vs "李娜是对接人"）
+- evolution: 信息演进（旧信息过时或被新信息补充，但不完全矛盾，如"方案阶段" → "谈判阶段"）
+- unrelated: 不相关（检索召回有误，不是同一主题）
+
+只返回一个词（identical/contradiction/evolution/unrelated），不要解释。
+</code></pre>
+<p><strong>规则映射（Step 2，不消耗 LLM）</strong>：</p>
+<pre><code>identical     → discard_new（丢弃新记忆）
+contradiction → archive_old（归档旧记忆）
+evolution     → update_old（调用 EVOLUTION_MERGE_PROMPT 合并）
+unrelated     → keep_both（不操作）
+</code></pre>
+
+<h4>⑬ EVOLUTION_MERGE_PROMPT — 演进合并</h4>
+<p><strong>触发场景</strong>：反思判定关系为 evolution 时调用，将新旧记忆合并为最新状态描述。</p>
+<pre><code>将旧记忆和新记忆合并为一条完整的最新状态描述。
+
+旧记忆: {old_content}
+新记忆: {new_content}
+
+要求：
+1. 保留旧记忆中仍然有效的信息
+2. 用新记忆的信息覆盖已变化的部分
+3. 不超过 200 字
+
+直接输出合并后的完整内容。
+</code></pre>
+
+<hr>
+<h3 id="127-summary">12.7 LLM 调用开销估算</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">阶段</th>
+<th style="text-align: left;">提示词</th>
+<th style="text-align: center;">调用次数</th>
+<th style="text-align: left;">触发条件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">提取</td>
+<td style="text-align: left;">PROFILE_EXTRACT_PROMPT</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;">每轮必调（并行）</td>
+</tr>
+<tr>
+<td style="text-align: left;">提取</td>
+<td style="text-align: left;">PREFERENCES_EXTRACT_PROMPT</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;">每轮必调（并行）</td>
+</tr>
+<tr>
+<td style="text-align: left;">提取</td>
+<td style="text-align: left;">AGENT_RULES_EXTRACT_PROMPT</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;">每轮必调（并行）</td>
+</tr>
+<tr>
+<td style="text-align: left;">提取</td>
+<td style="text-align: left;">ENTITIES_EXTRACT_PROMPT</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;">每轮必调（并行）</td>
+</tr>
+<tr>
+<td style="text-align: left;">合并</td>
+<td style="text-align: left;">PROFILE_MERGE_PROMPT</td>
+<td style="text-align: center;">0~1</td>
+<td style="text-align: left;">提取到 profile 内容时</td>
+</tr>
+<tr>
+<td style="text-align: left;">合并</td>
+<td style="text-align: left;">AGENT_RULES_MERGE_PROMPT</td>
+<td style="text-align: center;">0~1</td>
+<td style="text-align: left;">提取到 agent_rules 内容时</td>
+</tr>
+<tr>
+<td style="text-align: left;">合并</td>
+<td style="text-align: left;">DEDUP_PROMPT</td>
+<td style="text-align: center;">0~N</td>
+<td style="text-align: left;">preferences 同 slug / entities 相似度 &gt;0.9</td>
+</tr>
+<tr>
+<td style="text-align: left;">精炼</td>
+<td style="text-align: left;">REFINE_PROMPT</td>
+<td style="text-align: center;">0~1</td>
+<td style="text-align: left;">profile &gt;200字 / agent_rules &gt;300字</td>
+</tr>
+<tr>
+<td style="text-align: left;">聚合</td>
+<td style="text-align: left;">AGGREGATE_L1_PROMPT</td>
+<td style="text-align: center;">0~1</td>
+<td style="text-align: left;">entities 有 parent_entity 时异步触发</td>
+</tr>
+<tr>
+<td style="text-align: left;">聚合</td>
+<td style="text-align: left;">AGGREGATE_L0_PROMPT</td>
+<td style="text-align: center;">0~1</td>
+<td style="text-align: left;">L1 生成后紧接触发</td>
+</tr>
+<tr>
+<td style="text-align: left;">反思</td>
+<td style="text-align: left;">REFLECTION_RELATION_PROMPT</td>
+<td style="text-align: center;">0~N</td>
+<td style="text-align: left;">新 entities 与已有记忆相似度 &gt;0.7</td>
+</tr>
+<tr>
+<td style="text-align: left;">反思</td>
+<td style="text-align: left;">EVOLUTION_MERGE_PROMPT</td>
+<td style="text-align: center;">0~N</td>
+<td style="text-align: left;">关系判定为 evolution 时</td>
+</tr>
+</tbody>
+</table>
+<p><strong>典型场景开销：</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">场景</th>
+<th style="text-align: center;">LLM 调用次数</th>
+<th style="text-align: left;">说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">纯寒暄/确认</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: left;">预过滤跳过，不进入提取</td>
+</tr>
+<tr>
+<td style="text-align: left;">简单对话（无新记忆）</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: left;">4 路提取均返回空</td>
+</tr>
+<tr>
+<td style="text-align: left;">提取到 entities（典型）</td>
+<td style="text-align: center;">4+1+2+1 = 8</td>
+<td style="text-align: left;">提取 + 去重 + 聚合 + 反思</td>
+</tr>
+<tr>
+<td style="text-align: left;">提取到 profile + agent_rules</td>
+<td style="text-align: center;">4+2 = 6</td>
+<td style="text-align: left;">提取 + 两路合并</td>
+</tr>
+<tr>
+<td style="text-align: left;">最坏情况（全命中+超长+反思）</td>
+<td style="text-align: center;">4+2+1+2+2 = 11</td>
+<td style="text-align: left;">提取+合并+精炼+聚合+反思</td>
+</tr>
+</tbody>
+</table>
+
+
+<hr>
+<h2 id="_14">十三、记忆提取测试场景</h2>
 <p>本节提供四个维度（profile / preferences / agent_rules / entities）的记忆提取测试用例，每个维度至少 50 条，覆盖正例、边界、易混淆场景。用于验证提取 Prompt 的分类准确性。</p>
-<h3 id="121-profile">12.1 Profile 类别测试用例</h3>
+<h3 id="131-profile">13.1 Profile 类别测试用例</h3>
 <blockquote>
 <p><strong>提取规则回顾</strong>：用户稳定身份属性——"我/我们团队/我们公司"的角色、经验、地域、团队规模、组织业务/文化/工具。<br>
 <strong>排除</strong>：偏好(→preferences)、Agent指令(→agent_rules)、第三方事实(→entities)、一次性操作。</p>
@@ -2544,7 +3001,7 @@ viking://agent/memories/
 </tr>
 </tbody>
 </table>
-<h3 id="122-preferences">12.2 Preferences 类别测试用例</h3>
+<h3 id="132-preferences">13.2 Preferences 类别测试用例</h3>
 <blockquote>
 <p><strong>提取规则回顾</strong>：用户自身的习惯、喜好/厌恶、个人标准，可跨会话复用。<br>
 <strong>排除</strong>：Agent行为规则(→agent_rules)、身份/组织描述(→profile)、第三方偏好(→entities)、一次性反馈。</p>
@@ -2947,7 +3404,7 @@ viking://agent/memories/
 </tr>
 </tbody>
 </table>
-<h3 id="123-agent-rules">12.3 Agent Rules 类别测试用例</h3>
+<h3 id="133-agent-rules">13.3 Agent Rules 类别测试用例</h3>
 <blockquote>
 <p><strong>提取规则回顾</strong>：对Agent未来行为的持久约束。必须同时满足两个条件：(1) 行为目标是Agent的输出/过程；(2) 可跨未来场景复用。<br>
 <strong>排除</strong>：用户个人习惯(→preferences)、身份(→profile)、第三方事实(→entities)、一次性调整。</p>
@@ -3350,7 +3807,7 @@ viking://agent/memories/
 </tr>
 </tbody>
 </table>
-<h3 id="124-entities">12.4 Entities 类别测试用例</h3>
+<h3 id="134-entities">13.4 Entities 类别测试用例</h3>
 <blockquote>
 <p><strong>提取规则回顾</strong>：第三方客观事实——关系、业务、偏好、反馈、竞争情报。第三方 = 非用户本人、非用户组织、非Agent。只提取"增量洞察"，不提取CRM系统数据字段（金额、阶段、电话等）。<br>
 <strong>排除</strong>：用户简历(→profile)、用户偏好(→preferences)、Agent指令(→agent_rules)、提问/查询。</p>
@@ -3753,7 +4210,7 @@ viking://agent/memories/
 </tr>
 </tbody>
 </table>
-<h3 id="125">12.5 跨类别边界判断专项测试</h3>
+<h3 id="135">13.5 跨类别边界判断专项测试</h3>
 <blockquote>
 <p>以下用例专门测试容易混淆的边界场景，验证分类逻辑的鲁棒性。</p>
 </blockquote>

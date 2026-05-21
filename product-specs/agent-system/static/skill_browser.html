@@ -31,6 +31,13 @@
   .category-row:hover { background: #f9fafb; }
   .drag-handle { cursor: grab; color: #9ca3af; font-size: 16px; }
   .drag-handle:active { cursor: grabbing; }
+  /* 版本对比 diff 样式 */
+  .diff-added { background: #dcfce7; }
+  .diff-removed { background: #fee2e2; }
+  .diff-header { background: #f3e8ff; color: #7c3aed; }
+  .diff-table td { padding: 1px 0; line-height: 1.5; vertical-align: top; }
+  .diff-file-item.border-l-2 { border-left-width: 2px; }
+  .diff-file-item.border-l-blue-500 { border-left-color: #3b82f6; }
 </style>
 </head>
 <body class="bg-gray-50 min-h-screen flex flex-col">
@@ -276,6 +283,10 @@
                onclick="switchToPrompt()" id="treeNodePrompt">
             <span>📄</span><span class="font-medium text-gray-700">SKILL.md</span>
           </div>
+          <div class="tree-node px-3 py-1.5 text-xs cursor-pointer hover:bg-blue-50 rounded mx-1 flex items-center gap-1.5"
+               onclick="switchToVersions()" id="treeNodeVersions">
+            <span>🏷️</span><span class="font-medium text-gray-700">版本管理</span>
+          </div>
           <div class="border-t my-1 mx-2"></div>
           <!-- 动态资源树 -->
           <div id="resourceTree" class="px-1"></div>
@@ -320,6 +331,7 @@
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">输出类型</label>
             <select name="output_mode" id="f_output_mode" class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
+              <option value="auto">自动（根据内容智能选择）</option>
               <option value="text">对话气泡（Markdown 文本，嵌入对话流）</option>
               <option value="card">文档面板（右侧独立面板，适合长报告）</option>
               <option value="component">业务组件（A2UI 卡片渲染）</option>
@@ -407,6 +419,23 @@
           </div>
           <textarea id="resourceEditor" rows="28"
                     class="prompt-editor w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-200 focus:outline-none"></textarea>
+        </div>
+        <!-- 版本管理面板 -->
+        <div id="panelVersions" class="hidden">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-semibold text-gray-800">版本历史</h3>
+            <button onclick="openPublishVersionDialog()" class="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+              + 创建新版本
+            </button>
+          </div>
+          <!-- 版本列表 -->
+          <div id="versionList" class="space-y-2 mb-6">
+            <div class="text-sm text-gray-400 py-4 text-center">加载中...</div>
+          </div>
+          <!-- 版本对比区域 — GitHub 风格全屏 Diff 视图 -->
+          <div id="versionDiffSection" class="hidden">
+            <div id="versionDiffContent" class="bg-white border rounded-lg overflow-hidden"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -842,13 +871,13 @@ async function editSkill(apiKey) {
     const s = await res.json();
     document.getElementById('f_api_key').value = s.api_key;
     document.getElementById('f_api_key').disabled = true;
-    document.getElementById('formTitle').textContent = `编辑: ${s.name || apiKey}（${s.api_key}）`;
+    document.getElementById('formTitle').textContent = `编辑: ${s.name || apiKey}（${s.api_key}）v${s.version || '1.0.0'}`;
     document.getElementById('f_name').value = s.name || '';
     document.getElementById('f_description').value = s.description || '';
     document.getElementById('f_when_to_use').value = s.when_to_use || '';
     document.getElementById('f_category').value = s.category || 'custom';
     document.getElementById('f_risk_level').value = s.risk_level || 'read_only';
-    document.getElementById('f_output_mode').value = s.output_mode || 'auto';
+    document.getElementById('f_output_mode').value = s.output_mode || 'text';
     document.getElementById('f_context').value = s.context || 'inline';
     document.getElementById('f_max_tool_calls').value = s.max_tool_calls || 20;
     document.getElementById('f_timeout_ms').value = s.timeout_ms || 60000;
@@ -916,7 +945,17 @@ async function saveSkill() {
       const err = await res.json();
       throw new Error(err.detail?.message || `HTTP ${res.status}`);
     }
-    closeForm();
+    const result = await res.json();
+    showToast(editingKey ? '保存成功' : '创建成功');
+    // 新建时切换为编辑模式
+    if (!editingKey) {
+      editingKey = data.api_key;
+      document.getElementById('f_api_key').disabled = true;
+      loadResourceTree(editingKey);
+    }
+    // 更新标题版本号
+    document.getElementById('formTitle').textContent = `编辑: ${result.name || editingKey}（${editingKey}）v${result.version || '1.0.0'}`;
+    // 后台刷新列表（不关闭面板）
     loadSkills();
     loadStats();
   } catch (e) {
@@ -1235,6 +1274,7 @@ async function loadResourceTree(apiKey) {
   const treePanel = document.getElementById('skillTreePanel');
   const container = document.getElementById('resourceTree');
   const countEl = document.getElementById('resourceCount');
+  resourceTreeExpandState = {}; // 重置展开状态
 
   try {
     const res = await fetch(`${SKILL_API}/${apiKey}/resources`);
@@ -1258,39 +1298,67 @@ async function loadResourceTree(apiKey) {
   }
 }
 
+let resourceTreeExpandState = {}; // 记录资源树文件夹展开状态
+
 function renderTreeNodes(nodes, parentId, level) {
-  const children = nodes.filter(n => n.parent_id === parentId);
+  // 使用字符串比较确保类型一致
+  const pid = parentId === null || parentId === undefined ? null : String(parentId);
+  const children = nodes.filter(n => {
+    const npid = n.parent_id === null || n.parent_id === undefined ? null : String(n.parent_id);
+    return npid === pid;
+  });
   if (!children.length) return '';
 
   let html = '';
   const sorted = children.sort((a, b) => {
     if (a.node_type !== b.node_type) return a.node_type === 'dir' ? -1 : 1;
-    return a.sort_num - b.sort_num || a.name.localeCompare(b.name);
+    return (a.sort_num || 0) - (b.sort_num || 0) || (a.name || '').localeCompare(b.name || '');
   });
 
   for (const node of sorted) {
-    const indent = (level + 1) * 12;
-    const icon = node.node_type === 'dir' ? '📁' : '📄';
-    const clickHandler = node.node_type === 'file'
-      ? `onclick="selectAndOpenResource('${node.path}', '${node.name}', 'file')"`
-      : `onclick="selectResourceNode('${node.path}', 'dir')"`;
-    const cls = 'cursor-pointer hover:bg-blue-50';
-
-    html += `<div style="padding-left:${indent}px" class="tree-node px-2 py-1 text-[11px] rounded mx-1 flex items-center gap-1 ${cls}" data-path="${node.path}" data-type="${node.node_type}" ${clickHandler}>
-      <span>${icon}</span><span class="truncate">${node.name}</span>
-    </div>`;
+    const indent = level * 16;
+    const nodeId = String(node.id);
+    const hasChildren = nodes.some(n => String(n.parent_id || '') === nodeId);
+    const isExpanded = resourceTreeExpandState[node.path] !== false; // 默认展开
 
     if (node.node_type === 'dir') {
-      html += renderTreeNodes(nodes, node.id, level + 1);
+      const childCount = nodes.filter(n => String(n.parent_id || '') === nodeId).length;
+      html += `<div style="padding-left:${indent}px" class="tree-node px-2 py-1.5 text-[11px] rounded mx-1 flex items-center gap-1 cursor-pointer hover:bg-blue-50" data-path="${node.path}" data-type="dir" onclick="toggleResourceDir('${node.path.replace(/'/g, "\\'")}')">
+        <span class="text-gray-400 text-[9px] w-3 text-center flex-shrink-0">${isExpanded ? '▼' : '▶'}</span>
+        <span>📁</span><span class="truncate font-medium text-gray-700">${node.name}</span>
+        <span class="text-[9px] text-gray-400 ml-auto">${childCount}</span>
+      </div>`;
+      if (isExpanded) {
+        html += renderTreeNodes(nodes, nodeId, level + 1);
+      }
+    } else {
+      html += `<div style="padding-left:${indent + 16}px" class="tree-node px-2 py-1 text-[11px] rounded mx-1 flex items-center gap-1 cursor-pointer hover:bg-blue-50" data-path="${node.path}" data-type="file" onclick="selectAndOpenResource('${node.path.replace(/'/g, "\\'")}', '${node.name.replace(/'/g, "\\'")}', 'file')">
+        <span>📄</span><span class="truncate">${node.name}</span>
+      </div>`;
     }
   }
   return html;
+}
+
+function toggleResourceDir(path) {
+  resourceTreeExpandState[path] = resourceTreeExpandState[path] === false ? true : false;
+  // 重新渲染资源树
+  const container = document.getElementById('resourceTree');
+  container.innerHTML = renderTreeNodes(currentResourceNodes, null, 0);
+  // 恢复选中状态
+  if (selectedResourcePath) {
+    const el = document.querySelector(`#resourceTree [data-path="${selectedResourcePath}"]`);
+    if (el) el.classList.add('bg-blue-100', 'font-medium');
+  }
+  // 选中该目录
+  selectResourceNode(path, 'dir');
 }
 
 function switchToConfig() {
   document.getElementById('panelConfig').classList.remove('hidden');
   document.getElementById('panelPrompt').classList.add('hidden');
   document.getElementById('panelResource').classList.add('hidden');
+  document.getElementById('panelVersions').classList.add('hidden');
   // 高亮左侧节点
   document.querySelectorAll('#skillTreePanel .tree-node').forEach(el => el.classList.remove('bg-blue-100', 'font-medium'));
   document.getElementById('treeNodeConfig')?.classList.add('bg-blue-100', 'font-medium');
@@ -1300,6 +1368,7 @@ function switchToPrompt() {
   document.getElementById('panelConfig').classList.add('hidden');
   document.getElementById('panelPrompt').classList.remove('hidden');
   document.getElementById('panelResource').classList.add('hidden');
+  document.getElementById('panelVersions').classList.add('hidden');
   // 同步 prompt 内容
   document.getElementById('f_prompt_full').value = document.getElementById('f_prompt').value;
   // 高亮
@@ -1307,22 +1376,50 @@ function switchToPrompt() {
   document.getElementById('treeNodePrompt')?.classList.add('bg-blue-100', 'font-medium');
 }
 
+function switchToVersions() {
+  document.getElementById('panelConfig').classList.add('hidden');
+  document.getElementById('panelPrompt').classList.add('hidden');
+  document.getElementById('panelResource').classList.add('hidden');
+  document.getElementById('panelVersions').classList.remove('hidden');
+  // 高亮
+  document.querySelectorAll('#skillTreePanel .tree-node').forEach(el => el.classList.remove('bg-blue-100', 'font-medium'));
+  document.getElementById('treeNodeVersions')?.classList.add('bg-blue-100', 'font-medium');
+  // 加载版本列表
+  if (editingKey) loadVersionList(editingKey);
+}
+
 async function switchToResource(path, name) {
   document.getElementById('panelConfig').classList.add('hidden');
   document.getElementById('panelPrompt').classList.add('hidden');
   document.getElementById('panelResource').classList.remove('hidden');
+  document.getElementById('panelVersions').classList.add('hidden');
   // 高亮
   document.querySelectorAll('#skillTreePanel .tree-node').forEach(el => el.classList.remove('bg-blue-100', 'font-medium'));
   document.querySelector(`[data-path="${path}"]`)?.classList.add('bg-blue-100', 'font-medium');
 
   document.getElementById('resourceFileName').textContent = name;
-  document.getElementById('resourceFilePath').textContent = path;
+  document.getElementById('resourceFilePath').textContent = viewingVersion ? `${path} (v${viewingVersion})` : path;
   document.getElementById('resourceEditor').value = '加载中...';
 
   try {
-    const res = await fetch(`${SKILL_API}/${editingKey}/resources/content?path=${encodeURIComponent(path)}`);
+    let url;
+    if (viewingVersion) {
+      url = `${SKILL_API}/${editingKey}/versions/${viewingVersion}/resources/content?path=${encodeURIComponent(path)}`;
+    } else {
+      url = `${SKILL_API}/${editingKey}/resources/content?path=${encodeURIComponent(path)}`;
+    }
+    const res = await fetch(url);
     const data = await res.json();
     document.getElementById('resourceEditor').value = data.content || '';
+    // 版本查看模式下资源编辑器只读
+    const editor = document.getElementById('resourceEditor');
+    if (viewingVersion && !allVersions.find(v => v.version === viewingVersion)?.is_current) {
+      editor.setAttribute('readonly', '');
+      editor.style.opacity = '0.7';
+    } else {
+      editor.removeAttribute('readonly');
+      editor.style.opacity = '';
+    }
   } catch (e) {
     document.getElementById('resourceEditor').value = `加载失败: ${e.message}`;
   }
@@ -2011,6 +2108,752 @@ function getTypeColor(itemType) {
     31: 'bg-green-50 text-green-600',
   };
   return map[itemType] || 'bg-gray-100 text-gray-600';
+}
+
+// ═══════════════════════════════════════════════════════════
+// 版本管理
+// ═══════════════════════════════════════════════════════════
+let allVersions = [];
+let selectedVersionsForDiff = [];
+let viewingVersion = null; // 当前查看的版本号（null = 当前最新）
+
+async function loadVersionList(apiKey) {
+  const container = document.getElementById('versionList');
+  container.innerHTML = '<div class="text-sm text-gray-400 py-4 text-center">加载中...</div>';
+  selectedVersionsForDiff = [];
+
+  try {
+    const res = await fetch(`${SKILL_API}/${apiKey}/versions`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    allVersions = data.versions || [];
+    renderVersionList();
+  } catch (e) {
+    container.innerHTML = `<div class="text-sm text-red-400 py-4 text-center">加载失败: ${e.message}</div>`;
+  }
+}
+
+function renderVersionList() {
+  const container = document.getElementById('versionList');
+  if (!allVersions.length) {
+    container.innerHTML = '<div class="text-sm text-gray-400 py-4 text-center">暂无版本记录，点击"发布新版本"创建第一个版本快照</div>';
+    return;
+  }
+
+  const html = allVersions.map((v, idx) => {
+    const isSelected = selectedVersionsForDiff.includes(v.version);
+    const isCurrent = v.is_current;
+    const isViewing = viewingVersion === v.version;
+    const time = v.created_at ? new Date(v.created_at).toLocaleString('zh-CN') : '-';
+    const riskColors = { read_only: 'bg-green-50 text-green-700', mutating: 'bg-orange-50 text-orange-700', destructive: 'bg-red-50 text-red-700' };
+
+    return `
+      <div class="border rounded-lg p-3 cursor-pointer transition-all
+                  ${isViewing ? 'border-indigo-400 bg-indigo-50/40 ring-2 ring-indigo-200' : isCurrent ? 'border-blue-300 bg-blue-50/30' : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'}
+                  ${isSelected && !isViewing ? 'ring-2 ring-indigo-300' : ''}"
+           onclick="switchToVersionView('${v.version}')">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <input type="checkbox" class="version-diff-checkbox rounded text-indigo-600 w-3.5 h-3.5"
+                   value="${v.version}" ${isSelected ? 'checked' : ''}
+                   onclick="event.stopPropagation()"
+                   onchange="toggleVersionForDiff('${v.version}', this.checked)"
+                   title="选中两个版本进行对比">
+            <span class="font-mono text-sm font-semibold text-gray-800">v${v.version}</span>
+            ${isCurrent ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">当前</span>' : ''}
+            ${isViewing ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 font-medium">查看中</span>' : ''}
+            <span class="text-[10px] px-1.5 py-0.5 rounded ${riskColors[v.risk_level] || 'bg-gray-100 text-gray-600'}">${v.risk_level || ''}</span>
+          </div>
+          <div class="flex items-center gap-2" onclick="event.stopPropagation()">
+            ${!isCurrent ? `<button onclick="event.stopPropagation(); deleteVersion('${v.version}')" class="text-[11px] text-red-500 hover:text-red-700 font-medium">删除</button>` : ''}
+            ${!isCurrent ? `<button onclick="event.stopPropagation(); rollbackToVersion('${v.version}')" class="text-[11px] text-orange-600 hover:text-orange-800 font-medium">回滚</button>` : ''}
+          </div>
+        </div>
+        <div class="mt-1.5 flex items-center gap-3 text-xs text-gray-500">
+          <span>📅 ${time}</span>
+          ${v.changelog ? `<span class="text-gray-600">— ${v.changelog}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const diffBtn = `
+    <div class="flex items-center justify-between mb-3">
+      <span class="text-xs text-gray-400">勾选两个版本进行对比，点击版本行切换查看</span>
+      <button id="btnDiffVersions" onclick="diffSelectedVersions()"
+              class="px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+              ${selectedVersionsForDiff.length !== 2 ? 'disabled' : ''}>
+        对比选中版本
+      </button>
+    </div>
+  `;
+
+  container.innerHTML = diffBtn + html;
+}
+
+function toggleVersionForDiff(version, checked) {
+  if (checked) {
+    if (selectedVersionsForDiff.length >= 2) {
+      selectedVersionsForDiff.shift();
+    }
+    selectedVersionsForDiff.push(version);
+  } else {
+    selectedVersionsForDiff = selectedVersionsForDiff.filter(v => v !== version);
+  }
+  renderVersionList();
+}
+
+// ── 切换到指定版本视图 ──
+async function switchToVersionView(version) {
+  if (!editingKey) return;
+  // 再次点击同一版本 → 退出版本查看
+  if (viewingVersion === version) { exitVersionView(); return; }
+
+  viewingVersion = version;
+  renderVersionList();
+  const isCurrent = allVersions.find(v => v.version === version)?.is_current;
+  showVersionBanner(version, isCurrent);
+
+  try {
+    const res = await fetch(`${SKILL_API}/${editingKey}/versions/${version}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    fillFormWithVersionData(data);
+    await loadVersionResourceTree(editingKey, version);
+    switchToConfig();
+  } catch (e) {
+    alert('加载版本数据失败: ' + e.message);
+    viewingVersion = null; hideVersionBanner();
+  }
+}
+
+function fillFormWithVersionData(data) {
+  document.getElementById('f_description').value = data.description || '';
+  document.getElementById('f_when_to_use').value = data.when_to_use || '';
+  document.getElementById('f_risk_level').value = data.risk_level || 'read_only';
+  document.getElementById('f_context').value = data.context || 'inline';
+  document.getElementById('f_max_tool_calls').value = data.max_tool_calls || 20;
+  document.getElementById('f_timeout_ms').value = data.timeout_ms || 60000;
+  document.getElementById('f_prompt').value = data.prompt || '';
+  document.getElementById('f_prompt_full').value = data.prompt || '';
+  renderToolOptions(data.allowed_tools || []);
+  loadArguments(data.arguments || [], {}, {});
+  const isCurrent = allVersions.find(v => v.version === viewingVersion)?.is_current;
+  setFormReadOnly(!isCurrent);
+}
+
+function setFormReadOnly(readonly) {
+  const form = document.getElementById('skillForm');
+  form.querySelectorAll('input, textarea, select').forEach(el => {
+    if (readonly) { el.setAttribute('disabled', ''); el.style.opacity = '0.7'; }
+    else { el.removeAttribute('disabled'); el.style.opacity = ''; }
+  });
+  if (editingKey) document.getElementById('f_api_key').disabled = true;
+  const pe = document.getElementById('f_prompt_full');
+  if (readonly) { pe.setAttribute('readonly', ''); pe.style.opacity = '0.7'; }
+  else { pe.removeAttribute('readonly'); pe.style.opacity = ''; }
+}
+
+async function loadVersionResourceTree(apiKey, version) {
+  const container = document.getElementById('resourceTree');
+  const countEl = document.getElementById('resourceCount');
+  try {
+    const res = await fetch(`${SKILL_API}/${apiKey}/versions/${version}/resources`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const files = data.files || [];
+    const treeNodes = buildTreeFromVersionFiles(files);
+    currentResourceNodes = treeNodes;
+    const dirPaths = new Set();
+    files.forEach(f => { const p = f.path.split('/'); for (let i = 1; i < p.length; i++) dirPaths.add(p.slice(0, i).join('/')); });
+    countEl.textContent = `${dirPaths.size}目录 · ${files.length}文件 (v${version})`;
+    container.innerHTML = renderTreeNodes(treeNodes, null, 0);
+  } catch (e) {
+    countEl.textContent = `v${version}`;
+    container.innerHTML = '<div class="px-3 py-2 text-[10px] text-gray-400">该版本无资源文件快照</div>';
+  }
+}
+
+function buildTreeFromVersionFiles(files) {
+  const nodes = []; const dirIds = {}; let idC = 1;
+  const dirPaths = new Set();
+  files.forEach(f => { const p = f.path.split('/'); for (let i = 1; i < p.length; i++) dirPaths.add(p.slice(0, i).join('/')); });
+  for (const dp of [...dirPaths].sort()) {
+    const parts = dp.split('/'); const name = parts[parts.length - 1];
+    const pp = parts.slice(0, -1).join('/'); const id = String(idC++);
+    dirIds[dp] = id;
+    nodes.push({ id, parent_id: pp ? dirIds[pp] || null : null, node_type: 'dir', name, path: dp, depth: parts.length - 1, sort_num: 0, enabled: true });
+  }
+  for (const f of files) {
+    const parts = f.path.split('/'); const pp = parts.slice(0, -1).join('/');
+    nodes.push({ id: String(idC++), parent_id: pp ? dirIds[pp] || null : null, node_type: 'file', name: f.name, path: f.path, depth: parts.length - 1, sort_num: 0, enabled: true });
+  }
+  return nodes;
+}
+
+function showVersionBanner(version, isCurrent) {
+  let banner = document.getElementById('versionBanner');
+  if (!banner) {
+    banner = document.createElement('div'); banner.id = 'versionBanner';
+    const fc = document.querySelector('#formModal .flex-1.flex.overflow-hidden');
+    if (fc) fc.parentElement.insertBefore(banner, fc);
+  }
+  if (isCurrent) {
+    banner.className = 'px-4 py-2 bg-blue-50 border-b border-blue-200 flex items-center justify-between';
+    banner.innerHTML = `<span class="text-xs text-blue-700">📌 当前生效版本 v${version}</span><button onclick="exitVersionView()" class="text-xs text-blue-600 hover:text-blue-800 font-medium">返回编辑</button>`;
+  } else {
+    banner.className = 'px-4 py-2 bg-amber-50 border-b border-amber-200 flex items-center justify-between';
+    banner.innerHTML = `<span class="text-xs text-amber-700">👁️ 正在查看历史版本 v${version}（只读）</span><div class="flex items-center gap-3"><button onclick="rollbackToVersion('${version}')" class="text-xs text-orange-600 hover:text-orange-800 font-medium">回滚到此版本</button><button onclick="exitVersionView()" class="text-xs text-amber-700 hover:text-amber-900 font-medium">返回当前版本</button></div>`;
+  }
+  banner.classList.remove('hidden');
+}
+
+function hideVersionBanner() {
+  const b = document.getElementById('versionBanner'); if (b) b.classList.add('hidden');
+}
+
+function exitVersionView() {
+  viewingVersion = null; hideVersionBanner(); setFormReadOnly(false);
+  if (editingKey) editSkill(editingKey);
+}
+
+async function diffSelectedVersions() {
+  if (selectedVersionsForDiff.length !== 2) return;
+
+  // 按版本号排序，旧版本在前
+  const sorted = [...selectedVersionsForDiff].sort((a, b) => {
+    const pa = a.split('.').map(Number);
+    const pb = b.split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+      if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+    }
+    return 0;
+  });
+
+  const [baseVersion, targetVersion] = sorted;
+  await loadVersionDiff(editingKey, baseVersion, targetVersion);
+}
+
+async function loadVersionDiff(apiKey, baseVersion, targetVersion) {
+  const section = document.getElementById('versionDiffSection');
+  const content = document.getElementById('versionDiffContent');
+  section.classList.remove('hidden');
+  content.innerHTML = '<div class="p-4 text-sm text-gray-400 text-center">加载对比结果...</div>';
+
+  try {
+    const params = new URLSearchParams({ base_version: baseVersion, target_version: targetVersion });
+    const res = await fetch(`${SKILL_API}/${apiKey}/versions/diff?${params}`);
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail?.message || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    renderVersionDiff(data);
+  } catch (e) {
+    content.innerHTML = `<div class="p-4 text-sm text-red-400 text-center">对比失败: ${e.message}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// GitHub 风格版本对比视图
+// ═══════════════════════════════════════════════════════════
+
+let diffData = null;
+let activeDiffFile = null;
+
+function renderVersionDiff(data) {
+  diffData = data;
+  const content = document.getElementById('versionDiffContent');
+
+  const diffFiles = buildDiffFileList(data);
+  const changedCount = diffFiles.filter(f => f.diff_type !== 'unchanged').length;
+
+  if (!diffFiles.length) {
+    content.innerHTML = `
+      <div class="p-6 text-center">
+        <span class="text-2xl">✅</span>
+        <p class="text-sm text-gray-600 mt-2">v${data.base_version} 与 v${data.target_version} 无差异</p>
+      </div>`;
+    return;
+  }
+
+  content.innerHTML = `
+    <div class="flex flex-col" style="height: 75vh;">
+      <div class="px-4 py-3 bg-gray-50 border-b flex items-center justify-between flex-shrink-0">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2 text-sm">
+            <span class="font-mono text-gray-600 bg-red-50 px-2 py-0.5 rounded">v${data.base_version}</span>
+            <span class="text-gray-400">→</span>
+            <span class="font-mono text-gray-800 font-semibold bg-green-50 px-2 py-0.5 rounded">v${data.target_version}</span>
+          </div>
+          <span class="text-xs text-gray-500">${data.summary}</span>
+        </div>
+        <button onclick="closeVersionDiff()" class="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-200">✕</button>
+      </div>
+      <div class="flex flex-1 overflow-hidden">
+        <div class="w-60 border-r bg-white overflow-y-auto flex-shrink-0" id="diffFileList">
+          <div class="px-3 py-2 border-b bg-gray-50">
+            <span class="text-xs font-medium text-gray-600">${diffFiles.filter(f => f.diff_type !== 'unchanged').length} 个变更 / ${diffFiles.length} 个文件</span>
+          </div>
+          <div class="diff-tree-container">
+            ${renderDiffTree(diffFiles)}
+          </div>
+        </div>
+        <div class="flex-1 overflow-auto bg-white" id="diffContentArea">
+          <div class="flex items-center justify-center h-full text-gray-400 text-sm">
+            <div class="text-center">点击左侧文件查看差异</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (diffFiles.length > 0) selectDiffFile(0);
+}
+
+function buildDiffFileList(data) {
+  const files = [];
+  const fieldDiffs = (data.field_diffs || []).filter(d => d.field !== 'prompt');
+  if (fieldDiffs.length > 0) {
+    files.push({ type: 'fields', path: '配置字段', name: '配置字段', icon: '⚙️', diff_type: 'modified',
+      additions: fieldDiffs.filter(d => d.diff_type === 'added').length,
+      deletions: fieldDiffs.filter(d => d.diff_type === 'removed').length, data: fieldDiffs });
+  }
+  // Prompt（始终显示，即使无变更）
+  if (data.prompt_diff && data.prompt_diff.length) {
+    files.push({ type: 'prompt', path: 'prompt.md', name: 'SKILL.md', icon: '📄', diff_type: 'modified',
+      additions: data.prompt_diff.filter(l => l.startsWith('+') && !l.startsWith('+++')).length,
+      deletions: data.prompt_diff.filter(l => l.startsWith('-') && !l.startsWith('---')).length,
+      data: data.prompt_diff, old_content: data.prompt_old || '', new_content: data.prompt_new || '' });
+  } else if (data.prompt_old || data.prompt_new) {
+    // prompt 无变更但有内容，也显示
+    files.push({ type: 'prompt', path: 'prompt.md', name: 'SKILL.md', icon: '📄', diff_type: 'unchanged',
+      additions: 0, deletions: 0, data: null, old_content: data.prompt_old || '', new_content: data.prompt_new || '' });
+  }
+  // 资源文件（包含所有文件，含 unchanged）
+  if (data.resource_diffs && data.resource_diffs.length) {
+    for (const rd of data.resource_diffs) {
+      files.push({ type: 'resource', path: rd.path, name: rd.name || rd.path.split('/').pop(), icon: getFileIcon(rd.path),
+        diff_type: rd.diff_type,
+        additions: rd.content_diff ? rd.content_diff.filter(l => l.startsWith('+') && !l.startsWith('+++')).length : 0,
+        deletions: rd.content_diff ? rd.content_diff.filter(l => l.startsWith('-') && !l.startsWith('---')).length : 0,
+        data: rd.content_diff, old_content: rd.old_content || '', new_content: rd.new_content || '' });
+    }
+  }
+  return files;
+}
+
+function getFileIcon(path) {
+  const ext = (path || '').split('.').pop()?.toLowerCase();
+  const icons = { md: '📝', json: '📋', yaml: '📋', yml: '📋', txt: '📄', py: '🐍', js: '📜', ts: '📜', html: '🌐', css: '🎨' };
+  return icons[ext] || '📄';
+}
+
+// ── 树状结构渲染 ──
+let diffTreeExpandState = {};
+
+function buildDiffTree(files) {
+  const tree = { children: {}, files: [] };
+  files.forEach((file, idx) => {
+    if (file.type !== 'resource') { tree.files.push({ ...file, idx }); return; }
+    const parts = file.path.split('/');
+    let node = tree;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const dir = parts[i];
+      if (!node.children[dir]) node.children[dir] = { children: {}, files: [], path: parts.slice(0, i + 1).join('/') };
+      node = node.children[dir];
+    }
+    node.files.push({ ...file, idx });
+  });
+  return tree;
+}
+
+function renderDiffTree(files) {
+  const tree = buildDiffTree(files);
+  let html = '';
+  for (const f of tree.files) html += renderDiffTreeFileItem(f, 0);
+  html += renderDiffTreeChildren(tree, 0);
+  return html;
+}
+
+function renderDiffTreeChildren(node, depth) {
+  let html = '';
+  const dirs = Object.keys(node.children).sort();
+  for (const dir of dirs) {
+    const child = node.children[dir];
+    const dirPath = child.path;
+    const isExpanded = diffTreeExpandState[dirPath] !== false;
+    const fileCount = countTreeFiles(child);
+    const indent = depth * 14;
+    html += `<div class="diff-tree-dir cursor-pointer hover:bg-gray-50 flex items-center gap-1 py-1.5 px-2" style="padding-left:${6 + indent}px" onclick="toggleDiffTreeDir('${dirPath.replace(/'/g, "\\'")}')">
+      <span class="text-gray-400 text-[10px] w-3 text-center flex-shrink-0">${isExpanded ? '▼' : '▶'}</span>
+      <span class="flex-shrink-0 text-sm">📁</span>
+      <span class="text-xs text-gray-700 font-medium flex-1 truncate">${escapeHtml(dir)}</span>
+      <span class="text-[10px] text-gray-400">${fileCount}</span>
+    </div>`;
+    if (isExpanded) {
+      html += renderDiffTreeChildren(child, depth + 1);
+      for (const f of child.files) html += renderDiffTreeFileItem(f, depth + 1);
+    }
+  }
+  return html;
+}
+
+function countTreeFiles(node) {
+  let c = node.files.length;
+  for (const d of Object.keys(node.children)) c += countTreeFiles(node.children[d]);
+  return c;
+}
+
+function renderDiffTreeFileItem(file, depth) {
+  const typeColors = { added: 'text-green-600', removed: 'text-red-600', modified: 'text-amber-600', unchanged: 'text-gray-400' };
+  const typeIcons = { added: '+', removed: '−', modified: '●', unchanged: ' ' };
+  const stats = [];
+  if (file.additions > 0) stats.push(`<span class="text-green-600">+${file.additions}</span>`);
+  if (file.deletions > 0) stats.push(`<span class="text-red-600">-${file.deletions}</span>`);
+  const indent = depth * 14;
+  const nameClass = file.diff_type === 'unchanged' ? 'text-gray-500' : 'text-gray-700';
+  return `<div class="diff-file-item cursor-pointer hover:bg-blue-50 transition-colors flex items-center gap-1.5 py-1.5 px-2" style="padding-left:${6 + indent}px" id="diffFileItem_${file.idx}" onclick="selectDiffFile(${file.idx})">
+    <span class="text-xs font-bold ${typeColors[file.diff_type]} w-3 text-center flex-shrink-0">${typeIcons[file.diff_type]}</span>
+    <span class="flex-shrink-0 text-sm">${file.icon}</span>
+    <span class="text-xs ${nameClass} truncate flex-1" title="${escapeHtml(file.path)}">${escapeHtml(file.name)}</span>
+    <span class="text-[10px] font-mono flex-shrink-0">${stats.join(' ')}</span>
+  </div>`;
+}
+
+function toggleDiffTreeDir(dirPath) {
+  diffTreeExpandState[dirPath] = diffTreeExpandState[dirPath] === false ? true : false;
+  const files = buildDiffFileList(diffData);
+  const listContainer = document.querySelector('#diffFileList .diff-tree-container');
+  if (listContainer) listContainer.innerHTML = renderDiffTree(files);
+  if (activeDiffFile) {
+    const item = document.getElementById(`diffFileItem_${activeDiffFile.idx || 0}`);
+    if (item) item.classList.add('bg-blue-50', 'border-l-2', 'border-l-blue-500');
+  }
+}
+
+function selectDiffFile(idx) {
+  document.querySelectorAll('.diff-file-item').forEach(el => { el.classList.remove('bg-blue-50', 'border-l-2', 'border-l-blue-500'); });
+  const item = document.getElementById(`diffFileItem_${idx}`);
+  if (item) item.classList.add('bg-blue-50', 'border-l-2', 'border-l-blue-500');
+  const files = buildDiffFileList(diffData);
+  const file = files[idx];
+  if (!file) return;
+  activeDiffFile = { ...file, idx };
+  const area = document.getElementById('diffContentArea');
+  if (file.type === 'fields') {
+    area.innerHTML = renderFieldsDiffSideBySide(file.data);
+  } else if (file.diff_type === 'unchanged') {
+    // 无变更文件：显示内容预览
+    area.innerHTML = renderUnchangedFile(file);
+  } else if (file.type === 'prompt') {
+    area.innerHTML = renderSideBySideDiff(file.old_content, file.new_content, 'SKILL.md');
+  } else if (file.type === 'resource') {
+    area.innerHTML = renderSideBySideDiff(file.old_content || '', file.new_content || '', file.path);
+  }
+}
+
+function renderUnchangedFile(file) {
+  const content = file.new_content || file.old_content || '';
+  const lines = content.split('\n');
+  let html = `<div class="sticky top-0 bg-gray-50 border-b px-4 py-2 z-10 flex items-center justify-between">
+    <span class="text-xs font-medium text-gray-600">${file.icon} ${escapeHtml(file.name)}</span>
+    <span class="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded">无变更</span>
+  </div><div class="overflow-auto" style="max-height: calc(75vh - 100px);">
+  <table class="w-full text-xs font-mono border-collapse" style="table-layout: fixed;">
+    <colgroup><col style="width:40px"><col></colgroup><tbody>`;
+  for (let i = 0; i < lines.length; i++) {
+    html += `<tr><td class="text-right pr-2 text-gray-400 select-none border-r bg-gray-50/50 align-top text-[10px]">${i + 1}</td><td class="px-2 py-0 whitespace-pre-wrap break-all text-gray-600 align-top">${escapeHtml(lines[i])}</td></tr>`;
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function renderFieldsDiffSideBySide(fieldDiffs) {
+  let html = `<div class="sticky top-0 bg-gray-50 border-b px-4 py-2 z-10">
+    <span class="text-xs font-medium text-gray-600">⚙️ 配置字段变更（${fieldDiffs.length} 项）</span>
+  </div><table class="w-full text-xs font-mono border-collapse"><thead><tr class="bg-gray-50 border-b">
+    <th class="px-3 py-2 text-left text-gray-500 font-medium w-32">字段</th>
+    <th class="px-3 py-2 text-left text-gray-500 font-medium border-l" style="width:calc(50% - 64px)">v${diffData.base_version}（旧值）</th>
+    <th class="px-3 py-2 text-left text-gray-500 font-medium border-l" style="width:calc(50% - 64px)">v${diffData.target_version}（新值）</th>
+  </tr></thead><tbody>`;
+  for (const d of fieldDiffs) {
+    html += `<tr class="border-b border-gray-100">
+      <td class="px-3 py-2.5 align-top"><div class="text-gray-700 font-medium">${d.field_label}</div><div class="text-gray-400 text-[10px]">${d.field}</div></td>
+      <td class="px-3 py-2.5 align-top border-l ${d.diff_type !== 'added' ? 'bg-red-50/50' : ''}"><pre class="whitespace-pre-wrap break-all text-gray-700">${escapeHtml(formatDiffValue(d.old_value))}</pre></td>
+      <td class="px-3 py-2.5 align-top border-l ${d.diff_type !== 'removed' ? 'bg-green-50/50' : ''}"><pre class="whitespace-pre-wrap break-all text-gray-700">${escapeHtml(formatDiffValue(d.new_value))}</pre></td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+function renderSideBySideDiff(oldContent, newContent, filename) {
+  const oldLines = (oldContent || '').split('\n');
+  const newLines = (newContent || '').split('\n');
+  const diffResult = computeLineDiff(oldLines, newLines);
+  let html = `<div class="sticky top-0 bg-gray-50 border-b px-4 py-2 z-10 flex items-center justify-between">
+    <span class="text-xs font-medium text-gray-600">${getFileIcon(filename)} ${escapeHtml(filename)}</span>
+    <div class="flex items-center gap-3 text-[10px]">
+      <span class="text-green-600 font-medium">+${diffResult.additions}</span>
+      <span class="text-red-600 font-medium">-${diffResult.deletions}</span>
+    </div>
+  </div><div class="overflow-auto" style="max-height: calc(75vh - 100px);">
+  <table class="w-full text-xs font-mono border-collapse" style="table-layout: fixed;">
+    <colgroup><col style="width:40px"><col style="width:calc(50% - 40px)"><col style="width:40px"><col style="width:calc(50% - 40px)"></colgroup><tbody>`;
+  for (const row of diffResult.rows) { html += renderDiffRow(row); }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function renderDiffRow(row) {
+  switch (row.type) {
+    case 'equal': return `<tr>
+      <td class="text-right pr-2 text-gray-400 select-none border-r bg-gray-50/50 align-top text-[10px]">${row.leftNum}</td>
+      <td class="px-2 py-0 whitespace-pre-wrap break-all text-gray-600 border-r align-top">${escapeHtml(row.leftLine)}</td>
+      <td class="text-right pr-2 text-gray-400 select-none border-r bg-gray-50/50 align-top text-[10px]">${row.rightNum}</td>
+      <td class="px-2 py-0 whitespace-pre-wrap break-all text-gray-600 align-top">${escapeHtml(row.rightLine)}</td></tr>`;
+    case 'delete': return `<tr>
+      <td class="text-right pr-2 text-red-400 select-none border-r bg-red-100/60 align-top text-[10px]">${row.leftNum}</td>
+      <td class="px-2 py-0 whitespace-pre-wrap break-all bg-red-50 border-r align-top text-red-800">${highlightDiffChars(row.leftLine, row.rightLine, 'delete')}</td>
+      <td class="text-right pr-2 text-gray-300 select-none border-r bg-gray-50 align-top text-[10px]"></td>
+      <td class="px-2 py-0 bg-gray-50/30 align-top"></td></tr>`;
+    case 'insert': return `<tr>
+      <td class="text-right pr-2 text-gray-300 select-none border-r bg-gray-50 align-top text-[10px]"></td>
+      <td class="px-2 py-0 bg-gray-50/30 border-r align-top"></td>
+      <td class="text-right pr-2 text-green-400 select-none border-r bg-green-100/60 align-top text-[10px]">${row.rightNum}</td>
+      <td class="px-2 py-0 whitespace-pre-wrap break-all bg-green-50 align-top text-green-800">${highlightDiffChars(row.leftLine, row.rightLine, 'insert')}</td></tr>`;
+    case 'modify': return `<tr>
+      <td class="text-right pr-2 text-red-400 select-none border-r bg-red-100/60 align-top text-[10px]">${row.leftNum}</td>
+      <td class="px-2 py-0 whitespace-pre-wrap break-all bg-red-50 border-r align-top">${highlightDiffChars(row.leftLine, row.rightLine, 'delete')}</td>
+      <td class="text-right pr-2 text-green-400 select-none border-r bg-green-100/60 align-top text-[10px]">${row.rightNum}</td>
+      <td class="px-2 py-0 whitespace-pre-wrap break-all bg-green-50 align-top">${highlightDiffChars(row.leftLine, row.rightLine, 'insert')}</td></tr>`;
+    case 'separator': return `<tr><td colspan="4" class="text-center py-1 bg-blue-50/50 text-blue-400 text-[10px] border-y border-blue-100">⋯ 折叠 ${row.count} 行 ⋯</td></tr>`;
+    default: return '';
+  }
+}
+
+function highlightDiffChars(oldLine, newLine, side) {
+  if (!oldLine && !newLine) return '';
+  if (!oldLine) return escapeHtml(newLine);
+  if (!newLine) return escapeHtml(oldLine);
+  const line = side === 'delete' ? oldLine : newLine;
+  const other = side === 'delete' ? newLine : oldLine;
+  let prefixLen = 0;
+  const minLen = Math.min(line.length, other.length);
+  while (prefixLen < minLen && line[prefixLen] === other[prefixLen]) prefixLen++;
+  let suffixLen = 0;
+  while (suffixLen < (minLen - prefixLen) && line[line.length - 1 - suffixLen] === other[other.length - 1 - suffixLen]) suffixLen++;
+  const start = prefixLen, end = line.length - suffixLen;
+  if (start >= end) return escapeHtml(line);
+  const bgClass = side === 'delete' ? 'bg-red-200/80 rounded-sm' : 'bg-green-200/80 rounded-sm';
+  return `${escapeHtml(line.substring(0, start))}<mark class="${bgClass}">${escapeHtml(line.substring(start, end))}</mark>${escapeHtml(line.substring(end))}`;
+}
+
+function computeLineDiff(oldLines, newLines) {
+  const n = oldLines.length, m = newLines.length;
+  if (n + m > 5000) return computeSimpleDiff(oldLines, newLines);
+  const dp = Array(n + 1).fill(null).map(() => Array(m + 1).fill(0));
+  for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++) {
+    dp[i][j] = oldLines[i-1] === newLines[j-1] ? dp[i-1][j-1] + 1 : Math.max(dp[i-1][j], dp[i][j-1]);
+  }
+  const ops = [];
+  let i = n, j = m;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldLines[i-1] === newLines[j-1]) { ops.unshift({type:'equal',oldIdx:i-1,newIdx:j-1}); i--;j--; }
+    else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) { ops.unshift({type:'insert',newIdx:j-1}); j--; }
+    else { ops.unshift({type:'delete',oldIdx:i-1}); i--; }
+  }
+  const rows = []; let additions = 0, deletions = 0, leftNum = 0, rightNum = 0, idx2 = 0;
+  while (idx2 < ops.length) {
+    const op = ops[idx2];
+    if (op.type === 'equal') { leftNum++; rightNum++; rows.push({type:'equal',leftNum,rightNum,leftLine:oldLines[op.oldIdx],rightLine:newLines[op.newIdx]}); idx2++; }
+    else if (op.type === 'delete') {
+      if (idx2+1 < ops.length && ops[idx2+1].type === 'insert') { leftNum++; rightNum++; additions++; deletions++;
+        rows.push({type:'modify',leftNum,rightNum,leftLine:oldLines[op.oldIdx],rightLine:newLines[ops[idx2+1].newIdx]}); idx2+=2;
+      } else { leftNum++; deletions++; rows.push({type:'delete',leftNum,rightNum:null,leftLine:oldLines[op.oldIdx],rightLine:null}); idx2++; }
+    } else { rightNum++; additions++; rows.push({type:'insert',leftNum:null,rightNum,leftLine:null,rightLine:newLines[op.newIdx]}); idx2++; }
+  }
+  return { rows: collapseEqualRows(rows), additions, deletions };
+}
+
+function computeSimpleDiff(oldLines, newLines) {
+  const rows = []; let additions = 0, deletions = 0, leftNum = 0, rightNum = 0;
+  const maxLen = Math.max(oldLines.length, newLines.length);
+  for (let i = 0; i < maxLen; i++) {
+    const ol = i < oldLines.length ? oldLines[i] : null;
+    const nl = i < newLines.length ? newLines[i] : null;
+    if (ol === nl) { leftNum++; rightNum++; rows.push({type:'equal',leftNum,rightNum,leftLine:ol,rightLine:nl}); }
+    else if (ol !== null && nl !== null) { leftNum++; rightNum++; additions++; deletions++; rows.push({type:'modify',leftNum,rightNum,leftLine:ol,rightLine:nl}); }
+    else if (ol === null) { rightNum++; additions++; rows.push({type:'insert',leftNum:null,rightNum,leftLine:null,rightLine:nl}); }
+    else { leftNum++; deletions++; rows.push({type:'delete',leftNum,rightNum:null,leftLine:ol,rightLine:null}); }
+  }
+  return { rows: collapseEqualRows(rows), additions, deletions };
+}
+
+function collapseEqualRows(rows) {
+  const CTX = 3; const result = []; let eqStart = -1;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].type === 'equal') { if (eqStart === -1) eqStart = i; }
+    else {
+      if (eqStart !== -1) {
+        const cnt = i - eqStart;
+        if (cnt > CTX * 2 + 1) {
+          for (let k = eqStart; k < eqStart + CTX; k++) result.push(rows[k]);
+          result.push({type:'separator',count:cnt - CTX*2});
+          for (let k = i - CTX; k < i; k++) result.push(rows[k]);
+        } else { for (let k = eqStart; k < i; k++) result.push(rows[k]); }
+        eqStart = -1;
+      }
+      result.push(rows[i]);
+    }
+  }
+  if (eqStart !== -1) {
+    const cnt = rows.length - eqStart;
+    if (cnt > CTX + 1) { for (let k = eqStart; k < eqStart + CTX; k++) result.push(rows[k]); result.push({type:'separator',count:cnt-CTX}); }
+    else { for (let k = eqStart; k < rows.length; k++) result.push(rows[k]); }
+  }
+  return result;
+}
+
+function renderUnifiedDiff(lines) {
+  return lines.map(line => {
+    if (line.startsWith('+++') || line.startsWith('---')) return `<span class="text-gray-500">${escapeHtml(line)}</span>`;
+    else if (line.startsWith('@@')) return `<span class="text-purple-600 font-medium">${escapeHtml(line)}</span>`;
+    else if (line.startsWith('+')) return `<span class="bg-green-100 text-green-800">${escapeHtml(line)}</span>`;
+    else if (line.startsWith('-')) return `<span class="bg-red-100 text-red-800">${escapeHtml(line)}</span>`;
+    return `<span class="text-gray-600">${escapeHtml(line)}</span>`;
+  }).join('\n');
+}
+
+function formatDiffValue(val) {
+  if (val === null || val === undefined || val === '') return '(空)';
+  if (Array.isArray(val)) return JSON.stringify(val, null, 2);
+  if (typeof val === 'object') return JSON.stringify(val, null, 2);
+  return String(val);
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function closeVersionDiff() {
+  document.getElementById('versionDiffSection').classList.add('hidden');
+  diffData = null; activeDiffFile = null; diffTreeExpandState = {};
+}
+
+// ── 发布新版本 ──
+function openPublishVersionDialog() {
+  if (!editingKey) { alert('请先保存技能'); return; }
+
+  // 推算下一个版本号
+  let nextVersion = '1.0.0';
+  if (allVersions.length) {
+    const latest = allVersions[0].version; // 已按时间倒序
+    const parts = latest.split('.').map(Number);
+    parts[2] = (parts[2] || 0) + 1; // patch +1
+    nextVersion = parts.join('.');
+  }
+
+  const modal = document.createElement('div');
+  modal.className = 'fixed inset-0 z-[200] flex items-center justify-center';
+  modal.id = 'publishVersionModal';
+  modal.innerHTML = `
+    <div class="absolute inset-0 bg-black/30 backdrop-blur-sm" onclick="document.getElementById('publishVersionModal').remove()"></div>
+    <div class="relative bg-white rounded-xl shadow-2xl w-[440px] z-10">
+      <div class="flex items-center justify-between px-6 py-4 border-b">
+        <h3 class="font-semibold text-gray-800">创建新版本</h3>
+        <button onclick="document.getElementById('publishVersionModal').remove()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+      </div>
+      <div class="px-6 py-4 space-y-4">
+        <p class="text-xs text-gray-500">将基于当前版本复制一份完整快照（含配置和资源文件）作为新版本。</p>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">版本号 *</label>
+          <input id="pv_version" type="text" value="${nextVersion}" placeholder="1.2.0"
+                 class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none font-mono">
+          <p class="text-[10px] text-gray-400 mt-1">格式：major.minor.patch（如 1.2.0、2.0.0-beta）</p>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">变更说明</label>
+          <textarea id="pv_changelog" rows="3" placeholder="描述本次版本的主要变更..."
+                    class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:outline-none"></textarea>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 px-6 py-4 border-t">
+        <button onclick="document.getElementById('publishVersionModal').remove()" class="px-4 py-1.5 text-sm border rounded-lg hover:bg-gray-50">取消</button>
+        <button onclick="submitPublishVersion()" class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">创建</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+async function submitPublishVersion() {
+  const version = document.getElementById('pv_version').value.trim();
+  const changelog = document.getElementById('pv_changelog').value.trim();
+
+  if (!version) { alert('请输入版本号'); return; }
+  if (!/^\d+\.\d+\.\d+(-[a-zA-Z0-9._-]+)?$/.test(version)) {
+    alert('版本号格式无效，应为 x.y.z 格式（如 1.0.0、2.1.3-beta）');
+    return;
+  }
+
+  try {
+    const res = await fetch(`${SKILL_API}/${editingKey}/versions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version, changelog }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail?.message || `HTTP ${res.status}`);
+    }
+    document.getElementById('publishVersionModal').remove();
+    showToast(`版本 v${version} 发布成功`);
+    loadVersionList(editingKey);
+  } catch (e) {
+    alert('发布失败: ' + e.message);
+  }
+}
+
+// ── 删除版本 ──
+async function deleteVersion(version) {
+  if (!confirm(`确定删除版本 v${version}？该版本的配置和资源文件将被永久删除。`)) return;
+  try {
+    const res = await fetch(`${SKILL_API}/${editingKey}/versions/${version}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail?.message || `HTTP ${res.status}`);
+    }
+    showToast(`版本 v${version} 已删除`);
+    // 如果正在查看被删除的版本，退出查看
+    if (viewingVersion === version) { viewingVersion = null; hideVersionBanner(); setFormReadOnly(false); }
+    loadVersionList(editingKey);
+  } catch (e) {
+    alert('删除失败: ' + e.message);
+  }
+}
+
+// ── 版本回滚 ──
+async function rollbackToVersion(version) {
+  if (!confirm(`确定回滚到 v${version}？当前版本的内容将被覆盖为 v${version} 的快照。`)) return;
+  try {
+    const res = await fetch(`${SKILL_API}/${editingKey}/versions/rollback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_version: version }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail?.message || `HTTP ${res.status}`);
+    }
+    showToast(`已回滚到 v${version}`);
+    viewingVersion = null; hideVersionBanner(); setFormReadOnly(false);
+    editSkill(editingKey);
+  } catch (e) {
+    alert('回滚失败: ' + e.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════

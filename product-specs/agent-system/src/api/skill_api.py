@@ -16,6 +16,13 @@
     - POST   /api/skills/{api_key}/test    测试执行
     - DELETE /api/skills/{api_key}      软删除
 
+    版本管理：
+    - GET    /api/skills/{api_key}/versions              版本列表
+    - GET    /api/skills/{api_key}/versions/{version}    版本详情
+    - POST   /api/skills/{api_key}/versions              发布新版本
+    - GET    /api/skills/{api_key}/versions/diff         两版本差异对比
+    - POST   /api/skills/{api_key}/versions/rollback     回滚到指定版本
+
     资源文件管理（knowledge 目录）：
     - GET    /api/skills/{api_key}/resources             获取资源文件树
     - GET    /api/skills/{api_key}/resources/content     读取文件内容
@@ -35,7 +42,8 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from src.skills.service import SkillService, SkillCreateRequest, SkillUpdateRequest, SkillServiceError
-from src.store.skill_dao import SkillDefinitionDAO
+from src.skills.version_service import SkillVersionService, CreateVersionRequest, SkillVersionError
+from src.store.skill_dao import SkillDAO, SkillDefinitionDAO
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +63,17 @@ def get_skill_service() -> SkillService:
 def set_skill_service(service: SkillService) -> None:
     global _skill_service
     _skill_service = service
+
+
+# 全局 SkillVersionService 实例
+_version_service: SkillVersionService | None = None
+
+
+def get_version_service() -> SkillVersionService:
+    global _version_service
+    if _version_service is None:
+        _version_service = SkillVersionService()
+    return _version_service
 
 
 # ═══════════════════════════════════════════════════════════
@@ -122,6 +141,20 @@ class TestSkillBody(BaseModel):
     arguments: dict[str, str] = Field(default_factory=dict)
 
 
+class PublishVersionBody(BaseModel):
+    """创建新版本请求体"""
+    version: str = Field(..., min_length=5, max_length=30,
+                         description="版本号（semver 格式，如 1.2.0）")
+    changelog: str = Field(default="", max_length=2000,
+                           description="变更说明")
+
+
+class RollbackVersionBody(BaseModel):
+    """版本回滚请求体"""
+    target_version: str = Field(..., min_length=5, max_length=30,
+                                description="要回滚到的目标版本号")
+
+
 # ═══════════════════════════════════════════════════════════
 # 列表
 # ═══════════════════════════════════════════════════════════
@@ -135,24 +168,14 @@ async def list_skills(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    """列出所有 Skill 定义"""
-    # 构建筛选条件
-    status_filter = None
-    if enabled is True:
-        status_filter = "published"
-    elif enabled is False:
-        status_filter = "deprecated"
-
-    rows = SkillDefinitionDAO.list_all(
+    """列出所有 Skill（从 ai_skill 主记录表查询）"""
+    rows = SkillDAO.list_all(
         tenant_id=tenant_id,
-        status=status_filter,
         keyword=keyword or None,
+        category=category or None,
+        enabled=enabled,
         include_platform=True,
     )
-
-    # 按 category 过滤（如果指定）
-    if category:
-        rows = [r for r in rows if getattr(r, "category", "") == category]
 
     # 分页
     total = len(rows)
@@ -164,7 +187,7 @@ async def list_skills(
         "total": total,
         "page": page,
         "page_size": page_size,
-        "items": [_row_to_summary(r) for r in page_rows],
+        "items": [_skill_row_to_summary(r) for r in page_rows],
     }
 
 
@@ -198,9 +221,9 @@ async def list_categories():
 @router.get("/stats")
 async def get_stats(tenant_id: int = Query(0)):
     """获取 Skill 执行统计概览"""
-    rows = SkillDefinitionDAO.list_all(tenant_id=tenant_id, include_platform=True)
+    rows = SkillDAO.list_all(tenant_id=tenant_id, include_platform=True)
     total = len(rows)
-    enabled_count = sum(1 for r in rows if getattr(r, "enabled_flg", 1) == 1)
+    enabled_count = sum(1 for r in rows if r.enabled_flg == 1)
     total_exec = sum(r.exec_count for r in rows)
     total_success = sum(r.success_count for r in rows)
     return {
@@ -219,11 +242,13 @@ async def get_stats(tenant_id: int = Query(0)):
 
 @router.get("/{api_key}")
 async def get_skill(api_key: str, tenant_id: int = Query(0)):
-    """获取 Skill 完整定义"""
-    row = SkillDefinitionDAO.get_by_api_key(tenant_id, api_key)
-    if row is None:
+    """获取 Skill 完整定义（主记录 + 当前版本内容）"""
+    skill = SkillDAO.get_by_api_key(tenant_id, api_key)
+    if skill is None:
         raise HTTPException(status_code=404, detail=f"Skill '{api_key}' not found")
-    return _row_to_detail(row)
+    # 获取当前版本的 definition
+    definition = SkillDefinitionDAO.get_by_version(tenant_id, api_key, skill.current_version)
+    return _skill_to_detail(skill, definition)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -377,6 +402,161 @@ async def delete_skill(api_key: str, tenant_id: int = Query(0)):
 
 
 # ═══════════════════════════════════════════════════════════
+# 版本管理
+# ═══════════════════════════════════════════════════════════
+
+@router.get("/{api_key}/versions")
+async def list_versions(api_key: str, tenant_id: int = Query(0)):
+    """获取 Skill 的版本历史列表（按时间倒序）
+
+    返回所有已发布的版本快照，标记当前生效版本。
+    """
+    service = get_version_service()
+    try:
+        versions = service.list_versions(api_key, tenant_id=tenant_id)
+        return {
+            "skill_api_key": api_key,
+            "total": len(versions),
+            "versions": versions,
+        }
+    except SkillVersionError as e:
+        status = 404 if e.code == "NOT_FOUND" else 400
+        raise HTTPException(status_code=status, detail={"message": str(e), "code": e.code})
+
+
+@router.get("/{api_key}/versions/diff")
+async def diff_versions(
+    api_key: str,
+    base_version: str = Query(..., description="基准版本号（旧版本）"),
+    target_version: str = Query(..., description="目标版本号（新版本）"),
+    tenant_id: int = Query(0),
+):
+    """对比两个版本的差异
+
+    返回字段级差异列表和 prompt 文本的 unified diff。
+
+    示例：GET /api/skills/my-skill/versions/diff?base_version=1.0.0&target_version=1.1.0
+    """
+    service = get_version_service()
+    try:
+        result = service.diff_versions(
+            api_key, base_version, target_version, tenant_id=tenant_id
+        )
+        return {
+            "skill_api_key": result.skill_api_key,
+            "base_version": result.base_version,
+            "target_version": result.target_version,
+            "has_changes": result.has_changes,
+            "summary": result.summary,
+            "field_diffs": [
+                {
+                    "field": d.field,
+                    "field_label": d.field_label,
+                    "old_value": d.old_value,
+                    "new_value": d.new_value,
+                    "diff_type": d.diff_type,
+                }
+                for d in result.field_diffs
+            ],
+            "prompt_diff": result.prompt_diff,
+            "prompt_old": result.prompt_old,
+            "prompt_new": result.prompt_new,
+            "resource_diffs": result.resource_diffs,
+        }
+    except SkillVersionError as e:
+        status = 404 if "NOT_FOUND" in e.code else 400
+        raise HTTPException(status_code=status, detail={"message": str(e), "code": e.code})
+
+
+@router.get("/{api_key}/versions/{version}")
+async def get_version_detail(api_key: str, version: str, tenant_id: int = Query(0)):
+    """获取指定版本的完整快照内容"""
+    service = get_version_service()
+    try:
+        detail = service.get_version_detail(api_key, version, tenant_id=tenant_id)
+        return detail
+    except SkillVersionError as e:
+        status = 404 if "NOT_FOUND" in e.code else 400
+        raise HTTPException(status_code=status, detail={"message": str(e), "code": e.code})
+
+
+@router.post("/{api_key}/versions", status_code=201)
+async def publish_version(api_key: str, body: PublishVersionBody, tenant_id: int = Query(0)):
+    """创建新版本
+
+    从当前 Skill 定义复制一份快照作为新版本，同时复制关联的资源文件。
+    版本号必须为 semver 格式（如 1.2.0）。
+    """
+    service = get_version_service()
+    req = CreateVersionRequest(version=body.version, changelog=body.changelog)
+    try:
+        result = service.create_version(api_key, req, tenant_id=tenant_id)
+        return result
+    except SkillVersionError as e:
+        status = 404 if e.code == "NOT_FOUND" else 400
+        if e.code == "DUPLICATE_VERSION":
+            status = 409
+        raise HTTPException(status_code=status, detail={"message": str(e), "code": e.code})
+
+
+@router.post("/{api_key}/versions/rollback")
+async def rollback_version(api_key: str, body: RollbackVersionBody, tenant_id: int = Query(0)):
+    """切换到指定版本（回滚）
+
+    将目标版本设为当前生效版本，主表字段更新为该版本的快照内容。
+    """
+    service = get_version_service()
+    try:
+        result = service.switch_version(
+            api_key, body.target_version, tenant_id=tenant_id
+        )
+        return result
+    except SkillVersionError as e:
+        status = 404 if "NOT_FOUND" in e.code else 400
+        raise HTTPException(status_code=status, detail={"message": str(e), "code": e.code})
+
+
+@router.get("/{api_key}/versions/{version}/resources")
+async def get_version_resources(api_key: str, version: str, tenant_id: int = Query(0)):
+    """获取指定版本的资源文件列表"""
+    service = get_version_service()
+    files = service.get_version_resources(api_key, version, tenant_id=tenant_id)
+    return {"skill_api_key": api_key, "version": version, "files": files, "total": len(files)}
+
+
+@router.get("/{api_key}/versions/{version}/resources/content")
+async def get_version_resource_content(
+    api_key: str,
+    version: str,
+    path: str = Query(..., description="资源文件路径"),
+    tenant_id: int = Query(0),
+):
+    """读取指定版本的资源文件内容"""
+    service = get_version_service()
+    result = service.get_version_resource_content(api_key, version, path, tenant_id=tenant_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Resource '{path}' not found in version '{version}'")
+    return {"path": path, "version": version, **result}
+
+
+@router.delete("/{api_key}/versions/{version}")
+async def delete_version(api_key: str, version: str, tenant_id: int = Query(0)):
+    """删除历史版本（不能删除当前生效版本）
+
+    同时删除该版本关联的资源文件。
+    """
+    service = get_version_service()
+    try:
+        result = service.delete_version(api_key, version, tenant_id=tenant_id)
+        return result
+    except SkillVersionError as e:
+        status = 404 if "NOT_FOUND" in e.code else 400
+        if e.code == "CANNOT_DELETE_CURRENT":
+            status = 409
+        raise HTTPException(status_code=status, detail={"message": str(e), "code": e.code})
+
+
+# ═══════════════════════════════════════════════════════════
 # 序列化
 # ═══════════════════════════════════════════════════════════
 
@@ -387,24 +567,19 @@ def _safe_json_loads(s: str, default: Any = None) -> Any:
         return default
 
 
-def _row_to_summary(row) -> dict:
+def _skill_row_to_summary(row) -> dict:
+    """ai_skill 行转列表摘要"""
     return {
         "api_key": row.api_key,
         "name": row.name,
         "description": row.description,
-        "when_to_use": row.when_to_use,
-        "category": getattr(row, "category", ""),
-        "tags": _safe_json_loads(getattr(row, "tags", "[]"), []),
-        "context": row.context,
-        "agent": row.agent,
-        "risk_level": row.risk_level,
-        "output_mode": getattr(row, "output_mode", "text"),
-        "version": row.version,
-        "enabled": bool(getattr(row, "enabled_flg", 1)),
-        "system": bool(getattr(row, "system_flg", 0)),
+        "category": row.category,
+        "tags": _safe_json_loads(row.tags, []),
+        "icon": row.icon,
+        "version": row.current_version,
+        "enabled": bool(row.enabled_flg),
+        "system": bool(row.system_flg),
         "owner": row.owner,
-        "arguments": _safe_json_loads(row.arguments, []),
-        "allowed_tools": _safe_json_loads(row.allowed_tools, []),
         "exec_count": row.exec_count,
         "success_count": row.success_count,
         "avg_duration_ms": row.avg_duration_ms,
@@ -414,20 +589,41 @@ def _row_to_summary(row) -> dict:
     }
 
 
-def _row_to_detail(row) -> dict:
-    d = _row_to_summary(row)
-    ext = _safe_json_loads(row.ext_info, {})
+def _skill_to_detail(skill, definition) -> dict:
+    """ai_skill + ai_skill_definition 合并为完整详情"""
+    d = _skill_row_to_summary(skill)
+    ext = _safe_json_loads(skill.ext_info, {})
+    if definition:
+        d.update({
+            "name": definition.name,
+            "description": definition.description,
+            "category": definition.category,
+            "when_to_use": definition.when_to_use,
+            "context": definition.context,
+            "agent": definition.agent,
+            "model": definition.model,
+            "allowed_tools": _safe_json_loads(definition.allowed_tools, []),
+            "arguments": _safe_json_loads(definition.arguments, []),
+            "prompt": definition.prompt,
+            "risk_level": definition.risk_level,
+            "requires_confirmation": bool(definition.requires_confirmation),
+            "max_tool_calls": definition.max_tool_calls,
+            "timeout_ms": definition.timeout_ms,
+            "output_mode": definition.output_mode,
+            "component_apikey": definition.component_apikey,
+            "post_output_behavior": definition.post_output_behavior,
+        })
+    else:
+        # definition 缺失时给默认值
+        d.update({
+            "when_to_use": "", "context": "inline", "agent": "", "model": "",
+            "allowed_tools": [], "arguments": [], "prompt": "",
+            "risk_level": "read_only", "requires_confirmation": False,
+            "max_tool_calls": 20, "timeout_ms": 60000,
+            "output_mode": "text", "component_apikey": "", "post_output_behavior": "silent",
+        })
     d.update({
-        "prompt": row.prompt,
-        "model": row.model,
-        "max_tool_calls": row.max_tool_calls,
-        "timeout_ms": row.timeout_ms,
-        "requires_confirmation": bool(row.requires_confirmation),
-        "idempotent": bool(row.idempotent_flg),
-        "icon": getattr(row, "icon", ""),
-        "sort_num": getattr(row, "sort_num", 0),
-        "output_mode": getattr(row, "output_mode", "text"),
-        "component_apikey": getattr(row, "component_apikey", ""),
+        "sort_num": skill.sort_num,
         "argument_descriptions": ext.get("argument_descriptions", {}),
         "argument_config": ext.get("argument_config", {}),
         "ext_info": ext,
@@ -438,14 +634,13 @@ def _row_to_detail(row) -> dict:
 def _save_argument_ext(tenant_id: int, api_key: str,
                        descriptions: dict[str, str] | None,
                        config: dict[str, Any] | None) -> None:
-    """将 argument_descriptions 和 argument_config 存入 ext_info JSON 字段"""
+    """将 argument_descriptions 和 argument_config 存入 ai_skill.ext_info"""
     from src.store.pg_pool import get_conn
 
     with get_conn() as conn:
         cur = conn.cursor()
-        # 读取当前 ext_info
         cur.execute(
-            "SELECT ext_info FROM ai_skill_definition WHERE tenant_id = %s AND api_key = %s AND delete_flg = 0",
+            "SELECT ext_info FROM ai_skill WHERE tenant_id = %s AND api_key = %s AND delete_flg = 0",
             (tenant_id, api_key),
         )
         row = cur.fetchone()
@@ -458,9 +653,8 @@ def _save_argument_ext(tenant_id: int, api_key: str,
         if config is not None:
             ext["argument_config"] = config
 
-        # 写回
         cur.execute(
-            "UPDATE ai_skill_definition SET ext_info = %s WHERE tenant_id = %s AND api_key = %s AND delete_flg = 0",
+            "UPDATE ai_skill SET ext_info = %s WHERE tenant_id = %s AND api_key = %s AND delete_flg = 0",
             (json.dumps(ext, ensure_ascii=False), tenant_id, api_key),
         )
 
@@ -475,8 +669,12 @@ _save_argument_descriptions = lambda tid, ak, descs: _save_argument_ext(tid, ak,
 
 @router.get("/{api_key}/resources")
 async def get_skill_resources(api_key: str, tenant_id: int = Query(0)):
-    """获取 Skill 的资源文件树"""
+    """获取 Skill 当前版本的资源文件树"""
     from src.store.pg_pool import get_conn
+
+    # 获取当前版本号
+    skill = SkillDAO.get_by_api_key(tenant_id, api_key)
+    version = skill.current_version if skill else "1.0.0"
 
     with get_conn() as conn:
         cur = conn.cursor()
@@ -484,9 +682,9 @@ async def get_skill_resources(api_key: str, tenant_id: int = Query(0)):
             SELECT id, parent_id, node_type, name, path, depth,
                    content_size, description, icon, sort_num, enabled_flg
             FROM ai_skill_resource
-            WHERE skill_api_key = %s AND tenant_id = %s AND delete_flg = 0
+            WHERE skill_api_key = %s AND tenant_id = %s AND version = %s AND delete_flg = 0
             ORDER BY depth, sort_num, name
-        """, (api_key, tenant_id))
+        """, (api_key, tenant_id, version))
         rows = cur.fetchall()
 
     nodes = []
@@ -514,17 +712,20 @@ async def get_skill_resource_content(
     path: str = Query(..., description="资源文件路径"),
     tenant_id: int = Query(0),
 ):
-    """读取 Skill 资源文件内容"""
+    """读取 Skill 当前版本的资源文件内容"""
     from src.store.pg_pool import get_conn
+
+    skill = SkillDAO.get_by_api_key(tenant_id, api_key)
+    version = skill.current_version if skill else "1.0.0"
 
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("""
             SELECT content, content_type, content_size, description
             FROM ai_skill_resource
-            WHERE skill_api_key = %s AND path = %s AND node_type = 'file'
+            WHERE skill_api_key = %s AND path = %s AND version = %s AND node_type = 'file'
                   AND tenant_id = %s AND delete_flg = 0 AND enabled_flg = 1
-        """, (api_key, path, tenant_id))
+        """, (api_key, path, version, tenant_id))
         row = cur.fetchone()
 
     if row is None:
