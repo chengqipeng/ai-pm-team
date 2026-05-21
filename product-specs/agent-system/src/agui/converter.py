@@ -267,7 +267,8 @@ class AGUIConverter:
 
                 try:
                     from src.middleware.tracing import tracing_middleware
-                    desc = f"第{self._step_index}轮: {'生成最终回复 ✅' if is_final else '调用 ' + ', '.join(tool_calls)}"
+                    is_parallel = len(tool_calls) > 1
+                    desc = f"第{self._step_index}轮: {'生成最终回复 ✅' if is_final else ('并行调用 ' if is_parallel else '调用 ') + ', '.join(tool_calls)}"
                     if knowledge_refs:
                         desc += f" | 引用: {', '.join(knowledge_refs)}"
                     tracing_middleware._add_to_thread(
@@ -276,6 +277,8 @@ class AGUIConverter:
                             "iteration": self._step_index,
                             "tool_calls": tool_calls,
                             "is_final": is_final,
+                            "is_parallel": is_parallel,
+                            "tool_call_count": len(tool_calls),
                             "knowledge_refs": knowledge_refs,
                             "output_preview": output_preview[:300],
                             **token_info,
@@ -288,6 +291,7 @@ class AGUIConverter:
                         output_data={
                             "tool_calls": tool_calls,
                             "is_final": is_final,
+                            "is_parallel": is_parallel,
                             "knowledge_refs": knowledge_refs,
                             "output": output_preview[:500],
                             "tokens": token_info if token_info else {},

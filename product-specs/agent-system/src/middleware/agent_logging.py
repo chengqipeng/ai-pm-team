@@ -63,16 +63,18 @@ class AgentLoggingMiddleware(AgentMiddleware):
         tool_calls = getattr(last_msg, "tool_calls", None)
         if tool_calls:
             names = [tc.get("name", "?") for tc in tool_calls]
-            logger.warning("[agent=%s] [循环 #%d] 调用工具: %s",
-                           self._agent_name, loop_num, names)
+            is_parallel = len(names) > 1
+            mode = "并行" if is_parallel else "串行"
+            logger.warning("[agent=%s] [循环 #%d] 🧠 模型推理 → %s调用 %d 个工具: %s",
+                           self._agent_name, loop_num, mode, len(names), names)
         else:
             content = last_msg.content if isinstance(last_msg.content, str) else str(last_msg.content)
-            logger.warning("[agent=%s] [循环 #%d] [FINAL] %s",
+            logger.warning("[agent=%s] [循环 #%d] [FINAL] 🧠 模型推理 → 生成最终回复: %s",
                            self._agent_name, loop_num, _truncate(content, 200))
         return None
 
     def wrap_tool_call(self, request: ToolCallRequest, handler) -> ToolMessage | Command:
-        return self._log_and_call(request, handler, is_async=False)
+        return self._log_and_call(request, handler)
 
     async def awrap_tool_call(self, request: ToolCallRequest, handler) -> ToolMessage | Command:
         return await self._alog_and_call(request, handler)

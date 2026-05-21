@@ -17,6 +17,12 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
 .span-detail { display: none; }
 .span-card.expanded .span-detail { display: block; }
 .span-card.expanded .arrow-icon { transform: rotate(90deg); }
+.loop-group { border-left: 3px solid #a78bfa; padding-left: 12px; margin: 8px 0; }
+.loop-group.final { border-left-color: #22c55e; }
+.parallel-group { border-left: 2px dashed #60a5fa; padding-left: 8px; margin: 4px 0 4px 16px; }
+.compact-group { background: #f8fafc; border-radius: 8px; padding: 6px 10px; margin: 4px 0; }
+.phase-section { margin-bottom: 16px; }
+.phase-header { font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 8px; margin-bottom: 8px; }
 </style>
 </head>
 <body>
@@ -97,7 +103,7 @@ function fT(ts){if(!ts)return'—';const d=new Date(typeof ts==='number'&&ts>1e1
 function fD(ms){if(!ms||ms<=0)return'0ms';return ms>=1000?(ms/1000).toFixed(1)+'s':Math.round(ms)+'ms'}
 function fK(n){if(!n)return'0';return n>=1000?(n/1000).toFixed(1)+'K':String(n)}
 
-const SC={context_build:{icon:'📋',cls:'bg-indigo-50 text-indigo-600'},resource_preload:{icon:'📚',cls:'bg-teal-50 text-teal-600'},memory_retrieval:{icon:'🔍',cls:'bg-blue-50 text-blue-600'},intent_analysis:{icon:'🧠',cls:'bg-purple-50 text-purple-600'},llm_call:{icon:'⚡',cls:'bg-blue-50 text-blue-600'},tool_call:{icon:'🔧',cls:'bg-amber-50 text-amber-600'},memory_extract:{icon:'💾',cls:'bg-indigo-50 text-indigo-600'},hierarchical_search:{icon:'🌲',cls:'bg-green-50 text-green-600'},error:{icon:'❌',cls:'bg-red-50 text-red-600'},done:{icon:'🏁',cls:'bg-green-50 text-green-600'}};
+const SC={context_build:{icon:'📋',cls:'bg-indigo-50 text-indigo-600'},resource_preload:{icon:'📚',cls:'bg-teal-50 text-teal-600'},memory_retrieval:{icon:'🔍',cls:'bg-blue-50 text-blue-600'},intent_analysis:{icon:'🧠',cls:'bg-purple-50 text-purple-600'},llm_call:{icon:'⚡',cls:'bg-blue-50 text-blue-600'},llm_input:{icon:'📝',cls:'bg-slate-50 text-slate-600'},tool_call:{icon:'🔧',cls:'bg-amber-50 text-amber-600'},tool_result_compact:{icon:'📦',cls:'bg-orange-50 text-orange-600'},skill_execution:{icon:'🎯',cls:'bg-pink-50 text-pink-600'},memory_extract:{icon:'💾',cls:'bg-indigo-50 text-indigo-600'},hierarchical_search:{icon:'🌲',cls:'bg-green-50 text-green-600'},middleware:{icon:'⚙️',cls:'bg-gray-50 text-gray-500'},content_review:{icon:'🛡️',cls:'bg-yellow-50 text-yellow-600'},query_rewrite:{icon:'✏️',cls:'bg-cyan-50 text-cyan-600'},error:{icon:'❌',cls:'bg-red-50 text-red-600'},done:{icon:'🏁',cls:'bg-green-50 text-green-600'}};
 function gc(type){return SC[type]||{icon:'📋',cls:'bg-gray-50 text-gray-600'}}
 
 // ═══ 加载 Trace 列表 ═══
@@ -117,10 +123,8 @@ function renderList(){
   let filtered=curTraces;
   if(st)filtered=filtered.filter(t=>t.status===st);
   if(th)filtered=filtered.filter(t=>(t.thread_id||'').toLowerCase().includes(th));
-
   const el=document.getElementById('trace-sidebar-list');
   if(!filtered.length){el.innerHTML='<div class="text-center text-gray-400 text-xs py-10">暂无数据</div>';return}
-
   el.innerHTML=filtered.map(t=>`
     <div onclick="loadDetail('${t.trace_id}')" class="group flex flex-col gap-1 px-4 py-3 rounded-xl cursor-pointer transition-all ${selectedTraceId===t.trace_id?'bg-white shadow-sm ring-1 ring-black/5':'hover:bg-white/60'}">
       <p class="text-xs font-medium text-gray-800 truncate">${esc(trunc(t.user_input||'无输入',35))}</p>
@@ -146,13 +150,16 @@ async function loadDetail(traceId){
   }catch(e){el.innerHTML='<div class="text-center text-red-400 py-20">加载失败</div>'}
 }
 
+// ═══ 核心：结构化渲染 Trace 详情 ═══
+// 将 flat spans 按阶段分组，Agent Loop 内按循环分组，区分并行/串行工具调用
+
 function renderDetail(trace){
   const el=document.getElementById('main-content');
   const spans=trace.spans||[];
   const maxD=trace.total_duration_ms||1;
   let totalTok=trace.total_tokens||0;
 
-  // 统计头部
+  // ── 统计头部 ──
   let html=`
     <div class="mb-6 p-5 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/40 shadow-sm">
       <div class="flex items-center justify-between mb-4">
@@ -171,80 +178,401 @@ function renderDetail(trace){
       </div>
     </div>`;
 
-  // Span 列表
-  html+='<div class="space-y-2">';
-  spans.forEach((s,i)=>{
-    const cfg=gc(s.type);
-    const m=s.metadata||{};
-    const barPct=Math.max(2,Math.round((s.duration_ms||0)/maxD*100));
+  // ── 将 spans 分为三个阶段 ──
+  const structured = structureSpans(spans);
+  html += renderContextPhase(structured.context, maxD);
+  html += renderReasoningPhase(structured.reasoning, maxD);
+  html += renderPostPhase(structured.post, maxD);
 
-    // 构建 badges
-    let badges='';
-    if(s.status==='skipped'){
-      badges+=`<span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 text-[9px] font-bold">SKIPPED</span>`;
-    }
-    if(s.type==='llm_call'){
-      if(m.iteration)badges+=`<span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-[9px] font-bold">第${m.iteration}轮</span>`;
-      if(m.output_tokens)badges+=`<span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-[9px] font-bold">${fK(m.output_tokens)} tok</span>`;
-      if(m.tool_calls&&m.tool_calls.length)badges+=m.tool_calls.map(t=>`<span class="px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 text-[9px] font-bold">→${esc(t)}</span>`).join('');
-      if(m.is_final)badges+=`<span class="px-1.5 py-0.5 rounded bg-green-50 text-green-600 text-[9px] font-bold">✓ 最终</span>`;
-    }else if(s.type==='memory_retrieval'){
-      if(m.query_used)badges+=`<span class="px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 text-[9px] font-bold">"${trunc(m.query_used,20)}"</span>`;
-      if(m.hit_count!=null)badges+=`<span class="px-1.5 py-0.5 rounded bg-green-50 text-green-600 text-[9px] font-bold">${m.hit_count}条</span>`;
-    }else if(s.type==='tool_call'){
-      if(m.status)badges+=`<span class="px-1.5 py-0.5 rounded ${m.status==='error'?'bg-red-50 text-red-600':'bg-green-50 text-green-600'} text-[9px] font-bold">${m.status}</span>`;
-    }else if(s.type==='intent_analysis'){
-      if(m.task_type)badges+=`<span class="px-1.5 py-0.5 rounded bg-pink-50 text-pink-600 text-[9px] font-bold">${m.task_type}</span>`;
-    }
-
-    // 详情内容
-    let detailHtml='';
-    if(s.type==='tool_call'){
-      const inp=m.input||(s.input_data||{}).input||'';
-      const out=m.output||'';
-      if(inp)detailHtml+=`<div class="mb-2"><div class="text-[10px] font-bold text-gray-400 uppercase mb-1">输入</div><pre class="bg-white rounded-xl p-3 border border-gray-100 text-[11px] text-gray-600 whitespace-pre-wrap overflow-x-auto max-h-[200px]">${esc(inp)}</pre></div>`;
-      if(out)detailHtml+=`<div><div class="text-[10px] font-bold text-gray-400 uppercase mb-1">输出</div><pre class="bg-white rounded-xl p-3 border border-gray-100 text-[11px] text-gray-600 whitespace-pre-wrap overflow-x-auto max-h-[200px]">${esc(out)}</pre></div>`;
-    }else if(s.type==='llm_call'&&m.output_preview){
-      detailHtml+=`<div><div class="text-[10px] font-bold text-gray-400 uppercase mb-1">LLM 输出</div><pre class="bg-white rounded-xl p-3 border border-gray-100 text-[11px] text-gray-600 whitespace-pre-wrap overflow-x-auto max-h-[200px]">${esc(m.output_preview)}</pre></div>`;
-    }else if(s.type==='memory_retrieval'&&m.items_preview&&m.items_preview.length){
-      detailHtml+=`<div><div class="text-[10px] font-bold text-gray-400 uppercase mb-1">检索结果</div><div class="space-y-1">${m.items_preview.map(it=>`<div class="bg-white rounded-lg p-2 border border-gray-100 text-[11px]"><span class="text-purple-500 font-bold">[${esc(it.dimension)}]</span> ${esc(it.content)}</div>`).join('')}</div></div>`;
-    }
-    if(!detailHtml&&Object.keys(m).length>0){
-      detailHtml=`<div><div class="text-[10px] font-bold text-gray-400 uppercase mb-1">Metadata</div><pre class="bg-white rounded-xl p-3 border border-gray-100 text-[11px] text-gray-600 whitespace-pre-wrap overflow-x-auto max-h-[200px]">${esc(JSON.stringify(m,null,2))}</pre></div>`;
-    }
-
-    html+=`
-      <div id="span-${i}" class="span-card rounded-2xl bg-white/70 backdrop-blur-sm border border-white/40 shadow-sm hover:shadow-md transition-all overflow-hidden animate-fade-in">
-        <div onclick="document.getElementById('span-${i}').classList.toggle('expanded')" class="flex items-center gap-3 p-4 cursor-pointer">
-          <div class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${cfg.cls} text-sm">${cfg.icon}</div>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-xs font-bold text-gray-800">${esc(s.name||s.type)}</span>
-              ${badges}
-            </div>
-          </div>
-          <span class="text-xs font-bold text-blue-600 shrink-0">${fD(s.duration_ms)}</span>
-          <svg class="arrow-icon w-4 h-4 text-gray-300 shrink-0 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-        </div>
-        <!-- 进度条 -->
-        <div class="h-0.5 mx-4 mb-1 bg-gray-100 rounded-full"><div class="h-full rounded-full bg-blue-400/60" style="width:${barPct}%"></div></div>
-        <!-- 详情 -->
-        <div class="span-detail p-4 pt-2 border-t border-gray-100/50 bg-gray-50/30 space-y-2">
-          ${detailHtml||'<p class="text-[11px] text-gray-400">无详细数据</p>'}
-        </div>
-      </div>`;
-  });
-  html+='</div>';
-
-  // 用户输入 & Agent 输出
+  // ── 用户输入 & Agent 输出 ──
   if(trace.user_input||trace.agent_output){
     html+=`<div class="mt-6 p-5 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/40 shadow-sm space-y-4">
       ${trace.user_input?`<div><div class="text-[10px] font-bold text-gray-400 uppercase mb-2">👤 用户输入</div><p class="text-sm text-gray-700 leading-relaxed">${esc(trace.user_input)}</p></div>`:''}
       ${trace.agent_output?`<div><div class="text-[10px] font-bold text-gray-400 uppercase mb-2">⚡ Agent 输出</div><p class="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">${esc(trunc(trace.agent_output,2000))}</p></div>`:''}
     </div>`;
   }
-
   el.innerHTML=html;
+}
+
+// ═══ Span 结构化分组逻辑 ═══
+// 按 phase 字段 + span type 将 flat spans 分为 context / reasoning / post 三阶段
+// reasoning 阶段内部按 llm_call 切分为循环（loop）
+
+function structureSpans(spans) {
+  const context = [];   // 上下文准备阶段
+  const reasoning = []; // Agent Loop 推理阶段（含循环）
+  const post = [];      // 后处理阶段
+
+  // 阶段判定：context 类型的 span
+  const CONTEXT_TYPES = new Set(['context_build', 'resource_preload', 'memory_retrieval', 'content_review', 'query_rewrite']);
+  const POST_TYPES = new Set(['memory_extract']);
+
+  // 第一遍：按阶段分桶
+  for (const s of spans) {
+    const phase = s.phase || '';
+    const type = s.type || '';
+
+    if (CONTEXT_TYPES.has(type) || phase === 'context' || phase === 'entry') {
+      context.push(s);
+    } else if (POST_TYPES.has(type) || phase === 'post') {
+      post.push(s);
+    } else {
+      // reasoning 阶段：llm_call, tool_call, skill_execution, middleware, tool_result_compact, llm_input, intent_analysis
+      reasoning.push(s);
+    }
+  }
+
+  return { context, reasoning, post };
+}
+
+// ═══ 渲染上下文准备阶段 ═══
+function renderContextPhase(spans, maxD) {
+  if (!spans.length) return '';
+  // 分离中间件 spans 和核心 spans
+  const mwSpans = spans.filter(s => s.type === 'middleware');
+  const coreSpans = spans.filter(s => s.type !== 'middleware');
+
+  let html = `<div class="phase-section">
+    <div class="phase-header bg-blue-50 text-blue-700">📦 上下文准备</div>
+    <div class="space-y-1.5 pl-3">`;
+
+  // 渲染核心 spans（resource_preload, memory_retrieval 等）
+  for (const s of coreSpans) {
+    html += renderSimpleSpan(s, maxD);
+  }
+
+  // 中间件折叠显示
+  if (mwSpans.length) {
+    const totalMwDur = mwSpans.reduce((sum, s) => sum + (s.duration_ms || 0), 0);
+    const mwId = 'ctx-mw-' + Math.random().toString(36).slice(2, 8);
+    html += `<details class="compact-group">
+      <summary class="cursor-pointer text-[10px] text-gray-500 font-medium">
+        ⚙️ ${mwSpans.length} 个中间件 · ${fD(totalMwDur)}
+      </summary>
+      <div class="mt-1 space-y-0.5 pl-2">`;
+    for (const mw of mwSpans) {
+      const name = (mw.metadata||{}).middleware_name || mw.name || '';
+      const effect = (mw.metadata||{}).has_effect;
+      html += `<div class="text-[10px] text-gray-400">· ${esc(name)} · ${fD(mw.duration_ms)}${effect?' → <span class="text-blue-500">已修改</span>':''}</div>`;
+    }
+    html += `</div></details>`;
+  }
+
+  html += `</div></div>`;
+  return html;
+}
+
+// ═══ 渲染推理阶段（Agent Loop）— 按循环分组 ═══
+function renderReasoningPhase(spans, maxD) {
+  if (!spans.length) return '';
+
+  // 将 reasoning spans 按循环分组
+  // 规则：每个 llm_call span 开始一个新循环
+  // 循环内包含：该 llm_call 之前的 compact/middleware spans + llm_call 本身 + 后续 tool_call/skill spans
+  const loops = groupIntoLoops(spans);
+
+  let html = `<div class="phase-section">
+    <div class="phase-header bg-purple-50 text-purple-700">⚡ 模型推理 Agent Loop</div>
+    <div class="space-y-2">`;
+
+  loops.forEach((loop, idx) => {
+    html += renderLoop(loop, idx, loops.length, maxD);
+  });
+
+  html += `</div></div>`;
+  return html;
+}
+
+// 将 reasoning spans 按 llm_call 切分为循环
+// 关键认知：
+//   - compact spans（tool_result_compact）是在 awrap_tool_call 中产生的，
+//     即工具执行完成后立即记录，属于当前循环的工具执行阶段
+//   - 由于中间件嵌套顺序，compact span 可能出现在 span 列表中的任意位置
+//   - 使用 metadata.iteration 字段来精确归组（如果有的话）
+//   - 如果没有 iteration 字段，则按出现顺序归入当前循环
+function groupIntoLoops(spans) {
+  // 第一遍：找出所有 llm_call 及其 iteration 编号
+  const llmCalls = [];
+  for (let i = 0; i < spans.length; i++) {
+    if (spans[i].type === 'llm_call') {
+      const iter = (spans[i].metadata||{}).iteration || (llmCalls.length + 1);
+      llmCalls.push({ index: i, span: spans[i], iteration: iter });
+    }
+  }
+
+  // 如果没有 llm_call，所有 spans 归入一个循环
+  if (!llmCalls.length) {
+    return [{ llmCall: null, beforeSpans: spans.slice(), toolCalls: [], compactSpans: [], afterMw: [], wrapMw: [] }];
+  }
+
+  // 第二遍：按 llm_call 位置切分区间，每个区间是一个循环
+  const loops = [];
+  for (let li = 0; li < llmCalls.length; li++) {
+    const llmInfo = llmCalls[li];
+    const startIdx = (li === 0) ? 0 : llmCalls[li - 1].index + 1;
+    const endIdx = (li < llmCalls.length - 1) ? llmCalls[li + 1].index : spans.length;
+
+    const loop = {
+      llmCall: llmInfo.span,
+      iteration: llmInfo.iteration,
+      beforeSpans: [],
+      toolCalls: [],
+      compactSpans: [],
+      afterMw: [],
+      wrapMw: [],
+    };
+
+    // 处理 llm_call 之前的 spans（属于本循环的 before_model）
+    for (let i = startIdx; i < llmInfo.index; i++) {
+      const s = spans[i];
+      if (s.type === 'tool_result_compact') {
+        // compact span 在 llm_call 之前出现 → 属于上一个循环的工具结果
+        // 归入上一个循环（如果有的话）
+        if (loops.length > 0) {
+          loops[loops.length - 1].compactSpans.push(s);
+        } else {
+          loop.beforeSpans.push(s);
+        }
+      } else if (s.type === 'middleware') {
+        const phase = (s.metadata||{}).phase || (s.input_data||{}).phase || '';
+        if (phase === 'before_model') {
+          loop.beforeSpans.push(s);
+        } else {
+          loop.beforeSpans.push(s);
+        }
+      } else {
+        loop.beforeSpans.push(s);
+      }
+    }
+
+    // 处理 llm_call 之后的 spans（工具调用、after_model 中间件、compact）
+    for (let i = llmInfo.index + 1; i < endIdx; i++) {
+      const s = spans[i];
+      if (s.type === 'tool_call' || s.type === 'skill_execution') {
+        loop.toolCalls.push(s);
+      } else if (s.type === 'tool_result_compact') {
+        loop.compactSpans.push(s);
+      } else if (s.type === 'middleware') {
+        const phase = (s.metadata||{}).phase || (s.input_data||{}).phase || '';
+        if (phase === 'after_model') {
+          loop.afterMw.push(s);
+        } else if (phase === 'wrap_tool_call') {
+          loop.wrapMw.push(s);
+        } else {
+          loop.afterMw.push(s);
+        }
+      } else {
+        loop.afterMw.push(s);
+      }
+    }
+
+    loops.push(loop);
+  }
+
+  return loops;
+}
+
+// ═══ 渲染单个循环 ═══
+function renderLoop(loop, idx, totalLoops, maxD) {
+  const llm = loop.llmCall;
+  const m = llm ? (llm.metadata || {}) : {};
+  const isFinal = m.is_final || false;
+  const iteration = m.iteration || (idx + 1);
+  const toolCalls = m.tool_calls || [];
+  const knowledgeRefs = m.knowledge_refs || [];
+  const isParallel = toolCalls.length > 1;
+
+  // 循环标题
+  let loopLabel = '';
+  if (isFinal) {
+    loopLabel = `循环 ${iteration} [FINAL]（生成最终回复）`;
+  } else if (toolCalls.length) {
+    if (isParallel) {
+      loopLabel = `循环 ${iteration}（并行调用 ${toolCalls.join(' + ')}）`;
+    } else {
+      loopLabel = `循环 ${iteration}（调用 ${toolCalls[0] || '工具'}）`;
+    }
+  } else {
+    loopLabel = `循环 ${iteration}`;
+  }
+
+  let html = `<div class="loop-group ${isFinal ? 'final' : ''}">
+    <div class="text-[11px] font-bold ${isFinal ? 'text-green-600' : 'text-purple-600'} mb-1.5">├─ ${esc(loopLabel)}</div>
+    <div class="space-y-1 pl-2">`;
+
+  // 1. before_model 中间件（折叠）
+  const beforeMw = loop.beforeSpans.filter(s => s.type === 'middleware');
+  const beforeOther = loop.beforeSpans.filter(s => s.type !== 'middleware');
+  for (const s of beforeOther) {
+    html += renderSimpleSpan(s, maxD);
+  }
+  if (beforeMw.length) {
+    const totalDur = beforeMw.reduce((sum, s) => sum + (s.duration_ms||0), 0);
+    html += `<div class="text-[10px] text-gray-400">· ContextWindowMiddleware · ${fD(totalDur)}</div>`;
+  }
+
+  // 2. LLM 推理
+  if (llm) {
+    const dur = llm.duration_ms || 0;
+    let desc = isFinal ? '生成最终回复 ✅' : (toolCalls.length ? `决定调用 ${toolCalls.join(', ')}` : '推理中');
+    html += `<div class="flex items-center gap-2 py-0.5">
+      <span class="text-[11px]">🧠</span>
+      <span class="text-[11px] font-medium text-gray-700">模型推理 → ${esc(desc)}</span>
+      <span class="text-[10px] text-blue-500 font-bold">${fD(dur)}</span>
+    </div>`;
+    // 知识引用
+    if (knowledgeRefs.length) {
+      html += `<div class="text-[10px] text-teal-500 pl-5">📚 引用: ${knowledgeRefs.map(r=>esc(r)).join(', ')}</div>`;
+    }
+  }
+
+  // 3. after_model 中间件（折叠为一行）
+  const afterMwReal = loop.afterMw.filter(s => s.type === 'middleware');
+  if (afterMwReal.length) {
+    const names = afterMwReal.map(s => (s.metadata||{}).middleware_name || '').filter(Boolean);
+    html += `<div class="text-[10px] text-gray-400">· ${names.join(' · ')}</div>`;
+  }
+
+  // 4. 工具调用
+  if (loop.toolCalls.length) {
+    if (isParallel && loop.toolCalls.length > 1) {
+      // 并行工具调用 — 用虚线框标记
+      html += `<div class="parallel-group">
+        <div class="text-[10px] text-blue-500 font-medium mb-1">⫘ 并行执行 (${loop.toolCalls.length} 个工具)</div>`;
+      for (const tc of loop.toolCalls) {
+        html += renderToolSpan(tc, maxD);
+      }
+      html += `</div>`;
+    } else {
+      // 串行工具调用
+      for (const tc of loop.toolCalls) {
+        if (loop.wrapMw.length) {
+          const wrapNames = loop.wrapMw.map(s => (s.metadata||{}).middleware_name || '').filter(Boolean);
+          if (wrapNames.length) {
+            html += `<div class="text-[10px] text-gray-400 pl-2">· ${wrapNames.join(' · ')}</div>`;
+          }
+          loop.wrapMw = [];
+        }
+        html += renderToolSpan(tc, maxD);
+      }
+    }
+  }
+
+  // 5. 源头压缩记录（工具执行后产生的压缩结果，属于本循环）
+  if (loop.compactSpans.length) {
+    // 分为实际压缩和跳过（保留原文）两类
+    const compressed = loop.compactSpans.filter(s => (s.output_data||{}).action !== 'skip');
+    const skipped = loop.compactSpans.filter(s => (s.output_data||{}).action === 'skip');
+
+    if (compressed.length) {
+      html += `<details class="compact-group" style="margin-top:4px;">
+        <summary class="cursor-pointer text-[10px] text-orange-600 font-medium">
+          📦 源头压缩: ${compressed.length} 个工具结果已压缩
+        </summary>
+        <div class="mt-1 space-y-0.5 pl-2">`;
+      for (const cs of compressed) {
+        const od = cs.output_data || {};
+        const id = cs.input_data || {};
+        const toolName = id.tool_name || (cs.metadata||{}).tool_name || '?';
+        const orig = id.original_length || 0;
+        const summ = od.summary_length || 0;
+        const ratio = od.compression_ratio || '';
+        html += `<div class="text-[10px] text-orange-500">· ${esc(toolName)} ${orig}→${summ}字符 (${ratio})</div>`;
+      }
+      html += `</div></details>`;
+    }
+    // 跳过的不显示（保留原文 = 无需关注）
+  }
+
+  html += `</div></div>`;
+  return html;
+}
+
+// ═══ 渲染工具/技能 span ═══
+function renderToolSpan(s, maxD) {
+  const m = s.metadata || {};
+  const toolName = m.tool_name || m.skill_name || s.name || '';
+  const status = m.status || s.status || 'success';
+  const isError = status === 'error';
+  const dur = s.duration_ms || 0;
+  const icon = isError ? '❌' : '✓';
+  const colorCls = isError ? 'text-red-500' : 'text-green-500';
+
+  let label = '';
+  if (s.type === 'skill_execution') {
+    const mode = m.context_mode || '';
+    label = `skill:${m.skill_name || m.skill_apikey || '?'}${mode ? ' [' + mode + ']' : ''}`;
+  } else {
+    label = `tool:${toolName}`;
+  }
+
+  let html = `<div class="flex items-center gap-2 py-0.5 ${isError ? 'bg-red-50/50 rounded px-1 -mx-1' : ''}">
+    <span class="text-[11px] ${colorCls} font-bold">${icon}</span>
+    <span class="text-[11px] font-medium ${isError ? 'text-red-600' : 'text-gray-700'}">${esc(label)}</span>
+    <span class="text-[10px] text-blue-500 font-bold">${fD(dur)}</span>`;
+
+  // 错误信息
+  if (isError && (m.error || (s.output_data||{}).error)) {
+    const errMsg = m.error || (s.output_data||{}).error || '';
+    html += `<span class="text-[9px] text-red-400 truncate max-w-[200px]">${esc(trunc(errMsg, 60))}</span>`;
+  }
+
+  html += `</div>`;
+
+  // 子 Agent 展开（skill_execution with fork mode）
+  if (s.type === 'skill_execution' && s.children && s.children.length) {
+    html += `<div class="ml-4 mt-1 p-2 border border-orange-200 rounded-lg bg-orange-50/30">
+      <div class="text-[10px] text-orange-600 font-bold mb-1">🤖 子 Agent: ${esc(m.skill_name||'')} [${m.context_mode||'fork'}]</div>
+      <div class="space-y-0.5 pl-2 border-l border-orange-200">`;
+    for (const child of s.children) {
+      html += `<div class="text-[9px] text-gray-500">${esc(child.name||child.type)} · ${fD(child.duration_ms)}</div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  return html;
+}
+
+// ═══ 渲染后处理阶段 ═══
+function renderPostPhase(spans, maxD) {
+  if (!spans.length) return '';
+  let html = `<div class="phase-section">
+    <div class="phase-header bg-indigo-50 text-indigo-700">💾 后处理</div>
+    <div class="space-y-1.5 pl-3">`;
+  for (const s of spans) {
+    html += renderSimpleSpan(s, maxD);
+  }
+  html += `</div></div>`;
+  return html;
+}
+
+// ═══ 渲染简单 span（通用） ═══
+function renderSimpleSpan(s, maxD) {
+  const cfg = gc(s.type);
+  const m = s.metadata || {};
+  const dur = s.duration_ms || 0;
+  let desc = s.detail || s.name || s.type;
+
+  // 特殊类型的描述增强
+  if (s.type === 'resource_preload') {
+    const od = s.output_data || {};
+    desc = `知识预加载 · 预加载 ${od.preload_loaded||od.loaded_count||'?'} 个知识文件`;
+  } else if (s.type === 'memory_retrieval') {
+    const hitCount = m.hit_count != null ? m.hit_count : ((s.output_data||{}).hit_count || 0);
+    desc = `记忆检索 — 命中 ${hitCount} 条`;
+  } else if (s.type === 'context_build') {
+    const od = s.output_data || s.input_data || {};
+    desc = `上下文构建: ${od.total_messages||od.message_count||'?'} 条消息, 预估 ${od.estimated_tokens||'?'} tokens`;
+  } else if (s.type === 'memory_extract') {
+    const od = s.output_data || {};
+    desc = `记忆提取 — ${od.extracted_count||0} 条新记忆`;
+  }
+
+  return `<div class="flex items-center gap-2 py-0.5">
+    <span class="text-[11px]">${cfg.icon}</span>
+    <span class="text-[11px] text-gray-600">${esc(trunc(desc, 80))}</span>
+    <span class="text-[10px] text-blue-500 font-bold">${fD(dur)}</span>
+  </div>`;
 }
 
 // 显示当前浏览器的 user_id（与对话页一致）

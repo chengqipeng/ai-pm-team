@@ -413,29 +413,42 @@ class ContextWindowMiddleware(AgentMiddleware):
                              skipped: bool = False,
                              original_content: str = "", summary_content: str = "",
                              tool_call_id: str = "") -> None:
-        """记录源头压缩 span（含原文和压缩后内容）"""
+        """记录源头压缩 span（含原文和压缩后内容）
+
+        注意：此方法在 awrap_tool_call 中调用，即工具执行完成后立即记录。
+        compact span 属于当前循环的工具执行阶段（不是下一个循环的 before_model）。
+        通过 _iter_count 标记所属循环，供前端正确归组。
+        """
         try:
             from src.middleware.tracing import tracing_middleware
             config = TOOL_THRESHOLDS.get(tool_name, DEFAULT_TOOL_THRESHOLD)
+            # 获取当前循环编号（与 TracingMiddleware 的 _iter_count 一致）
+            tid = tracing_middleware._tid()
+            current_iteration = tracing_middleware._iter_count.get(tid, 0)
+
             if skipped:
                 tracing_middleware._add("tool_result_compact", f"compact:{tool_name}", 0,
-                    metadata={"tool_name": tool_name, "tool_call_id": tool_call_id},
+                    metadata={"tool_name": tool_name, "tool_call_id": tool_call_id,
+                              "iteration": current_iteration},
                     input_data={"tool_name": tool_name, "content_length": original_len,
                                 "threshold": config["threshold"],
-                                "tool_call_id": tool_call_id},
+                                "tool_call_id": tool_call_id,
+                                "iteration": current_iteration},
                     output_data={"action": "skip", "reason": f"未超阈值({original_len}/{config['threshold']})"},
                     detail=f"上下文检查: {tool_name} {original_len}字符 ≤ 阈值{config['threshold']} → 保留原文",
                 )
             else:
                 ratio = round(1 - summary_len / max(original_len, 1), 2)
                 tracing_middleware._add("tool_result_compact", f"compact:{tool_name}", 0,
-                    metadata={"tool_name": tool_name, "tool_call_id": tool_call_id},
+                    metadata={"tool_name": tool_name, "tool_call_id": tool_call_id,
+                              "iteration": current_iteration},
                     input_data={
                         "tool_name": tool_name,
                         "original_length": original_len,
                         "threshold": config["threshold"],
                         "original_content": original_content[:2000],
                         "tool_call_id": tool_call_id,
+                        "iteration": current_iteration,
                     },
                     output_data={
                         "summary_length": summary_len,
