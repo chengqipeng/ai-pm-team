@@ -104,6 +104,7 @@ class ContextWindowMiddleware(AgentMiddleware):
 
     async def awrap_tool_call(self, request: ToolCallRequest, handler) -> ToolMessage | Command:
         tool_name = request.tool_call.get("name", "unknown")
+        tool_call_id = request.tool_call.get("id", "")
 
         result = await handler(request)
 
@@ -121,7 +122,8 @@ class ContextWindowMiddleware(AgentMiddleware):
 
         if len(content) <= threshold:
             # 未超阈值，记录跳过 span
-            self._record_compact_span(tool_name, len(content), len(content), skipped=True)
+            self._record_compact_span(tool_name, len(content), len(content),
+                                      skipped=True, tool_call_id=tool_call_id)
             return result
 
         original_len = len(content)
@@ -145,7 +147,8 @@ class ContextWindowMiddleware(AgentMiddleware):
 
         # Tracing（含原文和摘要内容）
         self._record_compact_span(tool_name, original_len, len(summary),
-                                  original_content=content, summary_content=summary)
+                                  original_content=content, summary_content=summary,
+                                  tool_call_id=tool_call_id)
         return result
 
     async def _llm_summarize(self, content: str, tool_name: str, max_words: int) -> str | None:
@@ -408,28 +411,31 @@ class ContextWindowMiddleware(AgentMiddleware):
 
     def _record_compact_span(self, tool_name: str, original_len: int, summary_len: int,
                              skipped: bool = False,
-                             original_content: str = "", summary_content: str = "") -> None:
+                             original_content: str = "", summary_content: str = "",
+                             tool_call_id: str = "") -> None:
         """记录源头压缩 span（含原文和压缩后内容）"""
         try:
             from src.middleware.tracing import tracing_middleware
             config = TOOL_THRESHOLDS.get(tool_name, DEFAULT_TOOL_THRESHOLD)
             if skipped:
                 tracing_middleware._add("tool_result_compact", f"compact:{tool_name}", 0,
-                    metadata={"tool_name": tool_name},
+                    metadata={"tool_name": tool_name, "tool_call_id": tool_call_id},
                     input_data={"tool_name": tool_name, "content_length": original_len,
-                                "threshold": config["threshold"]},
+                                "threshold": config["threshold"],
+                                "tool_call_id": tool_call_id},
                     output_data={"action": "skip", "reason": f"未超阈值({original_len}/{config['threshold']})"},
                     detail=f"上下文检查: {tool_name} {original_len}字符 ≤ 阈值{config['threshold']} → 保留原文",
                 )
             else:
                 ratio = round(1 - summary_len / max(original_len, 1), 2)
                 tracing_middleware._add("tool_result_compact", f"compact:{tool_name}", 0,
-                    metadata={"tool_name": tool_name},
+                    metadata={"tool_name": tool_name, "tool_call_id": tool_call_id},
                     input_data={
                         "tool_name": tool_name,
                         "original_length": original_len,
                         "threshold": config["threshold"],
                         "original_content": original_content[:2000],
+                        "tool_call_id": tool_call_id,
                     },
                     output_data={
                         "summary_length": summary_len,

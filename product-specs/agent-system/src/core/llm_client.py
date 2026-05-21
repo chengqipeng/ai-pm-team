@@ -88,21 +88,21 @@ class DeepSeekClient(LLMClient):
     - 错误处理与分类
     """
 
-    DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3/"
+    DEFAULT_BASE_URL = "https://tokenhub.tencentmaas.com/v1"
 
     def __init__(
         self,
         api_key: str | None = None,
         base_url: str | None = None,
-        default_model: str = "doubao-seed-2-0-lite-260215",
+        default_model: str = "deepseek-v4-flash",
         default_max_tokens: int = 8192,
     ):
         import openai
 
-        resolved_key = api_key or os.environ.get("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+        resolved_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
         if not resolved_key:
             raise ValueError(
-                "API key required. Set DOUBAO_API_KEY env var "
+                "API key required. Set DEEPSEEK_API_KEY env var "
                 "or pass api_key parameter."
             )
 

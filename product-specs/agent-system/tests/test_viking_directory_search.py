@@ -21,7 +21,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-os.environ.setdefault("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+os.environ.setdefault("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
 
 passed = 0
 failed = 0
@@ -40,9 +40,9 @@ def check(name, condition):
 def _get_llm():
     from langchain_openai import ChatOpenAI
     return ChatOpenAI(
-        model="doubao-seed-2-0-lite-260215",
-        api_key=os.environ["DOUBAO_API_KEY"],
-        base_url="https://ark.cn-beijing.volces.com/api/v3/",
+        model="deepseek-v4-flash",
+        api_key=os.environ["DEEPSEEK_API_KEY"],
+        base_url="https://tokenhub.tencentmaas.com/v1",
         max_tokens=1024,
     )
 
@@ -51,7 +51,7 @@ def _get_emb():
     from langchain_openai import OpenAIEmbeddings
     return OpenAIEmbeddings(
         model="doubao-embedding-text-240715",
-        api_key=os.environ["DOUBAO_API_KEY"],
+        api_key=os.environ.get("EMBEDDING_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"),
         base_url="https://ark.cn-beijing.volces.com/api/v3/",
         check_embedding_ctx_length=False,
     )

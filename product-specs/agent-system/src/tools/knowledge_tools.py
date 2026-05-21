@@ -87,8 +87,24 @@ class KnowledgeSearchAdapterTool(Tool):
         provider = self._provider
         tenant_id = self._tenant_id
 
+        # 降级 1：从 FastAPI app.state 动态获取（解决启动时序问题）
         if provider is None:
-            # 降级：尝试从 langgraph config 获取
+            try:
+                import sys
+                server_mod = sys.modules.get("server")
+                if server_mod:
+                    _app = getattr(server_mod, "app", None)
+                    if _app:
+                        provider = getattr(_app.state, "knowledge_provider", None)
+                # 同时获取 tenant_id（如果未通过 set_provider 设置）
+                if provider and not tenant_id:
+                    from src.core.context import get_context
+                    tenant_id = get_context().tenant_id
+            except Exception:
+                pass
+
+        # 降级 2：尝试从 langgraph config 获取
+        if provider is None:
             try:
                 from langgraph.config import get_config
                 ctx = get_config().get("configurable", {}) or {}

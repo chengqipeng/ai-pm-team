@@ -14,7 +14,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-os.environ.setdefault("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+os.environ.setdefault("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
 
 TENCENT_VDB_CONFIG = {
     "url": "http://10.60.2.17",
@@ -80,9 +80,9 @@ def test_langchain_bridge():
         # 构建 embedding
         embedding = OpenAIEmbeddings(
             model="doubao-embedding-text-240715",
-            api_key=os.environ["DOUBAO_API_KEY"],
+            api_key=os.environ.get("EMBEDDING_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"),
             base_url="https://ark.cn-beijing.volces.com/api/v3/",
-            check_embedding_ctx_length=False,  # 豆包不支持 token 数组输入
+            check_embedding_ctx_length=False,
         )
         check("OpenAIEmbeddings 创建成功", embedding is not None)
 

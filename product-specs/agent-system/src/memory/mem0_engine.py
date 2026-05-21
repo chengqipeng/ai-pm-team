@@ -136,9 +136,9 @@ class Mem0MemoryEngine(MemoryEngine):
         "llm": {
             "provider": "openai",
             "config": {
-                "model": "doubao-seed-2-0-lite-260215",
-                "api_key": None,       # 运行时从 DOUBAO_API_KEY 环境变量读取
-                "openai_base_url": "https://ark.cn-beijing.volces.com/api/v3/",
+                "model": "deepseek-v4-flash",
+                "api_key": None,       # 运行时从 DEEPSEEK_API_KEY 环境变量读取
+                "openai_base_url": "https://tokenhub.tencentmaas.com/v1",
                 "temperature": 0.1,
                 "max_tokens": 2000,
             },
@@ -226,10 +226,10 @@ class Mem0MemoryEngine(MemoryEngine):
             )
 
         import os
-        api_key = os.environ.get("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+        api_key = os.environ.get("EMBEDDING_API_KEY", os.environ.get("DEEPSEEK_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"))
 
         # 构建 embedding 模型（用于 LangChain VectorStore 初始化）
-        # 注意：豆包 embedding API 不支持 token 数组输入，必须禁用 tiktoken
+        # 注意：禁用 tiktoken 分词，直接发送原始字符串
         emb_cfg = config.get("embedder", {}).get("config", {})
         embedding = OpenAIEmbeddings(
             model=emb_cfg.get("model", "doubao-embedding-text-240715"),
@@ -353,11 +353,11 @@ class Mem0MemoryEngine(MemoryEngine):
         """从环境变量注入 API key — 与项目其他模块保持一致
 
         项目在 server.py / run_server.py 中已通过 os.environ.setdefault
-        设置了 DOUBAO_API_KEY 默认值，这里直接读取。
+        设置了 DEEPSEEK_API_KEY 默认值，这里直接读取。
         """
         import os
 
-        api_key = os.environ.get("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+        api_key = os.environ.get("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
 
         # 注入 LLM api_key
         llm_cfg = config.get("llm", {}).get("config", {})

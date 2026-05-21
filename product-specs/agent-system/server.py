@@ -30,7 +30,7 @@ try:
 except ImportError:
     pass
 
-os.environ.setdefault("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+os.environ.setdefault("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -130,8 +130,8 @@ async def _get_agent(multimodal: bool = False):
         except Exception:
             pass
 
-        aux_llm = ChatOpenAI(model="doubao-seed-2-0-lite-260215", api_key=os.environ["DOUBAO_API_KEY"],
-                             base_url="https://ark.cn-beijing.volces.com/api/v3/", max_tokens=2048)
+        aux_llm = ChatOpenAI(model="deepseek-v4-flash", api_key=os.environ["DEEPSEEK_API_KEY"],
+                             base_url="https://tokenhub.tencentmaas.com/v1", max_tokens=2048)
         memory_engine = None
         try:
             memory_engine = VikingMemoryEngine(
@@ -167,7 +167,11 @@ async def _get_agent(multimodal: bool = False):
         # 由于 ToolRegistry 只接受自定义 Tool 基类，这里通过 AgentFactory 的 tool_loader 注册
         # ask_user 会在 AgentFactory._build_agent 中通过 ToolLoader 自动发现
 
-        system_prompt = build_system_prompt(agent_name="CRM-Agent", skills=skill_reg.list_all())
+        system_prompt = build_system_prompt(
+            agent_name="CRM-Agent",
+            skills=skill_reg.list_all(),
+            tools=reg.all_tools,
+        )
         middlewares = build_middleware(
             system_prompt=system_prompt,
             agent_name="CRM-Agent", memory_engine=memory_engine,
@@ -181,8 +185,8 @@ async def _get_agent(multimodal: bool = False):
         _checkpointer = MemorySaver()
 
         config = LangChainAgentConfig(
-            model=model_name, api_key=os.environ["DOUBAO_API_KEY"],
-            api_base="https://ark.cn-beijing.volces.com/api/v3/", tool_registry=reg,
+            model=model_name, api_key=os.environ["DEEPSEEK_API_KEY"],
+            api_base="https://tokenhub.tencentmaas.com/v1", tool_registry=reg,
             skill_registry=skill_reg, system_prompt=system_prompt, middlewares=middlewares,
             checkpointer=_checkpointer,
         )
@@ -496,8 +500,8 @@ UPLOAD_DIR = "./data/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # 多模态模型配置
-MULTIMODAL_MODEL = "doubao-seed-2-0-lite-260215"
-TEXT_MODEL = "doubao-seed-2-0-lite-260215"
+MULTIMODAL_MODEL = "deepseek-v4-flash"
+TEXT_MODEL = "deepseek-v4-flash"
 
 
 # ── 挂载知识库 REST 路由 ──
@@ -540,13 +544,13 @@ async def _start_knowledge_provider():
 
         # 构造 LLM（给 Self-Querying / Auto-Tag 用），可选
         llm = None
-        api_key = os.environ.get("DOUBAO_API_KEY")
+        api_key = os.environ.get("DEEPSEEK_API_KEY")
         if api_key:
             try:
                 llm = ChatOpenAI(
-                    model="doubao-seed-2-0-lite-260215",
+                    model="deepseek-v4-flash",
                     api_key=api_key,
-                    base_url="https://ark.cn-beijing.volces.com/api/v3/",
+                    base_url="https://tokenhub.tencentmaas.com/v1",
                     max_tokens=2048,
                 )
             except Exception as exc:
@@ -1414,9 +1418,9 @@ async def chat_stream(req: ChatRequest):
                 try:
                     from langchain_openai import ChatOpenAI
                     _format_llm = ChatOpenAI(
-                        model="doubao-seed-2-0-lite-260215",
-                        api_key=os.environ.get("DOUBAO_API_KEY", ""),
-                        base_url="https://ark.cn-beijing.volces.com/api/v3/",
+                        model="deepseek-v4-flash",
+                        api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
+                        base_url="https://tokenhub.tencentmaas.com/v1",
                         max_tokens=100,
                         request_timeout=5,  # 5 秒超时，不能让用户等太久
                     )
@@ -1464,7 +1468,7 @@ async def chat_sync(req: ChatRequest):
             messages.append(AIMessage(content=msg["content"]))
     messages.append(HumanMessage(content=req.message))
 
-    trace = tracer.start_trace(req.thread_id, req.message, model="doubao-seed-2-0-lite-260215", agent_name="CRM-Agent")
+    trace = tracer.start_trace(req.thread_id, req.message, model="deepseek-v4-flash", agent_name="CRM-Agent")
     trace_writer.on_trace_start(trace)
 
     result = await agent.ainvoke({"messages": messages},

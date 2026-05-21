@@ -20,9 +20,9 @@ class ProviderConfig(BaseModel):
 
 
 class ModelSettings(BaseModel):
-    default_model: str = "doubao-seed-2-0-lite-260215"
-    default_api_key: str = "651621e7-e495-4728-93ef-ed380e9ddcd1"
-    default_api_base: str = "https://ark.cn-beijing.volces.com/api/v3/"
+    default_model: str = "deepseek-v4-flash"
+    default_api_key: str = "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw"
+    default_api_base: str = "https://tokenhub.tencentmaas.com/v1"
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 
 
@@ -34,10 +34,10 @@ class MemorySettings(BaseModel):
     vector_store_provider: str = "chromadb"
     vector_store_dir: str = "./data/chromadb"
     embedding_model: str = "text-embedding-3-small"
-    # mem0 专用配置（默认使用豆包 2.0）
+    # mem0 专用配置（默认使用 DeepSeek v4 Flash）
     mem0_config: dict[str, Any] = Field(default_factory=dict)
     mem0_custom_instructions: str = ""
-    mem0_model: str = "doubao-seed-2-0-lite-260215"
+    mem0_model: str = "deepseek-v4-flash"
     mem0_embedding_model: str = "doubao-embedding-text-240715"
     # 腾讯云向量数据库配置（mem0 通过 LangChain 桥接）
     tencent_vdb_url: str = ""

@@ -13,7 +13,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-os.environ.setdefault("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+os.environ.setdefault("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
 
 from langchain_core.messages import HumanMessage, AIMessage
 
@@ -21,9 +21,9 @@ from langchain_core.messages import HumanMessage, AIMessage
 def _llm():
     from langchain_openai import ChatOpenAI
     return ChatOpenAI(
-        model="doubao-seed-2-0-lite-260215",
-        api_key=os.environ["DOUBAO_API_KEY"],
-        base_url="https://ark.cn-beijing.volces.com/api/v3/",
+        model="deepseek-v4-flash",
+        api_key=os.environ["DEEPSEEK_API_KEY"],
+        base_url="https://tokenhub.tencentmaas.com/v1",
         max_tokens=2048,
     )
 

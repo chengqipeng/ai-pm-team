@@ -192,6 +192,11 @@ class ResourcePreloader:
             logger.info("[preloader] 批量加载完成: skill=%s, requested=%d, loaded=%d, %.0fms",
                         skill_name, len(resource_paths), len(files), duration_ms)
 
+            if len(files) < len(resource_paths):
+                missing = set(resource_paths) - {f["path"] for f in files}
+                logger.warning("[preloader] 部分文件加载失败: skill=%s, missing=%s (version=%s)",
+                               skill_name, list(missing), version)
+
             return PreloadResult(files=files, duration_ms=duration_ms)
 
         except Exception as e:

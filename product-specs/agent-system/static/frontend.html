@@ -1119,8 +1119,7 @@ function renderTraceNode(span, idx, seqNum) {
       const hasData = (Object.keys(inp).length > 0) || (Object.keys(out).length > 0);
       if (!hasData) return '';
       const sType = s.type || '';
-      const defaultOpen = (sType === 'tool_result_compact') ? 'open' : '';
-      let h = `<details class="pl-2 my-0.5 text-[9px]" ${defaultOpen}><summary class="cursor-pointer text-blue-400 hover:text-blue-600 select-none">查看输入/输出</summary><div class="pl-2 text-gray-500 bg-gray-50/80 rounded p-1.5 my-0.5 max-h-[300px] overflow-auto text-[8.5px] font-mono">`;
+      let h = `<details class="pl-2 my-0.5 text-[9px]"><summary class="cursor-pointer text-blue-400 hover:text-blue-600 select-none">查看输入/输出</summary><div class="pl-2 text-gray-500 bg-gray-50/80 rounded p-1.5 my-0.5 max-h-[300px] overflow-auto text-[8.5px] font-mono">`;
       if (Object.keys(inp).length > 0) {
         const inpStr = JSON.stringify(inp, null, 2);
         const inpDisplay = inpStr.length > 2000 ? inpStr.slice(0, 2000) + '\n... (已截断)' : inpStr;
@@ -1193,6 +1192,49 @@ function renderTraceNode(span, idx, seqNum) {
     if (reasonSpans.length > 0) {
       subAgentHtml += `<div class="font-semibold text-gray-700 mt-1.5 mb-0.5">⚡ 模型推理</div>`;
 
+      // ── 预处理：将 wrap_tool_call 中间件和 tool_result_compact 关联到对应的 tool_call ──
+      // 由于 span 记录顺序是 [wrap_mw..., compact, tool_call]（内层先完成），
+      // 需要将每个 tool_call 前面的 wrap/compact spans 关联到该 tool_call
+      for (let i = 0; i < reasonSpans.length; i++) {
+        if (reasonSpans[i].type === 'tool_call' || reasonSpans[i].type === 'skill_execution') {
+          // 向前扫描，收集属于本次 tool_call 的 wrap 和 compact spans
+          const toolCallId = (reasonSpans[i].metadata || {}).tool_call_id || '';
+          const toolName = (reasonSpans[i].metadata || {}).tool_name || (reasonSpans[i].name || '').replace('tool:', '');
+          let wrapSpans = [];
+          let compactSpans = [];
+          for (let j = i - 1; j >= 0; j--) {
+            const prev = reasonSpans[j];
+            const prevType = prev.type || '';
+            const prevMeta = prev.metadata || {};
+            const prevPhase = prevMeta.phase || '';
+            if (prevType === 'tool_result_compact') {
+              // 通过 tool_call_id 或 tool_name 匹配
+              const compactToolId = (prev.input_data || {}).tool_call_id || prevMeta.tool_call_id || '';
+              const compactToolName = prevMeta.tool_name || '';
+              if ((compactToolId && compactToolId === toolCallId) || (!compactToolId && compactToolName === toolName)) {
+                compactSpans.unshift(prev);
+                prev._consumed = true;
+              } else if (!compactToolId && !compactToolName) {
+                // 无标识的 compact span，按就近原则归属
+                compactSpans.unshift(prev);
+                prev._consumed = true;
+              }
+            } else if (prevType === 'middleware' && prevPhase === 'wrap_tool_call') {
+              if (!prev._consumed) {
+                wrapSpans.unshift(prev);
+                prev._consumed = true;
+              }
+            } else {
+              // 遇到非 wrap/compact 类型的 span，停止回溯
+              break;
+            }
+          }
+          // 将关联信息挂到 tool_call span 上
+          reasonSpans[i]._wrapSpans = wrapSpans;
+          reasonSpans[i]._compactSpans = compactSpans;
+        }
+      }
+
       let loopNum = 0;
       let beforeModelBuf = [];
       let afterModelBuf = [];
@@ -1224,6 +1266,9 @@ function renderTraceNode(span, idx, seqNum) {
         const sMeta = s.metadata || {};
         const mwPhase = sMeta.phase || '';
 
+        // 跳过已被预处理关联到 tool_call 的 span
+        if (s._consumed) continue;
+
         if (sType === 'middleware') {
           const mwName = sMeta.middleware_name || s.name || '';
           // ContextWindowMiddleware/SummarizationMiddleware(before_model) 标志新循环开始
@@ -1248,7 +1293,7 @@ function renderTraceNode(span, idx, seqNum) {
           else if (mwPhase === 'wrap_tool_call') wrapToolBuf.push(s);
           else beforeModelBuf.push(s); // fallback
         } else if (sType === 'tool_call' || sType === 'skill_execution') {
-          // 显示顺序：before_model → 推理节点（含知识引用）→ after_model → tool_call（含护栏）
+          // 显示顺序：before_model → 推理节点（含知识引用）→ after_model → tool_call（含护栏+压缩）
           subAgentHtml += flushBeforeModel();
           const toolName = (s.name || '').replace('tool:', '');
           // 查找本轮的 llm_call span 获取 knowledge_refs
@@ -1268,13 +1313,27 @@ function renderTraceNode(span, idx, seqNum) {
           subAgentHtml += flushAfterModel();
           const toolStatus = sMeta.status === 'error' ? '<span class="text-red-500">❌</span>' : '<span class="text-green-600">✓</span>';
           const dur = s.duration_ms ? ` · ${Math.round(s.duration_ms)}ms` : '';
-          // wrap_tool_call 护栏折叠在 tool_call 内部
-          const wrapHtml = flushWrapTool();
+          // wrap_tool_call 护栏：优先使用预处理关联的 spans，否则 flush 缓冲区
+          let wrapHtml = '';
+          if (s._wrapSpans && s._wrapSpans.length > 0) {
+            wrapHtml = renderSubMwGroup(s._wrapSpans, 'pl-5');
+          } else {
+            wrapHtml = flushWrapTool();
+          }
           subAgentHtml += `<div class="text-blue-600 pl-5 font-medium">${toolStatus} ${esc(s.name || '')}${dur}</div>`;
           if (wrapHtml) subAgentHtml += `<div class="pl-7">${wrapHtml}</div>`;
           subAgentHtml += subIO(s);
+          // 源头压缩：渲染预处理关联的 compact spans
+          if (s._compactSpans && s._compactSpans.length > 0) {
+            for (const cs of s._compactSpans) {
+              const compactDetail = cs.detail || '';
+              const compactDur = cs.duration_ms ? ` · ${Math.round(cs.duration_ms)}ms` : '';
+              subAgentHtml += `<div class="text-purple-600 pl-7">📦 ${esc(compactDetail || cs.name || '上下文压缩')}${compactDur}</div>`;
+              subAgentHtml += subIO(cs);
+            }
+          }
         } else if (sType === 'tool_result_compact') {
-          // 上下文压缩节点（tool_call 之后）
+          // 未被预处理关联的 compact span（兜底：独立渲染）
           const compactDetail = s.detail || '';
           const compactDur = s.duration_ms ? ` · ${Math.round(s.duration_ms)}ms` : '';
           subAgentHtml += `<div class="text-purple-600 pl-5">📦 ${esc(compactDetail || s.name || '上下文压缩')}${compactDur}</div>`;
@@ -1335,10 +1394,10 @@ function renderTraceNode(span, idx, seqNum) {
         ${isFinalResponse ? ' ✅' : ''}
         ${isActive ? ' <span class="inline-block w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse align-middle"></span>' : ''}
         ${errorHtml}
-        ${ioHtml}
       </div>
     </div>
-    ${subAgentHtml}`;
+    ${subAgentHtml}
+    ${ioHtml ? `<div class="pl-5">${ioHtml}</div>` : ''}`;
 }
 
 // ═══ 提取异常信息 ═══
@@ -1417,8 +1476,8 @@ function _buildIOSection(span) {
 
   if (!inputStr && !outputStr) return '';
 
-  // tool_result_compact 默认展开（压缩结果需要直接可见）
-  const defaultOpen = (stepType === 'tool_result_compact') ? 'open' : '';
+  // 全部默认折叠
+  const defaultOpen = '';
 
   let content = '';
   if (inputStr) {
@@ -1730,7 +1789,7 @@ function refreshTrace() {
     //   - before_agent 层：Tracing / DanglingToolCall / FileProcess / InputTransform / MultimodalInject / Memory
     //   - before_model 层：Summarization
     //   - after_model 层：SubagentLimit / LoopDetection / OutputValidation
-    //   - wrap_tool_call 层：Guardrail / ToolErrorHandling / Clarification
+    //   - wrap_tool_call 层：Guardrail / ToolErrorHandling / Clarification / SkillToolScope
     //   - 输出转换层：OutputRender
     //   - after_agent 层：Memory（记忆提取）
     // 规则：只有当 metadata.phase 匹配中间件的设计归属阶段时才显示，否则隐藏
@@ -1766,6 +1825,7 @@ function refreshTrace() {
         'Guardrail':          { allow: ['wrap_tool_call'], display: 'reasoning' },
         'ToolErrorHandling':  { allow: ['wrap_tool_call'], display: 'reasoning' },
         'Clarification':      { allow: ['wrap_tool_call'], display: 'reasoning' },
+        'SkillToolScope':     { allow: ['wrap_tool_call'], display: 'reasoning' },
         // 输出转换层（after_agent 执行，但语义归属"回复输出"）
         'OutputRender':       { allow: ['after_agent'], display: 'output' },
         'StreamPIIRestor':    { allow: ['after_agent'], display: 'output' },
@@ -1867,7 +1927,7 @@ function refreshTrace() {
       const firstName = ((spans[0].metadata || {}).middleware_name) || spans[0].step_name || '';
       if (firstName.includes('Summarization') || firstName.includes('ContextWindow')) phaseLabel = 'before_model';
       else if (firstName.includes('SubagentLimit') || firstName.includes('LoopDetection') || firstName.includes('OutputValidation')) phaseLabel = 'after_model';
-      else if (firstName.includes('Guardrail') || firstName.includes('ToolErrorHandling') || firstName.includes('Clarification')) phaseLabel = 'wrap_tool_call';
+      else if (firstName.includes('Guardrail') || firstName.includes('ToolErrorHandling') || firstName.includes('Clarification') || firstName.includes('SkillToolScope')) phaseLabel = 'wrap_tool_call';
       else if (firstName.includes('OutputRender') || firstName.includes('StreamPII')) phaseLabel = 'after_agent';
       else phaseLabel = phaseLabel; // 保持映射后的值
     }
@@ -2311,6 +2371,7 @@ const MW_CN_NAMES = {
   'ContextWindowMiddleware': '上下文压缩',
   'SubagentLimitMiddleware': '子Agent限制',
   'GuardrailMiddleware': '安全护栏',
+  'SkillToolScopeMiddleware': '工具作用域',
   'LoopDetectionMiddleware': '循环检测',
   'ToolErrorHandlingMiddleware': '工具错误处理',
   'ClarificationMiddleware': '澄清确认',

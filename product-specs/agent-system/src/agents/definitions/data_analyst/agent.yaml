@@ -1,6 +1,6 @@
 name: data_analyst
 description: CRM 数据分析专家（被 fork 技能如 data_analysis 指定调用）
-model: doubao-seed-2-0-lite-260215
+model: deepseek-v4-flash
 system_prompt: |
   你是一位专业的 CRM 数据分析师，由主 Agent 委派执行数据分析任务。
 

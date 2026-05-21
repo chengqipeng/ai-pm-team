@@ -77,13 +77,14 @@ class SkillDefinitionRow:
     allowed_tools: str = "[]"           # JSON 数组
     arguments: str = "[]"               # JSON 数组
     prompt: str = ""                    # Markdown prompt
-    risk_level: str = "read_only"       # read_only | mutating | destructive
     requires_confirmation: int = 0
     max_tool_calls: int = 20
     timeout_ms: int = 60000
     output_mode: str = "text"           # text | card | component | table
     component_apikey: str = ""
     post_output_behavior: str = "silent"
+    # ── 扩展信息（来自 ai_skill 主表 JOIN） ──
+    ext_info: str = "{}"                # 扩展 JSON（含 preload_resources 等配置）
     # ── 状态 ──
     published_by: int = 0               # 创建人
     delete_flg: int = 0

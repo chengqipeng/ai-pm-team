@@ -236,6 +236,10 @@ class MemoryExtractor:
             abstract = pref.get("abstract", "")
             if not abstract:
                 continue
+            if len(abstract) > 200:
+                logger.warning("[extraction] preferences abstract 超长（%d 字符），截断。原文全文=\n%s",
+                               len(abstract), abstract)
+                abstract = abstract[:200]
 
             items.append(ExtractionItem(
                 dimension="preferences",
@@ -302,6 +306,12 @@ class MemoryExtractor:
             abstract = ent.get("abstract", "")
             if not abstract or len(abstract) < 5:
                 continue
+
+            # 硬截断：prompt 要求 ≤50 字，超过说明 LLM 未遵守约束
+            if len(abstract) > 200:
+                logger.warning("[extraction] entities abstract 超长（%d 字符），截断。原文全文=\n%s",
+                               len(abstract), abstract)
+                abstract = abstract[:200]
 
             content = ent.get("content", abstract)
             merge_key = ent.get("merge_key", "")

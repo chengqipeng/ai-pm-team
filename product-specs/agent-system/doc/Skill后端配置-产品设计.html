@@ -115,13 +115,14 @@ strong { color: var(--heading); }
 </div>
 
 <div class="wireframe">
-<div class="wireframe-header">技能管理 — 整体布局</div>
+<div class="wireframe-header">⚡ 技能管理 — 整体布局</div>
 <div class="wireframe-sidebar">
 <div class="wireframe-menu">
 <div class="wireframe-menu-item active">📋 技能列表</div>
-<div class="wireframe-menu-item">🏷️ 分类管理</div>
 <div class="wireframe-menu-item">🔧 工具管理</div>
-<div class="wireframe-menu-item">📊 执行日志</div>
+<div class="wireframe-menu-item">🏷️ 分类管理</div>
+<div class="wireframe-menu-item">📊 Mock 数据</div>
+<div class="wireframe-menu-item">📊 Mock 元数据</div>
 </div>
 <div class="wireframe-content" style="min-height:120px;">
 <p style="color:#9ca3af;font-size:0.85em;text-align:center;padding-top:40px;">← 根据左侧菜单选中项切换右侧内容区</p>
@@ -146,109 +147,119 @@ strong { color: var(--heading); }
 <h3>2.1 页面线框</h3>
 
 <div class="wireframe">
-<div class="wireframe-header">技能列表</div>
+<div class="wireframe-header">⚡ 技能管理 <span style="float:right;font-weight:400;font-size:0.85em;">← 返回首页</span></div>
 <div class="wireframe-sidebar">
 <div class="wireframe-menu">
 <div class="wireframe-menu-item active">📋 技能列表</div>
-<div class="wireframe-menu-item">🏷️ 分类管理</div>
 <div class="wireframe-menu-item">🔧 工具管理</div>
-<div class="wireframe-menu-item">📊 执行日志</div>
+<div class="wireframe-menu-item">🏷️ 分类管理</div>
+<div class="wireframe-menu-item">📊 Mock 数据</div>
+<div class="wireframe-menu-item">📊 Mock 元数据</div>
 </div>
 <div class="wireframe-content">
 <!-- 顶部操作栏 -->
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-<div style="font-size:1.1em;font-weight:600;color:#1e293b;">技能列表</div>
+<div style="font-size:0.95em;color:#64748b;">共 8 个技能</div>
+<div style="display:flex;gap:10px;align-items:center;">
+<div class="mock-input" style="width:180px;">搜索技能...</div>
 <div class="mock-btn mock-btn-primary">+ 创建技能</div>
 </div>
-
-<!-- 筛选栏 -->
-<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
-<span class="mock-btn mock-btn-primary" style="font-size:0.78em;">全部</span>
-<span class="mock-btn mock-btn-default" style="font-size:0.78em;">CRM 业务</span>
-<span class="mock-btn mock-btn-default" style="font-size:0.78em;">元数据管理</span>
-<span class="mock-btn mock-btn-default" style="font-size:0.78em;">数据分析</span>
-<span class="mock-btn mock-btn-default" style="font-size:0.78em;">自动化操作</span>
-<span class="mock-btn mock-btn-default" style="font-size:0.78em;">自定义</span>
-<div style="flex:1;"></div>
-<div class="mock-input" style="width:200px;">🔍 搜索技能名称/关键词...</div>
 </div>
 
-<!-- 技能卡片 1 -->
+<!-- 分类 Tab 栏 -->
+<div style="display:flex;gap:12px;align-items:center;margin-bottom:20px;flex-wrap:wrap;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">
+<span style="font-size:0.82em;color:#64748b;padding:4px 8px;">全部</span>
+<span style="font-size:0.82em;color:#fff;background:#3b82f6;padding:4px 12px;border-radius:16px;font-weight:500;">🏢 CRM 业务</span>
+<span style="font-size:0.82em;color:#64748b;padding:4px 8px;">🗄️ 元数据管理</span>
+<span style="font-size:0.82em;color:#64748b;padding:4px 8px;">📚 知识库</span>
+<span style="font-size:0.82em;color:#64748b;padding:4px 8px;">📊 数据分析</span>
+<span style="font-size:0.82em;color:#64748b;padding:4px 8px;">⚙️ 自动化操作</span>
+<span style="font-size:0.82em;color:#64748b;padding:4px 8px;">🔧 自定义</span>
+</div>
+
+<!-- 统计卡片 -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px;">
+<div style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;text-align:center;background:#fff;">
+<div style="font-size:1.5em;font-weight:700;color:#1e293b;">17</div>
+<div style="font-size:0.78em;color:#94a3b8;margin-top:4px;">技能总数</div>
+</div>
+<div style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;text-align:center;background:#fff;">
+<div style="font-size:1.5em;font-weight:700;color:#1e293b;">17</div>
+<div style="font-size:0.78em;color:#94a3b8;margin-top:4px;">已启用</div>
+</div>
+<div style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;text-align:center;background:#fff;">
+<div style="font-size:1.5em;font-weight:700;color:#1e293b;">0</div>
+<div style="font-size:0.78em;color:#94a3b8;margin-top:4px;">总执行</div>
+</div>
+<div style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;text-align:center;background:#fff;">
+<div style="font-size:1.5em;font-weight:700;color:#1e293b;">0%</div>
+<div style="font-size:0.78em;color:#94a3b8;margin-top:4px;">成功率</div>
+</div>
+</div>
+
+<!-- 技能卡片 1: 商机推进时间轴 -->
 <div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px;background:#fff;">
 <div style="display:flex;justify-content:space-between;align-items:center;">
 <div style="display:flex;align-items:center;gap:10px;">
-<strong style="font-size:0.95em;">客户 360 全景（customer_360）</strong>
-<span class="badge badge-blue">v1.0.0</span>
-<span><span class="status-dot green"></span><span style="font-size:0.8em;color:#10b981;">启用</span></span>
+<strong style="font-size:0.95em;">商机推进时间轴</strong>
+<code style="font-size:0.8em;color:#64748b;background:#f1f5f9;padding:2px 6px;border-radius:3px;">opportunity_timeline</code>
+<span style="font-size:0.78em;color:#fff;background:#3b82f6;padding:2px 8px;border-radius:4px;">🏢 CRM 业务</span>
 </div>
-<div style="display:flex;gap:8px;">
-<span class="mock-btn mock-btn-default" style="font-size:0.75em;">编辑</span>
-<span class="mock-btn mock-btn-default" style="font-size:0.75em;">日志</span>
-<span class="mock-btn mock-btn-default" style="font-size:0.75em;">克隆</span>
-<span class="mock-btn mock-btn-danger" style="font-size:0.75em;">删除</span>
+<div style="display:flex;gap:12px;align-items:center;">
+<span class="mock-switch"></span>
+<span style="font-size:0.8em;color:#3b82f6;cursor:pointer;font-weight:500;">编辑</span>
+<span style="font-size:0.8em;color:#64748b;cursor:pointer;">克隆</span>
+<span style="font-size:0.8em;color:#dc2626;cursor:pointer;">删除</span>
 </div>
 </div>
-<div style="margin-top:8px;font-size:0.85em;color:#64748b;">客户 360 全景视图 — 生成客户全方位画像分析</div>
-<div style="margin-top:8px;display:flex;gap:16px;font-size:0.78em;color:#94a3b8;">
-<span class="badge badge-purple">CRM 业务</span>
-<span>执行 42 次</span>
-<span>成功率 90%</span>
-<span>平均耗时 12.5s</span>
+<div style="margin-top:8px;font-size:0.85em;color:#64748b;">展示商机的关键阶段变更、联系人互动、合同节点，按时间倒序输出结构化时间轴</div>
+<div style="margin-top:8px;font-size:0.78em;color:#94a3b8;">
+执行 0 次 &nbsp;&nbsp; 成功率 0%
 </div>
 </div>
 
-<!-- 技能卡片 2 -->
+<!-- 技能卡片 2: BANT 商机评估 -->
 <div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px;background:#fff;">
 <div style="display:flex;justify-content:space-between;align-items:center;">
 <div style="display:flex;align-items:center;gap:10px;">
-<strong style="font-size:0.95em;">客户洞察（customer_insight）</strong>
-<span class="badge badge-blue">v1.0.0</span>
-<span><span class="status-dot green"></span><span style="font-size:0.8em;color:#10b981;">启用</span></span>
+<strong style="font-size:0.95em;">BANT 商机评估</strong>
+<code style="font-size:0.8em;color:#64748b;background:#f1f5f9;padding:2px 6px;border-radius:3px;">bant_analysis</code>
+<span style="font-size:0.78em;color:#fff;background:#3b82f6;padding:2px 8px;border-radius:4px;">🏢 CRM 业务</span>
 </div>
-<div style="display:flex;gap:8px;">
-<span class="mock-btn mock-btn-default" style="font-size:0.75em;">编辑</span>
-<span class="mock-btn mock-btn-default" style="font-size:0.75em;">日志</span>
-<span class="mock-btn mock-btn-default" style="font-size:0.75em;">克隆</span>
-<span class="mock-btn mock-btn-danger" style="font-size:0.75em;">删除</span>
+<div style="display:flex;gap:12px;align-items:center;">
+<span class="mock-switch"></span>
+<span style="font-size:0.8em;color:#3b82f6;cursor:pointer;font-weight:500;">编辑</span>
+<span style="font-size:0.8em;color:#64748b;cursor:pointer;">克隆</span>
+<span style="font-size:0.8em;color:#dc2626;cursor:pointer;">删除</span>
 </div>
 </div>
-<div style="margin-top:8px;font-size:0.85em;color:#64748b;">基于客户行为数据生成画像分析与关键事件洞察</div>
-<div style="margin-top:8px;display:flex;gap:16px;font-size:0.78em;color:#94a3b8;">
-<span class="badge badge-purple">CRM 业务</span>
-<span>执行 15 次</span>
-<span>成功率 87%</span>
-<span>平均耗时 18.2s</span>
+<div style="margin-top:8px;font-size:0.85em;color:#64748b;">用 BANT 框架（预算/决策权/需求/时间线）评估指定商机的成熟度，输出四维度评分</div>
+<div style="margin-top:8px;font-size:0.78em;color:#94a3b8;">
+执行 0 次 &nbsp;&nbsp; 成功率 0%
 </div>
 </div>
 
-<!-- 技能卡片 3 (禁用) -->
-<div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px;background:#f9fafb;opacity:0.75;">
+<!-- 技能卡片 3: Pipeline 健康度检查 -->
+<div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px;background:#fff;">
 <div style="display:flex;justify-content:space-between;align-items:center;">
 <div style="display:flex;align-items:center;gap:10px;">
-<strong style="font-size:0.95em;">多维数据分析（data_analysis）</strong>
-<span class="badge badge-blue">v1.0.0</span>
-<span><span class="status-dot gray"></span><span style="font-size:0.8em;color:#9ca3af;">禁用</span></span>
+<strong style="font-size:0.95em;">Pipeline 健康度检查</strong>
+<code style="font-size:0.8em;color:#64748b;background:#f1f5f9;padding:2px 6px;border-radius:3px;">pipeline_health_check</code>
+<span style="font-size:0.78em;color:#fff;background:#3b82f6;padding:2px 8px;border-radius:4px;">🏢 CRM 业务</span>
 </div>
-<div style="display:flex;gap:8px;">
-<span class="mock-btn mock-btn-default" style="font-size:0.75em;">编辑</span>
-<span class="mock-btn mock-btn-default" style="font-size:0.75em;">日志</span>
-<span class="mock-btn mock-btn-default" style="font-size:0.75em;">克隆</span>
-<span class="mock-btn mock-btn-danger" style="font-size:0.75em;">删除</span>
+<div style="display:flex;gap:12px;align-items:center;">
+<span class="mock-switch"></span>
+<span style="font-size:0.8em;color:#3b82f6;cursor:pointer;font-weight:500;">编辑</span>
+<span style="font-size:0.8em;color:#64748b;cursor:pointer;">克隆</span>
+<span style="font-size:0.8em;color:#dc2626;cursor:pointer;">删除</span>
 </div>
 </div>
-<div style="margin-top:8px;font-size:0.85em;color:#64748b;">对业务数据进行多维度聚合分析，生成趋势洞察与决策建议</div>
-<div style="margin-top:8px;display:flex;gap:16px;font-size:0.78em;color:#94a3b8;">
-<span class="badge badge-purple">数据分析</span>
-<span>执行 8 次</span>
-<span>成功率 88%</span>
-<span>平均耗时 22.5s</span>
+<div style="margin-top:8px;font-size:0.85em;color:#64748b;">评估 Pipeline 健康度：各阶段转化率、平均停留时间、风险商机识别，输出健康评分</div>
+<div style="margin-top:8px;font-size:0.78em;color:#94a3b8;">
+执行 0 次 &nbsp;&nbsp; 成功率 0%
 </div>
 </div>
 
-<!-- 分页 -->
-<div style="text-align:center;margin-top:20px;font-size:0.82em;color:#94a3b8;">
-[1] [2] [3] ...
-</div>
 </div>
 </div>
 </div>
@@ -260,7 +271,19 @@ strong { color: var(--heading); }
 <h3>3.1 页面线框</h3>
 
 <div class="wireframe">
-<div class="wireframe-header">编辑: 智能客户洞察（accountInsight）</div>
+<div class="wireframe-header" style="display:flex;justify-content:space-between;align-items:center;">
+<span style="font-size:1.1em;font-weight:700;">编辑: 智能客户洞察（accountInsight）</span>
+<div style="display:flex;gap:8px;">
+<span class="mock-btn mock-btn-default">▶ 测试</span>
+<span class="mock-btn mock-btn-primary">保存</span>
+<span class="mock-btn mock-btn-default">取消</span>
+</div>
+</div>
+<!-- 版本提示栏 -->
+<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 16px;background:#fff;border-bottom:1px solid #e2e8f0;">
+<span style="font-size:0.82em;color:#e53e3e;">📌 当前生效版本 v2.0.3</span>
+<span style="font-size:0.82em;color:#3b82f6;cursor:pointer;">编辑内容将保存到此版本</span>
+</div>
 <div style="display:flex;gap:0;">
 
 <!-- 左侧：资源文件树 -->
@@ -276,33 +299,35 @@ strong { color: var(--heading); }
 </div>
 
 <!-- 树结构 -->
-<div style="padding:4px 12px;color:var(--purple);font-weight:600;background:#f5f3ff;">📄 Skill 配置</div>
-<div style="padding:4px 12px;color:#475569;padding-left:20px;">📄 SKILL.md</div>
-<div style="padding:6px 12px;color:#475569;">📁 knowledge</div>
-<div style="padding:4px 12px;color:#475569;padding-left:28px;">📁 industries</div>
-<div style="padding:4px 12px;color:#475569;padding-left:44px;">📄 _index.md</div>
-<div style="padding:4px 12px;color:#475569;padding-left:44px;">📄 manufacturing.md</div>
-<div style="padding:4px 12px;color:#475569;padding-left:44px;">📄 technology.md</div>
-<div style="padding:6px 12px;color:#475569;">📁 analysis-strategies</div>
-<div style="padding:4px 12px;color:#475569;padding-left:28px;">📄 signal-patterns.md</div>
-<div style="padding:4px 12px;color:#475569;padding-left:28px;">📄 business-model-patt...</div>
-<div style="padding:4px 12px;color:#475569;padding-left:28px;">📄 risk-scoring-models.md</div>
-<div style="padding:4px 12px;color:#475569;padding-left:28px;">📄 value-proposition-fr...</div>
-<div style="padding:6px 12px;color:#475569;">📁 competitor-playbooks</div>
-<div style="padding:4px 12px;color:#475569;padding-left:28px;">📄 incumbent-replacem...</div>
-<div style="padding:4px 12px;color:#475569;padding-left:28px;">📄 price-war.md</div>
-<div style="padding:4px 12px;color:#475569;padding-left:28px;">📄 self-build.md</div>
+<div style="padding:5px 12px;color:#1e293b;font-weight:600;background:#f1f5f9;border-radius:4px;margin:2px 8px;">⚙ Skill 配置</div>
+<div style="padding:5px 12px;color:#475569;padding-left:20px;">📄 SKILL.md</div>
+<div style="padding:5px 12px;color:#475569;">📋 版本管理</div>
+<div style="padding:8px 12px;color:#475569;margin-top:4px;border-top:1px solid #e2e8f0;padding-top:8px;">
+<span style="display:flex;align-items:center;gap:4px;">▼ 📁 knowledge <span style="color:#94a3b8;margin-left:auto;">3</span></span>
+</div>
+<div style="padding:4px 12px;padding-left:24px;color:#475569;">
+<span style="display:flex;align-items:center;gap:4px;">▼ 📁 industries <span style="color:#94a3b8;margin-left:auto;">3</span></span>
+</div>
+<div style="padding:3px 12px;padding-left:44px;color:#475569;background:#e8f0fe;">📄 _index.md</div>
+<div style="padding:3px 12px;padding-left:44px;color:#475569;">📄 manufacturing.md</div>
+<div style="padding:3px 12px;padding-left:44px;color:#475569;">📄 technology.md</div>
+<div style="padding:4px 12px;padding-left:24px;color:#475569;">
+<span style="display:flex;align-items:center;gap:4px;">▼ 📁 analysis-strategies <span style="color:#94a3b8;margin-left:auto;">4</span></span>
+</div>
+<div style="padding:3px 12px;padding-left:44px;color:#475569;">📄 signal-patterns.md</div>
+<div style="padding:3px 12px;padding-left:44px;color:#475569;">📄 business-model-patter...</div>
+<div style="padding:3px 12px;padding-left:44px;color:#475569;">📄 risk-scoring-models.md</div>
+<div style="padding:3px 12px;padding-left:44px;color:#475569;">📄 value-proposition-fram...</div>
+<div style="padding:4px 12px;padding-left:24px;color:#475569;">
+<span style="display:flex;align-items:center;gap:4px;">▼ 📁 competitor-playbooks <span style="color:#94a3b8;margin-left:auto;">3</span></span>
+</div>
+<div style="padding:3px 12px;padding-left:44px;color:#475569;">📄 incumbent-replacement...</div>
+<div style="padding:3px 12px;padding-left:44px;color:#475569;">📄 price-war.md</div>
+<div style="padding:3px 12px;padding-left:44px;color:#475569;">📄 self-build.md</div>
 </div>
 
 <!-- 右侧：配置表单 -->
 <div style="flex:1;padding:24px;overflow-y:auto;">
-
-<!-- 顶部操作栏 -->
-<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:20px;">
-<span class="mock-btn mock-btn-default">▶ 测试</span>
-<span class="mock-btn mock-btn-primary">保存</span>
-<span class="mock-btn mock-btn-default">取消</span>
-</div>
 
 <!-- 双列：API Key + 名称 -->
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
@@ -316,23 +341,17 @@ strong { color: var(--heading); }
 </div>
 </div>
 
-<!-- 双列：分类 + 输出类型 -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
-<div>
+<!-- 分类（全宽） -->
+<div style="margin-bottom:16px;">
 <div style="font-size:0.82em;color:#374151;margin-bottom:4px;">分类 <span class="field-required">*</span></div>
-<div class="mock-input">📊 CRM 业务 ▼</div>
+<div class="mock-input" style="width:50%;">📊 CRM 业务 ▼</div>
 </div>
+
+<!-- 双列：输出类型 + 执行模式 -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
 <div>
 <div style="font-size:0.82em;color:#374151;margin-bottom:4px;">输出类型</div>
 <div class="mock-input">文档面板（右侧独立面板，适合长报告） ▼</div>
-</div>
-</div>
-
-<!-- 执行模式 -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
-<div>
-<div style="font-size:0.82em;color:#374151;margin-bottom:4px;">执行模式</div>
-<div class="mock-input">fork（独立子Agent） ▼</div>
 </div>
 <div>
 <div style="font-size:0.82em;color:#374151;margin-bottom:4px;">执行模式</div>
@@ -368,12 +387,9 @@ strong { color: var(--heading); }
 <div style="margin-bottom:16px;">
 <div style="font-size:0.82em;color:#374151;margin-bottom:8px;">允许的工具（从工具管理中选择）</div>
 <div style="display:flex;flex-wrap:wrap;gap:8px;">
-<span style="border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#6b7280;">☐ knowledge_doc_detail <span class="badge badge-green">安全</span></span>
-<span style="border:1px solid #2563eb;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#2563eb;background:#eff6ff;">☑ ask_user <span class="badge badge-green">安全</span></span>
-<span style="border:1px solid #2563eb;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#2563eb;background:#eff6ff;">☑ read_skill_resource <span class="badge badge-green">安全</span></span>
-<span style="border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#6b7280;">☐ query_schema <span class="badge badge-green">安全</span></span>
-<span style="border:1px solid #2563eb;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#2563eb;background:#eff6ff;">☑ query_data <span class="badge badge-green">安全</span></span>
-<span style="border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#6b7280;">☐ modify_data <span class="badge badge-red">高风险</span></span>
+<span style="border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#6b7280;display:flex;align-items:center;gap:4px;">☐ knowledge_doc_detail <span style="font-size:0.85em;color:#10b981;">只读</span></span>
+<span style="border:1px solid #2563eb;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#2563eb;background:#eff6ff;display:flex;align-items:center;gap:4px;">☑ ask_user <span style="font-size:0.85em;color:#10b981;">只读</span></span>
+<span style="border:1px solid #2563eb;border-radius:6px;padding:4px 10px;font-size:0.78em;color:#2563eb;background:#eff6ff;display:flex;align-items:center;gap:4px;">☑ read_skill_resource <span style="font-size:0.85em;color:#10b981;">只读</span></span>
 </div>
 </div>
 

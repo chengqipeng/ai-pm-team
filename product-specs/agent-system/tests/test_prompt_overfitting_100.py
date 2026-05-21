@@ -26,7 +26,7 @@ import sys
 from dataclasses import dataclass, field
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-os.environ.setdefault("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+os.environ.setdefault("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
 
 from src.memory.extraction.prompts import (
     PROFILE_EXTRACT_PROMPT,
@@ -570,14 +570,14 @@ async def main():
     parser.add_argument("--start", type=int, default=1, help="起始用例 id")
     parser.add_argument("--end", type=int, default=100, help="结束用例 id")
     parser.add_argument("--concurrency", type=int, default=4, help="并发度")
-    parser.add_argument("--model", type=str, default="doubao-seed-2-0-lite-260215")
+    parser.add_argument("--model", type=str, default="deepseek-v4-flash")
     args = parser.parse_args()
 
     from langchain_openai import ChatOpenAI
     llm = ChatOpenAI(
         model=args.model,
-        api_key=os.environ["DOUBAO_API_KEY"],
-        base_url="https://ark.cn-beijing.volces.com/api/v3/",
+        api_key=os.environ["DEEPSEEK_API_KEY"],
+        base_url="https://tokenhub.tencentmaas.com/v1",
         temperature=0,
         max_tokens=2048,
     )

@@ -743,10 +743,11 @@ class VikingMemoryEngine(MemoryEngine):
     @staticmethod
     def _default_embedding():
         from langchain_openai import OpenAIEmbeddings
-        api_key = os.environ.get("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+        api_key = os.environ.get("EMBEDDING_API_KEY", os.environ.get("DEEPSEEK_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"))
         return OpenAIEmbeddings(
-            model="doubao-embedding-text-240715", api_key=api_key,
-            base_url="https://ark.cn-beijing.volces.com/api/v3/",
+            model=os.environ.get("EMBEDDING_MODEL", "doubao-embedding-text-240715"),
+            api_key=api_key,
+            base_url=os.environ.get("EMBEDDING_API_BASE", "https://ark.cn-beijing.volces.com/api/v3/"),
             check_embedding_ctx_length=False,
         )
 
@@ -793,7 +794,7 @@ class VikingMemoryEngine(MemoryEngine):
         GLOBAL_TOPK = 10
 
         try:
-            query_vec = await asyncio.to_thread(self._emb.embed_query, query)
+            query_vec = await asyncio.to_thread(self._emb.embed_query, query[:1500])
         except Exception as e:
             logger.error("Embedding failed: %s", e)
             return MemoryRetrievalResult(query_used=query)
@@ -1284,6 +1285,17 @@ class VikingMemoryEngine(MemoryEngine):
         if not abstract or len(abstract) < 5:
             return None
 
+        # 防御性截断：abstract 用于 embedding，必须控制在模型 max_sequence_length 内
+        # text-embedding-3-small 限制 4096 tokens ≈ 2000 中文字符
+        # 正常 abstract 应 ≤50 字（prompt 约束），超过 200 字说明 LLM 输出异常
+        if len(abstract) > 200:
+            logger.warning(
+                "[memory] abstract 异常过长（%d 字符），截断至 200: category=%s, merge_key=%s, "
+                "原文全文=\n%s",
+                len(abstract), category, merge_key, abstract,
+            )
+            abstract = abstract[:200]
+
         now = datetime.now(timezone.utc).isoformat()
 
         # ── PG 路由：profile/agent_rules → PG 存储 ──
@@ -1511,13 +1523,16 @@ class VikingMemoryEngine(MemoryEngine):
     def get_agent_rules_text(self, user_id: str) -> str:
         """获取 Agent 行为准则 — 优先内存缓存 → PG → 空
 
-        对齐 Hermes Agent 设计：以声明式事实注入，不使用指令式语气。
+        返回格式与 system prompt 的 # 角色 分区保持一致：
+        用 ## 用户定制规则 标题 + > 引用块说明优先级关系，
+        让 LLM 将其视为角色定义的动态补充。
         """
         # 内存缓存
         rules = self._agent_rules_cache.get(user_id, "")
         if rules:
             return (
-                "## User Preferences\n"
+                "## 用户定制规则\n\n"
+                "> 以下是当前用户对你的个性化定义，在不违反安全边界的前提下遵守。\n\n"
                 f"{rules}"
             )
         # PG 查询
@@ -1527,7 +1542,8 @@ class VikingMemoryEngine(MemoryEngine):
                 if row and row.content:
                     self._agent_rules_cache[user_id] = row.content
                     return (
-                        "## User Preferences\n"
+                        "## 用户定制规则\n\n"
+                        "> 以下是当前用户对你的个性化定义，在不违反安全边界的前提下遵守。\n\n"
                         f"{row.content}"
                     )
             except Exception as e:
@@ -1949,7 +1965,7 @@ class VikingMemoryEngine(MemoryEngine):
             return
         try:
             import asyncio
-            vec = await asyncio.to_thread(self._emb.embed_query, correction_text)
+            vec = await asyncio.to_thread(self._emb.embed_query, correction_text[:500])
             filter_expr = f'user_id = "{user_id}" and status != "archived"'
             related = await asyncio.to_thread(self._vdb.search, vec, 5, filter_expr)
 
@@ -2016,7 +2032,7 @@ class VikingMemoryEngine(MemoryEngine):
             try:
                 cat = item.metadata.get("category", "")
                 # 检索已有的相似记忆（同类别 + 排除 archived）
-                vec = await asyncio.to_thread(self._emb.embed_query, item.content)
+                vec = await asyncio.to_thread(self._emb.embed_query, item.content[:500])
                 # 兼容旧集合（可能没有 status 字段）：先尝试带 status 过滤，失败则降级
                 filter_expr = f'user_id = "{user_id}" and category = "{cat}" and status != "archived"'
                 try:
@@ -2368,7 +2384,7 @@ class VikingMemoryEngine(MemoryEngine):
                             if old_ids:
                                 await asyncio.to_thread(self._vdb.delete, old_ids)
                             new_abstract = merged_data.get("abstract", items[0].get("abstract", ""))
-                            new_vec = await asyncio.to_thread(self._emb.embed_query, new_abstract)
+                            new_vec = await asyncio.to_thread(self._emb.embed_query, new_abstract[:500])
                             await asyncio.to_thread(self._vdb.upsert, [{
                                 "id": str(__import__("uuid").uuid4()),
                                 "vector": new_vec,
@@ -2778,7 +2794,7 @@ class VikingMemoryEngine(MemoryEngine):
                 new_overview = m.get("overview", "").replace(old_name, new_name)
 
                 # 重新 embed 更新后的 abstract
-                new_vec = await asyncio.to_thread(self._emb.embed_query, new_abstract)
+                new_vec = await asyncio.to_thread(self._emb.embed_query, new_abstract[:500])
 
                 # 删旧写新（tcvectordb 不支持原地更新所有字段）
                 await asyncio.to_thread(self._vdb.delete, [old_id])

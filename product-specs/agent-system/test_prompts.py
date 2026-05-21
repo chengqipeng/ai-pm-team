@@ -1,11 +1,11 @@
-"""提示词边界验证脚本 — 用 doubao 模型跑 10 个用例验证四路提取准确性
+"""提示词边界验证脚本 — 用 deepseek 模型跑 10 个用例验证四路提取准确性
 
 使用方法：
     python test_prompts.py
 
 需要环境变量：
-    DOUBAO_API_KEY — 豆包 API Key
-    DOUBAO_MODEL — 模型名（默认 doubao-1-5-lite-32k-250115）
+    DEEPSEEK_API_KEY — DeepSeek API Key
+    DEEPSEEK_MODEL — 模型名（默认 deepseek-v4-flash）
 """
 import asyncio
 import json
@@ -184,15 +184,15 @@ def has_extraction(response_text: str, dimension: str) -> bool:
 
 
 async def call_llm(prompt: str) -> str:
-    """调用豆包模型"""
+    """调用 DeepSeek 模型"""
     from langchain_openai import ChatOpenAI
 
-    api_key = os.environ.get("DOUBAO_API_KEY", "")
-    model = os.environ.get("DOUBAO_MODEL", "doubao-1-5-lite-32k-250115")
-    base_url = os.environ.get("DOUBAO_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
+    api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+    model = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
+    base_url = os.environ.get("DEEPSEEK_API_BASE", "https://tokenhub.tencentmaas.com/v1")
 
     if not api_key:
-        print("❌ 请设置 DOUBAO_API_KEY 环境变量")
+        print("❌ 请设置 DEEPSEEK_API_KEY 环境变量")
         sys.exit(1)
 
     llm = ChatOpenAI(
@@ -226,7 +226,7 @@ async def run_test(case: dict) -> dict:
 
 async def main():
     print("=" * 60)
-    print("记忆提取提示词边界验证（doubao 2.0 lite）")
+    print("记忆提取提示词边界验证（DeepSeek v4 Flash）")
     print("=" * 60)
 
     total = 0

@@ -15,14 +15,14 @@ import time
 from uuid import uuid4
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-os.environ.setdefault("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+os.environ.setdefault("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
 
 
 def _emb():
     from langchain_openai import OpenAIEmbeddings
     return OpenAIEmbeddings(
         model="doubao-embedding-text-240715",
-        api_key=os.environ["DOUBAO_API_KEY"],
+        api_key=os.environ.get("EMBEDDING_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"),
         base_url="https://ark.cn-beijing.volces.com/api/v3/",
         check_embedding_ctx_length=False,
     )

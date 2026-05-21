@@ -118,18 +118,37 @@ class LoopDetectionMiddleware(AgentMiddleware):
     算法：滑动窗口内统计 tool_calls 的 MD5 哈希出现次数。
     - count >= warn_threshold：注入警告 HumanMessage（每个哈希只警告一次）
     - count >= hard_limit：剥离 tool_calls，强制 LLM 直接回复
+
+    额外保护：总步数硬限制（max_total_steps）
+    - 不管是否重复，单次对话超过 max_total_steps 次工具调用就强制停止
+    - 防止 LLM 每次换参数绕过重复检测，但实际上在无意义地循环
     """
 
-    def __init__(self, warn_threshold: int = 3, hard_limit: int = 5, window_size: int = 20):
+    def __init__(self, warn_threshold: int = 3, hard_limit: int = 5,
+                 window_size: int = 20, max_total_steps: int = 50):
         super().__init__()
         self.warn_threshold = warn_threshold
         self.hard_limit = hard_limit
         self.window_size = window_size
+        self.max_total_steps = max_total_steps
         self._lock = threading.Lock()
         # LRU 缓存：thread_id → 最近 N 次调用的哈希列表
         self._history: OrderedDict[str, list[str]] = OrderedDict()
         # 已警告的哈希集合：thread_id → {hash1, hash2, ...}（避免重复警告）
         self._warned: dict[str, set[str]] = defaultdict(set)
+        # 总步数计数：thread_id → 当前对话的工具调用总次数
+        self._step_count: dict[str, int] = defaultdict(int)
+
+    def before_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        """会话开始时重置步数计数器"""
+        try:
+            configurable = get_config().get("configurable", {})
+            thread_id = configurable.get("thread_id", "default")
+        except Exception:
+            thread_id = "default"
+        with self._lock:
+            self._step_count[thread_id] = 0
+        return None
 
     def after_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
         """在 LLM 返回后检查 tool_calls 是否重复"""
@@ -152,6 +171,37 @@ class LoopDetectionMiddleware(AgentMiddleware):
         except Exception as e:
             logger.error("LoopDetection get_config failed: %s", e, exc_info=True)
             thread_id = "default"
+
+        # ── 总步数硬限制：防止 LLM 换参数绕过重复检测 ──
+        with self._lock:
+            self._step_count[thread_id] += 1
+            total_steps = self._step_count[thread_id]
+
+        if total_steps >= self.max_total_steps:
+            tool_names = [tc.get("name", "?") for tc in tool_calls]
+            logger.error(
+                "Total step limit reached: thread=%s, steps=%d/%d, tools=%s",
+                thread_id, total_steps, self.max_total_steps, tool_names,
+            )
+            stripped = last_msg.model_copy(update={
+                "tool_calls": [],
+                "content": (last_msg.content or "")
+                    + f"\n\n[强制停止] 本次对话工具调用已达 {total_steps} 次上限。"
+                    + "请基于已有信息直接给出最终答案，不要再调用工具。",
+            })
+            return {"messages": [stripped]}
+
+        # 40 步时提前警告（80% 阈值）
+        if total_steps == int(self.max_total_steps * 0.8):
+            remaining = self.max_total_steps - total_steps
+            logger.warning(
+                "Approaching step limit: thread=%s, steps=%d/%d",
+                thread_id, total_steps, self.max_total_steps,
+            )
+            # 不阻断，只注入提醒（让 LLM 知道快到限制了）
+            # 通过修改 last_msg 的 content 追加提醒
+            # 注意：不能 return 新消息，否则会中断 tool_calls 执行
+            # 这里只记录日志，真正的阻断在 max_total_steps 时触发
 
         # 计算 tool_calls 的指纹哈希
         # 排序确保 [query_data, analyze_data] 和 [analyze_data, query_data] 产生相同哈希

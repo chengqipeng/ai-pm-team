@@ -35,7 +35,6 @@ class SkillCreateRequest:
     model: str = ""
     allowed_tools: list[str] | None = None
     arguments: list[str] | None = None
-    risk_level: str = "read_only"
     requires_confirmation: bool = False
     max_tool_calls: int = 20
     timeout_ms: int = 60000
@@ -58,7 +57,6 @@ class SkillUpdateRequest:
     model: str | None = None
     allowed_tools: list[str] | None = None
     arguments: list[str] | None = None
-    risk_level: str | None = None
     requires_confirmation: bool | None = None
     max_tool_calls: int | None = None
     timeout_ms: int | None = None
@@ -89,7 +87,6 @@ class SkillService:
         self._validate_required(req)
         self._validate_prompt_arguments(req.prompt, req.arguments or [])
         self._validate_context(req.context)
-        self._validate_risk_level(req.risk_level)
 
         if SkillDAO.get_by_api_key(tenant_id, req.api_key, include_platform=False):
             raise SkillServiceError(f"api_key '{req.api_key}' 已存在", code="DUPLICATE_API_KEY")
@@ -117,7 +114,7 @@ class SkillService:
             agent=req.agent, model=req.model,
             allowed_tools=json.dumps(req.allowed_tools or [], ensure_ascii=False),
             arguments=json.dumps(req.arguments or [], ensure_ascii=False),
-            prompt=req.prompt, risk_level=req.risk_level,
+            prompt=req.prompt,
             requires_confirmation=1 if req.requires_confirmation else 0,
             max_tool_calls=req.max_tool_calls, timeout_ms=req.timeout_ms,
             output_mode=req.output_mode,
@@ -143,8 +140,6 @@ class SkillService:
 
         if req.context is not None:
             self._validate_context(req.context)
-        if req.risk_level is not None:
-            self._validate_risk_level(req.risk_level)
 
         # 校验 prompt + arguments
         prompt = req.prompt if req.prompt is not None else (cur_def.prompt if cur_def else "")
@@ -196,8 +191,6 @@ class SkillService:
                 def_updates["allowed_tools"] = json.dumps(req.allowed_tools, ensure_ascii=False)
             if req.arguments is not None:
                 def_updates["arguments"] = json.dumps(req.arguments, ensure_ascii=False)
-            if req.risk_level is not None:
-                def_updates["risk_level"] = req.risk_level
             if req.requires_confirmation is not None:
                 def_updates["requires_confirmation"] = 1 if req.requires_confirmation else 0
             if req.max_tool_calls is not None:
@@ -264,7 +257,7 @@ class SkillService:
                 when_to_use=cur_def.when_to_use, context=cur_def.context,
                 agent=cur_def.agent, model=cur_def.model,
                 allowed_tools=cur_def.allowed_tools, arguments=cur_def.arguments,
-                prompt=cur_def.prompt, risk_level=cur_def.risk_level,
+                prompt=cur_def.prompt,
                 requires_confirmation=cur_def.requires_confirmation,
                 max_tool_calls=cur_def.max_tool_calls, timeout_ms=cur_def.timeout_ms,
                 output_mode=cur_def.output_mode, component_apikey=cur_def.component_apikey,
@@ -360,7 +353,7 @@ class SkillService:
                 "model": definition.model,
                 "allowed_tools": _j(definition.allowed_tools, []),
                 "arguments": _j(definition.arguments, []),
-                "prompt": definition.prompt, "risk_level": definition.risk_level,
+                "prompt": definition.prompt,
                 "requires_confirmation": bool(definition.requires_confirmation),
                 "max_tool_calls": definition.max_tool_calls,
                 "timeout_ms": definition.timeout_ms,
@@ -403,8 +396,3 @@ class SkillService:
     def _validate_context(context: str) -> None:
         if context not in ("inline", "fork"):
             raise SkillServiceError(f"context 无效: '{context}'", code="INVALID_CONTEXT")
-
-    @staticmethod
-    def _validate_risk_level(risk_level: str) -> None:
-        if risk_level not in ("read_only", "mutating", "destructive"):
-            raise SkillServiceError(f"risk_level 无效: '{risk_level}'", code="INVALID_RISK_LEVEL")

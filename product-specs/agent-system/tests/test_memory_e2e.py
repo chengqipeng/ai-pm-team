@@ -27,9 +27,9 @@ def _get_llm():
     """获取真实 LLM 实例（豆包）"""
     from langchain_openai import ChatOpenAI
     return ChatOpenAI(
-        model="doubao-seed-2-0-lite-260215",
-        api_key="651621e7-e495-4728-93ef-ed380e9ddcd1",
-        base_url="https://ark.cn-beijing.volces.com/api/v3/",
+        model="deepseek-v4-flash",
+        api_key="sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw",
+        base_url="https://tokenhub.tencentmaas.com/v1",
         max_tokens=2048,
     )
 

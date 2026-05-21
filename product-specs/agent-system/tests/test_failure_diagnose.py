@@ -19,7 +19,7 @@ import sys
 from collections import Counter
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-os.environ.setdefault("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+os.environ.setdefault("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
 
 from src.memory.extraction.prompts import (
     PROFILE_EXTRACT_PROMPT,
@@ -97,9 +97,9 @@ async def diagnose(case_id, text, expect, dim):
 
     # 1) Lite 模型，temperature=0.3 跑 5 次看一致性
     lite_t03 = ChatOpenAI(
-        model="doubao-seed-2-0-lite-260215",
-        api_key=os.environ["DOUBAO_API_KEY"],
-        base_url="https://ark.cn-beijing.volces.com/api/v3/",
+        model="deepseek-v4-flash",
+        api_key=os.environ["DEEPSEEK_API_KEY"],
+        base_url="https://tokenhub.tencentmaas.com/v1",
         temperature=0.3, max_tokens=2048,
     )
     lite_results = await asyncio.gather(*[run_once(lite_t03, text, dim) for _ in range(5)])
@@ -108,9 +108,9 @@ async def diagnose(case_id, text, expect, dim):
     # 2) Pro 模型，temperature=0 单次
     try:
         pro = ChatOpenAI(
-            model=os.environ.get("DOUBAO_PRO_MODEL", "doubao-seed-1-6-250615"),
-            api_key=os.environ["DOUBAO_API_KEY"],
-            base_url="https://ark.cn-beijing.volces.com/api/v3/",
+            model=os.environ.get("DEEPSEEK_PRO_MODEL", "deepseek-v4-pro"),
+            api_key=os.environ["DEEPSEEK_API_KEY"],
+            base_url="https://tokenhub.tencentmaas.com/v1",
             temperature=0, max_tokens=2048,
         )
         pro_result = await run_once(pro, text, dim)

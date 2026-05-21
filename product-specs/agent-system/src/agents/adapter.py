@@ -86,9 +86,9 @@ class NeoAgentV2Adapter:
 
         # 初始化 LLM（记忆提取 + 技能优化共用）
         from langchain_openai import ChatOpenAI
-        _model_name = os.environ.get("AGENT_MODEL", "doubao-seed-2-0-lite-260215")
-        _api_key = os.environ.get("AGENT_API_KEY") or os.environ.get("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
-        _api_base = os.environ.get("AGENT_API_BASE", "https://ark.cn-beijing.volces.com/api/v3/")
+        _model_name = os.environ.get("AGENT_MODEL", "deepseek-v4-flash")
+        _api_key = os.environ.get("AGENT_API_KEY") or os.environ.get("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
+        _api_base = os.environ.get("AGENT_API_BASE", "https://tokenhub.tencentmaas.com/v1")
 
         aux_llm = ChatOpenAI(
             model=_model_name,
@@ -136,7 +136,11 @@ class NeoAgentV2Adapter:
             optimize_threshold=5,
         )
 
-        system_prompt = build_system_prompt(agent_name="CRM-Agent", skills=skill_reg.list_all())
+        system_prompt = build_system_prompt(
+            agent_name="CRM-Agent",
+            skills=skill_reg.list_all(),
+            tools=reg.all_tools,
+        )
 
         # 动态组装中间件（传入 llm 供 QueryRewriteMiddleware + TitleMiddleware 使用）
         middlewares = build_middleware(

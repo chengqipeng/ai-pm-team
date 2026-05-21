@@ -44,7 +44,7 @@ class EmbeddingClient:
     def _create_default(model_name: str, api_key: str, api_base: str) -> Embeddings:
         try:
             from langchain_openai import OpenAIEmbeddings
-            kwargs = {"model": model_name}
+            kwargs = {"model": model_name, "check_embedding_ctx_length": False}
             if api_key:
                 kwargs["api_key"] = api_key
             if api_base:

@@ -180,11 +180,15 @@ class MemoryMiddleware(AgentMiddleware):
         if not messages:
             return None
 
+        # 子 Agent（fork 模式）不检索记忆 — 父 Agent 已注入上下文，
+        # 且子 Agent 的 HumanMessage 是完整 skill prompt，不适合作为检索 query
+        configurable = get_config().get("configurable", {})
+        if configurable.get("skip_memory_retrieve"):
+            return None
+
         current_query = self._get_current_query(messages)
         if not current_query:
             return None
-
-        configurable = get_config().get("configurable", {})
         tenant_id = configurable.get("tenant_id", "default")
         user_id = configurable.get("user_id")
 
@@ -206,6 +210,8 @@ class MemoryMiddleware(AgentMiddleware):
             text = self._format_memory(result)
 
             # Agent Rules 注入 — 让 Agent 从第一轮就知道行为准则
+            # 格式与 system prompt 的 # 角色 分区保持一致，
+            # 让 LLM 将其视为角色定义的动态补充而非独立指令
             rules_text = ""
             if hasattr(self._engine, "get_agent_rules_text") and user_id:
                 try:
@@ -266,15 +272,16 @@ class MemoryMiddleware(AgentMiddleware):
         tenant_id = configurable.get("tenant_id", "default")
         user_id = configurable.get("user_id")
 
-        # 子 Agent（fork 模式）不提取记忆 — 由父 Agent 统一处理
+        # 子 Agent（fork 模式）禁止提取记忆 — 由父 Agent 统一处理
         if configurable.get("skip_memory_extract"):
             return None
 
-        # 1. 异步提取记忆 — 只传最近的用户原始消息（排除 middleware 注入的指令）
-        #    取最后 N 条 HumanMessage 作为提取输入
-        recent_user_messages = [m for m in messages if isinstance(m, HumanMessage)][-3:]
-        if recent_user_messages:
-            asyncio.create_task(self._async_extract(recent_user_messages, thread_id, tenant_id, user_id))
+        # 1. 异步提取记忆 — 只使用改写后的用户问题（最后一条 HumanMessage）
+        #    不传整个 messages 列表，避免 skill prompt / 工具结果等干扰提取
+        current_query = self._get_current_query(messages)
+        if current_query:
+            extract_messages = [HumanMessage(content=current_query)]
+            asyncio.create_task(self._async_extract(extract_messages, thread_id, tenant_id, user_id))
 
         # 2. 按优先级触发"实时"反思（P0 用户纠正 > P1 失败驱动）
         if user_id and hasattr(self._engine, "reflect_on_correction"):

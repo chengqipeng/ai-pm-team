@@ -4,7 +4,7 @@
 """
 import asyncio, os, sys, json, time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-os.environ.setdefault("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+os.environ.setdefault("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
 
 CASES = [
     # ── soul: 角色定义 (1-20) ──
@@ -223,8 +223,8 @@ async def run_batch(batch_num, batch_size=50):
     from langchain_openai import ChatOpenAI
     from src.memory.viking_engine import VikingMemoryEngine
     
-    llm = ChatOpenAI(model="doubao-seed-2-0-lite-260215", api_key=os.environ["DOUBAO_API_KEY"],
-                     base_url="https://ark.cn-beijing.volces.com/api/v3/", max_tokens=2048)
+    llm = ChatOpenAI(model="deepseek-v4-flash", api_key=os.environ["DEEPSEEK_API_KEY"],
+                     base_url="https://tokenhub.tencentmaas.com/v1", max_tokens=2048)
     e = VikingMemoryEngine(vdb_url="http://10.60.2.17", vdb_key="bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck",
                            database_name="viking_boundary_200", collection_name=f"boundary_b{batch_num}",
                            llm=llm, use_pg=False)

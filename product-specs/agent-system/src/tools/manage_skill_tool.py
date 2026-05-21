@@ -45,7 +45,6 @@ class ManageSkillTool(Tool):
                         "arguments": {"type": "array", "items": {"type": "string"}, "description": "参数名列表"},
                         "argument_descriptions": {"type": "object", "description": "参数描述 {参数名: 描述}"},
                         "allowed_tools": {"type": "array", "items": {"type": "string"}, "description": "允许使用的工具列表"},
-                        "risk_level": {"type": "string", "enum": ["read_only", "mutating", "destructive"]},
                         "max_tool_calls": {"type": "integer", "description": "最大工具调用次数"},
                         "timeout_ms": {"type": "integer", "description": "超时毫秒数"},
                         "prompt": {"type": "string", "description": "技能执行 Prompt（Markdown 格式，用 {参数名} 作占位符）"},
@@ -125,7 +124,6 @@ class ManageSkillTool(Tool):
             category=definition.get("category", "custom"),
             arguments=arguments,
             allowed_tools=allowed_tools,
-            risk_level=definition.get("risk_level", "read_only"),
             max_tool_calls=definition.get("max_tool_calls", 15),
             timeout_ms=definition.get("timeout_ms", 45000),
         )
@@ -173,7 +171,6 @@ class ManageSkillTool(Tool):
             category=definition.get("category"),
             arguments=definition.get("arguments"),
             allowed_tools=definition.get("allowed_tools"),
-            risk_level=definition.get("risk_level"),
             max_tool_calls=definition.get("max_tool_calls"),
             timeout_ms=definition.get("timeout_ms"),
         )

@@ -80,6 +80,7 @@ class TracingMiddleware(AgentMiddleware):
     def record_middleware_execution(
         self, middleware_name: str, phase: str, duration_ms: float,
         has_effect: bool = False, detail: str = "",
+        tool_call_id: str = "",
     ) -> None:
         """记录单个中间件的执行 — 由 MiddlewareTracingWrapper 调用
 
@@ -89,6 +90,7 @@ class TracingMiddleware(AgentMiddleware):
             duration_ms: 执行耗时
             has_effect: 是否产生了副作用（修改了 state）
             detail: 额外描述
+            tool_call_id: 工具调用 ID（仅 wrap_tool_call 阶段有值，用于前端关联）
         """
         # 根据执行阶段映射到前端 phase 分组
         phase_mapping = {
@@ -123,6 +125,7 @@ class TracingMiddleware(AgentMiddleware):
                 "middleware_name": middleware_name,
                 "phase": phase,
                 "has_effect": has_effect,
+                "tool_call_id": tool_call_id,
             },
             "children": [],
         })
@@ -639,6 +642,7 @@ class TracingMiddleware(AgentMiddleware):
 
     async def awrap_tool_call(self, request: ToolCallRequest, handler) -> ToolMessage | Command:
         name = request.tool_call.get("name", "unknown")
+        tool_call_id = request.tool_call.get("id", "")
         raw_args = request.tool_call.get("args", {})
         args = str(raw_args)[:500]
         start = time.monotonic()
@@ -660,6 +664,7 @@ class TracingMiddleware(AgentMiddleware):
                 self._add("tool_call", f"tool:{name}", dur,
                     metadata={
                         "tool_name": name,
+                        "tool_call_id": tool_call_id,
                         "input": args,
                         "output": output,
                         "status": status,
@@ -786,6 +791,7 @@ class MiddlewareTracingWrapper(AgentMiddleware):
         'GuardrailMiddleware': {'wrap_tool_call'},
         'ToolErrorHandlingMiddleware': {'wrap_tool_call'},
         'ClarificationMiddleware': {'wrap_tool_call'},
+        'SkillToolScopeMiddleware': {'wrap_tool_call'},
         # after_agent 输出层
         'OutputRenderMiddleware': {'after_agent'},
         'StreamPIIRestorer': {'after_agent'},
@@ -919,10 +925,12 @@ class MiddlewareTracingWrapper(AgentMiddleware):
             dur = (time.monotonic() - start) * 1000
             if self._should_trace("wrap_tool_call", True):
                 tool_name = request.tool_call.get("name", "unknown")
+                tool_call_id = request.tool_call.get("id", "")
                 tracing_middleware.record_middleware_execution(
                     self._name, "wrap_tool_call", dur,
                     has_effect=True,
                     detail=f"{self._name}: {tool_name}",
+                    tool_call_id=tool_call_id,
                 )
             return result
         return handler(request)
@@ -935,10 +943,12 @@ class MiddlewareTracingWrapper(AgentMiddleware):
             dur = (time.monotonic() - start) * 1000
             if self._should_trace("wrap_tool_call", True):
                 tool_name = request.tool_call.get("name", "unknown")
+                tool_call_id = request.tool_call.get("id", "")
                 tracing_middleware.record_middleware_execution(
                     self._name, "wrap_tool_call", dur,
                     has_effect=True,
                     detail=f"{self._name}: {tool_name}",
+                    tool_call_id=tool_call_id,
                 )
             return result
         return await handler(request)

@@ -162,7 +162,7 @@ class SkillDefinitionDAO:
     _COLUMNS = (
         "id, skill_api_key, tenant_id, version, name, description, changelog, "
         "when_to_use, category, context, agent, model, allowed_tools, arguments, prompt, "
-        "risk_level, requires_confirmation, max_tool_calls, timeout_ms, "
+        "requires_confirmation, max_tool_calls, timeout_ms, "
         "output_mode, component_apikey, post_output_behavior, "
         "published_by, delete_flg, created_at, created_by, updated_at, updated_by"
     )
@@ -213,10 +213,10 @@ class SkillDefinitionDAO:
                 INSERT INTO ai_skill_definition
                 (id, skill_api_key, tenant_id, version, name, description, changelog,
                  when_to_use, category, context, agent, model, allowed_tools, arguments, prompt,
-                 risk_level, requires_confirmation, max_tool_calls, timeout_ms,
+                 requires_confirmation, max_tool_calls, timeout_ms,
                  output_mode, component_apikey, post_output_behavior,
                  published_by, delete_flg, created_at, created_by, updated_at, updated_by)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (tenant_id, skill_api_key, version) WHERE delete_flg = 0
                 DO NOTHING
             """, (
@@ -224,7 +224,7 @@ class SkillDefinitionDAO:
                 row.name, row.description, row.changelog,
                 row.when_to_use, row.category, row.context, row.agent, row.model,
                 row.allowed_tools, row.arguments, row.prompt,
-                row.risk_level, row.requires_confirmation, row.max_tool_calls, row.timeout_ms,
+                row.requires_confirmation, row.max_tool_calls, row.timeout_ms,
                 row.output_mode, row.component_apikey, row.post_output_behavior,
                 row.published_by, row.delete_flg, row.created_at, row.created_by,
                 row.updated_at, row.updated_by,
@@ -255,13 +255,18 @@ class SkillDefinitionDAO:
     def list_active(tenant_id: int = 0, include_platform: bool = True) -> list[SkillDefinitionRow]:
         """加载所有启用 Skill 的当前生效版本 definition
 
-        JOIN ai_skill（取 current_version + enabled_flg）和 ai_skill_definition（取版本内容），
+        JOIN ai_skill（取 current_version + enabled_flg + ext_info）和 ai_skill_definition（取版本内容），
         只返回 enabled_flg=1 且 version = current_version 的行。
 
         供 SkillRegistry.load_from_db() 使用。
         """
+        # 给列名加 d. 前缀，避免 JOIN 时 "column reference is ambiguous"
+        qualified_columns = ", ".join(
+            f"d.{col.strip()}" for col in SkillDefinitionDAO._COLUMNS.split(",")
+        )
+        # 额外从 ai_skill 主表获取 ext_info（含 preload_resources 等配置）
         sql = f"""
-            SELECT {SkillDefinitionDAO._COLUMNS}
+            SELECT {qualified_columns}, s.ext_info
             FROM ai_skill_definition d
             INNER JOIN ai_skill s
                 ON s.api_key = d.skill_api_key

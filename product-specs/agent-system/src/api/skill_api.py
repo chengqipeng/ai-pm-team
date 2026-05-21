@@ -98,7 +98,6 @@ class CreateSkillBody(BaseModel):
     arguments: list[str] = Field(default_factory=list)
     argument_descriptions: dict[str, str] = Field(default_factory=dict)
     argument_config: dict[str, Any] = Field(default_factory=dict)
-    risk_level: str = Field(default="read_only")
     requires_confirmation: bool = Field(default=False)
     max_tool_calls: int = Field(default=20, ge=1, le=100)
     timeout_ms: int = Field(default=60000, ge=5000, le=300000)
@@ -121,7 +120,6 @@ class UpdateSkillBody(BaseModel):
     arguments: list[str] | None = None
     argument_descriptions: dict[str, str] | None = None
     argument_config: dict[str, Any] | None = None
-    risk_level: str | None = None
     requires_confirmation: bool | None = None
     max_tool_calls: int | None = Field(default=None, ge=1, le=100)
     timeout_ms: int | None = Field(default=None, ge=5000, le=300000)
@@ -275,7 +273,6 @@ async def create_skill(body: CreateSkillBody, tenant_id: int = Query(0)):
         model=body.model,
         allowed_tools=body.allowed_tools,
         arguments=body.arguments,
-        risk_level=body.risk_level,
         requires_confirmation=body.requires_confirmation,
         max_tool_calls=body.max_tool_calls,
         timeout_ms=body.timeout_ms,
@@ -315,7 +312,6 @@ async def update_skill(api_key: str, body: UpdateSkillBody, tenant_id: int = Que
         model=body.model,
         allowed_tools=body.allowed_tools,
         arguments=body.arguments,
-        risk_level=body.risk_level,
         requires_confirmation=body.requires_confirmation,
         max_tool_calls=body.max_tool_calls,
         timeout_ms=body.timeout_ms,
@@ -608,7 +604,6 @@ def _skill_to_detail(skill, definition) -> dict:
             "allowed_tools": _safe_json_loads(definition.allowed_tools, []),
             "arguments": _safe_json_loads(definition.arguments, []),
             "prompt": definition.prompt,
-            "risk_level": definition.risk_level,
             "requires_confirmation": bool(definition.requires_confirmation),
             "max_tool_calls": definition.max_tool_calls,
             "timeout_ms": definition.timeout_ms,
@@ -621,7 +616,7 @@ def _skill_to_detail(skill, definition) -> dict:
         d.update({
             "when_to_use": "", "context": "inline", "agent": "", "model": "",
             "allowed_tools": [], "arguments": [], "prompt": "",
-            "risk_level": "read_only", "requires_confirmation": False,
+            "requires_confirmation": False,
             "max_tool_calls": 20, "timeout_ms": 60000,
             "output_mode": "text", "component_apikey": "", "post_output_behavior": "silent",
         })

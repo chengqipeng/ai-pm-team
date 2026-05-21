@@ -21,7 +21,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-os.environ.setdefault("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+os.environ.setdefault("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
 
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
@@ -43,9 +43,9 @@ def _get_llm():
     """获取豆包 LLM 实例（用于查询改写）"""
     from langchain_openai import ChatOpenAI
     return ChatOpenAI(
-        model="doubao-seed-2-0-lite-260215",
-        api_key=os.environ["DOUBAO_API_KEY"],
-        base_url="https://ark.cn-beijing.volces.com/api/v3/",
+        model="deepseek-v4-flash",
+        api_key=os.environ["DEEPSEEK_API_KEY"],
+        base_url="https://tokenhub.tencentmaas.com/v1",
         max_tokens=2048,
     )
 
@@ -58,9 +58,9 @@ def _create_engine(tmp_dir: str, llm=None):
         "llm": {
             "provider": "openai",
             "config": {
-                "model": "doubao-seed-2-0-lite-260215",
-                "api_key": os.environ["DOUBAO_API_KEY"],
-                "openai_base_url": "https://ark.cn-beijing.volces.com/api/v3/",
+                "model": "deepseek-v4-flash",
+                "api_key": os.environ["DEEPSEEK_API_KEY"],
+                "openai_base_url": "https://tokenhub.tencentmaas.com/v1",
                 "temperature": 0.1,
                 "max_tokens": 2000,
             },
@@ -69,7 +69,7 @@ def _create_engine(tmp_dir: str, llm=None):
             "provider": "openai",
             "config": {
                 "model": "doubao-embedding-text-240715",
-                "api_key": os.environ["DOUBAO_API_KEY"],
+                "api_key": os.environ.get("EMBEDDING_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"),
                 "openai_base_url": "https://ark.cn-beijing.volces.com/api/v3/",
             },
         },
@@ -402,7 +402,7 @@ async def test_default_config():
         print(f"    LLM provider: {llm_provider}")
         print(f"    LLM model: {llm_model}")
         check("LLM provider 是 openai（兼容模式）", llm_provider == "openai")
-        check("LLM model 是豆包 2.0", "doubao-seed-2" in llm_model or "doubao" in llm_model)
+        check("LLM model 是 DeepSeek v4 Flash", "deepseek" in llm_model)
     except ImportError as e:
         print(f"  ⚠️  mem0ai 未安装，跳过: {e}")
         check("mem0ai 已安装", False)

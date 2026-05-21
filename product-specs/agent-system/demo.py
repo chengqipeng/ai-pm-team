@@ -23,7 +23,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(__file__))
-os.environ.setdefault("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+os.environ.setdefault("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
 
 passed = 0
 failed = 0
@@ -93,8 +93,8 @@ def demo_create_agent():
                                         arguments=["entity"], context="inline", when_to_use="校验"))
 
     config = LangChainAgentConfig(
-        model="doubao-seed-2-0-lite-260215", api_key=os.environ["DOUBAO_API_KEY"],
-        api_base="https://ark.cn-beijing.volces.com/api/v3/", tool_registry=reg,
+        model="deepseek-v4-flash", api_key=os.environ["DEEPSEEK_API_KEY"],
+        api_base="https://tokenhub.tencentmaas.com/v1", tool_registry=reg,
         skill_registry=skill_reg,
         system_prompt=_build_prompt(agent_name="CRM-Agent", skills=skill_reg.list_all()),
     )
@@ -243,8 +243,8 @@ def demo_exceptions():
     e4 = AuthorizationDeniedError("modify_data", "只读权限")
     check("AuthorizationDeniedError", "modify_data" in str(e4))
 
-    e5 = CredentialError("doubao", "key expired")
-    check("CredentialError", "doubao" in str(e5))
+    e5 = CredentialError("deepseek", "key expired")
+    check("CredentialError", "deepseek" in str(e5))
 
 
 async def demo_pydantic_skills_tool():
@@ -277,8 +277,8 @@ def demo_agent_factory():
     from src.agents.agent_factory import AgentFactory
     from langchain_openai import ChatOpenAI
 
-    model = ChatOpenAI(model="doubao-seed-2-0-lite-260215", api_key=os.environ["DOUBAO_API_KEY"],
-                       base_url="https://ark.cn-beijing.volces.com/api/v3/")
+    model = ChatOpenAI(model="deepseek-v4-flash", api_key=os.environ["DEEPSEEK_API_KEY"],
+                       base_url="https://tokenhub.tencentmaas.com/v1")
     from src.core.prompt_builder import build_system_prompt as _build
     factory = AgentFactory(default_model=model, default_system_prompt=_build(agent_name="CRM-Agent"))
     check("创建成功", factory is not None)
@@ -394,9 +394,9 @@ async def demo_memory_middleware():
 
     tmp = tempfile.mkdtemp()
     try:
-        llm = ChatOpenAI(model="doubao-seed-2-0-lite-260215",
-                         api_key="651621e7-e495-4728-93ef-ed380e9ddcd1",
-                         base_url="https://ark.cn-beijing.volces.com/api/v3/", max_tokens=1024)
+        llm = ChatOpenAI(model="deepseek-v4-flash",
+                         api_key="sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw",
+                         base_url="https://tokenhub.tencentmaas.com/v1", max_tokens=1024)
         storage = MemoryStorage(storage_dir=tmp)
         engine = FTSMemoryEngine(storage=storage, llm=llm)
         mw = MemoryMiddleware(engine=engine)
@@ -623,9 +623,9 @@ async def demo_memory_updater():
     from langchain_core.messages import HumanMessage, AIMessage
     from langchain_openai import ChatOpenAI
 
-    llm = ChatOpenAI(model="doubao-seed-2-0-lite-260215",
-                     api_key="651621e7-e495-4728-93ef-ed380e9ddcd1",
-                     base_url="https://ark.cn-beijing.volces.com/api/v3/", max_tokens=1024)
+    llm = ChatOpenAI(model="deepseek-v4-flash",
+                     api_key="sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw",
+                     base_url="https://tokenhub.tencentmaas.com/v1", max_tokens=1024)
     updater = MemoryUpdater(llm=llm)
 
     # 无消息时返回现有记忆
@@ -658,8 +658,8 @@ def demo_model_router():
     from src.core.model_router import ModelRouter, ModelRouterConfig, ModelConfig, TaskType
 
     config = ModelRouterConfig(
-        default=ModelConfig(model="doubao-seed-2-0-lite-260215", api_key=os.environ["DOUBAO_API_KEY"]),
-        routes={TaskType.SIMPLE.value: ModelConfig(model="doubao-seed-2-0-lite-260215", api_key=os.environ["DOUBAO_API_KEY"])},
+        default=ModelConfig(model="deepseek-v4-flash", api_key=os.environ["DEEPSEEK_API_KEY"]),
+        routes={TaskType.SIMPLE.value: ModelConfig(model="deepseek-v4-flash", api_key=os.environ["DEEPSEEK_API_KEY"])},
     )
     router = ModelRouter(config)
     check("总结→SIMPLE", router.classify_task("帮我总结") == TaskType.SIMPLE)
@@ -801,8 +801,8 @@ async def demo_real_api():
     from src.core.prompt_builder import build_system_prompt as _bp
 
     config = LangChainAgentConfig(
-        model="doubao-seed-2-0-lite-260215", api_key=os.environ["DOUBAO_API_KEY"],
-        api_base="https://ark.cn-beijing.volces.com/api/v3/", tool_registry=reg,
+        model="deepseek-v4-flash", api_key=os.environ["DEEPSEEK_API_KEY"],
+        api_base="https://tokenhub.tencentmaas.com/v1", tool_registry=reg,
         system_prompt=_bp(agent_name="CRM-Agent"),
     )
     agent = create_deep_agent(config)

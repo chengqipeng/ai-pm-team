@@ -44,7 +44,6 @@ class SkillDefinition:
     agent: str = ""                              # fork 模式下指定的子 Agent 名称
     # 扩展字段（DB 版本引入；内存构造也可以保持默认）
     version: str = "1.0.0"
-    risk_level: str = "read_only"                # read_only | mutating | destructive
     requires_confirmation: bool = False
     max_tool_calls: int = 20
     timeout_ms: int = 60000
@@ -88,18 +87,19 @@ class SkillDefinition:
             context=row.context or "inline",
             agent=row.agent or "",
             version=row.version or "1.0.0",
-            risk_level=row.risk_level or "read_only",
             requires_confirmation=bool(row.requires_confirmation),
             max_tool_calls=row.max_tool_calls or 20,
             timeout_ms=row.timeout_ms or 60000,
-            owner=row.owner or "",
+            owner=getattr(row, "owner", "") or "",
             output_mode=getattr(row, "output_mode", "text") or "text",
             component_apikey=getattr(row, "component_apikey", "") or "",
             post_output_behavior=getattr(row, "post_output_behavior", "silent") or "silent",
             tenant_id=row.tenant_id or 0,
         )
         # 保留 ext_info 供 ResourcePreloader 使用（不作为 dataclass 字段，避免序列化问题）
-        skill._ext_info = getattr(row, "ext_info", None) or "{}"
+        # ext_info 来自 ai_skill 主表（通过 list_active JOIN 获取），含 preload_resources 等配置
+        raw_ext = getattr(row, "ext_info", None)
+        skill._ext_info = raw_ext if raw_ext and raw_ext != "{}" else None
         return skill
 
 
@@ -197,7 +197,6 @@ class SkillRegistry:
             allowed_tools=json.dumps(skill.allowed_tools, ensure_ascii=False),
             arguments=json.dumps(skill.arguments, ensure_ascii=False),
             prompt=skill.prompt,
-            risk_level=getattr(skill, "risk_level", "read_only"),
             requires_confirmation=1 if getattr(skill, "requires_confirmation", False) else 0,
             max_tool_calls=getattr(skill, "max_tool_calls", 20),
             timeout_ms=getattr(skill, "timeout_ms", 60000),
@@ -222,7 +221,6 @@ class SkillRegistry:
             allowed_tools=row.allowed_tools,
             arguments=row.arguments,
             prompt=row.prompt,
-            risk_level=row.risk_level,
             requires_confirmation=row.requires_confirmation,
             max_tool_calls=row.max_tool_calls,
             timeout_ms=row.timeout_ms,
@@ -596,6 +594,14 @@ class SkillExecutor:
                 detail="AgentFactory 未配置，无法执行 fork 模式技能",
             )
 
+        # 防递归保护：如果当前深度已达上限，降级为 inline 执行
+        if self._current_depth >= (getattr(self._agent_factory, '_max_depth', 5)):
+            logger.warning(
+                "[skill] Fork 降级为 inline: name=%s, depth=%d >= max_depth=%d",
+                skill.name, self._current_depth, getattr(self._agent_factory, '_max_depth', 5),
+            )
+            return await self._execute_inline(skill, prompt)
+
         from langchain_core.messages import AIMessage, HumanMessage
         from uuid import uuid4
 
@@ -640,7 +646,8 @@ class SkillExecutor:
                 {"messages": messages},
                 config={"configurable": {
                     "thread_id": sub_thread_id,
-                    "skip_memory_extract": True,  # 子 Agent 不提取记忆，由父 Agent 统一处理
+                    "skip_memory_extract": True,   # 子 Agent 不提取记忆，由父 Agent 统一处理
+                    "skip_memory_retrieve": True,  # 子 Agent 不检索记忆，父 Agent 已注入上下文
                 }},
             )
         except RuntimeError as rte:
@@ -761,13 +768,17 @@ class SkillExecutor:
             # 从 SkillDefinition 获取 ext_info（可能是 DB 加载时存入的）
             ext_info = getattr(skill, "_ext_info", None)
             if ext_info is None:
-                # 尝试从 DB 重新获取 ext_info
+                # 尝试从 DB 重新获取 ext_info（ai_skill 主表）
+                logger.info("[skill] _ext_info 未随 SkillDefinition 加载，尝试从 ai_skill 表获取: skill=%s",
+                            skill.name)
                 ext_info = self._load_skill_ext_info(skill.name, skill.tenant_id)
 
             config = preloader.parse_config(ext_info)
 
             # 降级：无显式配置时，自动发现并加载索引文件
             if config is None:
+                logger.warning("[skill] preload_resources 配置缺失，走自动发现降级: skill=%s, ext_info=%s",
+                               skill.name, (ext_info or "")[:100])
                 config = await self._auto_discover_preload(preloader, skill.name)
                 if config is None:
                     return ""
@@ -788,7 +799,8 @@ class SkillExecutor:
                 requested=len(resource_paths),
                 loaded=len(result.files),
                 duration_ms=result.duration_ms,
-                paths=[f["path"] for f in result.files],
+                requested_paths=resource_paths,
+                loaded_paths=[f["path"] for f in result.files],
                 thread_id=sub_thread_id,
             )
 
@@ -842,7 +854,11 @@ class SkillExecutor:
 
     @staticmethod
     def _load_skill_ext_info(skill_name: str, tenant_id: int) -> str:
-        """从 DB 加载 Skill 的 ext_info 字段"""
+        """从 DB 加载 Skill 的 ext_info 字段
+
+        注意：ext_info 存储在 ai_skill 主记录表（版本无关元信息），
+        不在 ai_skill_definition 版本内容表中。
+        """
         try:
             from src.store.pg_pool import get_conn
             import re
@@ -862,7 +878,7 @@ class SkillExecutor:
                 cur = conn.cursor()
                 placeholders = ",".join(["%s"] * len(names))
                 cur.execute(f"""
-                    SELECT ext_info FROM ai_skill_definition
+                    SELECT ext_info FROM ai_skill
                     WHERE api_key IN ({placeholders})
                       AND tenant_id = %s AND delete_flg = 0 AND enabled_flg = 1
                     LIMIT 1
@@ -870,13 +886,15 @@ class SkillExecutor:
                 row = cur.fetchone()
                 return row[0] if row else "{}"
         except Exception as e:
-            logger.debug("[skill] _load_skill_ext_info failed: %s", e)
+            logger.warning("[skill] _load_skill_ext_info 查询失败: skill=%s, err=%s", skill_name, e)
             return "{}"
 
     @staticmethod
     def _record_preload_span(
         skill_name: str, requested: int, loaded: int,
-        duration_ms: float, paths: list[str],
+        duration_ms: float,
+        requested_paths: list[str],
+        loaded_paths: list[str],
         thread_id: str = "",
     ) -> None:
         """记录资源预加载 tracing span（写入子 Agent 的 thread）
@@ -897,11 +915,11 @@ class SkillExecutor:
                     },
                     input_data={
                         "skill_name": skill_name,
-                        "requested_paths": paths,
+                        "requested_paths": requested_paths,
                     },
                     output_data={
                         "loaded_count": loaded,
-                        "loaded_paths": paths[:loaded],
+                        "loaded_paths": loaded_paths,
                         "duration_ms": round(duration_ms, 1),
                     },
                     detail=f"预加载 {loaded}/{requested} 个知识文件 · {round(duration_ms)}ms",
@@ -916,11 +934,11 @@ class SkillExecutor:
                     },
                     input_data={
                         "skill_name": skill_name,
-                        "requested_paths": paths,
+                        "requested_paths": requested_paths,
                     },
                     output_data={
                         "loaded_count": loaded,
-                        "loaded_paths": paths[:loaded],
+                        "loaded_paths": loaded_paths,
                         "duration_ms": round(duration_ms, 1),
                     },
                     detail=f"预加载 {loaded}/{requested} 个知识文件 · {round(duration_ms)}ms",

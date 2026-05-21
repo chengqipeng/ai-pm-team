@@ -11,7 +11,7 @@
       "python": "${workspaceFolder}/.venv/bin/python",
       "env": {
         "PYTHONPATH": "${workspaceFolder}",
-        "DOUBAO_API_KEY": "651621e7-e495-4728-93ef-ed380e9ddcd1"
+        "DEEPSEEK_API_KEY": "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw"
       },
       "console": "integratedTerminal",
       "justMyCode": false

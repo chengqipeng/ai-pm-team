@@ -108,7 +108,8 @@ class AgentFactory:
             tool_loader.discover_tools(self._tools_dir)
 
         # 2. SkillExecutor + SkillsTool
-        if self._skill_registry and len(self._skill_registry.list_all()) > 0:
+        # 仅在顶层 Agent (depth=0) 注册 skills_tool，子 Agent 不需要再调用技能
+        if self._skill_registry and len(self._skill_registry.list_all()) > 0 and depth == 0:
             from src.core.state import PluginContext
             ctx = PluginContext(llm=self._model, tool_registry=self._tool_registry)
             executor = SkillExecutor(
@@ -176,12 +177,14 @@ class AgentFactory:
         # 4. 统一加载
         all_tools = tool_loader.load_tools()
 
-        # 5. System prompt
-        system_prompt = self._system_prompt
-        if self._skill_registry:
-            section = self._skill_registry.build_skills_prompt_section()
-            if section:
-                system_prompt += "\n" + section
+        # 5. System prompt — 用最终工具列表重建（包含 skills_tool/agent_tool/ask_user 等动态注册的工具）
+        # AgentFactory 在步骤 1~3 中动态注册了额外工具，需要将完整工具清单注入提示词
+        from src.core.prompt_builder import build_system_prompt as _rebuild_prompt
+        system_prompt = _rebuild_prompt(
+            agent_name=agent_name,
+            skills=self._skill_registry.list_all() if self._skill_registry else None,
+            tools=all_tools,
+        )
 
         # 6. 中间件：外部传入 > 按 features 自动组装
         if self._explicit_middlewares is not None:

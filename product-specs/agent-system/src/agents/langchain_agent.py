@@ -114,9 +114,9 @@ def adapt_tools(registry: ToolRegistry) -> list[BaseTool]:
 
 @dataclass
 class LangChainAgentConfig:
-    model: str = "doubao-seed-2-0-lite-260215"
+    model: str = "deepseek-v4-flash"
     api_key: str = ""
-    api_base: str = "https://ark.cn-beijing.volces.com/api/v3/"
+    api_base: str = "https://tokenhub.tencentmaas.com/v1"
     tool_registry: ToolRegistry | None = None
     skill_registry: SkillRegistry | None = None
     subagent_registry: SubagentRegistry | None = None
@@ -150,7 +150,7 @@ def create_deep_agent(config: LangChainAgentConfig) -> CompiledStateGraph:
         skill_registry=config.skill_registry,
         default_system_prompt=config.system_prompt,
         default_middlewares=config.middlewares if config.middlewares else None,
-        max_depth=3,
+        max_depth=5,
         checkpointer=config.checkpointer,
         subagent_registry=config.subagent_registry,
         tool_names=config.tool_names,

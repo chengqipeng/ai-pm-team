@@ -180,10 +180,10 @@ def get_content_reviewer() -> ContentReviewer:
     import os
     try:
         from langchain_openai import ChatOpenAI
-        model_name = os.environ.get("AGENT_MODEL", "doubao-seed-2-0-lite-260215")
+        model_name = os.environ.get("AGENT_MODEL", "deepseek-v4-flash")
         api_key = (os.environ.get("AGENT_API_KEY")
-                   or os.environ.get("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"))
-        api_base = os.environ.get("AGENT_API_BASE", "https://ark.cn-beijing.volces.com/api/v3/")
+                   or os.environ.get("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw"))
+        api_base = os.environ.get("AGENT_API_BASE", "https://tokenhub.tencentmaas.com/v1")
 
         llm = ChatOpenAI(
             model=model_name,

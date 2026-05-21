@@ -318,14 +318,6 @@
             <select name="category" id="f_category" class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
             </select>
           </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">风险等级</label>
-            <select name="risk_level" id="f_risk_level" class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none">
-              <option value="read_only">只读</option>
-              <option value="mutating">可变更</option>
-              <option value="destructive">危险</option>
-            </select>
-          </div>
         </div>
         <div class="grid grid-cols-2 gap-4">
           <div>
@@ -756,8 +748,6 @@ function renderSkillList() {
 
   container.innerHTML = allSkills.map(s => {
     const rate = s.exec_count > 0 ? Math.round(s.success_count / s.exec_count * 100) : 0;
-    const riskColors = { read_only: 'bg-green-50 text-green-700', mutating: 'bg-orange-50 text-orange-700', destructive: 'bg-red-50 text-red-700' };
-    const riskLabels = { read_only: '只读', mutating: '可变更', destructive: '危险' };
     const enabled = s.enabled !== undefined ? s.enabled : true;
 
     return `
@@ -771,7 +761,6 @@ function renderSkillList() {
             </div>
             <p class="text-sm text-gray-500 mt-1 truncate">${s.description}</p>
             <div class="flex items-center gap-3 mt-2 text-xs text-gray-400">
-              <span class="px-1.5 py-0.5 rounded ${riskColors[s.risk_level]}">${riskLabels[s.risk_level]}</span>
               ${s.system ? '<span class="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">🔒 系统</span>' : ''}
               <span>执行 ${s.exec_count} 次</span>
               <span>成功率 ${rate}%</span>
@@ -877,7 +866,6 @@ async function editSkill(apiKey) {
     document.getElementById('f_description').value = s.description || '';
     document.getElementById('f_when_to_use').value = s.when_to_use || '';
     document.getElementById('f_category').value = s.category || 'custom';
-    document.getElementById('f_risk_level').value = s.risk_level || 'read_only';
     document.getElementById('f_output_mode').value = s.output_mode || 'text';
     document.getElementById('f_context').value = s.context || 'inline';
     document.getElementById('f_max_tool_calls').value = s.max_tool_calls || 20;
@@ -916,7 +904,6 @@ async function saveSkill() {
     description: document.getElementById('f_description').value.trim(),
     when_to_use: document.getElementById('f_when_to_use').value.trim(),
     category: category,
-    risk_level: document.getElementById('f_risk_level').value,
     output_mode: document.getElementById('f_output_mode').value,
     context: document.getElementById('f_context').value,
     max_tool_calls: parseInt(document.getElementById('f_max_tool_calls').value) || 20,
@@ -2148,7 +2135,6 @@ function renderVersionList() {
     const isCurrent = v.is_current;
     const isViewing = viewingVersion === v.version;
     const time = v.created_at ? new Date(v.created_at).toLocaleString('zh-CN') : '-';
-    const riskColors = { read_only: 'bg-green-50 text-green-700', mutating: 'bg-orange-50 text-orange-700', destructive: 'bg-red-50 text-red-700' };
 
     return `
       <div class="border rounded-lg p-3 cursor-pointer transition-all
@@ -2165,7 +2151,6 @@ function renderVersionList() {
             <span class="font-mono text-sm font-semibold text-gray-800">v${v.version}</span>
             ${isCurrent ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">当前</span>' : ''}
             ${isViewing ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 font-medium">查看中</span>' : ''}
-            <span class="text-[10px] px-1.5 py-0.5 rounded ${riskColors[v.risk_level] || 'bg-gray-100 text-gray-600'}">${v.risk_level || ''}</span>
           </div>
           <div class="flex items-center gap-2" onclick="event.stopPropagation()">
             ${!isCurrent ? `<button onclick="event.stopPropagation(); deleteVersion('${v.version}')" class="text-[11px] text-red-500 hover:text-red-700 font-medium">删除</button>` : ''}
@@ -2233,7 +2218,6 @@ async function switchToVersionView(version) {
 function fillFormWithVersionData(data) {
   document.getElementById('f_description').value = data.description || '';
   document.getElementById('f_when_to_use').value = data.when_to_use || '';
-  document.getElementById('f_risk_level').value = data.risk_level || 'read_only';
   document.getElementById('f_context').value = data.context || 'inline';
   document.getElementById('f_max_tool_calls').value = data.max_tool_calls || 20;
   document.getElementById('f_timeout_ms').value = data.timeout_ms || 60000;

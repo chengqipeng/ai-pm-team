@@ -1,7 +1,7 @@
 """Debug: 定位 mem0 + 腾讯向量库检索失败的具体原因"""
 import asyncio, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-os.environ.setdefault("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1")
+os.environ.setdefault("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
 
 async def main():
     from src.memory.mem0_engine import Mem0MemoryEngine
@@ -27,7 +27,7 @@ async def main():
     # Step 2: 手动 embed + 调用 patched search
     emb = OpenAIEmbeddings(
         model="doubao-embedding-text-240715",
-        api_key=os.environ["DOUBAO_API_KEY"],
+        api_key=os.environ.get("EMBEDDING_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"),
         base_url="https://ark.cn-beijing.volces.com/api/v3/",
         check_embedding_ctx_length=False,
     )

@@ -5,9 +5,9 @@ from src.memory.extraction.prompts import PREFERENCES_EXTRACT_PROMPT
 from langchain_openai import ChatOpenAI
 
 llm = ChatOpenAI(
-    model=os.environ.get("DOUBAO_MODEL", "doubao-seed-2-0-lite-260215"),
-    api_key=os.environ.get("DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"),
-    base_url=os.environ.get("DOUBAO_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3/"),
+    model=os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+    api_key=os.environ.get("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw"),
+    base_url=os.environ.get("DEEPSEEK_API_BASE", "https://tokenhub.tencentmaas.com/v1"),
     temperature=0,
 )
 
