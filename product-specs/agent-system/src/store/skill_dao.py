@@ -251,6 +251,39 @@ class SkillDefinitionDAO:
                 "WHERE tenant_id=%s AND skill_api_key=%s AND delete_flg=0",
                 (now, updated_by, tenant_id, skill_api_key))
 
+    @staticmethod
+    def list_active(tenant_id: int = 0, include_platform: bool = True) -> list[SkillDefinitionRow]:
+        """加载所有启用 Skill 的当前生效版本 definition
+
+        JOIN ai_skill（取 current_version + enabled_flg）和 ai_skill_definition（取版本内容），
+        只返回 enabled_flg=1 且 version = current_version 的行。
+
+        供 SkillRegistry.load_from_db() 使用。
+        """
+        sql = f"""
+            SELECT {SkillDefinitionDAO._COLUMNS}
+            FROM ai_skill_definition d
+            INNER JOIN ai_skill s
+                ON s.api_key = d.skill_api_key
+                AND s.tenant_id = d.tenant_id
+                AND s.current_version = d.version
+                AND s.delete_flg = 0
+                AND s.enabled_flg = 1
+            WHERE d.delete_flg = 0
+        """
+        params: list[Any] = []
+        if include_platform:
+            sql += " AND d.tenant_id IN (%s, 0)"
+            params.append(tenant_id)
+        else:
+            sql += " AND d.tenant_id = %s"
+            params.append(tenant_id)
+        sql += " ORDER BY d.tenant_id, d.skill_api_key"
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, params)
+            return [_row_to_model(cur.description, r, SkillDefinitionRow) for r in cur.fetchall()]
+
 
 # ═══════════════════════════════════════════════════════════
 # 兼容旧引用（SkillVersionDAO → SkillDefinitionDAO）

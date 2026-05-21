@@ -79,6 +79,13 @@ _DIFF_FIELDS = list(_FIELD_LABELS.keys())
 
 class SkillVersionService:
 
+    def __init__(self, skill_registry=None):
+        """
+        Args:
+            skill_registry: SkillRegistry 实例（可选），用于版本切换后热加载
+        """
+        self._skill_registry = skill_registry
+
     # ── 版本列表 ──
 
     def list_versions(self, api_key: str, tenant_id: int = 0) -> list[dict]:
@@ -149,6 +156,8 @@ class SkillVersionService:
         })
 
         logger.info("新版本创建: %s v%s (from v%s)", api_key, req.version, current_version)
+        # 热加载 registry，确保运行时使用新版本
+        self._reload_registry(tenant_id)
         return {"skill_api_key": api_key, "version": req.version, "created_at": now}
 
     # ── 删除版本 ──
@@ -193,6 +202,8 @@ class SkillVersionService:
             "updated_by": user_id,
         })
         logger.info("版本切换: %s → v%s", api_key, target_version)
+        # 热加载 registry，确保运行时使用新版本
+        self._reload_registry(tenant_id)
         return {"skill_api_key": api_key, "current_version": target_version}
 
     # ── 版本对比 ──
@@ -360,6 +371,15 @@ class SkillVersionService:
             try: return json.loads(val)
             except: return val
         return val
+
+    def _reload_registry(self, tenant_id: int) -> None:
+        """版本变更后热加载 SkillRegistry"""
+        if self._skill_registry is None:
+            return
+        try:
+            self._skill_registry.load_from_db(tenant_id=tenant_id)
+        except Exception as e:
+            logger.warning("版本变更后 SkillRegistry 热加载失败: %s", e)
 
     @staticmethod
     def _validate_version(v: str):

@@ -78,7 +78,7 @@ class SkillDefinition:
         except (json.JSONDecodeError, TypeError):
             arguments = []
         skill = cls(
-            name=row.api_key,
+            name=getattr(row, 'api_key', None) or getattr(row, 'skill_api_key', ''),
             description=row.description or row.name,
             prompt=row.prompt or "",
             when_to_use=row.when_to_use or "",
@@ -162,7 +162,8 @@ class SkillRegistry:
                 self._skills[skill.name] = skill
                 loaded += 1
             except Exception as exc:
-                logger.warning("加载 Skill 失败 api_key=%s: %s", row.api_key, exc)
+                logger.warning("加载 Skill 失败 api_key=%s: %s",
+                               getattr(row, 'api_key', None) or getattr(row, 'skill_api_key', '?'), exc)
         logger.info("SkillRegistry 从 DB 加载完成: tenant=%d, count=%d",
                     tenant_id, loaded)
         return loaded

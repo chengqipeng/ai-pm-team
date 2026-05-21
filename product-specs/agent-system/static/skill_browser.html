@@ -852,6 +852,7 @@ function openCreate() {
   document.getElementById('f_max_tool_calls').value = '20';
   document.getElementById('f_timeout_ms').value = '60000';
   document.getElementById('testOutputSection').classList.add('hidden');
+  hideVersionBanner();
   renderToolOptions([]);
   resetArguments();
   renderCategorySelect();
@@ -871,7 +872,7 @@ async function editSkill(apiKey) {
     const s = await res.json();
     document.getElementById('f_api_key').value = s.api_key;
     document.getElementById('f_api_key').disabled = true;
-    document.getElementById('formTitle').textContent = `编辑: ${s.name || apiKey}（${s.api_key}）v${s.version || '1.0.0'}`;
+    document.getElementById('formTitle').textContent = `编辑: ${s.name || apiKey}（${s.api_key}）`;
     document.getElementById('f_name').value = s.name || '';
     document.getElementById('f_description').value = s.description || '';
     document.getElementById('f_when_to_use').value = s.when_to_use || '';
@@ -886,6 +887,8 @@ async function editSkill(apiKey) {
     document.getElementById('f_prompt').value = s.prompt || '';
     // 加载资源树
     loadResourceTree(apiKey);
+    // 默认显示当前生效版本 banner
+    showVersionBanner(s.version || '1.0.0', true, true);
   } catch (e) {
     alert('加载失败: ' + e.message);
     closeForm();
@@ -954,7 +957,7 @@ async function saveSkill() {
       loadResourceTree(editingKey);
     }
     // 更新标题版本号
-    document.getElementById('formTitle').textContent = `编辑: ${result.name || editingKey}（${editingKey}）v${result.version || '1.0.0'}`;
+    document.getElementById('formTitle').textContent = `编辑: ${result.name || editingKey}（${editingKey}）`;
     // 后台刷新列表（不关闭面板）
     loadSkills();
     loadStats();
@@ -2291,14 +2294,18 @@ function buildTreeFromVersionFiles(files) {
   return nodes;
 }
 
-function showVersionBanner(version, isCurrent) {
+function showVersionBanner(version, isCurrent, isDefaultEdit) {
   let banner = document.getElementById('versionBanner');
   if (!banner) {
     banner = document.createElement('div'); banner.id = 'versionBanner';
     const fc = document.querySelector('#formModal .flex-1.flex.overflow-hidden');
     if (fc) fc.parentElement.insertBefore(banner, fc);
   }
-  if (isCurrent) {
+  if (isDefaultEdit) {
+    // 默认编辑模式：只显示当前版本信息，无操作按钮
+    banner.className = 'px-4 py-2 bg-blue-50 border-b border-blue-200 flex items-center justify-between';
+    banner.innerHTML = `<span class="text-xs text-blue-700">📌 当前生效版本 v${version}</span><span class="text-[10px] text-blue-500">编辑内容将保存到此版本</span>`;
+  } else if (isCurrent) {
     banner.className = 'px-4 py-2 bg-blue-50 border-b border-blue-200 flex items-center justify-between';
     banner.innerHTML = `<span class="text-xs text-blue-700">📌 当前生效版本 v${version}</span><button onclick="exitVersionView()" class="text-xs text-blue-600 hover:text-blue-800 font-medium">返回编辑</button>`;
   } else {

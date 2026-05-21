@@ -53,13 +53,35 @@ class ReadSkillResourceTool(Tool):
             with get_conn() as conn:
                 cur = conn.cursor()
 
-                # 尝试精确匹配 skill_api_key
+                # 先获取 skill 的 current_version
+                cur.execute("""
+                    SELECT current_version FROM ai_skill
+                    WHERE api_key = %s AND tenant_id = %s AND delete_flg = 0
+                """, (skill_name, self._tenant_id))
+                ver_row = cur.fetchone()
+                if not ver_row:
+                    # 尝试名称变体
+                    import re
+                    alt_name = skill_name.replace('-', '_') if '-' in skill_name else skill_name.replace('_', '-')
+                    cur.execute("""
+                        SELECT current_version, api_key FROM ai_skill
+                        WHERE api_key IN (%s, %s) AND tenant_id = %s AND delete_flg = 0
+                        LIMIT 1
+                    """, (skill_name, alt_name, self._tenant_id))
+                    ver_row = cur.fetchone()
+                    if ver_row:
+                        skill_name = ver_row[1] if len(ver_row) > 1 else skill_name
+
+                version = ver_row[0] if ver_row else "1.0.0"
+
+                # 查询指定版本的资源文件
                 cur.execute("""
                     SELECT content, content_type, description
                     FROM ai_skill_resource
-                    WHERE skill_api_key = %s AND path = %s AND node_type = 'file'
-                          AND tenant_id = %s AND delete_flg = 0 AND enabled_flg = 1
-                """, (skill_name, resource_name, self._tenant_id))
+                    WHERE skill_api_key = %s AND path = %s AND version = %s
+                          AND node_type = 'file' AND tenant_id = %s
+                          AND delete_flg = 0 AND enabled_flg = 1
+                """, (skill_name, resource_name, version, self._tenant_id))
                 row = cur.fetchone()
 
                 # 如果没找到，尝试连字符/下划线互换
@@ -68,28 +90,28 @@ class ReadSkillResourceTool(Tool):
                     cur.execute("""
                         SELECT content, content_type, description
                         FROM ai_skill_resource
-                        WHERE skill_api_key = %s AND path = %s AND node_type = 'file'
-                              AND tenant_id = %s AND delete_flg = 0 AND enabled_flg = 1
-                    """, (alt_name, resource_name, self._tenant_id))
+                        WHERE skill_api_key = %s AND path = %s AND version = %s
+                              AND node_type = 'file' AND tenant_id = %s
+                              AND delete_flg = 0 AND enabled_flg = 1
+                    """, (alt_name, resource_name, version, self._tenant_id))
                     row = cur.fetchone()
 
-                # 如果还没找到，尝试 camelCase → kebab-case 或 kebab-case → camelCase
+                # 如果还没找到，尝试 camelCase → kebab-case 或反向
                 if row is None:
                     import re
                     if any(c.isupper() for c in skill_name):
-                        # camelCase → kebab-case
                         alt2 = re.sub(r'([a-z])([A-Z])', r'\1-\2', skill_name).lower()
                     else:
-                        # kebab-case → camelCase
                         parts = skill_name.split('-')
                         alt2 = parts[0] + ''.join(p.capitalize() for p in parts[1:]) if len(parts) > 1 else skill_name
                     if alt2 != skill_name:
                         cur.execute("""
                             SELECT content, content_type, description
                             FROM ai_skill_resource
-                            WHERE skill_api_key = %s AND path = %s AND node_type = 'file'
-                                  AND tenant_id = %s AND delete_flg = 0 AND enabled_flg = 1
-                        """, (alt2, resource_name, self._tenant_id))
+                            WHERE skill_api_key = %s AND path = %s AND version = %s
+                                  AND node_type = 'file' AND tenant_id = %s
+                                  AND delete_flg = 0 AND enabled_flg = 1
+                        """, (alt2, resource_name, version, self._tenant_id))
                         row = cur.fetchone()
 
             if row is None:
@@ -117,7 +139,7 @@ class ReadSkillResourceTool(Tool):
             return ToolResult(content=f"读取资源文件失败: {e}", is_error=True)
 
     def _list_available(self, skill_name: str) -> list[str]:
-        """列出该 skill 下所有可用的文件路径"""
+        """列出该 skill 当前版本下所有可用的文件路径"""
         try:
             from src.store.pg_pool import get_conn
             import re
@@ -133,13 +155,23 @@ class ReadSkillResourceTool(Tool):
 
             with get_conn() as conn:
                 cur = conn.cursor()
+                # 获取 current_version
                 placeholders = ','.join(['%s'] * len(names))
                 cur.execute(f"""
-                    SELECT path FROM ai_skill_resource
-                    WHERE skill_api_key IN ({placeholders}) AND node_type = 'file'
-                          AND tenant_id = %s AND delete_flg = 0 AND enabled_flg = 1
-                    ORDER BY path
+                    SELECT current_version, api_key FROM ai_skill
+                    WHERE api_key IN ({placeholders}) AND tenant_id = %s AND delete_flg = 0
+                    LIMIT 1
                 """, (*names, self._tenant_id))
+                ver_row = cur.fetchone()
+                version = ver_row[0] if ver_row else "1.0.0"
+
+                cur.execute(f"""
+                    SELECT path FROM ai_skill_resource
+                    WHERE skill_api_key IN ({placeholders}) AND version = %s
+                          AND node_type = 'file' AND tenant_id = %s
+                          AND delete_flg = 0 AND enabled_flg = 1
+                    ORDER BY path
+                """, (*names, version, self._tenant_id))
                 return [r[0] for r in cur.fetchall()]
         except Exception:
             return []

@@ -72,7 +72,10 @@ _version_service: SkillVersionService | None = None
 def get_version_service() -> SkillVersionService:
     global _version_service
     if _version_service is None:
-        _version_service = SkillVersionService()
+        # 共享 SkillService 的 registry，确保版本切换后运行时同步更新
+        skill_svc = get_skill_service()
+        registry = getattr(skill_svc, '_skill_registry', None)
+        _version_service = SkillVersionService(skill_registry=registry)
     return _version_service
 
 

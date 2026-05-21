@@ -122,12 +122,14 @@ class ResourcePreloader:
         self,
         skill_name: str,
         resource_paths: list[str],
+        version: str = "",
     ) -> PreloadResult:
         """批量加载知识文件
 
         Args:
             skill_name: 技能标识（api_key）
             resource_paths: 要加载的文件路径列表
+            version: 指定版本号（空字符串则自动查询 current_version）
 
         Returns:
             PreloadResult 包含加载的文件内容
@@ -148,7 +150,18 @@ class ResourcePreloader:
             with get_conn() as conn:
                 cur = conn.cursor()
 
-                # 批量查询：一次 SQL 获取所有文件
+                # 如果未指定 version，从 ai_skill 表获取 current_version
+                if not version:
+                    name_ph = ",".join(["%s"] * len(names))
+                    cur.execute(f"""
+                        SELECT current_version FROM ai_skill
+                        WHERE api_key IN ({name_ph}) AND tenant_id = %s AND delete_flg = 0
+                        LIMIT 1
+                    """, (*names, self._tenant_id))
+                    ver_row = cur.fetchone()
+                    version = ver_row[0] if ver_row else "1.0.0"
+
+                # 批量查询：一次 SQL 获取所有文件（限定版本）
                 name_placeholders = ",".join(["%s"] * len(names))
                 path_placeholders = ",".join(["%s"] * len(resource_paths))
 
@@ -157,12 +170,13 @@ class ResourcePreloader:
                     FROM ai_skill_resource
                     WHERE skill_api_key IN ({name_placeholders})
                       AND path IN ({path_placeholders})
+                      AND version = %s
                       AND node_type = 'file'
                       AND tenant_id = %s
                       AND delete_flg = 0
                       AND enabled_flg = 1
                     ORDER BY sort_num, path
-                """, (*names, *resource_paths, self._tenant_id))
+                """, (*names, *resource_paths, version, self._tenant_id))
 
                 rows = cur.fetchall()
 

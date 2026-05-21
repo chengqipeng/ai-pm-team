@@ -623,13 +623,295 @@ strong { color: var(--heading); }
 
 <hr/>
 
-<h2>六、测试调试</h2>
+<h2>六、版本管理</h2>
+
+<div class="card">
+<p style="font-size:0.9em;color:#374151;margin:4px 0;">版本管理为 Skill 提供完整的变更追踪与回滚能力，确保 Prompt 调优和配置变更过程可控、可追溯、可恢复。</p>
+<ul style="font-size:0.88em;color:#4b5563;">
+<li><strong>版本记录</strong>：每次点击"创建新版本"时生成版本快照，记录完整的配置状态（Prompt + 资源文件 + 配置字段）</li>
+<li><strong>版本对比</strong>：勾选任意两个版本进行 Diff 对比，左侧展示资源文件树变更，右侧展示文件内容行级差异</li>
+<li><strong>版本回滚</strong>：一键回滚到历史版本，回滚后生成新版本号，当前版本不丢失</li>
+</ul>
+</div>
+
+<h3>6.1 入口与布局</h3>
+
+<div class="card">
+<div class="card-header">版本管理入口</div>
+<p style="font-size:0.88em;color:#64748b;margin-bottom:12px;">版本管理作为左侧资源文件树中的一级菜单项（与"Skill 配置"、"SKILL.md"同级），点击后右侧内容区切换为版本历史面板：</p>
+<ul style="font-size:0.88em;color:#4b5563;">
+<li><strong>顶部标题栏</strong>：显示"编辑: 名称（apiKey）vX.X.X"，右侧保留"▶ 测试"、"保存"、"取消"按钮</li>
+<li><strong>生效版本提示</strong>：标题栏下方显示 <span style="color:#e53e3e;">📌 当前生效版本 vX.X.X</span>，右侧显示"返回编辑"链接</li>
+<li><strong>左侧菜单</strong>：资源文件树中增加 <span style="background:#e8f0fe;color:#1a73e8;padding:2px 8px;border-radius:4px;font-size:0.82em;font-weight:600;">版本管理</span> 菜单项（蓝色高亮选中态）</li>
+</ul>
+</div>
+
+<h3>6.2 版本历史列表</h3>
+
+<div class="wireframe">
+<div class="wireframe-header">编辑: 智能客户洞察（accountInsight）v2.0.3</div>
+<div style="display:flex;gap:0;">
+
+<!-- 左侧：资源文件树 -->
+<div style="width:240px;background:#f8fafc;border-right:1px solid #e2e8f0;padding:12px 0;font-size:0.78em;min-height:420px;">
+<div style="padding:4px 12px;font-size:0.75em;color:#e53e3e;margin-bottom:8px;">📌 当前生效版本 v2.0.3 <span style="float:right;color:#1a73e8;cursor:pointer;">返回编辑</span></div>
+<div style="padding:6px 12px;display:flex;justify-content:space-between;align-items:center;">
+<span style="font-weight:600;color:#475569;">📁 资源文件 <span style="font-weight:400;color:#94a3b8;">4目录 · 10文件 (v2.0.3)</span></span>
+</div>
+<div style="padding:4px 12px;display:flex;gap:4px;margin-bottom:8px;">
+<span style="border:1px solid #d1d5db;border-radius:4px;padding:2px 6px;font-size:0.9em;cursor:pointer;">📄+</span>
+<span style="border:1px solid #d1d5db;border-radius:4px;padding:2px 6px;font-size:0.9em;cursor:pointer;">📁+</span>
+<span style="border:1px solid #d1d5db;border-radius:4px;padding:2px 6px;font-size:0.9em;cursor:pointer;">🗑</span>
+<span style="border:1px solid #d1d5db;border-radius:4px;padding:2px 6px;font-size:0.9em;cursor:pointer;">🔄</span>
+</div>
+<div style="padding:4px 12px;color:#475569;">⚙️ Skill 配置</div>
+<div style="padding:4px 12px;color:#475569;padding-left:20px;">📄 SKILL.md</div>
+<div style="padding:6px 12px;color:#fff;background:#4285f4;border-radius:4px;margin:2px 8px;font-weight:600;">📋 版本管理</div>
+<div style="padding:6px 12px;color:#475569;">📁 knowledge <span style="color:#94a3b8;float:right;">3</span></div>
+<div style="padding:4px 12px;color:#475569;padding-left:28px;">📁 analysis-strategies <span style="color:#94a3b8;float:right;">4</span></div>
+<div style="padding:4px 12px;color:#475569;padding-left:44px;">📄 business-model-patter...</div>
+<div style="padding:4px 12px;color:#475569;padding-left:44px;">📄 risk-scoring-models.md</div>
+<div style="padding:4px 12px;color:#475569;padding-left:44px;">📄 signal-patterns.md</div>
+<div style="padding:4px 12px;color:#475569;padding-left:44px;">📄 value-proposition-fra...</div>
+<div style="padding:6px 12px;color:#475569;padding-left:28px;">📁 competitor-playbooks <span style="color:#94a3b8;float:right;">3</span></div>
+<div style="padding:6px 12px;color:#475569;padding-left:28px;">📁 industries <span style="color:#94a3b8;float:right;">3</span></div>
+</div>
+
+<!-- 右侧：版本历史面板 -->
+<div style="flex:1;padding:24px;overflow-y:auto;">
+
+<!-- 顶部操作栏 -->
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+<div style="font-size:1.05em;font-weight:600;color:#1e293b;">版本历史</div>
+<div style="display:flex;gap:8px;">
+<span class="mock-btn mock-btn-primary">+ 创建新版本</span>
+</div>
+</div>
+
+<!-- 操作提示 -->
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+<div style="font-size:0.82em;color:#64748b;">勾选两个版本进行对比，点击版本行切换查看</div>
+<span class="mock-btn mock-btn-primary" style="font-size:0.78em;">对比选中版本</span>
+</div>
+
+<!-- 版本条目 1: 当前版本 -->
+<div style="border:2px solid #4285f4;border-radius:8px;padding:14px 16px;margin-bottom:10px;background:#f0f7ff;">
+<div style="display:flex;justify-content:space-between;align-items:center;">
+<div style="display:flex;align-items:center;gap:10px;">
+<input type="checkbox" style="width:16px;height:16px;accent-color:#4285f4;" />
+<code style="font-size:1em;font-weight:700;color:#1a1a2e;">v2.0.3</code>
+<span class="badge badge-purple">当前</span>
+<span class="badge badge-blue">查看中</span>
+<span style="font-size:0.78em;padding:2px 8px;background:#e8f5e9;color:#2e7d32;border-radius:4px;border:1px solid #a5d6a7;">read_only</span>
+</div>
+<div></div>
+</div>
+<div style="margin-top:8px;font-size:0.8em;color:#64748b;">
+<span>📅 2026/5/21 10:18:02</span> &nbsp;&nbsp; — 测试
+</div>
+</div>
+
+<!-- 版本条目 2: 历史版本 -->
+<div style="border:1px solid #e2e8f0;border-radius:8px;padding:14px 16px;margin-bottom:10px;background:#fff;">
+<div style="display:flex;justify-content:space-between;align-items:center;">
+<div style="display:flex;align-items:center;gap:10px;">
+<input type="checkbox" style="width:16px;height:16px;" />
+<code style="font-size:1em;font-weight:700;color:#1a1a2e;">v2.0.2</code>
+<span style="font-size:0.78em;padding:2px 8px;background:#e8f5e9;color:#2e7d32;border-radius:4px;border:1px solid #a5d6a7;">read_only</span>
+</div>
+<div style="display:flex;gap:8px;">
+<span style="font-size:0.8em;color:#dc2626;cursor:pointer;font-weight:500;">删除</span>
+<span style="font-size:0.8em;color:#1a73e8;cursor:pointer;font-weight:500;">回滚</span>
+</div>
+</div>
+<div style="margin-top:8px;font-size:0.8em;color:#64748b;">
+<span>📅 2025/5/16 08:00:00</span>
+</div>
+</div>
+
+<!-- 版本条目 3 -->
+<div style="border:1px solid #e2e8f0;border-radius:8px;padding:14px 16px;margin-bottom:10px;background:#fff;">
+<div style="display:flex;justify-content:space-between;align-items:center;">
+<div style="display:flex;align-items:center;gap:10px;">
+<input type="checkbox" style="width:16px;height:16px;" />
+<code style="font-size:1em;font-weight:700;color:#1a1a2e;">v2.0.1</code>
+<span style="font-size:0.78em;padding:2px 8px;background:#e8f5e9;color:#2e7d32;border-radius:4px;border:1px solid #a5d6a7;">read_only</span>
+</div>
+<div style="display:flex;gap:8px;">
+<span style="font-size:0.8em;color:#dc2626;cursor:pointer;font-weight:500;">删除</span>
+<span style="font-size:0.8em;color:#1a73e8;cursor:pointer;font-weight:500;">回滚</span>
+</div>
+</div>
+<div style="margin-top:8px;font-size:0.8em;color:#64748b;">
+<span>📅 2025/5/10 14:30:00</span> &nbsp;&nbsp; — 初始创建
+</div>
+</div>
+
+</div>
+</div>
+</div>
+
+<h3>6.3 版本对比</h3>
+
+<div class="card">
+<div class="card-header">对比界面</div>
+<p style="font-size:0.88em;color:#64748b;margin-bottom:12px;">勾选两个版本后点击"对比选中版本"，进入 Diff 对比视图。顶部显示对比标题（如 "v2.0.2 → v2.0.3 修改 提示词"），右上角关闭按钮（×）可退出对比。对比区域分为三栏：</p>
+<ul style="font-size:0.88em;color:#4b5563;">
+<li><strong>最左侧 — 资源文件树</strong>：展示该版本的完整文件目录结构，点击文件可切换右侧 Diff 内容</li>
+<li><strong>中间 — 旧版本文件内容</strong>：展示选中文件在旧版本中的内容，删除的行以红色背景高亮</li>
+<li><strong>右侧 — 新版本文件内容</strong>：展示选中文件在新版本中的内容，新增的行以绿色背景高亮</li>
+<li><strong>行号对齐</strong>：左右两侧行号独立编号，相同内容的行水平对齐，便于逐行比对</li>
+<li><strong>折叠区域</strong>：无变更的连续行自动折叠，显示"-- 折叠 N 行 --"，点击可展开</li>
+</ul>
+</div>
+
+<div class="wireframe">
+<div class="wireframe-header" style="display:flex;justify-content:space-between;align-items:center;">
+<span>v2.0.2 &nbsp;→&nbsp; v2.0.3 &nbsp;&nbsp;修改 提示词</span>
+<span style="cursor:pointer;font-size:1.2em;">×</span>
+</div>
+<div style="display:flex;gap:0;">
+
+<!-- 左侧：资源文件树 -->
+<div style="width:220px;background:#f8fafc;border-right:1px solid #e2e8f0;padding:12px 0;font-size:0.78em;min-height:320px;">
+<div style="padding:6px 12px;color:#475569;">📁 knowledge <span style="color:#94a3b8;float:right;">10</span></div>
+<div style="padding:4px 12px;color:#475569;padding-left:20px;">▼ 📁 analysis-strategies <span style="color:#94a3b8;float:right;">4</span></div>
+<div style="padding:4px 12px;color:#475569;padding-left:36px;">📄 business-model-patter...</div>
+<div style="padding:4px 12px;color:#475569;padding-left:36px;">📄 risk-scoring-models.md</div>
+<div style="padding:4px 12px;color:#475569;padding-left:36px;">📄 signal-patterns.md</div>
+<div style="padding:4px 12px;color:#475569;padding-left:36px;">📄 value-proposition-frame...</div>
+<div style="padding:6px 12px;color:#475569;padding-left:20px;">▼ 📁 competitor-playbooks <span style="color:#94a3b8;float:right;">3</span></div>
+<div style="padding:4px 12px;color:#475569;padding-left:36px;">📄 incumbent-replacement...</div>
+<div style="padding:4px 12px;color:#475569;padding-left:36px;">📄 price-war.md</div>
+<div style="padding:4px 12px;color:#475569;padding-left:36px;">📄 self-build.md</div>
+<div style="padding:6px 12px;color:#475569;padding-left:20px;">▼ 📁 industries <span style="color:#94a3b8;float:right;">3</span></div>
+<div style="padding:4px 12px;color:#475569;padding-left:36px;">📄 _index.md</div>
+<div style="padding:4px 12px;color:#475569;padding-left:36px;">📄 manufacturing.md</div>
+<div style="padding:4px 12px;color:#475569;padding-left:36px;">📄 technology.md</div>
+</div>
+
+<!-- 右侧：Diff 内容（左右对比） -->
+<div style="flex:1;padding:0;overflow:auto;font-family:'JetBrains Mono','Fira Code',monospace;font-size:0.72em;line-height:1.6;">
+
+<!-- 文件头 -->
+<div style="padding:8px 16px;background:#f1f5f9;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
+<strong style="color:#1e293b;">SKILL.md</strong>
+<span style="color:#059669;font-size:0.9em;">+1</span> &nbsp;<span style="color:#dc2626;font-size:0.9em;">-182</span>
+</div>
+
+<!-- Side-by-side Diff -->
+<div style="display:flex;gap:0;width:100%;">
+
+<!-- 左侧：旧版本 v2.0.2 -->
+<div style="flex:1;border-right:2px solid #e2e8f0;overflow:hidden;">
+<div style="padding:6px 12px;background:#fef2f2;border-bottom:1px solid #fca5a5;font-size:0.95em;font-weight:600;color:#dc2626;">v2.0.2</div>
+<table style="width:100%;border-collapse:collapse;margin:0;">
+<tbody>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;">1</td><td style="padding:2px 8px;color:#374151;white-space:pre-wrap;"># 智能客户洞察 — 入口</td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;">2</td><td style="padding:2px 8px;color:#374151;"></td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;">3</td><td style="padding:2px 8px;color:#374151;white-space:pre-wrap;">你是服务于 B2B 销售团队的**资深客户情报分析师**。像要收购这家公司一样去理解它，但最终目的是帮助销售赢单。</td></tr>
+<tr style="background:#fef2f2;"><td style="width:28px;text-align:right;padding:1px 5px;color:#dc2626;border-right:1px solid #f0f0f0;user-select:none;">4</td><td style="padding:2px 8px;color:#dc2626;white-space:pre-wrap;"><del>像要收购这家公司一样去理解它，但最终目的是帮助销售赢单。</del></td></tr>
+<tr><td colspan="2" style="padding:3px 8px;text-align:center;color:#6366f1;font-size:0.9em;background:#f5f3ff;cursor:pointer;">-- 折叠 3 行 --</td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;">7</td><td style="padding:2px 8px;color:#374151;white-space:pre-wrap;">- 用户意图: {user_intent}</td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;">8</td><td style="padding:2px 8px;color:#374151;"></td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;">9</td><td style="padding:2px 8px;color:#374151;white-space:pre-wrap;">## 铁律</td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;">10</td><td style="padding:2px 8px;color:#374151;"></td></tr>
+<tr style="background:#fef2f2;"><td style="width:28px;text-align:right;padding:1px 5px;color:#dc2626;border-right:1px solid #f0f0f0;user-select:none;">11</td><td style="padding:2px 8px;color:#dc2626;white-space:pre-wrap;"><strong>1. **每条洞察必须连接行动**—不能指导销售下一步的信息不要写</strong></td></tr>
+<tr style="background:#fef2f2;"><td style="width:28px;text-align:right;padding:1px 5px;color:#dc2626;border-right:1px solid #f0f0f0;user-select:none;">12</td><td style="padding:2px 8px;color:#dc2626;white-space:pre-wrap;"><strong>2. **结论先行，证据跟随**—销售先看结论，有兴趣再看细节</strong></td></tr>
+<tr style="background:#fef2f2;"><td style="width:28px;text-align:right;padding:1px 5px;color:#dc2626;border-right:1px solid #f0f0f0;user-select:none;">13</td><td style="padding:2px 8px;color:#dc2626;white-space:pre-wrap;"><strong>3. **标注数据确定性**—「事实」/「推断」/「估算」（标注方法）/「信息空白」（标注获取...</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- 右侧：新版本 v2.0.3 (当前生效版本) -->
+<div style="flex:1;overflow:hidden;">
+<div style="padding:6px 12px;background:#f0fdf4;border-bottom:1px solid #6ee7b7;font-size:0.95em;font-weight:600;color:#059669;">v2.0.3 <span style="font-size:0.82em;font-weight:400;color:#2e7d32;background:#e8f5e9;padding:1px 6px;border-radius:3px;border:1px solid #a5d6a7;margin-left:6px;">当前生效版本</span></div>
+<table style="width:100%;border-collapse:collapse;margin:0;">
+<tbody>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;">1</td><td style="padding:2px 8px;color:#374151;white-space:pre-wrap;"># 智能客户洞察 — 入口</td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;">2</td><td style="padding:2px 8px;color:#374151;"></td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;">3</td><td style="padding:2px 8px;color:#374151;white-space:pre-wrap;">你是服务于 B2B 销售团队的**资深客户情报分析师**。像要收购这家公司一样去理解它，但最终目的是帮助销售赢单。</td></tr>
+<tr style="background:#f0fdf4;"><td style="width:28px;text-align:right;padding:1px 5px;color:#059669;border-right:1px solid #f0f0f0;user-select:none;">4</td><td style="padding:2px 8px;color:#059669;white-space:pre-wrap;">像要收购这家公司一样去理解它，但最终目的是帮助销售赢单。</td></tr>
+<tr><td colspan="2" style="padding:3px 8px;text-align:center;color:#6366f1;font-size:0.9em;background:#f5f3ff;cursor:pointer;">-- 折叠 3 行 --</td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;">7</td><td style="padding:2px 8px;color:#374151;white-space:pre-wrap;">- 用户意图: {user_intent}</td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;">8</td><td style="padding:2px 8px;color:#374151;"></td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;">9</td><td style="padding:2px 8px;color:#374151;white-space:pre-wrap;">## 铁律</td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;"></td><td style="padding:2px 8px;color:#374151;"></td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;"></td><td style="padding:2px 8px;color:#374151;"></td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;"></td><td style="padding:2px 8px;color:#374151;"></td></tr>
+<tr><td style="width:28px;text-align:right;padding:1px 5px;color:#94a3b8;border-right:1px solid #f0f0f0;user-select:none;"></td><td style="padding:2px 8px;color:#374151;"></td></tr>
+</tbody>
+</table>
+</div>
+
+</div>
+</div>
+</div>
+</div>
+
+<h3>6.4 版本回滚</h3>
+
+<div class="card">
+<div class="card-header">回滚交互流程</div>
+<div class="flow-diagram">
+<div class="flow-step">点击版本行"回滚"</div>
+<span class="flow-arrow">→</span>
+<div class="flow-step">弹出确认对话框</div>
+<span class="flow-arrow">→</span>
+<div class="flow-step">确认回滚</div>
+<span class="flow-arrow">→</span>
+<div class="flow-step">基于目标版本生成新版本号</div>
+<span class="flow-arrow">→</span>
+<div class="flow-step">刷新页面，新版本成为当前生效版本</div>
+</div>
+<p style="font-size:0.88em;color:#64748b;margin-top:12px;">回滚操作说明：</p>
+<ul style="font-size:0.88em;color:#4b5563;">
+<li>每个历史版本行右侧显示 <span style="color:#dc2626;font-weight:500;">删除</span> 和 <span style="color:#1a73e8;font-weight:500;">回滚</span> 两个操作链接</li>
+<li>当前生效版本（标记为"当前"）不显示回滚/删除操作</li>
+<li>回滚后基于目标版本的快照内容创建一个新版本（版本号递增），原版本记录保留不变</li>
+<li>回滚确认弹框需展示目标版本号、创建时间，并提示"回滚后将基于该版本创建新版本作为当前生效版本"</li>
+</ul>
+</div>
+
+<h3>6.5 版本管理规则</h3>
+
+<div class="card">
+<table>
+<thead><tr><th>规则</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>手动创建版本</td><td>点击"+ 创建新版本"按钮时，基于当前编辑态的配置生成版本快照，版本号按 <code>vX.Y.Z</code> 格式递增（patch 位自增）</td></tr>
+<tr><td>版本快照内容</td><td>包含完整的 Skill 配置（基础字段 + SKILL.md Prompt + 工具列表 + 资源文件目录及内容），确保任意版本可完整恢复</td></tr>
+<tr><td>版本只读</td><td>已创建的版本标记为 <code>read_only</code>，不可直接编辑；如需修改需基于某版本回滚后在编辑态修改再创建新版本</td></tr>
+<tr><td>回滚生成新版本</td><td>回滚操作不会删除历史版本，而是基于目标版本创建一个新版本（版本号递增），新版本成为当前生效版本</td></tr>
+<tr><td>版本删除</td><td>历史版本支持删除（当前生效版本不可删除），删除后不可恢复</td></tr>
+<tr><td>对比方式</td><td>勾选任意两个版本的 checkbox 后点击"对比选中版本"，进入 Diff 视图；默认展示 SKILL.md 的行级差异</td></tr>
+<tr><td>版本切换查看</td><td>点击版本行可切换查看该版本的资源文件内容（只读模式），左侧文件树同步切换为该版本的文件快照</td></tr>
+<tr><td>生效版本标识</td><td>页面顶部始终显示"📌 当前生效版本 vX.X.X"，编辑页标题栏显示当前版本号</td></tr>
+<tr><td>版本备注</td><td>创建版本时可选填写备注说明（如"— 测试"），展示在版本条目的时间行后方</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>6.6 版本号在技能列表的展示</h3>
+
+<div class="card">
+<p style="font-size:0.88em;color:#64748b;margin-bottom:12px;">技能列表页的每个技能卡片上展示当前生效版本号（如 <span class="badge badge-blue">v2.0.3</span>），编辑页标题栏同步显示版本号。</p>
+<ul style="font-size:0.88em;color:#4b5563;">
+<li>版本号显示在技能名称右侧，使用蓝色 badge 样式</li>
+<li>编辑页标题格式："编辑: 名称（apiKey）vX.X.X"</li>
+<li>标题栏下方红色文字提示当前生效版本号，右侧"返回编辑"链接可从版本管理/只读模式切回编辑态</li>
+</ul>
+</div>
+
+<hr/>
+
+<h2>七、测试调试</h2>
 
 <div class="card">
 <p style="font-size:0.9em;color:#374151;margin:4px 0;">Skill 测试调试是保障技能质量的核心能力，支持运营人员在技能上线前充分验证 Prompt 效果、工具调用链路和输出质量，避免问题技能影响生产环境。</p>
 </div>
 
-<h3>6.1 测试入口</h3>
+<h3>7.1 测试入口</h3>
 
 <div class="card">
 <p style="font-size:0.88em;color:#64748b;margin-bottom:12px;">测试调试从 Skill 编辑页顶部的"▶ 测试"按钮进入，打开独立的测试面板：</p>
@@ -760,7 +1042,7 @@ strong { color: var(--heading); }
 </div>
 </div>
 
-<h3>6.2 逐步调试模式</h3>
+<h3>7.2 逐步调试模式</h3>
 
 <div class="card">
 <div class="card-header">逐步调试交互流程</div>
@@ -800,7 +1082,7 @@ strong { color: var(--heading); }
 </table>
 </div>
 
-<h3>6.3 工具 Mock 能力</h3>
+<h3>7.3 工具 Mock 能力</h3>
 
 <div class="card">
 <div class="card-header">Mock 数据配置</div>
@@ -829,7 +1111,7 @@ strong { color: var(--heading); }
 </div>
 </div>
 
-<h3>6.4 测试用例管理</h3>
+<h3>7.4 测试用例管理</h3>
 
 <div class="card">
 <div class="card-header">保存与回归</div>
@@ -883,7 +1165,7 @@ strong { color: var(--heading); }
 </table>
 </div>
 
-<h3>6.5 测试调试与正式执行的区别</h3>
+<h3>7.5 测试调试与正式执行的区别</h3>
 
 <div class="card">
 <table>
@@ -901,9 +1183,9 @@ strong { color: var(--heading); }
 
 <hr/>
 
-<h2>七、执行日志页</h2>
+<h2>八、执行日志页</h2>
 
-<h3>5.1 页面线框</h3>
+<h3>8.1 页面线框</h3>
 
 <div class="wireframe">
 <div class="wireframe-header">执行日志 — /admin/skills/logs</div>
@@ -984,7 +1266,7 @@ strong { color: var(--heading); }
 </div>
 </div>
 
-<h3>5.2 筛选与交互规则</h3>
+<h3>8.2 筛选与交互规则</h3>
 
 <div class="card">
 <div class="card-header">筛选条件</div>
@@ -1012,7 +1294,7 @@ strong { color: var(--heading); }
 <div style="margin-top:40px;padding:20px;background:#f8fafc;border-radius:12px;border:1px solid var(--border);text-align:center;font-size:0.85em;color:#64748b;">
 <p>— 文档结束 —</p>
 <p>设计依据：《Skill 管理体系设计方案》 · 《CRM-Tool-Skill 通用工具体系设计》</p>
-<p>最后更新：2026-05-19</p>
+<p>最后更新：2026-05-21</p>
 </div>
 
 </body>
