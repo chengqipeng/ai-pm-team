@@ -382,7 +382,26 @@ class AGUIConverter:
                 # 等到 on_tool_end 时通过 component_complete 或解除抑制来输出
                 if tool_name == "skills_tool":
                     self._hard_suppress_text = True
-                    self._doc_stream_mode = True  # 流式推送到右侧面板
+                    # 判断 skill context 模式：仅 fork 模式才启用 doc_stream
+                    # inline 模式只是返回 prompt 文本，不需要流式推送到右侧面板
+                    _skill_name_for_mode = ""
+                    try:
+                        args_str = tc.get("args") or ""
+                        if args_str and "skill_name" in args_str:
+                            import json as _json
+                            _parsed = _json.loads(args_str) if isinstance(args_str, str) else args_str
+                            _skill_name_for_mode = _parsed.get("skill_name", "") if isinstance(_parsed, dict) else ""
+                    except Exception:
+                        pass
+                    _is_fork = False
+                    if _skill_name_for_mode and self._skill_registry:
+                        _sk = self._skill_registry.get(_skill_name_for_mode)
+                        if _sk is None:
+                            alt = _skill_name_for_mode.replace('-', '_') if '-' in _skill_name_for_mode else _skill_name_for_mode.replace('_', '-')
+                            _sk = self._skill_registry.get(alt)
+                        if _sk and _sk.context == "fork":
+                            _is_fork = True
+                    self._doc_stream_mode = _is_fork  # 仅 fork 模式流式推送到右侧面板
                 elif not self._hard_suppress_text:
                     # 只有当前没有硬抑制时才重置（避免子 Agent 工具调用解除 skills_tool 的抑制）
                     self._suppress_next_text = False
@@ -527,7 +546,27 @@ class AGUIConverter:
             # skills_tool 特殊处理：主动激活硬抑制（子 Agent LLM stream 泄漏防护）
             if tool_name == "skills_tool":
                 self._hard_suppress_text = True
-                self._doc_stream_mode = True
+                # 判断 skill context 模式：仅 fork 模式才启用 doc_stream
+                _skill_name_for_mode = ""
+                try:
+                    raw_input = data.get("input", {})
+                    if isinstance(raw_input, dict):
+                        _skill_name_for_mode = raw_input.get("skill_name", "")
+                    elif isinstance(raw_input, str):
+                        import json as _json
+                        _parsed = _json.loads(raw_input)
+                        _skill_name_for_mode = _parsed.get("skill_name", "") if isinstance(_parsed, dict) else ""
+                except Exception:
+                    pass
+                _is_fork = False
+                if _skill_name_for_mode and self._skill_registry:
+                    _sk = self._skill_registry.get(_skill_name_for_mode)
+                    if _sk is None:
+                        alt = _skill_name_for_mode.replace('-', '_') if '-' in _skill_name_for_mode else _skill_name_for_mode.replace('_', '-')
+                        _sk = self._skill_registry.get(alt)
+                    if _sk and _sk.context == "fork":
+                        _is_fork = True
+                self._doc_stream_mode = _is_fork
             elif not self._hard_suppress_text:
                 # 只有当前没有硬抑制时才重置（避免子 Agent 工具调用解除 skills_tool 的抑制）
                 self._suppress_next_text = False

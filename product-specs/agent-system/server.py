@@ -1268,14 +1268,43 @@ async def chat_stream(req: ChatRequest):
                         current_tool_span = None
 
                     # skills_tool 返回长文本（分析报告）时，直接作为 token 流推送给前端
+                    # 注意：仅 fork 模式的 skill 结果才直接推送；inline 模式返回的是 SOP 指令，
+                    # 由 LLM 继续执行后自行生成最终回复，不应直接推送给前端
+                    _is_fork_skill_result = False
                     if tool_name == "skills_tool" and len(output_content) > 200:
+                        # 判断是否为 fork 模式的结果（fork 结果通常带有特定前缀或来自子 Agent）
+                        _skill_sub_name = ""
+                        try:
+                            if current_tool_span is None:
+                                # span 已结束，从 _exec_tools 获取
+                                for _et in reversed(_exec_tools):
+                                    if _et.startswith("skills_tool("):
+                                        _skill_sub_name = _et[len("skills_tool("):-1]
+                                        break
+                            else:
+                                _skill_sub_name = current_tool_span.metadata.get("sub_name", "")
+                        except Exception:
+                            pass
+                        # 查询 skill context 模式
+                        _skill_ctx_mode = ""
+                        if _skill_sub_name and _skill_registry:
+                            _sk_check = _skill_registry.get(_skill_sub_name)
+                            if _sk_check is None:
+                                alt = _skill_sub_name.replace('-', '_') if '-' in _skill_sub_name else _skill_sub_name.replace('_', '-')
+                                _sk_check = _skill_registry.get(alt)
+                            if _sk_check:
+                                _skill_ctx_mode = _sk_check.context or "inline"
+                        # 只有 fork 模式才直接推送报告
+                        _is_fork_skill_result = (_skill_ctx_mode == "fork")
+
+                    if tool_name == "skills_tool" and len(output_content) > 200 and _is_fork_skill_result:
                         # 去掉前缀指令
                         report = output_content
                         prefix = "[技能执行完成，以下是完整分析报告，请直接输出给用户，不要再调用其他工具]\n\n"
                         if report.startswith(prefix):
                             report = report[len(prefix):]
                         # 流式推送报告内容
-                        yield f"data: {json.dumps({'type': 'skill_report_start', 'skill_name': 'account-insight'}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'type': 'skill_report_start', 'skill_name': _skill_sub_name or 'unknown'}, ensure_ascii=False)}\n\n"
                         # 分块推送（模拟流式）
                         chunk_size = 80
                         for i in range(0, len(report), chunk_size):
