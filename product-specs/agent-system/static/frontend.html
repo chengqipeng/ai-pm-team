@@ -2519,22 +2519,22 @@ async function sendAgui(text, extra) {
           // TEXT_MESSAGE_START
           else if (type === 'TEXT_MESSAGE_START') {
             textMsgActive = true;
-            // 如果已经正式输出过文档卡片，忽略后续文本
+            // 如果已经输出过文档卡片（doc_card/doc_stream_end），不再显示文本
             if (textMsgFinalized) continue;
             // 如果之前有 doc_stream 内容但未完成，说明后端已切换到文本模式
-            // 清除 doc_stream 状态，让文本正常显示
             if (window._docStreamContent) {
               window._docStreamContent = null;
               window._docStreamTokenCount = 0;
             }
-            if (aiContent.length > 0) continue;
+            // 开启新的文本气泡
+            aiContent = '';
             if (!_aguiStreamEl) {
               addAiBubbleStart();
             }
           }
           // TEXT_MESSAGE_CONTENT
           else if (type === 'TEXT_MESSAGE_CONTENT') {
-            if (textMsgFinalized || (aiContent.length > 0 && !textMsgActive)) continue;
+            if (textMsgFinalized || !textMsgActive) continue;
             const delta = data.delta || (data.data && data.data.delta) || '';
             if (delta && typeof delta === 'string') {
               aiContent += delta;
@@ -2544,9 +2544,11 @@ async function sendAgui(text, extra) {
           // TEXT_MESSAGE_END
           else if (type === 'TEXT_MESSAGE_END') {
             textMsgActive = false;
-            if (!textMsgFinalized) {
+            if (aiContent) {
               finalizeAiBubble(aiContent);
-              textMsgFinalized = true;
+              // 重置状态，允许后续新的 TEXT_MESSAGE 创建新气泡
+              aiContent = '';
+              _aguiStreamEl = null;
             }
           }
           // TOOL_CALL_START
@@ -2919,8 +2921,8 @@ async function sendAgui(text, extra) {
       }
     }
 
-    // 如果有内容但没有正式结束
-    if (aiContent && textMsgActive && !textMsgFinalized) {
+    // 如果有内容但没有正式结束（流异常中断）
+    if (aiContent && textMsgActive) {
       finalizeAiBubble(aiContent);
     }
     if (aiContent && aiContent !== '[doc_card]') {
