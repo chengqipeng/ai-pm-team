@@ -99,18 +99,21 @@ class NeoAgentV2Adapter:
 
         # 初始化长期记忆引擎 — VikingMemoryEngine（腾讯向量库 + PG）
         memory_engine = None
-        try:
-            memory_engine = VikingMemoryEngine(
-                vdb_url=os.environ.get("TENCENT_VDB_URL", "http://10.60.2.17"),
-                vdb_key=os.environ.get("TENCENT_VDB_KEY", "bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck"),
-                vdb_username=os.environ.get("TENCENT_VDB_USERNAME", "root"),
-                database_name=os.environ.get("TENCENT_VDB_DATABASE", "viking_memory"),
-                collection_name=os.environ.get("TENCENT_VDB_COLLECTION", "agent_memories"),
-                llm=aux_llm,
-                agent_rules_threshold=5,
-            )
-        except Exception as exc:
-            logger.warning("VikingMemoryEngine 初始化失败（记忆功能降级）: %s", exc)
+        if os.environ.get("DISABLE_MEMORY", "").strip() in ("1", "true", "yes"):
+            logger.info("DISABLE_MEMORY=1，跳过记忆引擎初始化")
+        else:
+            try:
+                memory_engine = VikingMemoryEngine(
+                    vdb_url=os.environ.get("TENCENT_VDB_URL", "http://10.60.2.17"),
+                    vdb_key=os.environ.get("TENCENT_VDB_KEY", "bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck"),
+                    vdb_username=os.environ.get("TENCENT_VDB_USERNAME", "root"),
+                    database_name=os.environ.get("TENCENT_VDB_DATABASE", "viking_memory"),
+                    collection_name=os.environ.get("TENCENT_VDB_COLLECTION", "agent_memories"),
+                    llm=aux_llm,
+                    agent_rules_threshold=5,
+                )
+            except Exception as exc:
+                logger.warning("VikingMemoryEngine 初始化失败（记忆功能降级）: %s", exc)
 
         register_crm_tools(reg, data_backend, memory_engine=memory_engine)
         register_metarepo_tools(reg, metarepo_backend)
@@ -126,6 +129,33 @@ class NeoAgentV2Adapter:
         # 注册 ReadSkillResourceTool（供 fork 模式子 Agent 加载知识文件）
         from src.tools.skill_resource_tool import ReadSkillResourceTool
         reg.register(ReadSkillResourceTool(tenant_id=0))
+
+        # 注册沙盒工具（terminal / execute_code / read_file / write_file / search_files）
+        try:
+            from src.tools.sandbox.backend_base import BackendConfig
+            from src.tools.sandbox.ssh_backend import SSHBackend
+            from src.tools.sandbox.terminal_tool import TerminalTool
+            from src.tools.sandbox.code_execution_tool import CodeExecutionTool
+            from src.tools.sandbox.file_tools import ReadFileTool, WriteFileTool, SearchFilesTool
+
+            sandbox_config = BackendConfig(
+                backend_type="ssh",
+                ssh_host=os.environ.get("SANDBOX_SSH_HOST", "127.0.0.1"),
+                ssh_user=os.environ.get("SANDBOX_SSH_USER", "hermes"),
+                ssh_key=os.environ.get("SANDBOX_SSH_KEY", os.path.expanduser("~/.ssh/id_rsa")),
+                ssh_port=int(os.environ.get("SANDBOX_SSH_PORT", "22")),
+                working_dir=os.environ.get("SANDBOX_WORKING_DIR", "/home/hermes"),
+            )
+            sandbox_backend = SSHBackend(sandbox_config)
+
+            reg.register(TerminalTool(sandbox_backend))
+            reg.register(CodeExecutionTool(sandbox_backend))
+            reg.register(ReadFileTool(sandbox_backend))
+            reg.register(WriteFileTool(sandbox_backend))
+            reg.register(SearchFilesTool(sandbox_backend))
+            logger.info("沙盒工具注册完成: terminal, execute_code, read_file, write_file, search_files")
+        except Exception as exc:
+            logger.warning("沙盒工具注册失败（csv-trend-analysis 等技能将不可用）: %s", exc)
 
         # 初始化自改进学习循环（SkillOptimizer 写入 DB，不再落盘）
         tracker = SkillTracker(db_path="./data/skill_metrics.db")

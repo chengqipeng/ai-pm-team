@@ -2760,6 +2760,61 @@ async function sendAgui(text, extra) {
                 }
               }
             }
+            else if (name === 'doc_stream_end') {
+              // 文档流式输出结束信号 — 将已累积的流式内容转为最终文档
+              if (window._docStreamContent && window._docStreamContent.length > 0) {
+                const content = window._docStreamContent;
+                const firstLine = content.split('\n')[0].replace(/^#+\s*/, '').trim();
+                const title = firstLine || '分析报告';
+
+                // 移除对话区的"生成中"占位气泡
+                if (_aguiStreamEl) {
+                  _aguiStreamEl.remove();
+                  _aguiStreamEl = null;
+                }
+
+                // 存储到 generatedDocs
+                const docId = 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
+                generatedDocs.push({ id: docId, title: title, content: content, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,5) });
+                refreshGeneratedFiles();
+                currentPreviewDoc = generatedDocs[generatedDocs.length - 1];
+
+                // 更新右侧文档预览为最终版
+                document.getElementById('docPreviewTitle').textContent = title + '.md';
+                const previewRendered = typeof marked !== 'undefined' ? marked.parse(content) : content.replace(/\n/g, '<br>');
+                document.getElementById('docPreviewContent').innerHTML = previewRendered;
+
+                // 对话区渲染为文档卡片
+                const chatInner = document.getElementById('chatInner');
+                const cardHtml = `
+                  <div class="flex justify-start mb-4 fade-in">
+                    <div class="max-w-[85%] bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                      <div class="px-4 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-100 cursor-pointer flex items-center justify-between"
+                           onclick="openDocPreview('${docId}')">
+                        <div class="flex items-center gap-2">
+                          <span class="text-blue-600">📄</span>
+                          <span class="font-medium text-gray-800 text-sm">${esc(title)}</span>
+                        </div>
+                        <span class="text-xs text-gray-400">点击查看全文</span>
+                      </div>
+                    </div>
+                  </div>`;
+                chatInner.insertAdjacentHTML('beforeend', cardHtml);
+                scrollToBottom();
+
+                // 保存到对话历史
+                hist.push({ role: 'assistant', content: '<!--doc_card:' + title + '-->\n' + content });
+                saveHistToStorage();
+
+                // 清除流式状态
+                window._docStreamContent = null;
+                window._docStreamTokenCount = 0;
+                textMsgFinalized = true;
+                textMsgActive = false;
+                aiContent = '';
+                addStep('文档生成完成 ✓', 'done');
+              }
+            }
             else if (name === 'step_metadata') {
               // 由 mw_span(skill_execution / tool_call) 统一渲染
             }
@@ -2783,6 +2838,53 @@ async function sendAgui(text, extra) {
           }
           // RUN_FINISHED
           else if (type === 'RUN_FINISHED') {
+            // ── doc_stream 兜底：如果流式文档内容已累积但未收到完成信号，自动完成 ──
+            if (window._docStreamContent && window._docStreamContent.length > 0) {
+              const content = window._docStreamContent;
+              const firstLine = content.split('\n')[0].replace(/^#+\s*/, '').trim();
+              const title = firstLine || '分析报告';
+
+              if (_aguiStreamEl) {
+                _aguiStreamEl.remove();
+                _aguiStreamEl = null;
+              }
+
+              const docId = 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
+              generatedDocs.push({ id: docId, title: title, content: content, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,5) });
+              refreshGeneratedFiles();
+              currentPreviewDoc = generatedDocs[generatedDocs.length - 1];
+
+              document.getElementById('docPreviewTitle').textContent = title + '.md';
+              const previewRendered = typeof marked !== 'undefined' ? marked.parse(content) : content.replace(/\n/g, '<br>');
+              document.getElementById('docPreviewContent').innerHTML = previewRendered;
+
+              const chatInner = document.getElementById('chatInner');
+              const cardHtml = `
+                <div class="flex justify-start mb-4 fade-in">
+                  <div class="max-w-[85%] bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                    <div class="px-4 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-100 cursor-pointer flex items-center justify-between"
+                         onclick="openDocPreview('${docId}')">
+                      <div class="flex items-center gap-2">
+                        <span class="text-blue-600">📄</span>
+                        <span class="font-medium text-gray-800 text-sm">${esc(title)}</span>
+                      </div>
+                      <span class="text-xs text-gray-400">点击查看全文</span>
+                    </div>
+                  </div>
+                </div>`;
+              chatInner.insertAdjacentHTML('beforeend', cardHtml);
+              scrollToBottom();
+
+              hist.push({ role: 'assistant', content: '<!--doc_card:' + title + '-->\n' + content });
+              saveHistToStorage();
+
+              window._docStreamContent = null;
+              window._docStreamTokenCount = 0;
+              textMsgFinalized = true;
+              textMsgActive = false;
+              aiContent = '';
+              addStep('文档生成完成 ✓', 'done');
+            }
             collapseStepsContainer();
           }
           // RUN_ERROR

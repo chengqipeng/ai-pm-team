@@ -549,12 +549,17 @@ class AGUIConverter:
         if "[SKILL_DONE:" in output:
             if "[SKILL_DONE:silent]" in output:
                 self._hard_suppress_text = True
-                self._doc_stream_mode = False  # skill 完成，停止 doc_stream
+                # 如果 doc_stream 模式仍活跃，发送结束信号
+                if self._doc_stream_mode:
+                    self._doc_stream_mode = False
+                    yield m.custom_event("doc_stream_end", {"status": "complete"})
                 self._suppress_next_text = False
                 logger.info("[AGUIConverter] tool_end detected SKILL_DONE:silent, hard suppress ON")
             elif "[SKILL_DONE:summarize]" in output:
                 self._hard_suppress_text = False
-                self._doc_stream_mode = False
+                if self._doc_stream_mode:
+                    self._doc_stream_mode = False
+                    yield m.custom_event("doc_stream_end", {"status": "complete"})
                 self._suppress_next_text = True
                 self._suppress_char_count = 0
             elif "[SKILL_DONE:passthrough]" in output:
@@ -972,13 +977,31 @@ class AGUIConverter:
         self._dedup_checking = True
         self._llm_text_buffer = ""
 
+        # ── doc_stream 模式结束：skill_result 到达意味着子 Agent 已完成 ──
+        # 如果之前通过 doc_stream 推送了流式内容，现在需要发送结束信号
+        was_doc_stream = self._doc_stream_mode
+        if self._doc_stream_mode:
+            self._doc_stream_mode = False
+            # 如果 output_mode 不是 card（card 模式会通过 component_complete(doc_card) 结束），
+            # 需要显式发送 doc_stream_end 让前端完成文档渲染
+            if output_mode != "card":
+                yield m.custom_event("doc_stream_end", {"status": "complete", "skill_apikey": skill_apikey})
+
         # 1. 关闭当前活跃流（三流互斥）
         async for e in self._close_all_streams():
             yield e
 
         # 2. 按 output_mode 输出子 Agent 结果
-        async for e in self._emit_skill_direct_output(skill_apikey, content, output_mode):
-            yield e
+        # 如果之前已经通过 doc_stream 推送了内容，且 output_mode 是 text，
+        # 则不再重复发送 TEXT_MESSAGE（前端已有内容，doc_stream_end 会触发完成）
+        if was_doc_stream and output_mode in ("text", "streaming"):
+            logger.info(
+                "[AGUIConverter] skill_result: content already streamed via doc_stream, "
+                "skipping TEXT_MESSAGE output (doc_stream_end already sent)"
+            )
+        else:
+            async for e in self._emit_skill_direct_output(skill_apikey, content, output_mode):
+                yield e
 
         # 3. 根据 behavior 设置后续主 Agent 文本输出控制
         if behavior == "silent":
@@ -1082,6 +1105,10 @@ class AGUIConverter:
             yield e
         async for e in self._close_reasoning_stream():
             yield e
+        # ── doc_stream 兜底：如果 doc_stream 模式仍活跃，发送结束信号让前端完成文档渲染 ──
+        if self._doc_stream_mode:
+            self._doc_stream_mode = False
+            yield m.custom_event("doc_stream_end", {"status": "complete"})
 
     # 兼容老方法名
     _close_active_streams = _close_all_streams

@@ -144,21 +144,25 @@ class AgentFactory:
                                 f"技能 '{skill.name}' 引用了不存在的工具 '{tn}'"
                             )
                 if missing_tools_errors:
-                    from src.core.exceptions import SkillActivationError
-                    all_missing = [e.split("'")[3] for e in missing_tools_errors]
+                    # 降级处理：禁用引用了缺失工具的技能，而非整体报错
+                    # 这样其他正常技能仍可使用
                     error_detail = "; ".join(missing_tools_errors)
-                    logger.error(
-                        "Agent 构建失败: Skill allowed_tools 引用了不存在的工具 — %s",
+                    logger.warning(
+                        "Skill allowed_tools 引用了不存在的工具（已跳过相关技能）— %s",
                         error_detail,
                     )
-                    raise SkillActivationError(
-                        skill_name=", ".join(s.name for s in self._skill_registry.list_all() if any(
-                            tn for tn in s.allowed_tools
-                            if tn not in ("skills_tool", "ask_user", "ask_clarification")
-                            and self._tool_registry.find_by_name(tn) is None
-                        )),
-                        missing_tools=all_missing,
-                    )
+                    # 收集有问题的技能名称并从 registry 中禁用
+                    broken_skills = set()
+                    for skill in self._skill_registry.list_all():
+                        for tn in skill.allowed_tools:
+                            if tn in ("skills_tool", "ask_user", "ask_clarification"):
+                                continue
+                            if self._tool_registry.find_by_name(tn) is None:
+                                broken_skills.add(skill.name)
+                                break
+                    for skill_name in broken_skills:
+                        self._skill_registry.unregister(skill_name)
+                        logger.info("已禁用技能 '%s'（缺失工具依赖）", skill_name)
 
         # 3. AgentTool（精确模式检查）
         if not explicit_tools or "agent_tool" in self._tool_names:
