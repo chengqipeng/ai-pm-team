@@ -598,6 +598,16 @@ class AGUIConverter:
                     self._doc_stream_mode = False
                     self._dedup_checking = True
                     self._llm_text_buffer = ""
+        elif tool_name == "skills_tool":
+            # ── Inline Skill：skills_tool 返回 prompt 文本（无 SKILL_DONE 标记）──
+            # inline 模式下 LLM 会继续执行工具调用并最终生成文本回复，
+            # 不应该走 doc_stream 模式，解除硬抑制让后续文本正常输出
+            self._hard_suppress_text = False
+            self._doc_stream_mode = False
+            self._suppress_next_text = False
+            self._dedup_checking = False
+            self._llm_text_buffer = ""
+            logger.info("[AGUIConverter] tool_end skills_tool (inline mode): suppress released")
 
         # RESULT + END
         yield m.tool_call_result(tool_call_id, content=output, role="tool")

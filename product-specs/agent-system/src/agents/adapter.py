@@ -281,7 +281,7 @@ class NeoAgentV2Adapter:
             messages = messages[:-1] + pending + messages[-1:]
 
         input_data = {"messages": messages}
-        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 300}
+        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 1000}
 
         astream = agent.astream_events(input_data, config=config, version="v2")
 
