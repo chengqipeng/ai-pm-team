@@ -101,7 +101,7 @@ class KnowledgeSearchAdapterTool(Tool):
                     from src.core.context import get_context
                     tenant_id = get_context().tenant_id
             except Exception:
-                pass
+                logger.exception("call 异常")
 
         # 降级 2：尝试从 langgraph config 获取
         if provider is None:
@@ -111,7 +111,7 @@ class KnowledgeSearchAdapterTool(Tool):
                 provider = ctx.get("knowledge_provider")
                 tenant_id = int(ctx.get("tenant_id", 0) or 0)
             except Exception:
-                pass
+                logger.exception("knowledge_tools.py L113 异常")
 
         if provider is None:
             logger.error("knowledge_search: provider 未注入且 get_config 也取不到")

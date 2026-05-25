@@ -498,7 +498,7 @@ class VikingFS:
                                 abstract=abstract,
                             ))
                 except Exception:
-                    pass
+                    logger.exception("viking_fs.py L500 异常")
 
         return nodes
 

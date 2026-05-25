@@ -149,7 +149,7 @@ class TraceWriter:
                 if ctx.user_id:
                     user_id = int(ctx.user_id) if str(ctx.user_id).isdigit() else 0
             except Exception:
-                pass
+                logger.exception("_upsert_conversation 异常")
 
             with get_conn() as conn:
                 cur = conn.cursor()

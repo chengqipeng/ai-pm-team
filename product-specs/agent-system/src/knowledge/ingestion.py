@@ -649,7 +649,7 @@ class DocumentIngestionPipeline:
                     error_message=f"[{phase}] {err_msg}",
                 )
             except Exception:
-                pass
+                logger.exception("ingestion.py L651 异常")
 
             # 继续抛，让 Worker 走 nack → 退避重试
             raise
@@ -1587,7 +1587,7 @@ class DocumentIngestionPipeline:
                         KnowledgeChunkDAO.mark_vector_failed, cid, str(exc),
                     )
                 except Exception:
-                    pass
+                    logger.exception("ingestion.py L1589 异常")
             raise
 
         # 2. 文档级元数据向量化 + 写入 kb_doc_metadata collection
@@ -1646,7 +1646,7 @@ class DocumentIngestionPipeline:
                 if isinstance(items, list):
                     return " ".join(str(x) for x in items if x)
             except Exception:
-                pass
+                logger.exception("_expand_json_list 异常")
             return text
 
         keywords_text = _expand_json_list(doc_row.keywords or "")

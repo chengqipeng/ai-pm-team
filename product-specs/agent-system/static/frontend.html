@@ -2519,8 +2519,15 @@ async function sendAgui(text, extra) {
           // TEXT_MESSAGE_START
           else if (type === 'TEXT_MESSAGE_START') {
             textMsgActive = true;
-            // 如果已经输出过内容或正在 doc_stream 模式，忽略
-            if (textMsgFinalized || aiContent.length > 0 || window._docStreamContent) continue;
+            // 如果已经正式输出过文档卡片，忽略后续文本
+            if (textMsgFinalized) continue;
+            // 如果之前有 doc_stream 内容但未完成，说明后端已切换到文本模式
+            // 清除 doc_stream 状态，让文本正常显示
+            if (window._docStreamContent) {
+              window._docStreamContent = null;
+              window._docStreamTokenCount = 0;
+            }
+            if (aiContent.length > 0) continue;
             if (!_aguiStreamEl) {
               addAiBubbleStart();
             }

@@ -362,7 +362,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                 doc_meta_rank = [r.get("id", "") for r in doc_meta_hybrid if r.get("id")]
                 doc_meta_filter_fallback = True
         except Exception:
-            pass
+            logger.exception("knowledge_search_debug_api.py L364 异常")
 
         if doc_meta_filter_fallback:
             # 构建不匹配原因分析
@@ -714,7 +714,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                 doc_meta_hybrid = fb_docs
                 doc_meta_rank = [r.get("id", "") for r in doc_meta_hybrid if r.get("id")]
         except Exception:
-            pass
+            logger.exception("knowledge_search_debug_api.py L716 异常")
         if filter_fallback_used:
             # 追加一个降级说明节点
             nodes.append(PipelineNode(
@@ -977,7 +977,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                     if d.doc_id not in doc_titles:
                         doc_titles[d.doc_id] = d.title or d.file_name or ""
             except Exception:
-                pass
+                logger.exception("knowledge_search_debug_api.py L979 异常")
 
         for did in doc_chunks.keys():
             na = doc_norm_a.get(did, 0.0)
@@ -1249,7 +1249,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                     for d in pg_docs_for_route_b
                 }
             except Exception:
-                pass
+                logger.exception("knowledge_search_debug_api.py L1251 异常")
 
         # 统计每个文档的切片命中数（从 chunk_hits 中聚合）
         doc_chunk_counts: dict[str, int] = {}

@@ -214,7 +214,7 @@ class SummarizationMiddleware(AgentMiddleware):
                 from langgraph.config import get_config
                 tid = get_config().get("configurable", {}).get("thread_id")
             except Exception:
-                pass
+                logger.exception("summarization.py L216 异常")
 
             if tid:
                 tracing_middleware._spans.setdefault(tid, [])
@@ -244,7 +244,7 @@ class SummarizationMiddleware(AgentMiddleware):
                         s["detail"] = detail
                         break
         except Exception:
-            pass
+            logger.exception("summarization.py L246 异常")
 
     def _md5_dedup(self, messages: list) -> dict[str, Any] | None:
         """Pass 0: MD5 去重 — 相同内容的 ToolMessage 只保留最新一份

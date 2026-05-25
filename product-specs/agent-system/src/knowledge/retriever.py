@@ -352,7 +352,7 @@ class KnowledgeRetriever:
                     doc_meta_hybrid = doc_meta_fb
                     doc_meta_rank = [r.get("id", "") for r in doc_meta_hybrid if r.get("id")]
             except Exception:
-                pass
+                logger.exception("retriever.py L354 异常")
             # 用全局无 filter 的切片结果（Phase 1 已经是全局的）
             chunk_results = chunk_results_global
             effective_filters = {}

@@ -704,7 +704,7 @@ class SkillExecutor:
                 try:
                     clear_skill_context(_scope_token)
                 except Exception:
-                    pass
+                    logger.exception("base.py L706 异常")
 
         output = self._extract_output(result)
         logger.info("[skill] Fork 完成: name=%s, agent=%s, thread=%s, output_len=%d",
@@ -715,7 +715,7 @@ class SkillExecutor:
             try:
                 tracing_middleware.unregister_sub_thread(parent_tid, sub_thread_id)
             except Exception:
-                pass
+                logger.exception("base.py L717 异常")
 
         # 收集子 Agent 的 tool_call spans 作为 skill_execution 的 children
         self._last_fork_children = self._collect_sub_agent_spans(sub_thread_id)
@@ -944,7 +944,7 @@ class SkillExecutor:
                     detail=f"预加载 {loaded}/{requested} 个知识文件 · {round(duration_ms)}ms",
                 )
         except Exception:
-            pass
+            logger.exception("base.py L946 异常")
 
     @staticmethod
     def _extract_output(result: dict[str, Any]) -> str:

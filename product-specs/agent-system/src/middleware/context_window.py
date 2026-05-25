@@ -459,7 +459,7 @@ class ContextWindowMiddleware(AgentMiddleware):
                     detail=f"源头压缩: {tool_name} {original_len}→{summary_len}字符 (节省{ratio:.0%})",
                 )
         except Exception:
-            pass
+            logger.exception("context_window.py L461 异常")
 
     def _record_window_span(
         self, messages_count: int, estimated_tokens: int,
@@ -499,7 +499,7 @@ class ContextWindowMiddleware(AgentMiddleware):
                 from langgraph.config import get_config
                 tid = get_config().get("configurable", {}).get("thread_id")
             except Exception:
-                pass
+                logger.exception("context_window.py L501 异常")
 
             if tid:
                 tracing_middleware._spans.setdefault(tid, [])
@@ -523,7 +523,7 @@ class ContextWindowMiddleware(AgentMiddleware):
                         s["detail"] = detail
                         break
         except Exception:
-            pass
+            logger.exception("context_window.py L525 异常")
 
     def reset_circuit_breaker(self) -> None:
         self._consecutive_failures = 0

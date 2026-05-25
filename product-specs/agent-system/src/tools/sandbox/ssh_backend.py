@@ -71,7 +71,7 @@ class SSHBackend(Backend):
             )
             await proc.wait()
         except Exception:
-            pass
+            logger.exception("disconnect 异常")
         self._connected = False
         logger.info("SSH disconnected from %s", self.config.ssh_host)
 

@@ -243,7 +243,7 @@ class KnowledgeVectorStore:
                         if sparse and sparse[0]:
                             rec["sparse_vector"] = sparse[0]
                     except Exception:
-                        pass
+                        logger.exception("upsert_chunks 异常")
 
         try:
             res = self._chunk_coll.upsert(records)
@@ -294,7 +294,7 @@ class KnowledgeVectorStore:
                     if sparse and sparse[0]:
                         rec["sparse_vector"] = sparse[0]
                 except Exception:
-                    pass
+                    logger.exception("vdb_writer.py L296 异常")
 
         try:
             res = self._doc_meta_coll.upsert(records)

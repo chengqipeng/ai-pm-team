@@ -51,7 +51,7 @@ class LoadFileContentTool(BaseTool):
             configurable = get_config().get("configurable", {})
             parsed_files = configurable.get("parsed_files", [])
         except Exception:
-            pass
+            logger.exception("_load 异常")
 
         if not parsed_files:
             return "当前没有已上传的文件。请先上传文件。"

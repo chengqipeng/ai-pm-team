@@ -129,7 +129,7 @@ class IngestionGuard:
             try:
                 KnowledgeDocumentDAO.soft_delete(row.doc_id)
             except Exception:
-                pass
+                logger.exception("guard.py L131 异常")
         return None
 
     # ── LKEAP 并发限流 ──

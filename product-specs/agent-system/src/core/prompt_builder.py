@@ -12,6 +12,9 @@
 from __future__ import annotations
 
 from typing import Any
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 # ═══════════════════════════════════════════════════════════
@@ -295,7 +298,7 @@ def _get_tool_short_description(tool: Any) -> str:
                 # 截断过长的描述（取第一句或前60字）
                 return _truncate_description(first_line)
         except Exception:
-            pass
+            logger.exception("_get_tool_short_description 异常")
 
     # 尝试 description 属性（LangChain BaseTool）
     if hasattr(tool, "description"):

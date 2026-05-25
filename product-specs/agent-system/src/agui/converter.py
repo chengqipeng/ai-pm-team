@@ -299,7 +299,7 @@ class AGUIConverter:
                         detail=desc,
                     )
                 except Exception:
-                    pass
+                    logger.exception("converter.py L301 异常")
             # after_model 中间件（OutputValidation/LoopDetection/SubagentLimit）
             # 已由 MiddlewareTracingWrapper 在 LangGraph 内部自动记录，无需手动补充
         elif kind == "on_chain_start" and name.startswith(SKILL_CHAIN_PREFIX):
@@ -709,7 +709,7 @@ class AGUIConverter:
             if skill:
                 return getattr(skill, "output_mode", "text") or "text"
         except Exception:
-            pass
+            logger.exception("_resolve_output_mode 异常")
         return "text"
 
     def _resolve_component_apikey(self, skill_apikey: str) -> str:
@@ -721,7 +721,7 @@ class AGUIConverter:
             if skill:
                 return getattr(skill, "component_apikey", "") or ""
         except Exception:
-            pass
+            logger.exception("_resolve_component_apikey 异常")
         return ""
 
     def _resolve_skill_context(self, skill_apikey: str) -> str | None:
@@ -733,7 +733,7 @@ class AGUIConverter:
             if skill:
                 return getattr(skill, 'context', None) or 'inline'
         except Exception:
-            pass
+            logger.exception("_resolve_skill_context 异常")
         return None
 
     @staticmethod

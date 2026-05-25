@@ -179,7 +179,7 @@ class SkillOptimizer:
                 parts = (current_row.version or "1.0.0").split(".")
                 current_version = int(parts[-1]) if parts[-1].isdigit() else current_version
             except Exception:
-                pass
+                logger.exception("optimize 异常")
         else:
             logger.warning("DB 中找不到 Skill '%s'，跳过优化", skill_name)
             return False

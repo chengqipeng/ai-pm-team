@@ -231,15 +231,15 @@ class MetarepoHttpBackend:
             try:
                 items_total += len(await self.list_meta_items(api_key))
             except Exception:
-                pass
+                logger.exception("get_stats 异常")
             try:
                 options_total += len(await self.list_meta_options(api_key))
             except Exception:
-                pass
+                logger.exception("get_stats 异常")
             try:
                 instances_total += len(await self.list_metadata(api_key))
             except Exception:
-                pass
+                logger.exception("get_stats 异常")
         return {
             "meta_models": len(models),
             "meta_items_total": items_total,

@@ -368,7 +368,7 @@ class ScheduleExecutor:
                     all_tenants = [r[0] for r in cur.fetchall()]
                 tenants = sorted(set(tenants) | set(all_tenants))
             except Exception:
-                pass
+                logger.exception("scheduler.py L370 异常")
         else:
             tenants = [0]  # 0 代表不区分
 

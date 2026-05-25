@@ -228,7 +228,7 @@ class StandaloneKnowledgeProvider:
             try:
                 target_path.unlink(missing_ok=True)
             except Exception:
-                pass
+                logger.exception("standalone_provider.py L230 异常")
             raise RuntimeError(
                 f"写入 ai_knowledge_document 失败（可能是 uk_doc_hash 冲突 "
                 f"或数据库不可用）: {exc}"

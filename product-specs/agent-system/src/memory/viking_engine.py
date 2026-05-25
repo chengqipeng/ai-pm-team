@@ -403,7 +403,7 @@ class VectorStore:
             self._migrate_add_status_field()
             return
         except Exception:
-            pass
+            logger.exception("_ensure_collection 异常")
 
         # 尝试创建新 collection
         try:
@@ -479,7 +479,7 @@ class VectorStore:
                         if sparse and sparse[0]:
                             rec["sparse_vector"] = sparse[0]
                     except Exception:
-                        pass
+                        logger.exception("upsert 异常")
         # 尝试写入（如果 collection 不支持 sparse_vector，去掉该字段重试）
         try:
             self._coll.upsert(records)
@@ -1042,7 +1042,7 @@ class VikingMemoryEngine(MemoryEngine):
                 if row and row.content:
                     return row.content
             except Exception:
-                pass
+                logger.exception("get_profile 异常")
         return ""
 
     async def get_agent_rules(self, tenant_id: str, user_id: str) -> str:
@@ -1055,7 +1055,7 @@ class VikingMemoryEngine(MemoryEngine):
                 if row and row.content:
                     rules = row.content
             except Exception:
-                pass
+                logger.exception("get_agent_rules 异常")
         return rules
 
     async def get_entity_index(self, tenant_id: str, user_id: str) -> str:
@@ -1068,7 +1068,7 @@ class VikingMemoryEngine(MemoryEngine):
                 lines = [f"- [{r.get('merge_key', '')}] {r.get('abstract', '')[:60]}" for r in results]
                 return "\n".join(lines)
         except Exception:
-            pass
+            logger.exception("get_entity_index 异常")
         return ""
 
     async def _safe_reflect_on_session(self, items: list[MemoryItem], user_id: str):
@@ -1214,7 +1214,7 @@ class VikingMemoryEngine(MemoryEngine):
                 if row and row.content:
                     existing_content = row.content
             except Exception:
-                pass
+                logger.exception("_merge_single_record 异常")
 
         # 2. LLM 合并（已有 + 新增 → 一条完整描述）
         if self._llm and existing_content:
@@ -1388,7 +1388,7 @@ class VikingMemoryEngine(MemoryEngine):
                                     overview = m_ovw or overview
                                     content = m_cont
                             except Exception:
-                                pass  # LLM 失败时 fallback 到直接替换
+                                logger.exception("_merge_by_key 异常")
                         await asyncio.to_thread(self._vdb.delete, [old_id])
                         logger.debug("Merged %s: %s", category, merge_key)
                     break
@@ -1452,7 +1452,7 @@ class VikingMemoryEngine(MemoryEngine):
                     # delete: 旧记忆完全失效，不继承 active_count
                     await asyncio.to_thread(self._vdb.delete, [target_id])
             except Exception:
-                pass
+                logger.exception("viking_engine.py L1454 异常")
 
         record_id = str(uuid4())
         leaf_uri = self._build_uri(category, merge_key, parent_entity)
@@ -1497,7 +1497,7 @@ class VikingMemoryEngine(MemoryEngine):
                         d.get("merged_overview", ""),
                         d.get("merged_content", content))
         except Exception:
-            pass
+            logger.exception("_llm_dedup 异常")
         return "create", "", abstract, "", content
 
 
@@ -1622,14 +1622,14 @@ class VikingMemoryEngine(MemoryEngine):
                     row = await asyncio.to_thread(self._pg.get_agent_rules, user_id)
                     content = row.content if row else ""
                 except Exception:
-                    pass
+                    logger.exception("_refine_if_needed 异常")
         else:
             if self._pg:
                 try:
                     row = await asyncio.to_thread(self._pg.get_profile, user_id)
                     content = row.content if row else ""
                 except Exception:
-                    pass
+                    logger.exception("_refine_if_needed 异常")
 
         if not content or len(content) <= max_chars or not self._llm:
             return
@@ -1857,7 +1857,7 @@ class VikingMemoryEngine(MemoryEngine):
                                     """, (count, now_ms, user_id, parent))
                         await asyncio.to_thread(_inc_dormant)
                     except Exception:
-                        pass
+                        logger.exception("_inc_dormant 异常")
             else:
                 # 不再沉寂 → 重置 dormant_count
                 if dormant_count > 0:
@@ -1873,7 +1873,7 @@ class VikingMemoryEngine(MemoryEngine):
                                     """, (user_id, parent))
                         await asyncio.to_thread(_reset_dormant)
                     except Exception:
-                        pass
+                        logger.exception("_reset_dormant 异常")
 
         if stats["stale_entities"]:
             logger.info("Dormant detection: %d entities → stale", len(stats["stale_entities"]))
@@ -2464,7 +2464,7 @@ class VikingMemoryEngine(MemoryEngine):
                     self._vdb.query_by_filter, prefs_filter, 50,
                 )
             except Exception:
-                pass
+                logger.exception("viking_engine.py L2466 异常")
 
             if profile and prefs_results and llm_used < _LLM_BUDGET:
                 profile_text = profile.content or profile.abstract

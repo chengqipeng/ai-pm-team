@@ -347,8 +347,10 @@ class NeoAgentV2Adapter:
                 consume_task.cancel()
                 try:
                     await consume_task
-                except (asyncio.CancelledError, Exception):
+                except asyncio.CancelledError:
                     pass
+                except Exception:
+                    logger.exception("consume_task 取消异常")
 
         # ── 推送 Agent 执行期间剩余的中间件 spans（后处理阶段）──
         # 等待异步 memory_extract 任务完成（MemoryMiddleware.aafter_agent 使用 create_task 派发，
@@ -363,7 +365,7 @@ class NeoAgentV2Adapter:
                 await asyncio.sleep(0.05)
                 _wait_rounds += 1
         except Exception:
-            pass
+            logger.exception("adapter.py L365 异常")
 
         try:
             mw_spans = tracing_middleware.get_spans(thread_id)
@@ -372,7 +374,7 @@ class NeoAgentV2Adapter:
                     yield _m.custom_event("mw_span", sp)
                 # 不在此处 clear — 由调用方（a2ui_routes）在持久化完成后 clear
         except Exception:
-            pass
+            logger.exception("adapter.py L374 异常")
 
         # 最后发送 RUN_FINISHED
         if _run_finished_event:
