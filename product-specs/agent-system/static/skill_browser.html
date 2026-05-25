@@ -6,6 +6,12 @@
 <title>技能管理</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<!-- CodeMirror 5 for Python syntax highlighting -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/idea.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
   .fade-in { animation: fadeIn 0.2s ease-in; }
@@ -38,6 +44,57 @@
   .diff-table td { padding: 1px 0; line-height: 1.5; vertical-align: top; }
   .diff-file-item.border-l-2 { border-left-width: 2px; }
   .diff-file-item.border-l-blue-500 { border-left-color: #3b82f6; }
+  /* CodeMirror IDEA-style overrides */
+  .CodeMirror {
+    font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    height: auto;
+    min-height: 500px;
+    max-height: 700px;
+    background: #ffffff;
+  }
+  .CodeMirror-gutters {
+    background: #f8f9fa;
+    border-right: 1px solid #e8e8e8;
+    padding-right: 4px;
+  }
+  .CodeMirror-linenumber {
+    color: #999;
+    font-size: 12px;
+    padding: 0 8px 0 4px;
+  }
+  .CodeMirror-lines {
+    padding: 12px 0;
+  }
+  .CodeMirror pre.CodeMirror-line {
+    padding: 0 12px;
+  }
+  .CodeMirror-cursor {
+    border-left-color: #000;
+  }
+  .CodeMirror-selected {
+    background: #add6ff !important;
+  }
+  .CodeMirror-focused .CodeMirror-selected {
+    background: #add6ff !important;
+  }
+  .cm-s-idea .cm-keyword { color: #0033b3; font-weight: bold; }
+  .cm-s-idea .cm-def { color: #00627a; }
+  .cm-s-idea .cm-variable { color: #000000; }
+  .cm-s-idea .cm-variable-2 { color: #000000; }
+  .cm-s-idea .cm-string { color: #067d17; }
+  .cm-s-idea .cm-string-2 { color: #067d17; }
+  .cm-s-idea .cm-number { color: #1750eb; }
+  .cm-s-idea .cm-comment { color: #8c8c8c; font-style: italic; }
+  .cm-s-idea .cm-builtin { color: #8000ff; }
+  .cm-s-idea .cm-operator { color: #000000; }
+  .cm-s-idea .cm-meta { color: #bbbbbb; }
+  .cm-s-idea .cm-property { color: #660e7a; }
+  #codeMirrorWrapper { display: none; }
+  #codeMirrorWrapper.active { display: block; }
 </style>
 </head>
 <body class="bg-gray-50 min-h-screen flex flex-col">
@@ -411,6 +468,9 @@
           </div>
           <textarea id="resourceEditor" rows="28"
                     class="prompt-editor w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-200 focus:outline-none"></textarea>
+          <div id="codeMirrorWrapper">
+            <textarea id="codeMirrorEditor"></textarea>
+          </div>
         </div>
         <!-- 版本管理面板 -->
         <div id="panelVersions" class="hidden">
@@ -1391,6 +1451,8 @@ async function switchToResource(path, name) {
   document.getElementById('resourceFilePath').textContent = viewingVersion ? `${path} (v${viewingVersion})` : path;
   document.getElementById('resourceEditor').value = '加载中...';
 
+  const isPythonFile = name.endsWith('.py');
+
   try {
     let url;
     if (viewingVersion) {
@@ -1400,24 +1462,75 @@ async function switchToResource(path, name) {
     }
     const res = await fetch(url);
     const data = await res.json();
-    document.getElementById('resourceEditor').value = data.content || '';
-    // 版本查看模式下资源编辑器只读
-    const editor = document.getElementById('resourceEditor');
-    if (viewingVersion && !allVersions.find(v => v.version === viewingVersion)?.is_current) {
-      editor.setAttribute('readonly', '');
-      editor.style.opacity = '0.7';
+    const content = data.content || '';
+
+    const isReadonly = viewingVersion && !allVersions.find(v => v.version === viewingVersion)?.is_current;
+
+    if (isPythonFile) {
+      // 使用 CodeMirror 显示 Python 文件（IDEA 风格）
+      document.getElementById('resourceEditor').style.display = 'none';
+      document.getElementById('codeMirrorWrapper').classList.add('active');
+
+      // 销毁旧实例
+      if (window._cmEditor) {
+        window._cmEditor.toTextArea();
+        window._cmEditor = null;
+      }
+
+      const cmTextarea = document.getElementById('codeMirrorEditor');
+      cmTextarea.value = content;
+      window._cmEditor = CodeMirror.fromTextArea(cmTextarea, {
+        mode: 'python',
+        theme: 'idea',
+        lineNumbers: true,
+        indentUnit: 4,
+        tabSize: 4,
+        indentWithTabs: false,
+        matchBrackets: true,
+        readOnly: isReadonly ? 'nocursor' : false,
+        viewportMargin: Infinity,
+        lineWrapping: false,
+      });
+      window._cmEditor.setSize(null, '500px');
+      if (isReadonly) {
+        document.getElementById('codeMirrorWrapper').style.opacity = '0.7';
+      } else {
+        document.getElementById('codeMirrorWrapper').style.opacity = '';
+      }
+      // 同步内容到隐藏的 textarea 以便保存
+      window._cmEditor.on('change', function(cm) {
+        document.getElementById('resourceEditor').value = cm.getValue();
+      });
     } else {
-      editor.removeAttribute('readonly');
-      editor.style.opacity = '';
+      // 非 Python 文件使用普通 textarea
+      document.getElementById('resourceEditor').style.display = '';
+      document.getElementById('codeMirrorWrapper').classList.remove('active');
+      if (window._cmEditor) {
+        window._cmEditor.toTextArea();
+        window._cmEditor = null;
+      }
+
+      document.getElementById('resourceEditor').value = content;
+      const editor = document.getElementById('resourceEditor');
+      if (isReadonly) {
+        editor.setAttribute('readonly', '');
+        editor.style.opacity = '0.7';
+      } else {
+        editor.removeAttribute('readonly');
+        editor.style.opacity = '';
+      }
     }
   } catch (e) {
     document.getElementById('resourceEditor').value = `加载失败: ${e.message}`;
+    document.getElementById('resourceEditor').style.display = '';
+    document.getElementById('codeMirrorWrapper').classList.remove('active');
   }
 }
 
 async function saveResourceContent() {
   const path = document.getElementById('resourceFilePath').textContent;
-  const content = document.getElementById('resourceEditor').value;
+  // 如果 CodeMirror 激活，从 CodeMirror 获取内容
+  const content = window._cmEditor ? window._cmEditor.getValue() : document.getElementById('resourceEditor').value;
 
   if (!path || !editingKey) {
     alert('无法保存：未选中文件');
