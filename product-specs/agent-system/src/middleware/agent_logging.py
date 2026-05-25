@@ -81,16 +81,34 @@ class AgentLoggingMiddleware(AgentMiddleware):
 
     def _log_and_call(self, request, handler):
         name = request.tool_call.get("name", "unknown")
+        args = request.tool_call.get("args", {})
+        args_str = json.dumps(args, ensure_ascii=False) if isinstance(args, dict) else str(args)
+        logger.warning("工具调用: %s | 入参: %s", name, _truncate(args_str, 800))
         start = time.perf_counter()
         result = handler(request)
         elapsed = time.perf_counter() - start
-        logger.warning("工具完成: %s (%.2fs)", name, elapsed)
+        # 提取结果内容
+        result_content = ""
+        if hasattr(result, "content"):
+            result_content = result.content if isinstance(result.content, str) else str(result.content)
+        elif isinstance(result, dict):
+            result_content = json.dumps(result, ensure_ascii=False)
+        logger.warning("工具完成: %s (%.2fs) | 出参: %s", name, elapsed, _truncate(result_content, 800))
         return result
 
     async def _alog_and_call(self, request, handler):
         name = request.tool_call.get("name", "unknown")
+        args = request.tool_call.get("args", {})
+        args_str = json.dumps(args, ensure_ascii=False) if isinstance(args, dict) else str(args)
+        logger.warning("工具调用: %s | 入参: %s", name, _truncate(args_str, 800))
         start = time.perf_counter()
         result = await handler(request)
         elapsed = time.perf_counter() - start
-        logger.warning("工具完成: %s (%.2fs)", name, elapsed)
+        # 提取结果内容
+        result_content = ""
+        if hasattr(result, "content"):
+            result_content = result.content if isinstance(result.content, str) else str(result.content)
+        elif isinstance(result, dict):
+            result_content = json.dumps(result, ensure_ascii=False)
+        logger.warning("工具完成: %s (%.2fs) | 出参: %s", name, elapsed, _truncate(result_content, 800))
         return result

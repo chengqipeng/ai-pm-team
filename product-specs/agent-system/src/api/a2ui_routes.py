@@ -405,7 +405,16 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
     4. 顺便把每条消息写入 ThreadStore（供断线重连）
     """
     import uuid as _uuid
+    import time as _time
     from src.a2ui import thread_store
+
+    _req_start = _time.time()
+    logger.info(
+        "[AG-UI] 收到请求: thread=%s, run=%s, message=%s, history_len=%d",
+        req.thread_id, req.run_id or "(auto)",
+        repr(req.message[:100]) if req.message else "(empty)",
+        len(req.history) if req.history else 0,
+    )
 
     # 1. Catalog 协商
     reg = get_catalog_registry()
@@ -440,6 +449,11 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
     async def generator() -> AsyncGenerator[str, None]:
         from src.agents.adapter import neo_agent_v2_adapter
 
+        _event_count = 0
+        _text_chars = 0
+        _tool_calls = []
+        _tool_args_buffer = {}  # tool_call_id → accumulated args string
+
         try:
             async for event in neo_agent_v2_adapter.execute_agui(
                 thread_id=req.thread_id,
@@ -447,8 +461,60 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
                 run_id=run_id,
                 history=req.history or None,
             ):
-                # ACTIVITY_SNAPSHOT 带 a2ui-surface 时登记到 ThreadStore
+                _event_count += 1
+                # 详细事件日志
                 t_val = getattr(event.type, "value", event.type)
+                if t_val == "TEXT_MESSAGE_CONTENT":
+                    _text_chars += len(event.data.get("delta", ""))
+                elif t_val == "TOOL_CALL_START":
+                    tool_name = event.data.get("tool_call_name") or event.data.get("name", "")
+                    tool_call_id = event.data.get("tool_call_id", "")
+                    _tool_calls.append(tool_name)
+                    _tool_args_buffer[tool_call_id] = ""
+                    logger.info("[AG-UI] [thread=%s] TOOL_CALL_START: %s (id=%s)", req.thread_id, tool_name, tool_call_id[:12])
+                elif t_val == "TOOL_CALL_ARGS":
+                    tool_call_id = event.data.get("tool_call_id", "")
+                    delta = event.data.get("delta", "")
+                    if tool_call_id in _tool_args_buffer:
+                        _tool_args_buffer[tool_call_id] += delta
+                elif t_val == "TOOL_CALL_END":
+                    tool_call_id = event.data.get("tool_call_id", "")
+                    args_str = _tool_args_buffer.pop(tool_call_id, "")
+                    if args_str:
+                        # 截断过长参数（保留前 500 字符）
+                        args_preview = args_str[:500] + ("..." if len(args_str) > 500 else "")
+                        logger.info("[AG-UI] [thread=%s] TOOL_CALL_END: id=%s, args=%s", req.thread_id, tool_call_id[:12], args_preview)
+                elif t_val == "TOOL_CALL_RESULT":
+                    tool_call_id = event.data.get("tool_call_id", "")
+                    content = event.data.get("content", "")
+                    # 截断过长结果（保留前 800 字符）
+                    result_preview = content[:800] + ("..." if len(content) > 800 else "")
+                    logger.info("[AG-UI] [thread=%s] TOOL_CALL_RESULT: id=%s, len=%d, content=%s", req.thread_id, tool_call_id[:12], len(content), result_preview)
+                elif t_val == "RUN_FINISHED":
+                    elapsed = _time.time() - _req_start
+                    logger.info(
+                        "[AG-UI] [thread=%s] RUN_FINISHED: events=%d, text_chars=%d, tool_calls=%s, elapsed=%.1fs",
+                        req.thread_id, _event_count, _text_chars, _tool_calls, elapsed,
+                    )
+                elif t_val == "RUN_ERROR":
+                    logger.error("[AG-UI] [thread=%s] RUN_ERROR: %s", req.thread_id, event.data)
+                elif t_val == "CUSTOM":
+                    name = event.data.get("name", "")
+                    if name == "doc_stream":
+                        pass  # 高频事件不打印
+                    elif name == "doc_stream_end":
+                        logger.info("[AG-UI] [thread=%s] doc_stream_end", req.thread_id)
+                    elif name == "component_complete":
+                        apikey = (event.data.get("value") or {}).get("apikey", "")
+                        logger.info("[AG-UI] [thread=%s] component_complete: %s", req.thread_id, apikey)
+                    elif name == "mw_span":
+                        span_val = event.data.get("value") or {}
+                        span_type = span_val.get("type", "")
+                        span_name = span_val.get("step_name", span_val.get("name", ""))
+                        if span_type in ("skill_execution", "llm_call", "content_review", "query_rewrite", "memory_retrieval"):
+                            logger.info("[AG-UI] [thread=%s] %s: %s", req.thread_id, span_type, span_val.get("detail", span_name))
+
+                # ACTIVITY_SNAPSHOT 带 a2ui-surface 时登记到 ThreadStore
                 if (t_val == "ACTIVITY_SNAPSHOT"
                         and event.data.get("activity_type") == "a2ui-surface"):
                     ops = (event.data.get("content") or {}).get("operations") or []
