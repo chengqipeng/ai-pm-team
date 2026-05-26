@@ -250,6 +250,18 @@ class TraceWriter:
             user_input = trace.user_input or ''
             agent_output = trace.agent_output or ''
 
+            # 去重：同一个 trace_id 只写入一条消息
+            trace_id_val = trace.trace_id or ''
+            if trace_id_val:
+                with get_conn() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT id FROM ai_message WHERE conversation_id=%s AND trace_id=%s AND delete_flg=0",
+                        (conv_id, trace_id_val))
+                    if cur.fetchone():
+                        logger.debug("TraceWriter: message already exists for trace=%s, skip", trace_id_val)
+                        return
+
             # 获取 user_id
             user_id = self._user_id
             try:
@@ -432,11 +444,30 @@ class TraceWriter:
                     FROM ai_trace WHERE trace_id=%s AND delete_flg=0
                 """, (trace_id,))
                 row = cur.fetchone()
-                if not row:
-                    return None
-                cols = [d[0] for d in cur.description]
-                trace = dict(zip(cols, row))
-                trace['total_duration_ms'] = trace.pop('duration_ms', 0)
+                if row:
+                    cols = [d[0] for d in cur.description]
+                    trace = dict(zip(cols, row))
+                    trace['total_duration_ms'] = trace.pop('duration_ms', 0)
+                else:
+                    # ai_trace 记录不存在（兼容旧数据 / AG-UI 模式早期 bug），
+                    # 仍尝试从 ai_trace_span 表读取 spans
+                    trace = {
+                        "trace_id": trace_id,
+                        "thread_id": "",
+                        "user_input": "",
+                        "agent_output": "",
+                        "model": "",
+                        "agent_name": "",
+                        "status": "success",
+                        "total_tokens": 0,
+                        "total_cost": 0,
+                        "iteration_count": 0,
+                        "tool_count": 0,
+                        "span_count": 0,
+                        "total_duration_ms": 0,
+                        "start_time": 0,
+                        "end_time": 0,
+                    }
 
                 # Spans
                 cur.execute("""
@@ -447,6 +478,9 @@ class TraceWriter:
                     ORDER BY start_time
                 """, (trace_id,))
                 span_rows = cur.fetchall()
+                if not span_rows and not row:
+                    # 既没有 trace 记录也没有 span 记录，返回 None
+                    return None
                 span_cols = [d[0] for d in cur.description]
                 spans = []
                 for sr in span_rows:

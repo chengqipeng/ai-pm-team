@@ -436,6 +436,11 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
                 user_input=req.message,
                 agent_name="CRM-Agent",
             )
+            # 写入 ai_trace 表（status=running），确保 read_trace_detail 能查到记录
+            from src.store.trace_writer import TraceWriter
+            from src.core.context import DEFAULT_TENANT_ID
+            _tw_start = TraceWriter(tenant_id=DEFAULT_TENANT_ID)
+            _tw_start.on_trace_start(trace)
         except Exception:
             logger.exception("tracer.start_trace failed")
 

@@ -118,10 +118,19 @@ textarea:focus { outline: none; }
 /* 对话区内文档内容截断样式 */
 .prose-content h1 { font-size: 1rem; font-weight: 700; margin: 0.3rem 0; }
 .prose-content h2 { font-size: 0.9rem; font-weight: 600; margin: 0.3rem 0; }
+.prose-content h3 { font-size: 0.85rem; font-weight: 600; margin: 0.3rem 0; }
 .prose-content p { margin: 0.2rem 0; font-size: 13px; line-height: 1.6; }
+.prose-content ul, .prose-content ol { padding-left: 1.2rem; margin: 0.3rem 0; font-size: 13px; }
+.prose-content li { margin: 0.15rem 0; line-height: 1.6; }
 .prose-content table { width: 100%; border-collapse: collapse; margin: 0.4rem 0; font-size: 12px; }
 .prose-content th, .prose-content td { border: 1px solid #e5e7eb; padding: 4px 8px; }
 .prose-content th { background: #f9fafb; font-weight: 600; }
+.prose-content strong { font-weight: 600; }
+.prose-content code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+.prose-content pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 0.4rem 0; font-size: 12px; }
+.prose-content pre code { background: none; color: inherit; padding: 0; }
+.prose-content blockquote { border-left: 3px solid #3b82f6; padding-left: 12px; margin: 0.4rem 0; color: #4b5563; font-style: italic; }
+.prose-content hr { border: none; border-top: 1px solid #e5e7eb; margin: 0.6rem 0; }
 
 /* ═══ 布局基线（不依赖 Tailwind JIT 任意值）═══ */
 /* 防止 Tailwind CDN 未加载/未处理任意值时布局崩溃 */
@@ -976,7 +985,7 @@ function addAIBubble(content, extra) {
         </div>
         <div>
           <div class="p-4 rounded-2xl text-[14px] shadow-sm bg-white border border-gray-100 text-gray-800">
-            ${docInfo ? `<div class="max-h-[200px] overflow-hidden relative"><div class="prose-content">${rendered}</div><div class="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white to-transparent"></div></div>` : rendered}
+            ${docInfo ? `<div class="max-h-[200px] overflow-hidden relative"><div class="prose-content">${rendered}</div><div class="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white to-transparent"></div></div>` : `<div class="prose-content">${rendered}</div>`}
             ${docCardHtml}
           </div>
           ${timeHtml}
@@ -1915,7 +1924,7 @@ function refreshTrace() {
   let llmCallCount = 0;
   let totalLoopCount = 0; // 全局循环计数（不因阶段切换重置）
 
-  const HIDDEN_SPAN_TYPES = new Set(['llm_input', 'intent_analysis', 'request', 'clarification']);
+  const HIDDEN_SPAN_TYPES = new Set(['llm_input', 'intent_analysis', 'request', 'response', 'clarification']);
 
   // 预扫描：统计 Agent Loop 中有多少轮 LLM 调用
   const totalLlmCalls = liveSpans.filter(s => {
@@ -3780,7 +3789,11 @@ function toggleInlineTrace(id) {
 
 // 将历史 trace spans 渲染到推理链路面板
 function renderHistoricalTrace(spans) {
-  liveSpans = spans.map((s, idx) => {
+  // 过滤掉 request/response 等纯标记 span（不含有用的推理信息）
+  const SKIP_TYPES = new Set(['request', 'response']);
+  const filteredSpans = spans.filter(s => !SKIP_TYPES.has(s.type || s.span_type || ''));
+
+  liveSpans = filteredSpans.map((s, idx) => {
     const md = s.metadata || {};
     const inD = s.input_data || s.input || {};
     const outD = s.output_data || s.output || {};
