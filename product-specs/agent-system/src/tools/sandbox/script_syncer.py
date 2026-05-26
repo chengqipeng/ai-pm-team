@@ -32,8 +32,47 @@ from .backend_base import Backend
 
 logger = logging.getLogger(__name__)
 
-# 沙盒中 Skill 脚本的根目录
-SKILL_BASE_DIR = "/home/hermes/.skills"
+# 沙盒中 Skill 脚本的根目录（从 .env 读取，支持按后端类型自动选择默认值）
+def _resolve_skill_base_dir() -> str:
+    """从 .env 读取 SKILL_BASE_DIR，未配置时根据 SANDBOX_BACKEND 选择默认值"""
+    import os
+    from pathlib import Path
+
+    # 优先读 os.environ（支持运行时覆盖）
+    env_val = os.environ.get("SKILL_BASE_DIR", "").strip()
+    if env_val:
+        return env_val.rstrip("/")
+
+    # 从 .env 文件读取
+    config: dict[str, str] = {}
+    candidates = [
+        Path.cwd() / ".env",
+        Path(__file__).resolve().parents[3] / ".env",  # src/tools/sandbox → 项目根
+    ]
+    for env_path in candidates:
+        if env_path.exists():
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        key, _, value = line.partition("=")
+                        config[key.strip()] = value.strip().strip('"').strip("'")
+            break
+
+    file_val = config.get("SKILL_BASE_DIR", "").strip()
+    if file_val:
+        return file_val.rstrip("/")
+
+    # 未配置 → 根据 SANDBOX_BACKEND 选择默认值
+    backend_type = config.get("SANDBOX_BACKEND", "ssh").strip().lower()
+    if backend_type == "tencent":
+        return "/opt"
+    return "/home/hermes/.skills"
+
+
+SKILL_BASE_DIR = _resolve_skill_base_dir()
 
 # 同步状态文件名
 MANIFEST_FILE = ".sync_manifest.json"

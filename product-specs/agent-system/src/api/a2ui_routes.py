@@ -453,6 +453,7 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
 
         _event_count = 0
         _text_chars = 0
+        _full_content = ""  # 累积模型回复文本，用于持久化到 ai_message.answer
         _tool_calls = []
         _tool_args_buffer = {}  # tool_call_id → accumulated args string
 
@@ -467,7 +468,9 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
                 # 详细事件日志
                 t_val = getattr(event.type, "value", event.type)
                 if t_val == "TEXT_MESSAGE_CONTENT":
-                    _text_chars += len(event.data.get("delta", ""))
+                    delta = event.data.get("delta", "")
+                    _text_chars += len(delta)
+                    _full_content += delta
                 elif t_val == "TOOL_CALL_START":
                     tool_name = event.data.get("tool_call_name") or event.data.get("name", "")
                     tool_call_id = event.data.get("tool_call_id", "")
@@ -528,6 +531,12 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
             # 流正常结束 — 持久化会话到 ai_conversation
             if trace is not None:
                 try:
+                    # 将 assistant 回复写入 ThreadStore（供断线重连 MESSAGES_SNAPSHOT）
+                    if _full_content:
+                        thread_store.append_message(req.thread_id, {
+                            "role": "assistant", "content": _full_content,
+                        })
+
                     # 合并所有中间件 spans 到 Tracer（供 /api/conversations/:id/messages 查询）
                     from src.middleware.tracing import tracing_middleware as _tm
                     all_mw_spans = _tm.get_spans(req.thread_id)
@@ -557,7 +566,7 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
                                 span.metadata["children"] = mw_span["children"]
                         _tm.clear(req.thread_id)
 
-                    tracer.finish_trace(trace.trace_id, "success", "")
+                    tracer.finish_trace(trace.trace_id, "success", _full_content)
                     from src.store.trace_writer import TraceWriter
                     from src.core.context import DEFAULT_TENANT_ID
                     _tw = TraceWriter(tenant_id=DEFAULT_TENANT_ID)
