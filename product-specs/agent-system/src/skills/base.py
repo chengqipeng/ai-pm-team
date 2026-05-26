@@ -53,11 +53,24 @@ class SkillDefinition:
     post_output_behavior: str = "silent"         # silent | summarize | continue | passthrough
     tenant_id: int = 0                           # 0 = 平台级
 
-    def format_prompt(self, arguments: dict[str, str]) -> str:
-        """替换 prompt 中的 {arg} 占位符"""
+    def format_prompt(self, arguments: dict[str, str], system_vars: dict[str, str] | None = None) -> str:
+        """替换 prompt 中的占位符
+
+        支持两类变量：
+        - {arg_name} — 用户传入的命名参数
+        - ${SYSTEM_VAR} — 系统变量（如 SKILL_DIR、SKILL_NAME）
+        """
         result = self.prompt
+
+        # 1. 替换系统变量 ${VAR_NAME}
+        if system_vars:
+            for key, value in system_vars.items():
+                result = result.replace(f"${{{key}}}", str(value))
+
+        # 2. 替换用户参数 {arg_name}
         for key, value in arguments.items():
             result = result.replace(f"{{{key}}}", str(value))
+
         return result
 
     @classmethod
@@ -418,7 +431,16 @@ class SkillExecutor:
         if not skill:
             raise SkillExecutionError(f"技能 '{skill_name}' 未注册")
 
-        formatted_prompt = skill.format_prompt(arguments)
+        # 先同步脚本到沙盒，获取 SKILL_DIR 路径
+        skill_dir = await self._sync_scripts_to_sandbox(skill)
+
+        # 构建系统变量
+        system_vars = {}
+        if skill_dir:
+            system_vars["SKILL_DIR"] = skill_dir
+            system_vars["SKILL_NAME"] = skill.name
+
+        formatted_prompt = skill.format_prompt(arguments, system_vars=system_vars)
         logger.info(f"SkillExecutor: {skill_name} (context={skill.context})")
 
         start_ms = _time.monotonic() * 1000
@@ -614,7 +636,7 @@ class SkillExecutor:
         agent = await self._agent_factory.build(agent_name, self._current_depth)
 
         # 构建任务指令（skill.prompt 作为 HumanMessage，不是 system_prompt）
-        task_instruction = self._build_task_instruction(skill, arguments)
+        task_instruction = self._build_task_instruction(skill, arguments, formatted_prompt=prompt)
 
         sub_thread_id = f"skill-{skill.name}-{uuid4().hex[:8]}"
 
@@ -722,16 +744,84 @@ class SkillExecutor:
 
         return output
 
+    async def _sync_scripts_to_sandbox(self, skill: SkillDefinition) -> str:
+        """同步 Skill 的 scripts/ 目录到沙盒，返回沙盒中的 skill 目录路径
+
+        如果 skill 的 ext_info 中配置了 script_execution，则触发 ScriptSyncer
+        将 DB 中的脚本文件增量同步到远程沙盒。
+
+        Returns:
+            沙盒中的 skill 目录路径（如 /home/hermes/.skills/sales-data-analyzer），
+            如果无需同步或同步失败则返回空字符串。
+        """
+        # 检查 skill 是否有 script_execution 配置
+        ext_info = getattr(skill, '_ext_info', None)
+        if not ext_info:
+            return ""
+
+        import json as _json
+        if isinstance(ext_info, str):
+            try:
+                ext_info = _json.loads(ext_info)
+            except (ValueError, TypeError):
+                return ""
+
+        script_cfg = ext_info.get("script_execution") if isinstance(ext_info, dict) else None
+        if not script_cfg:
+            return ""
+
+        # 获取沙盒 backend（从 ToolRegistry 中找到 TerminalTool 的 backend）
+        try:
+            from src.tools.sandbox.script_syncer import ScriptSyncer, SKILL_BASE_DIR
+
+            sandbox_backend = None
+            if self._context and hasattr(self._context, 'tool_registry'):
+                tool_reg = self._context.tool_registry
+                if tool_reg:
+                    terminal_tool = tool_reg.find_by_name("terminal")
+                    if terminal_tool and hasattr(terminal_tool, '_backend'):
+                        sandbox_backend = terminal_tool._backend
+
+            if sandbox_backend is None:
+                # 尝试从环境变量创建
+                from src.tools.sandbox.ssh_backend import create_ssh_backend_from_env
+                sandbox_backend = create_ssh_backend_from_env()
+
+            if sandbox_backend is None:
+                logger.warning("[skill] 无法获取沙盒 backend，跳过脚本同步: %s", skill.name)
+                return ""
+
+            # 执行同步
+            syncer = ScriptSyncer(backend=sandbox_backend, tenant_id=skill.tenant_id)
+            version = getattr(skill, 'version', '1.0.0')
+            result = await syncer.sync(skill.name, version=version)
+
+            if result.errors:
+                logger.warning("[skill] 脚本同步有错误: %s — %s", skill.name, result.errors)
+
+            skill_dir = f"{SKILL_BASE_DIR}/{skill.name}"
+            logger.info(
+                "[skill] 脚本同步完成: %s → %s (synced=%d, skipped=%d, %.0fms)",
+                skill.name, skill_dir, result.synced, result.skipped, result.duration_ms,
+            )
+            return skill_dir
+
+        except Exception as e:
+            logger.warning("[skill] 脚本同步失败: %s — %s", skill.name, e)
+            return ""
+
     @staticmethod
-    def _build_task_instruction(skill: SkillDefinition, arguments: dict[str, str]) -> str:
+    def _build_task_instruction(skill: SkillDefinition, arguments: dict[str, str],
+                                formatted_prompt: str = "") -> str:
         """构建传递给子 Agent 的任务指令"""
-        formatted_prompt = skill.format_prompt(arguments)
+        # 使用已格式化的 prompt（包含 ${SKILL_DIR} 替换），如果没有则 fallback
+        prompt_text = formatted_prompt or skill.format_prompt(arguments)
         parts = [f"请执行技能 '{skill.name}': {skill.description}"]
         if arguments:
             args_str = ", ".join(f"{k}={v}" for k, v in arguments.items())
             parts.append(f"参数: {args_str}")
-        if formatted_prompt:
-            parts.append(f"\n{formatted_prompt}")
+        if prompt_text:
+            parts.append(f"\n{prompt_text}")
         return "\n".join(parts)
 
     async def _preload_resources(

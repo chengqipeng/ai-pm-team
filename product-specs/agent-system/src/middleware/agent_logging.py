@@ -18,7 +18,7 @@ from langgraph.types import Command
 logger = logging.getLogger(__name__)
 
 # 默认工具调用次数上限（单次对话）
-DEFAULT_MAX_TOOL_CALLS = 30
+DEFAULT_MAX_TOOL_CALLS = 80
 
 
 def _truncate(text: str, max_len: int = 500) -> str:

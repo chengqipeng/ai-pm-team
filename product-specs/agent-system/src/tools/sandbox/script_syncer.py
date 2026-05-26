@@ -322,10 +322,10 @@ class ScriptSyncer:
         logger.info("[script_syncer] 依赖安装完成: %s", skill_name)
 
     async def _resolve_pip_command(self) -> str:
-        """检测沙盒中可用的 pip 命令"""
-        for cmd in ("pip3", "pip", "python3 -m pip", "python -m pip"):
+        """检测沙盒中可用的 pip 命令（优先使用 python3.11 的 pip）"""
+        for cmd in ("/usr/local/bin/python3 -m pip", "python3 -m pip", "pip3", "pip"):
             result = await self._backend.execute(f"{cmd} --version 2>/dev/null")
-            if not result.is_error:
+            if not result.is_error and "python 3.6" not in result.stdout.lower():
                 return cmd
         return ""
 

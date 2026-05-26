@@ -351,8 +351,8 @@ body { margin: 0; }
     <div class="flex-1 flex overflow-hidden">
       <!-- 对话核心区 -->
       <div class="flex-1 flex flex-col min-w-0 relative">
-        <div id="chatArea" class="flex-1 overflow-y-auto custom-scrollbar px-6 py-10">
-          <div id="chatInner" class="max-w-4xl mx-auto w-full space-y-10">
+        <div id="chatArea" class="flex-1 overflow-y-auto custom-scrollbar px-6 pt-10 pb-4">
+          <div id="chatInner" class="max-w-4xl mx-auto w-full space-y-10 pb-6">
             <!-- 欢迎页 -->
             <div id="welcomeBlock" class="text-center py-20">
               <h1 class="text-2xl font-bold mb-2">你好，我是 CRM 智能助手 👋</h1>
@@ -975,7 +975,7 @@ function addAIBubbleRaw(content, docTitle, docId) {
 
 function scrollToBottom() {
   const area = document.getElementById('chatArea');
-  setTimeout(() => { area.scrollTop = area.scrollHeight; }, 50);
+  setTimeout(() => { area.scrollTop = area.scrollHeight; }, 80);
 }
 
 // ═══ AG-UI 流式气泡（逐字渲染）═══
@@ -1044,6 +1044,8 @@ function updatePanelStatus(processing) {
     const errorSpans = liveSpans.filter(s => s.status === 'error' || s.status === 'failed');
     if (errorSpans.length > 0) {
       el.innerHTML = `<div class="w-1.5 h-1.5 bg-red-500 rounded-full"></div><span class="text-red-500">完成 · ${errorSpans.length} 个异常</span>`;
+    } else if (liveSpans.length > 0) {
+      el.innerHTML = '<div class="w-1.5 h-1.5 bg-green-500 rounded-full"></div><span class="text-green-600">已完成</span>';
     } else {
       el.innerHTML = '<span class="text-gray-400">等待中...</span>';
     }
@@ -2895,6 +2897,7 @@ async function sendAgui(text, extra) {
               addStep('文档生成完成 ✓', 'done');
             }
             collapseStepsContainer();
+            scrollToBottom();
           }
           // RUN_ERROR
           else if (type === 'RUN_ERROR') {
@@ -2936,6 +2939,7 @@ async function sendAgui(text, extra) {
   }
 
   updatePanelStatus(false);
+  scrollToBottom();
   saveTraceToStorage(); // 对话完成后持久化链路到 localStorage
 }
 

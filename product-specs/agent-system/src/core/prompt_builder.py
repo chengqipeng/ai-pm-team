@@ -371,6 +371,8 @@ def _build_skills_section(skills: list | None) -> str:
     lines = ["# 可用技能", ""]
     lines.append("通过 `skills_tool(skill_name=\"技能名\", arguments={...})` 调用。")
     lines.append("")
+    lines.append("**重要规则：当用户意图匹配某个技能的「使用时机」关键词时，必须立即调用 skills_tool，禁止自行回答或追问。**")
+    lines.append("")
     lines.append("<skills>")
 
     for skill in skills:
@@ -381,9 +383,9 @@ def _build_skills_section(skills: list | None) -> str:
             lines.append(f"## {skill.name}")
             lines.append(f"{skill.description}")
             if skill.when_to_use:
-                lines.append(f"- 使用时机: {skill.when_to_use}")
+                lines.append(f"- **触发条件（匹配任一关键词即调用）**: {skill.when_to_use}")
             lines.append(f"- 参数: {args_str}")
-            lines.append(f"- 模式: fork（独立子 Agent 执行）")
+            lines.append(f"- 模式: fork（独立子 Agent 执行，不要自己做）")
 
         elif skill.context == "inline" and skill.prompt and skill.prompt.strip():
             # inline 技能且 prompt 非空：注入完整段落

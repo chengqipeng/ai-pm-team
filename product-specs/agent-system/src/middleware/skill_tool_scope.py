@@ -55,6 +55,7 @@ logger = logging.getLogger(__name__)
 # 始终放行的工具（不受 Skill 作用域限制）
 _EXEMPT_TOOLS: frozenset[str] = frozenset({
     "skills_tool",       # Skill 嵌套调用
+    "agent_tool",        # 子 Agent 委派
     "ask_user",          # 用户交互
     "ask_clarification", # 追问澄清
 })
