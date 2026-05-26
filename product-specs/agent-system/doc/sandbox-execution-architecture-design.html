@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>沙盒执行系统 — 架构设计</title>
+<style>
+:root { --bg:#fff; --text:#1a1a2e; --heading:#16213e; --accent:#0f3460; --border:#e0e0e0; --code-bg:#f5f5f5; --table-header:#f0f4f8; --table-border:#d0d7de; --link:#0969da; --blockquote-bg:#f6f8fa; --blockquote-border:#d0d7de; --sandbox:#0891b2; --sandbox-bg:#ecfeff; --ssh:#2563eb; --ssh-bg:#eff6ff; --tencent:#d97706; --tencent-bg:#fffbeb; }
+* { box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; line-height: 1.75; color: var(--text); background: var(--bg); max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; font-size: 15px; }
+h1 { font-size: 2em; color: var(--heading); border-bottom: 3px solid var(--accent); padding-bottom: 12px; margin-top: 48px; }
+h2 { font-size: 1.5em; color: var(--heading); border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-top: 48px; }
+h3 { font-size: 1.25em; color: var(--heading); margin-top: 32px; }
+h4 { font-size: 1.1em; color: var(--heading); margin-top: 24px; }
+p { margin: 12px 0; }
+blockquote { background: var(--blockquote-bg); border-left: 4px solid var(--blockquote-border); margin: 16px 0; padding: 12px 20px; color: #57606a; }
+blockquote p { margin: 4px 0; }
+code { font-family: "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace; font-size: 0.88em; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; }
+pre { background: #1e1e2e; color: #cdd6f4; padding: 20px; border-radius: 8px; overflow-x: auto; line-height: 1.5; margin: 16px 0; }
+pre code { background: none; padding: 0; font-size: 0.85em; color: inherit; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.92em; }
+thead { background: var(--table-header); }
+th, td { border: 1px solid var(--table-border); padding: 10px 14px; text-align: left; }
+th { font-weight: 600; color: var(--heading); }
+tr:nth-child(even) { background: #f9fafb; }
+ul, ol { padding-left: 24px; margin: 8px 0; }
+li { margin: 4px 0; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+strong { color: var(--heading); }
+.headerlink { font-size: 0.8em; margin-left: 6px; opacity: 0; transition: opacity 0.2s; }
+h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink { opacity: 0.5; }
+@media print { body { max-width: 100%; padding: 20px; font-size: 12px; } pre { background: #f5f5f5 !important; color: #333 !important; border: 1px solid #ddd; } }
+@media (max-width: 768px) { body { padding: 20px 16px; font-size: 14px; } table { display: block; overflow-x: auto; } }
+</style>
+</head>
+<body>
+
+<h1 id="sandbox-arch">沙盒执行系统 — 架构设计<a class="headerlink" href="#sandbox-arch" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Agent V2 代码执行基础设施 · 双模式沙盒架构<br>
+支持 SSH 远程执行模式 + 腾讯云 Agent Runtime 沙盒模式<br>
+本文档为第一页：整体架构设计，聚焦系统全貌与双模式对比。</p>
+</blockquote>
+<hr>
+
+<h2 id="overview">一、系统定位<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+
+<p><strong>沙盒执行系统</strong>是 Agent V2 框架「能力执行层」的核心基础设施，为 Agent 提供安全、隔离的代码执行环境。对应 Agent 整体设计方案中 <code>Features.sandbox_enabled</code> 特性开关和 <code>AppConfig.sandbox: SandboxSettings</code> 配置项。</p>
+
+<p>Agent 在推理循环中通过 <code>code_execution</code> 工具调用沙盒，执行数据分析、文件处理、API 调用等操作。沙盒系统确保这些操作在受控环境中完成，不影响宿主系统安全。</p>
+
+<h3>核心价值</h3>
+<ul>
+<li><strong>安全隔离</strong> — 代码在独立环境中执行，防止恶意代码或误操作影响生产环境</li>
+<li><strong>双模式灵活切换</strong> — SSH 模式适合自有基础设施，腾讯沙盒模式适合多租户生产环境</li>
+<li><strong>统一抽象</strong> — 上层 Agent 通过 <code>SandboxProvider</code> 接口调用，无需感知底层差异</li>
+<li><strong>全链路可观测</strong> — stdout/stderr 实时回传，执行耗时/结果纳入 Tracing 链路</li>
+</ul>
+
+<h2 id="arch">二、整体架构<a class="headerlink" href="#arch" title="Permanent link">&para;</a></h2>
+
+<h3 id="21-overview">2.1 架构总览<a class="headerlink" href="#21-overview" title="Permanent link">&para;</a></h3>
+
+<div style="margin:1.5rem 0;">
+<div style="display:flex;flex-direction:column;gap:0;align-items:center;">
+
+  <!-- 用户入口 -->
+  <div style="background:#334155;color:#fff;padding:0.6rem 2rem;border-radius:8px 8px 0 0;font-weight:600;font-size:0.9rem;">
+    👤 用户（自然语言请求："帮我分析这份数据" / "画一个图表"）
+  </div>
+  <div style="width:2px;height:20px;background:#94a3b8;"></div>
+
+  <!-- Agent 框架层 -->
+  <div style="width:100%;border:2px solid #7c3aed;border-radius:12px;padding:1.2rem 1.5rem;background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);position:relative;">
+    <div style="position:absolute;top:-12px;left:20px;background:#7c3aed;color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">Agent 平台（NeoAgent）· Agent Loop</div>
+    <div style="font-size:0.78rem;color:#5b21b6;margin-bottom:0.6rem;margin-top:0.2rem;">LLM 推理循环 → 输出 tool_use: code_execution → 进入沙盒执行系统</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.6rem;">
+      <div style="background:#fff;border:1px solid #c4b5fd;border-radius:6px;padding:0.5rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.8rem;color:#7c3aed;">🧠 LLM 推理</div>
+        <div style="font-size:0.65rem;color:#64748b;">意图识别 / 规划</div>
+      </div>
+      <div style="background:#fff;border:1px solid #c4b5fd;border-radius:6px;padding:0.5rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.8rem;color:#7c3aed;">🔌 Middleware</div>
+        <div style="font-size:0.65rem;color:#64748b;">Guardrail / ErrorHandling</div>
+      </div>
+      <div style="background:#fff;border:1px solid #c4b5fd;border-radius:6px;padding:0.5rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.8rem;color:#7c3aed;">🛠 Tool 调用</div>
+        <div style="font-size:0.65rem;color:#64748b;">code_execution</div>
+      </div>
+      <div style="background:#fff;border:1px solid #c4b5fd;border-radius:6px;padding:0.5rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.8rem;color:#7c3aed;">📊 结果回注</div>
+        <div style="font-size:0.65rem;color:#64748b;">ToolMessage → 继续推理</div>
+      </div>
+    </div>
+  </div>
+  <div style="width:2px;height:20px;background:#94a3b8;"></div>
+
+  <!-- 沙盒执行系统 -->
+  <div style="width:100%;border:2px solid var(--sandbox);border-radius:12px;padding:1.5rem;background:var(--sandbox-bg);position:relative;">
+    <div style="position:absolute;top:-12px;left:20px;background:var(--sandbox);color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">🏗️ 沙盒执行系统（Sandbox Execution System）</div>
+
+    <!-- SandboxManager -->
+    <div style="margin-top:0.8rem;border:1px dashed var(--sandbox);border-radius:8px;padding:0.8rem;background:#f0fdfa;position:relative;">
+      <div style="position:absolute;top:-10px;left:12px;background:#f0fdfa;padding:0 6px;font-size:0.72rem;color:#0e7490;font-weight:600;">SandboxManager（统一调度层）</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:0.5rem;margin-top:0.3rem;">
+        <div style="background:#fff;border:1px solid #67e8f9;border-radius:5px;padding:0.4rem;text-align:center;">
+          <div style="font-size:0.75rem;font-weight:600;color:var(--sandbox);">🔀 路由</div>
+          <div style="font-size:0.63rem;color:#64748b;">Provider 选择</div>
+        </div>
+        <div style="background:#fff;border:1px solid #67e8f9;border-radius:5px;padding:0.4rem;text-align:center;">
+          <div style="font-size:0.75rem;font-weight:600;color:var(--sandbox);">♻️ 实例池</div>
+          <div style="font-size:0.63rem;color:#64748b;">复用 / 回收</div>
+        </div>
+        <div style="background:#fff;border:1px solid #67e8f9;border-radius:5px;padding:0.4rem;text-align:center;">
+          <div style="font-size:0.75rem;font-weight:600;color:var(--sandbox);">⏱️ 超时</div>
+          <div style="font-size:0.63rem;color:#64748b;">双层控制</div>
+        </div>
+        <div style="background:#fff;border:1px solid #67e8f9;border-radius:5px;padding:0.4rem;text-align:center;">
+          <div style="font-size:0.75rem;font-weight:600;color:var(--sandbox);">🛡️ 安全</div>
+          <div style="font-size:0.63rem;color:#64748b;">PathGuard</div>
+        </div>
+        <div style="background:#fff;border:1px solid #67e8f9;border-radius:5px;padding:0.4rem;text-align:center;">
+          <div style="font-size:0.75rem;font-weight:600;color:var(--sandbox);">📡 回调</div>
+          <div style="font-size:0.63rem;color:#64748b;">流式 stdout</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 双模式 Provider -->
+    <div style="margin-top:1rem;display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+
+      <!-- SSH Provider -->
+      <div style="border:1.5px solid var(--ssh);border-radius:8px;padding:0.8rem;background:linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%);position:relative;">
+        <div style="position:absolute;top:-10px;left:10px;background:var(--ssh);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;">🔒 SSH 模式（虚拟机） · SSHSandboxProvider</div>
+        <div style="font-size:0.7rem;color:#1d4ed8;margin:0.3rem 0 0.5rem;text-align:center;font-weight:500;">自有基础设施 · 持久化环境 · 开发调试首选</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;">
+          <div style="background:#fff;border:1px solid #93c5fd;border-radius:5px;padding:0.35rem;text-align:center;">
+            <div style="font-weight:600;font-size:0.72rem;color:var(--ssh);">🔑 密钥认证</div>
+            <div style="font-size:0.62rem;color:#64748b;">Ed25519 / RSA</div>
+          </div>
+          <div style="background:#fff;border:1px solid #93c5fd;border-radius:5px;padding:0.35rem;text-align:center;">
+            <div style="font-weight:600;font-size:0.72rem;color:var(--ssh);">🔗 连接池</div>
+            <div style="font-size:0.62rem;color:#64748b;">asyncssh · Keep-Alive</div>
+          </div>
+          <div style="background:#fff;border:1px solid #93c5fd;border-radius:5px;padding:0.35rem;text-align:center;">
+            <div style="font-weight:600;font-size:0.72rem;color:var(--ssh);">📂 SFTP</div>
+            <div style="font-size:0.62rem;color:#64748b;">文件上传 / 下载</div>
+          </div>
+          <div style="background:#fff;border:1px solid #93c5fd;border-radius:5px;padding:0.35rem;text-align:center;">
+            <div style="font-weight:600;font-size:0.72rem;color:var(--ssh);">🖥️ 远程执行</div>
+            <div style="font-size:0.62rem;color:#64748b;">timeout + python3</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tencent Provider -->
+      <div style="border:1.5px solid var(--tencent);border-radius:8px;padding:0.8rem;background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);position:relative;">
+        <div style="position:absolute;top:-10px;left:10px;background:var(--tencent);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;">☁️ 腾讯沙盒（腾讯云） · TencentSandboxProvider</div>
+        <div style="font-size:0.7rem;color:#92400e;margin:0.3rem 0 0.5rem;text-align:center;font-weight:500;">云原生容器 · 按需弹性 · 多租户生产首选</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;">
+          <div style="background:#fff;border:1px solid #fcd34d;border-radius:5px;padding:0.35rem;text-align:center;">
+            <div style="font-weight:600;font-size:0.72rem;color:var(--tencent);">☁️ AGS API</div>
+            <div style="font-size:0.62rem;color:#64748b;">CreateSandboxTool</div>
+          </div>
+          <div style="background:#fff;border:1px solid #fcd34d;border-radius:5px;padding:0.35rem;text-align:center;">
+            <div style="font-weight:600;font-size:0.72rem;color:var(--tencent);">🧪 E2B SDK</div>
+            <div style="font-size:0.62rem;color:#64748b;">run_code · 实时回调</div>
+          </div>
+          <div style="background:#fff;border:1px solid #fcd34d;border-radius:5px;padding:0.35rem;text-align:center;">
+            <div style="font-weight:600;font-size:0.72rem;color:var(--tencent);">📦 容器运行时</div>
+            <div style="font-size:0.62rem;color:#64748b;">Python / Node 预装</div>
+          </div>
+          <div style="background:#fff;border:1px solid #fcd34d;border-radius:5px;padding:0.35rem;text-align:center;">
+            <div style="font-weight:600;font-size:0.72rem;color:var(--tencent);">🌐 网络策略</div>
+            <div style="font-size:0.62rem;color:#64748b;">PUBLIC / PRIVATE</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 连接线 -->
+  <div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;">
+    <div style="width:1px;height:20px;background:linear-gradient(to bottom, transparent, #cbd5e1);"></div>
+  </div>
+  <div style="color:#94a3b8;padding:0.3rem 1rem;font-size:0.8rem;display:flex;align-items:center;gap:0.5rem;font-weight:500;letter-spacing:0.02em;">
+    <span style="color:#cbd5e1;font-size:0.7rem;">◇</span>
+    <span>连接底层执行环境</span>
+    <span style="color:#cbd5e1;font-size:0.7rem;">◇</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;">
+    <div style="width:1px;height:20px;background:linear-gradient(to bottom, #cbd5e1, transparent);"></div>
+  </div>
+
+  <!-- 底层执行环境 -->
+  <div style="width:100%;border:2px solid #64748b;border-radius:12px;padding:1.2rem 1.5rem;background:linear-gradient(135deg,#f8fafc 0%,#f1f5f9 100%);position:relative;">
+    <div style="position:absolute;top:-12px;left:20px;background:#64748b;color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">🖥️ 底层执行环境（Execution Targets）</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:0.8rem;">
+
+      <!-- SSH 目标 -->
+      <div style="background:#fff;border:1px solid #93c5fd;border-radius:6px;padding:0.7rem;">
+        <div style="font-weight:600;font-size:0.82rem;color:var(--ssh);margin-bottom:0.3rem;">🖥️ 远程 Linux 主机</div>
+        <div style="font-size:0.7rem;color:#64748b;line-height:1.6;">
+          • VM / 物理机（如 172.17.2.118）<br>
+          • 工作目录：/home/agent/workspace/<br>
+          • 持久化文件系统 · 自定义环境<br>
+          • 支持 GPU · cgroup 资源限制
+        </div>
+      </div>
+
+      <!-- 腾讯云目标 -->
+      <div style="background:#fff;border:1px solid #fcd34d;border-radius:6px;padding:0.7rem;">
+        <div style="font-weight:600;font-size:0.82rem;color:var(--tencent);margin-bottom:0.3rem;">☁️ 腾讯云 Agent Runtime</div>
+        <div style="font-size:0.7rem;color:#64748b;line-height:1.6;">
+          • E2B Domain: ap-beijing.tencentags.com<br>
+          • 模板：code-interpreter-v1<br>
+          • 容器级隔离 · 按需创建/销毁<br>
+          • 预装 numpy/pandas/matplotlib
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+</div>
+
+<h3 id="22-internal">2.2 沙盒执行系统详细架构<a class="headerlink" href="#22-internal" title="Permanent link">&para;</a></h3>
+
+<blockquote><p>展示从 Agent 工具调用到底层执行环境的完整数据流。SSH 模式通过 asyncssh 连接远程虚拟机执行代码，适用于开发调试与自有基础设施；腾讯沙盒模式通过 E2B SDK 调用腾讯云容器化环境，适用于多租户生产与弹性扩缩场景。</p></blockquote>
+
+<div style="font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Consolas, monospace; font-size: 0.76rem; line-height: 1.55; background: #0f172a; color: #e2e8f0; padding: 1.5rem 2rem; border-radius: 10px; overflow-x: auto; margin: 1rem 0; border: 1px solid #334155;">
+
+<!-- Agent Tool 调用 -->
+<div style="text-align:center;margin-bottom:0.8rem;">
+<span style="background:#334155;color:#fff;padding:0.4rem 1.5rem;border-radius:6px;font-weight:600;">🛠 Agent Tool: code_execution(code, language)</span>
+</div>
+<div style="text-align:center;color:#475569;">▼</div>
+
+<!-- SandboxManager 调度 -->
+<div style="border:1.5px solid #06b6d4;border-radius:8px;padding:0.8rem 1rem;margin:0.5rem 0;background:rgba(6,182,212,0.05);">
+<div style="color:#06b6d4;font-weight:600;margin-bottom:0.5rem;">🏗️ SandboxManager — 统一调度</div>
+<div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
+<div style="flex:1;min-width:140px;background:#1e293b;border:1px solid #06b6d4;padding:0.5rem 0.7rem;border-radius:6px;">
+<div style="color:#06b6d4;font-weight:600;font-size:0.75rem;">Config Router</div>
+<div style="color:#94a3b8;font-size:0.63rem;margin-top:0.2rem;line-height:1.5;">• 读取 sandbox.provider<br>• "ssh" → SSHProvider<br>• "tencent" → TencentProvider</div>
+</div>
+<div style="flex:1;min-width:140px;background:#1e293b;border:1px solid #06b6d4;padding:0.5rem 0.7rem;border-radius:6px;">
+<div style="color:#06b6d4;font-weight:600;font-size:0.75rem;">Session Pool</div>
+<div style="color:#94a3b8;font-size:0.63rem;margin-top:0.2rem;line-height:1.5;">• thread_id → session 映射<br>• 有空闲实例 → 复用<br>• 无实例 → 创建新实例</div>
+</div>
+<div style="flex:1;min-width:140px;background:#1e293b;border:1px solid #06b6d4;padding:0.5rem 0.7rem;border-radius:6px;">
+<div style="color:#06b6d4;font-weight:600;font-size:0.75rem;">PathGuard</div>
+<div style="color:#94a3b8;font-size:0.63rem;margin-top:0.2rem;line-height:1.5;">• 白名单路径校验<br>• 危险命令拦截<br>• 违规 → PathEscapeError</div>
+</div>
+<div style="flex:1;min-width:140px;background:#1e293b;border:1px solid #06b6d4;padding:0.5rem 0.7rem;border-radius:6px;">
+<div style="color:#06b6d4;font-weight:600;font-size:0.75rem;">Timeout Guard</div>
+<div style="color:#94a3b8;font-size:0.63rem;margin-top:0.2rem;line-height:1.5;">• 执行级超时（600s）<br>• 实例级超时（1h）<br>• 超时 → SandboxTimeoutError</div>
+</div>
+</div>
+</div>
+<div style="text-align:center;color:#475569;">▼ <span style="font-size:0.65rem;color:#64748b;">根据 provider 配置路由</span></div>
+
+<!-- 双模式并列 -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;margin:0.5rem 0;">
+
+<!-- SSH 模式 -->
+<div style="border:1.5px solid #3b82f6;border-radius:8px;padding:0.7rem;background:rgba(59,130,246,0.04);">
+<div style="color:#3b82f6;font-weight:600;margin-bottom:0.4rem;">🔒 SSH 模式</div>
+<div style="display:flex;flex-direction:column;gap:0.4rem;">
+<div style="background:#1e293b;border:1px solid #3b82f6;padding:0.4rem 0.6rem;border-radius:5px;">
+<div style="color:#60a5fa;font-weight:600;font-size:0.72rem;">1. 连接管理</div>
+<div style="color:#94a3b8;font-size:0.62rem;">asyncssh 连接池 · 密钥认证 · Keep-Alive</div>
+</div>
+<div style="background:#1e293b;border:1px solid #3b82f6;padding:0.4rem 0.6rem;border-radius:5px;">
+<div style="color:#60a5fa;font-weight:600;font-size:0.72rem;">2. 代码写入</div>
+<div style="color:#94a3b8;font-size:0.62rem;">SFTP → session_dir/code_{ts}.py</div>
+</div>
+<div style="background:#1e293b;border:1px solid #3b82f6;padding:0.4rem 0.6rem;border-radius:5px;">
+<div style="color:#60a5fa;font-weight:600;font-size:0.72rem;">3. 远程执行</div>
+<div style="color:#94a3b8;font-size:0.62rem;">timeout {n}s python3 code.py</div>
+</div>
+<div style="background:#1e293b;border:1px solid #3b82f6;padding:0.4rem 0.6rem;border-radius:5px;">
+<div style="color:#60a5fa;font-weight:600;font-size:0.72rem;">4. 流式回传</div>
+<div style="color:#94a3b8;font-size:0.62rem;">SSH channel → on_stdout/on_stderr</div>
+</div>
+</div>
+<div style="text-align:center;color:#475569;margin-top:0.4rem;font-size:0.65rem;">▼ SSH (Port 22)</div>
+<div style="background:#1e293b;border:1px solid #60a5fa;border-radius:5px;padding:0.4rem;text-align:center;margin-top:0.3rem;">
+<div style="color:#93c5fd;font-size:0.72rem;font-weight:600;">🖥️ 远程 Linux 主机</div>
+<div style="color:#64748b;font-size:0.6rem;">VM / 物理机 · 持久化文件系统 · 自定义环境</div>
+</div>
+</div>
+
+<!-- 腾讯沙盒模式 -->
+<div style="border:1.5px solid #f59e0b;border-radius:8px;padding:0.7rem;background:rgba(245,158,11,0.04);">
+<div style="color:#f59e0b;font-weight:600;margin-bottom:0.4rem;">☁️ 腾讯沙盒模式</div>
+<div style="display:flex;flex-direction:column;gap:0.4rem;">
+<div style="background:#1e293b;border:1px solid #f59e0b;padding:0.4rem 0.6rem;border-radius:5px;">
+<div style="color:#fbbf24;font-weight:600;font-size:0.72rem;">1. 实例创建</div>
+<div style="color:#94a3b8;font-size:0.62rem;">Sandbox.create(template, timeout)</div>
+</div>
+<div style="background:#1e293b;border:1px solid #f59e0b;padding:0.4rem 0.6rem;border-radius:5px;">
+<div style="color:#fbbf24;font-weight:600;font-size:0.72rem;">2. 代码执行</div>
+<div style="color:#94a3b8;font-size:0.62rem;">sandbox.run_code(code, on_stdout, on_stderr)</div>
+</div>
+<div style="background:#1e293b;border:1px solid #f59e0b;padding:0.4rem 0.6rem;border-radius:5px;">
+<div style="color:#fbbf24;font-weight:600;font-size:0.72rem;">3. 结果收集</div>
+<div style="color:#94a3b8;font-size:0.62rem;">result.stdout / result.error / artifacts</div>
+</div>
+<div style="background:#1e293b;border:1px solid #f59e0b;padding:0.4rem 0.6rem;border-radius:5px;">
+<div style="color:#fbbf24;font-weight:600;font-size:0.72rem;">4. 实例销毁</div>
+<div style="color:#94a3b8;font-size:0.62rem;">sandbox.kill() · 资源立即释放</div>
+</div>
+</div>
+<div style="text-align:center;color:#475569;margin-top:0.4rem;font-size:0.65rem;">▼ HTTPS (E2B API)</div>
+<div style="background:#1e293b;border:1px solid #fbbf24;border-radius:5px;padding:0.4rem;text-align:center;margin-top:0.3rem;">
+<div style="color:#fcd34d;font-size:0.72rem;font-weight:600;">☁️ 腾讯云 Agent Runtime</div>
+<div style="color:#64748b;font-size:0.6rem;">容器化环境 · 按需创建/销毁 · 预装运行时</div>
+</div>
+</div>
+
+</div>
+
+<!-- 统一返回 -->
+<div style="text-align:center;color:#475569;">▼</div>
+<div style="border:1.5px solid #4ade80;border-radius:6px;padding:0.5rem 0.8rem;background:rgba(74,222,128,0.06);text-align:center;margin:0.5rem 0;">
+<span style="color:#4ade80;font-weight:600;">✅ ExecutionResult</span><br>
+<span style="color:#94a3b8;font-size:0.72rem;">stdout · stderr · exit_code · duration_ms · artifacts[] · error</span>
+</div>
+
+</div>
+
+<h3 id="23-tool-design">2.3 沙盒 Tool 体系<a class="headerlink" href="#23-tool-design" title="Permanent link">&para;</a></h3>
+
+<blockquote><p>沙盒系统注册 5 个 Tool（对应代码 <code>register_sandbox_tools()</code> 和 SQL <code>migrate_add_sandbox_tools.sql</code>）。所有 Tool 共享同一个 Backend 实例，通过 <code>SANDBOX_BACKEND</code> 环境变量切换 SSH / 腾讯云后端。</p></blockquote>
+
+<div style="margin:1.5rem 0;">
+<div style="display:flex;flex-direction:column;gap:0;align-items:center;">
+
+  <!-- Tool 注册层 -->
+  <div style="width:100%;border:2px solid #7c3aed;border-radius:12px;padding:1.2rem 1.5rem;background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);position:relative;">
+    <div style="position:absolute;top:-12px;left:20px;background:#7c3aed;color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">🛠 沙盒 Tool 层（5 个 Tool · LLM 直接调用）</div>
+    <div style="font-size:0.72rem;color:#5b21b6;margin:0.3rem 0 0.6rem;">
+      代码位置：<code>src/tools/sandbox/</code> · 注册入口：<code>register_sandbox_tools(registry)</code><br>
+      每个 Tool 继承自定义 <code>Tool</code> 基类，内部持有 <code>Backend</code> 实例，LLM 无需感知执行环境差异。
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:0.5rem;">
+      <div style="background:#fff;border:1px solid #c4b5fd;border-radius:6px;padding:0.5rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.78rem;color:#7c3aed;">💻 terminal</div>
+        <div style="font-size:0.62rem;color:#64748b;">Shell 命令执行<br>别名: shell, run_command</div>
+      </div>
+      <div style="background:#fff;border:1px solid #c4b5fd;border-radius:6px;padding:0.5rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.78rem;color:#7c3aed;">⚡ execute_code</div>
+        <div style="font-size:0.62rem;color:#64748b;">代码片段执行<br>Python/JS/Bash/Ruby/Go</div>
+      </div>
+      <div style="background:#fff;border:1px solid #c4b5fd;border-radius:6px;padding:0.5rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.78rem;color:#7c3aed;">📄 read_file</div>
+        <div style="font-size:0.62rem;color:#64748b;">读取文件内容<br>支持行范围 offset/limit</div>
+      </div>
+      <div style="background:#fff;border:1px solid #c4b5fd;border-radius:6px;padding:0.5rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.78rem;color:#7c3aed;">📝 write_file</div>
+        <div style="font-size:0.62rem;color:#64748b;">创建/覆盖文件<br>自动创建父目录</div>
+      </div>
+      <div style="background:#fff;border:1px solid #c4b5fd;border-radius:6px;padding:0.5rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.78rem;color:#7c3aed;">🔍 search_files</div>
+        <div style="font-size:0.62rem;color:#64748b;">文件内容搜索<br>正则 + 文件名过滤</div>
+      </div>
+    </div>
+    <div style="margin-top:0.6rem;padding:0.5rem 0.8rem;background:#ede9fe;border-radius:6px;font-size:0.68rem;color:#5b21b6;">
+      <strong>定位：</strong>Agent 侧公共封装。Tool 内部调用 <code>self._backend.execute()</code>，Backend 是 <code>SSHBackend</code> 或 <code>TencentSandboxBackend</code> 的实例，由 <code>create_backend()</code> 根据 <code>SANDBOX_BACKEND</code> 环境变量决定。Tool 层代码完全不感知后端类型。
+    </div>
+  </div>
+
+  <!-- 连接线 -->
+  <div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;">
+    <div style="width:1px;height:20px;background:linear-gradient(to bottom, transparent, #cbd5e1);"></div>
+  </div>
+  <div style="color:#94a3b8;padding:0.2rem 1rem;font-size:0.75rem;display:flex;align-items:center;gap:0.5rem;font-weight:500;">
+    <span style="color:#cbd5e1;font-size:0.7rem;">◇</span>
+    <span>self._backend.execute() / read() / write() — 同一接口，不同实现</span>
+    <span style="color:#cbd5e1;font-size:0.7rem;">◇</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;">
+    <div style="width:1px;height:20px;background:linear-gradient(to bottom, #cbd5e1, transparent);"></div>
+  </div>
+
+  <!-- Backend 实现对比 -->
+  <div style="width:100%;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+
+    <!-- 表头 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;">
+      <div style="padding:0.7rem 1rem;background:#1e40af;color:#fff;font-weight:600;font-size:0.85rem;">
+        🔒 SSHBackend<br><span style="font-weight:400;font-size:0.68rem;opacity:0.85;">asyncssh · SFTP · 持久化 Shell</span>
+      </div>
+      <div style="padding:0.7rem 1rem;background:#b45309;color:#fff;font-weight:600;font-size:0.85rem;">
+        ☁️ TencentSandboxBackend<br><span style="font-weight:400;font-size:0.68rem;opacity:0.85;">E2B SDK · sandbox.commands.run() · sandbox.run_code()</span>
+      </div>
+    </div>
+
+    <!-- terminal 对比 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;">
+      <div style="grid-column:span 2;background:#f8fafc;padding:0.35rem 1rem;font-size:0.72rem;font-weight:600;color:#475569;border-top:1px solid #e2e8f0;">💻 terminal → backend.execute(command)</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;">
+      <div style="padding:0.6rem 1rem;border-right:1px solid #e2e8f0;border-top:1px solid #f1f5f9;">
+        <div style="font-size:0.7rem;color:#64748b;">SSH persistent shell 执行<br>工作目录/环境变量跨命令保持<br>asyncssh channel 流式回传</div>
+      </div>
+      <div style="padding:0.6rem 1rem;border-top:1px solid #f1f5f9;">
+        <div style="font-size:0.7rem;color:#64748b;"><code>sandbox.commands.run(cmd)</code><br>容器内 Shell 执行<br>实时 stdout/stderr 回调</div>
+      </div>
+    </div>
+
+    <!-- execute_code 对比 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;">
+      <div style="grid-column:span 2;background:#f8fafc;padding:0.35rem 1rem;font-size:0.72rem;font-weight:600;color:#475569;border-top:1px solid #e2e8f0;">⚡ execute_code → 写入临时文件 + backend.execute(runner + file)</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;">
+      <div style="padding:0.6rem 1rem;border-right:1px solid #e2e8f0;border-top:1px solid #f1f5f9;">
+        <div style="font-size:0.7rem;color:#64748b;">SFTP 写入 /tmp/code_{uuid}.py<br>SSH 执行 <code>python3 /tmp/code_xxx.py</code><br>执行后自动清理临时文件</div>
+      </div>
+      <div style="padding:0.6rem 1rem;border-top:1px solid #f1f5f9;">
+        <div style="font-size:0.7rem;color:#64748b;"><code>sandbox.run_code(code, language)</code><br>代码解释器模式 · 变量持久化<br>或 <code>commands.run("python3 -c ...")</code></div>
+      </div>
+    </div>
+
+    <!-- read_file 对比 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;">
+      <div style="grid-column:span 2;background:#f8fafc;padding:0.35rem 1rem;font-size:0.72rem;font-weight:600;color:#475569;border-top:1px solid #e2e8f0;">📄 read_file → backend.execute("sed -n ..." / cat)</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;">
+      <div style="padding:0.6rem 1rem;border-right:1px solid #e2e8f0;border-top:1px solid #f1f5f9;">
+        <div style="font-size:0.7rem;color:#64748b;">SSH 执行 <code>sed -n '{offset},{end}p' {path}</code><br>持久化文件系统 · 可反复读取</div>
+      </div>
+      <div style="padding:0.6rem 1rem;border-top:1px solid #f1f5f9;">
+        <div style="font-size:0.7rem;color:#64748b;"><code>sandbox.files.read(path)</code><br>或 <code>commands.run("sed -n ...")</code><br>需在实例存活期间</div>
+      </div>
+    </div>
+
+    <!-- write_file 对比 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;">
+      <div style="grid-column:span 2;background:#f8fafc;padding:0.35rem 1rem;font-size:0.72rem;font-weight:600;color:#475569;border-top:1px solid #e2e8f0;">📝 write_file → backend.write_file(path, content)</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;">
+      <div style="padding:0.6rem 1rem;border-right:1px solid #e2e8f0;border-top:1px solid #f1f5f9;">
+        <div style="font-size:0.7rem;color:#64748b;">SFTP 写入 · 自动 mkdir -p<br>持久化到虚拟机磁盘</div>
+      </div>
+      <div style="padding:0.6rem 1rem;border-top:1px solid #f1f5f9;">
+        <div style="font-size:0.7rem;color:#64748b;"><code>sandbox.files.write(path, content)</code><br>临时性 · 实例销毁即丢失</div>
+      </div>
+    </div>
+
+    <!-- search_files 对比 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;">
+      <div style="grid-column:span 2;background:#f8fafc;padding:0.35rem 1rem;font-size:0.72rem;font-weight:600;color:#475569;border-top:1px solid #e2e8f0;">🔍 search_files → backend.execute("grep -rn ...")</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;">
+      <div style="padding:0.6rem 1rem;border-right:1px solid #e2e8f0;border-top:1px solid #f1f5f9;">
+        <div style="font-size:0.7rem;color:#64748b;">SSH 执行 <code>grep -rn --include='{filter}' '{pattern}' {path}</code></div>
+      </div>
+      <div style="padding:0.6rem 1rem;border-top:1px solid #f1f5f9;">
+        <div style="font-size:0.7rem;color:#64748b;"><code>commands.run("grep -rn ...")</code><br>容器内执行相同命令</div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+</div>
+
+<h3 id="23b-tool-flow">2.4 Tool 接入与调用链路<a class="headerlink" href="#23b-tool-flow" title="Permanent link">&para;</a></h3>
+
+<div style="margin:1.5rem 0;">
+<div style="display:flex;flex-direction:column;gap:0;align-items:center;">
+
+  <!-- LLM 推理输出 -->
+  <div style="background:#334155;color:#fff;padding:0.6rem 2rem;border-radius:8px 8px 0 0;font-weight:600;font-size:0.9rem;">
+    🧠 LLM 推理输出 AIMessage(tool_calls: [{name: "terminal", args: {command: "..."}}])
+  </div>
+  <div style="width:2px;height:16px;background:#94a3b8;"></div>
+
+  <!-- Middleware 拦截层 -->
+  <div style="width:100%;border:2px solid #f87171;border-radius:12px;padding:1rem 1.5rem;background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);position:relative;">
+    <div style="position:absolute;top:-12px;left:20px;background:#f87171;color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">🛡️ wrap_tool_call 中间件拦截</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;margin-top:0.5rem;">
+      <div style="background:#fff;border:1px solid #fca5a5;border-radius:6px;padding:0.5rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.8rem;color:#dc2626;">🔐 Guardrail</div>
+        <div style="font-size:0.65rem;color:#64748b;">权限校验 · 租户隔离<br>is_destructive → HITL 审批</div>
+      </div>
+      <div style="background:#fff;border:1px solid #fca5a5;border-radius:6px;padding:0.5rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.8rem;color:#dc2626;">🛡️ PathGuard</div>
+        <div style="font-size:0.65rem;color:#64748b;">路径白名单校验<br>危险命令拦截</div>
+      </div>
+      <div style="background:#fff;border:1px solid #fca5a5;border-radius:6px;padding:0.5rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.8rem;color:#dc2626;">⚠️ ErrorHandling</div>
+        <div style="font-size:0.65rem;color:#64748b;">异常捕获 · 超时处理<br>重试 1 次 · 降级响应</div>
+      </div>
+    </div>
+  </div>
+  <div style="width:2px;height:16px;background:#94a3b8;"></div>
+
+  <!-- Tool._arun() 执行 -->
+  <div style="width:100%;border:2px solid #7c3aed;border-radius:12px;padding:1rem 1.5rem;background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);position:relative;">
+    <div style="position:absolute;top:-12px;left:20px;background:#7c3aed;color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">🛠 Tool._arun() 执行入口</div>
+    <div style="font-size:0.75rem;color:#5b21b6;margin:0.3rem 0 0.6rem;">CodeExecutionTool / SandboxShellTool / SandboxUploadTool ... → 统一调用 SandboxManager</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
+      <div style="background:#fff;border:1px solid #c4b5fd;border-radius:6px;padding:0.5rem;">
+        <div style="font-weight:600;font-size:0.78rem;color:#7c3aed;">📋 Tool 注册（AgentFactory 构建时）</div>
+        <div style="font-size:0.65rem;color:#64748b;margin-top:0.2rem;">
+          • 继承 BaseTool，实现 _arun()<br>
+          • Features.sandbox_enabled = True 时加载<br>
+          • args_schema 定义参数约束<br>
+          • description 指导 LLM 调用时机
+        </div>
+      </div>
+      <div style="background:#fff;border:1px solid #c4b5fd;border-radius:6px;padding:0.5rem;">
+        <div style="font-weight:600;font-size:0.78rem;color:#7c3aed;">⚡ 运行时调用</div>
+        <div style="font-size:0.65rem;color:#64748b;margin-top:0.2rem;">
+          • 从 get_config() 获取 thread_id<br>
+          • SandboxManager.get_or_create_session()<br>
+          • SandboxManager.execute(code, language)<br>
+          • 流式 stdout/stderr 回传
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="width:2px;height:16px;background:#94a3b8;"></div>
+
+  <!-- SandboxManager 路由 -->
+  <div style="width:100%;border:2px solid var(--sandbox);border-radius:12px;padding:1rem 1.5rem;background:var(--sandbox-bg);position:relative;">
+    <div style="position:absolute;top:-12px;left:20px;background:var(--sandbox);color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">🏗️ SandboxManager 路由调度</div>
+    <div style="font-size:0.75rem;color:#0e7490;margin:0.3rem 0 0.6rem;">读取 config.sandbox.provider → 路由到对应 Provider → 管理 Session 生命周期</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+      <div style="background:#fff;border:1.5px solid var(--ssh);border-radius:8px;padding:0.6rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.82rem;color:var(--ssh);">🔒 SSHSandboxProvider</div>
+        <div style="font-size:0.65rem;color:#64748b;margin-top:0.2rem;">
+          asyncssh 连接池<br>
+          SFTP 文件传输<br>
+          timeout + python3 执行
+        </div>
+      </div>
+      <div style="background:#fff;border:1.5px solid var(--tencent);border-radius:8px;padding:0.6rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.82rem;color:var(--tencent);">☁️ TencentSandboxProvider</div>
+        <div style="font-size:0.65rem;color:#64748b;margin-top:0.2rem;">
+          sandbox.run_code() 代码执行<br>
+          sandbox.commands.run() Shell<br>
+          sandbox.files.read/write() 文件
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="width:2px;height:16px;background:#94a3b8;"></div>
+
+  <!-- 执行结果返回 -->
+  <div style="width:100%;border:2px solid #4ade80;border-radius:12px;padding:0.8rem 1.5rem;background:linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%);position:relative;">
+    <div style="position:absolute;top:-12px;left:20px;background:#16a34a;color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">✅ ExecutionResult 返回</div>
+    <div style="display:flex;flex-wrap:wrap;gap:0.6rem;margin-top:0.5rem;justify-content:center;">
+      <span style="background:#fff;padding:0.3rem 0.7rem;border-radius:6px;font-size:0.75rem;border:1px solid #86efac;">stdout</span>
+      <span style="background:#fff;padding:0.3rem 0.7rem;border-radius:6px;font-size:0.75rem;border:1px solid #86efac;">stderr</span>
+      <span style="background:#fff;padding:0.3rem 0.7rem;border-radius:6px;font-size:0.75rem;border:1px solid #86efac;">exit_code</span>
+      <span style="background:#fff;padding:0.3rem 0.7rem;border-radius:6px;font-size:0.75rem;border:1px solid #86efac;">duration_ms</span>
+      <span style="background:#fff;padding:0.3rem 0.7rem;border-radius:6px;font-size:0.75rem;border:1px solid #86efac;">artifacts[]</span>
+    </div>
+  </div>
+  <div style="width:2px;height:16px;background:#94a3b8;"></div>
+
+  <!-- 回注 Agent Loop -->
+  <div style="background:#334155;color:#fff;padding:0.6rem 2rem;border-radius:0 0 8px 8px;font-weight:600;font-size:0.9rem;">
+    ↩ ToolMessage(content=stdout) 回注 Agent Loop → 继续推理
+  </div>
+
+</div>
+</div>
+
+<h2 id="tools-list">三、Tool 实现清单<a class="headerlink" href="#tools-list" title="Permanent link">&para;</a></h2>
+
+<blockquote><p>以下为 <code>src/tools/sandbox/</code> 目录下已实现的 5 个 Tool。左侧为 Tool 核心代码，中间为 SSH 后端实现，右侧为腾讯沙盒后端实现。</p></blockquote>
+
+<!-- terminal -->
+<div style="border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;margin:1.5rem 0;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+<div style="padding:0.7rem 1rem;background:#334155;color:#fff;font-weight:600;font-size:0.9rem;">💻 terminal <span style="font-weight:400;opacity:0.7;font-size:0.75rem;">— TerminalTool · 别名: shell, run_command · 参数: command, timeout</span></div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;">
+  <div style="padding:0.7rem;border-right:1px solid #e2e8f0;background:#f8fafc;">
+    <div style="font-size:0.68rem;font-weight:600;color:#334155;margin-bottom:0.3rem;">📋 Tool 代码</div>
+    <pre style="margin:0;padding:0.5rem;background:#fff;border:1px solid #e2e8f0;border-radius:5px;font-size:0.65rem;line-height:1.45;"><code>result = await self._backend.execute(
+    command, timeout=timeout
+)
+return ToolResult(content=result.output)</code></pre>
+  </div>
+  <div style="padding:0.7rem;border-right:1px solid #e2e8f0;">
+    <div style="font-size:0.68rem;font-weight:600;color:#1e40af;margin-bottom:0.3rem;">🔒 SSHBackend</div>
+    <div style="font-size:0.68rem;color:#64748b;">asyncssh persistent shell<br>工作目录/环境变量跨命令保持<br>channel 流式回传</div>
+  </div>
+  <div style="padding:0.7rem;">
+    <div style="font-size:0.68rem;font-weight:600;color:#b45309;margin-bottom:0.3rem;">☁️ TencentSandboxBackend</div>
+    <div style="font-size:0.68rem;color:#64748b;"><code>sandbox.commands.run(cmd)</code><br>容器内 Shell 执行<br>实时 stdout/stderr 回调</div>
+  </div>
+</div>
+</div>
+
+<!-- execute_code -->
+<div style="border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;margin:1.5rem 0;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+<div style="padding:0.7rem 1rem;background:#334155;color:#fff;font-weight:600;font-size:0.9rem;">⚡ execute_code <span style="font-weight:400;opacity:0.7;font-size:0.75rem;">— CodeExecutionTool · 别名: run_code · 参数: language, code, timeout</span></div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;">
+  <div style="padding:0.7rem;border-right:1px solid #e2e8f0;background:#f8fafc;">
+    <div style="font-size:0.68rem;font-weight:600;color:#334155;margin-bottom:0.3rem;">📋 Tool 代码</div>
+    <pre style="margin:0;padding:0.5rem;background:#fff;border:1px solid #e2e8f0;border-radius:5px;font-size:0.65rem;line-height:1.45;"><code>tmp = f"/tmp/hermes_exec_{uuid()}{ext}"
+try:
+    await self._backend.write_file(tmp, code)
+    result = await self._backend.execute(
+        f"{runner} {tmp}", timeout=timeout)
+    return ToolResult(content=result.output)
+finally:
+    await self._backend.execute(f"rm -f {tmp}")</code></pre>
+  </div>
+  <div style="padding:0.7rem;border-right:1px solid #e2e8f0;">
+    <div style="font-size:0.68rem;font-weight:600;color:#1e40af;margin-bottom:0.3rem;">🔒 SSHBackend</div>
+    <div style="font-size:0.68rem;color:#64748b;">SFTP write_file 写入临时文件<br>SSH execute <code>python3 /tmp/xxx.py</code><br>执行后 rm 清理</div>
+  </div>
+  <div style="padding:0.7rem;">
+    <div style="font-size:0.68rem;font-weight:600;color:#b45309;margin-bottom:0.3rem;">☁️ TencentSandboxBackend</div>
+    <div style="font-size:0.68rem;color:#64748b;"><code>sandbox.run_code(code, lang)</code><br>代码解释器模式 · 变量持久化<br>或降级 <code>commands.run(runner+file)</code></div>
+  </div>
+</div>
+</div>
+
+<!-- read_file -->
+<div style="border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;margin:1.5rem 0;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+<div style="padding:0.7rem 1rem;background:#334155;color:#fff;font-weight:600;font-size:0.9rem;">📄 read_file <span style="font-weight:400;opacity:0.7;font-size:0.75rem;">— ReadFileTool · 参数: path, offset, limit</span></div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;">
+  <div style="padding:0.7rem;border-right:1px solid #e2e8f0;background:#f8fafc;">
+    <div style="font-size:0.68rem;font-weight:600;color:#334155;margin-bottom:0.3rem;">📋 Tool 代码</div>
+    <pre style="margin:0;padding:0.5rem;background:#fff;border:1px solid #e2e8f0;border-radius:5px;font-size:0.65rem;line-height:1.45;"><code>if not await self._backend.file_exists(path):
+    return ToolResult("文件不存在", is_error=True)
+if offset > 0 or limit < 2000:
+    result = await self._backend.execute(
+        f"sed -n '{start},{end}p' {path}")
+else:
+    result = await self._backend.read_file(path)
+return ToolResult(content=result.stdout)</code></pre>
+  </div>
+  <div style="padding:0.7rem;border-right:1px solid #e2e8f0;">
+    <div style="font-size:0.68rem;font-weight:600;color:#1e40af;margin-bottom:0.3rem;">🔒 SSHBackend</div>
+    <div style="font-size:0.68rem;color:#64748b;">SSH execute <code>sed -n</code> 按行读取<br>或 SFTP read 全量读取<br>持久化文件 · 可反复读取</div>
+  </div>
+  <div style="padding:0.7rem;">
+    <div style="font-size:0.68rem;font-weight:600;color:#b45309;margin-bottom:0.3rem;">☁️ TencentSandboxBackend</div>
+    <div style="font-size:0.68rem;color:#64748b;"><code>sandbox.files.read(path)</code><br>或 <code>commands.run("sed -n ...")</code><br>需在实例存活期间获取</div>
+  </div>
+</div>
+</div>
+
+<!-- write_file -->
+<div style="border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;margin:1.5rem 0;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+<div style="padding:0.7rem 1rem;background:#334155;color:#fff;font-weight:600;font-size:0.9rem;">📝 write_file <span style="font-weight:400;opacity:0.7;font-size:0.75rem;">— WriteFileTool · 参数: path, content</span></div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;">
+  <div style="padding:0.7rem;border-right:1px solid #e2e8f0;background:#f8fafc;">
+    <div style="font-size:0.68rem;font-weight:600;color:#334155;margin-bottom:0.3rem;">📋 Tool 代码</div>
+    <pre style="margin:0;padding:0.5rem;background:#fff;border:1px solid #e2e8f0;border-radius:5px;font-size:0.65rem;line-height:1.45;"><code>parent = "/".join(path.split("/")[:-1])
+if parent:
+    await self._backend.execute(
+        f"mkdir -p {quote(parent)}")
+result = await self._backend.write_file(path, content)
+return ToolResult(f"已写入 {path} ({lines} 行)")</code></pre>
+  </div>
+  <div style="padding:0.7rem;border-right:1px solid #e2e8f0;">
+    <div style="font-size:0.68rem;font-weight:600;color:#1e40af;margin-bottom:0.3rem;">🔒 SSHBackend</div>
+    <div style="font-size:0.68rem;color:#64748b;">SFTP write 写入文件<br>持久化到虚拟机磁盘<br>重启不丢失</div>
+  </div>
+  <div style="padding:0.7rem;">
+    <div style="font-size:0.68rem;font-weight:600;color:#b45309;margin-bottom:0.3rem;">☁️ TencentSandboxBackend</div>
+    <div style="font-size:0.68rem;color:#64748b;"><code>sandbox.files.write(path, content)</code><br>临时性 · 实例销毁即丢失</div>
+  </div>
+</div>
+</div>
+
+<!-- search_files -->
+<div style="border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;margin:1.5rem 0;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+<div style="padding:0.7rem 1rem;background:#334155;color:#fff;font-weight:600;font-size:0.9rem;">🔍 search_files <span style="font-weight:400;opacity:0.7;font-size:0.75rem;">— SearchFilesTool · 参数: pattern, path, include</span></div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;">
+  <div style="padding:0.7rem;border-right:1px solid #e2e8f0;background:#f8fafc;">
+    <div style="font-size:0.68rem;font-weight:600;color:#334155;margin-bottom:0.3rem;">📋 Tool 代码</div>
+    <pre style="margin:0;padding:0.5rem;background:#fff;border:1px solid #e2e8f0;border-radius:5px;font-size:0.65rem;line-height:1.45;"><code>cmd = ["grep", "-rn", "--color=never"]
+if include: cmd += ["--include", quote(include)]
+cmd += [quote(pattern), quote(path)]
+result = await self._backend.execute(" ".join(cmd))
+if result.exit_code == 1: return "未找到"
+return ToolResult(content=result.stdout)</code></pre>
+  </div>
+  <div style="padding:0.7rem;border-right:1px solid #e2e8f0;">
+    <div style="font-size:0.68rem;font-weight:600;color:#1e40af;margin-bottom:0.3rem;">🔒 SSHBackend</div>
+    <div style="font-size:0.68rem;color:#64748b;">SSH execute <code>grep -rn ...</code><br>在虚拟机文件系统中搜索<br>支持大目录递归</div>
+  </div>
+  <div style="padding:0.7rem;">
+    <div style="font-size:0.68rem;font-weight:600;color:#b45309;margin-bottom:0.3rem;">☁️ TencentSandboxBackend</div>
+    <div style="font-size:0.68rem;color:#64748b;"><code>commands.run("grep -rn ...")</code><br>容器内执行相同命令<br>搜索范围限于容器内</div>
+  </div>
+</div>
+</div>
+
+<!-- Backend 接口 -->
+<div style="border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;margin:1.5rem 0;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+<div style="padding:0.7rem 1rem;background:#0f172a;color:#e2e8f0;font-weight:600;font-size:0.9rem;">🔌 Backend 抽象接口 <span style="font-weight:400;opacity:0.7;font-size:0.75rem;">— backend_base.py</span></div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;">
+  <div style="padding:0.7rem;border-right:1px solid #e2e8f0;background:#f8fafc;">
+    <div style="font-size:0.68rem;font-weight:600;color:#334155;margin-bottom:0.3rem;">📋 抽象接口</div>
+    <pre style="margin:0;padding:0.5rem;background:#fff;border:1px solid #e2e8f0;border-radius:5px;font-size:0.65rem;line-height:1.45;"><code>class Backend(ABC):
+  execute(cmd, timeout) -> ExecutionResult
+  write_file(path, content) -> ExecutionResult
+  read_file(path) -> ExecutionResult
+  file_exists(path) -> bool
+  connect() / disconnect()
+  is_connected -> bool
+
+@dataclass ExecutionResult:
+  stdout, stderr, exit_code, timed_out</code></pre>
+  </div>
+  <div style="padding:0.7rem;border-right:1px solid #e2e8f0;">
+    <div style="font-size:0.68rem;font-weight:600;color:#1e40af;margin-bottom:0.3rem;">🔒 SSHBackend</div>
+    <div style="font-size:0.68rem;color:#64748b;">ssh_backend.py<br>asyncssh · persistent shell<br>SFTP 文件操作 · Keep-Alive<br><br><strong>配置：</strong><br>SSH_HOST / SSH_USER<br>SSH_KEY / SSH_PORT</div>
+  </div>
+  <div style="padding:0.7rem;">
+    <div style="font-size:0.68rem;font-weight:600;color:#b45309;margin-bottom:0.3rem;">☁️ TencentSandboxBackend</div>
+    <div style="font-size:0.68rem;color:#64748b;">tencent_sandbox_backend.py<br>E2B SDK · Sandbox.create()<br>commands.run() / run_code()<br>files.read() / files.write()<br><br><strong>配置：</strong><br>E2B_API_KEY / E2B_DOMAIN<br>SANDBOX_TEMPLATE</div>
+  </div>
+</div>
+</div>
+
+<h2 id="lifecycle">六、实例生命周期<a class="headerlink" href="#lifecycle" title="Permanent link">&para;</a></h2>
+
+<blockquote>
+<p>本节详细描述沙盒实例从创建到销毁的完整生命周期，包括状态流转、两种模式下的具体行为差异、典型场景时序，以及关键超时参数的配置说明。</p>
+</blockquote>
+
+<h3 id="61-state-machine">6.1 状态机总览<a class="headerlink" href="#61-state-machine" title="Permanent link">&para;</a></h3>
+
+<div style="font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Consolas, monospace; font-size: 0.76rem; line-height: 1.55; background: #0f172a; color: #e2e8f0; padding: 1.5rem 2rem; border-radius: 10px; overflow-x: auto; margin: 1rem 0; border: 1px solid #334155;">
+
+<div style="color:#a78bfa;font-weight:600;margin-bottom:0.8rem;">♻️ 沙盒实例状态机</div>
+
+<div style="display:flex;align-items:center;gap:0.3rem;flex-wrap:wrap;margin-bottom:0.8rem;">
+<span style="background:#1e293b;border:1.5px solid #fbbf24;padding:0.3rem 0.6rem;border-radius:5px;color:#fbbf24;font-weight:600;">CREATING</span>
+<span style="color:#475569;">→</span>
+<span style="background:#1e293b;border:1.5px solid #4ade80;padding:0.3rem 0.6rem;border-radius:5px;color:#4ade80;font-weight:600;">READY</span>
+<span style="color:#475569;">⇄</span>
+<span style="background:#1e293b;border:1.5px solid #60a5fa;padding:0.3rem 0.6rem;border-radius:5px;color:#60a5fa;font-weight:600;">EXECUTING</span>
+<span style="color:#475569;">→</span>
+<span style="background:#1e293b;border:1.5px solid #4ade80;padding:0.3rem 0.6rem;border-radius:5px;color:#4ade80;font-weight:600;">READY</span>
+<span style="color:#475569;">→ ...</span>
+<span style="color:#475569;">→</span>
+<span style="background:#1e293b;border:1.5px solid #f87171;padding:0.3rem 0.6rem;border-radius:5px;color:#f87171;font-weight:600;">DESTROYED</span>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;">
+<div style="background:#1e293b;border:1px solid #fbbf24;padding:0.5rem;border-radius:6px;">
+<div style="color:#fbbf24;font-weight:600;font-size:0.72rem;">CREATING</div>
+<div style="color:#94a3b8;font-size:0.62rem;margin-top:0.2rem;">触发：首次执行请求<br>行为：调用 Provider.create()<br>下一步：READY / FAILED</div>
+</div>
+<div style="background:#1e293b;border:1px solid #4ade80;padding:0.5rem;border-radius:6px;">
+<div style="color:#4ade80;font-weight:600;font-size:0.72rem;">READY</div>
+<div style="color:#94a3b8;font-size:0.62rem;margin-top:0.2rem;">触发：创建成功 / 执行完成<br>行为：等待下一次请求<br>下一步：EXECUTING / IDLE_TIMEOUT</div>
+</div>
+<div style="background:#1e293b;border:1px solid #60a5fa;padding:0.5rem;border-radius:6px;">
+<div style="color:#60a5fa;font-weight:600;font-size:0.72rem;">EXECUTING</div>
+<div style="color:#94a3b8;font-size:0.62rem;margin-top:0.2rem;">触发：收到执行请求<br>行为：Provider.execute()<br>下一步：READY / TIMEOUT / ERROR</div>
+</div>
+<div style="background:#1e293b;border:1px solid #fb923c;padding:0.5rem;border-radius:6px;">
+<div style="color:#fb923c;font-weight:600;font-size:0.72rem;">TIMEOUT</div>
+<div style="color:#94a3b8;font-size:0.62rem;margin-top:0.2rem;">触发：执行超时<br>行为：强制终止当前进程<br>下一步：READY（可恢复）/ DESTROYED</div>
+</div>
+<div style="background:#1e293b;border:1px solid #f87171;padding:0.5rem;border-radius:6px;">
+<div style="color:#f87171;font-weight:600;font-size:0.72rem;">ERROR</div>
+<div style="color:#94a3b8;font-size:0.62rem;margin-top:0.2rem;">触发：执行异常 / 连接断开<br>行为：记录错误，尝试恢复<br>下一步：READY / DESTROYED</div>
+</div>
+<div style="background:#1e293b;border:1px solid #94a3b8;padding:0.5rem;border-radius:6px;">
+<div style="color:#94a3b8;font-weight:600;font-size:0.72rem;">DESTROYED</div>
+<div style="color:#64748b;font-size:0.62rem;margin-top:0.2rem;">触发：空闲超时 / 主动销毁 / 会话结束<br>行为：释放所有资源<br>终态，不可恢复</div>
+</div>
+</div>
+
+</div>
+
+<h3 id="62-typical-scenario">6.2 典型场景时序：用户发起一次数据分析<a class="headerlink" href="#62-typical-scenario" title="Permanent link">&para;</a></h3>
+
+<blockquote><p>以用户说"帮我分析这份 CSV 数据"为例，展示实例从无到有、执行多轮代码、最终空闲回收的完整时序。</p></blockquote>
+
+<div style="margin:1.5rem 0; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden;">
+
+<!-- 时序表头 -->
+<div style="display:grid; grid-template-columns:80px 1fr 1fr 1fr; background:#f0f4f8; border-bottom:1px solid #e2e8f0;">
+<div style="padding:0.6rem; font-weight:600; font-size:0.75rem; color:#334155; border-right:1px solid #e2e8f0;">时间线</div>
+<div style="padding:0.6rem; font-weight:600; font-size:0.75rem; color:#7c3aed; border-right:1px solid #e2e8f0;">Agent Loop</div>
+<div style="padding:0.6rem; font-weight:600; font-size:0.75rem; color:#0891b2; border-right:1px solid #e2e8f0;">SandboxManager</div>
+<div style="padding:0.6rem; font-weight:600; font-size:0.75rem; color:#1e40af;">Provider（以 SSH 为例）</div>
+</div>
+
+<!-- T0: 首次请求 -->
+<div style="display:grid; grid-template-columns:80px 1fr 1fr 1fr; border-bottom:1px solid #f1f5f9;">
+<div style="padding:0.5rem; font-size:0.7rem; color:#64748b; border-right:1px solid #e2e8f0; background:#fefce8;"><strong>T0</strong><br>0ms</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#5b21b6; border-right:1px solid #e2e8f0;">LLM 输出 tool_call:<br><code>execute_code(code="import pandas...")</code><br>→ 调用 SandboxManager.execute()</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#0e7490; border-right:1px solid #e2e8f0;">查找 session_pool[thread_id]<br>→ <strong>未命中</strong>，进入 CREATING<br>调用 provider.create(thread_id)</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#1d4ed8;">建立 asyncssh 连接<br>创建工作目录 <code>/home/agent/workspace/{thread_id}/</code><br>连接成功 → 状态变为 <strong style="color:#16a34a;">READY</strong></div>
+</div>
+
+<!-- T1: 执行代码 -->
+<div style="display:grid; grid-template-columns:80px 1fr 1fr 1fr; border-bottom:1px solid #f1f5f9;">
+<div style="padding:0.5rem; font-size:0.7rem; color:#64748b; border-right:1px solid #e2e8f0; background:#eff6ff;"><strong>T1</strong><br>~800ms</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#5b21b6; border-right:1px solid #e2e8f0;">等待执行结果...<br>（流式接收 stdout 回调）</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#0e7490; border-right:1px solid #e2e8f0;">状态 → <strong style="color:#2563eb;">EXECUTING</strong><br>启动 execution_timeout 计时器（600s）<br>调用 provider.execute(code)</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#1d4ed8;">SFTP 写入 <code>/tmp/code_a1b2.py</code><br>SSH 执行 <code>timeout 600 python3 /tmp/code_a1b2.py</code><br>流式回传 stdout/stderr</div>
+</div>
+
+<!-- T2: 执行完成 -->
+<div style="display:grid; grid-template-columns:80px 1fr 1fr 1fr; border-bottom:1px solid #f1f5f9;">
+<div style="padding:0.5rem; font-size:0.7rem; color:#64748b; border-right:1px solid #e2e8f0; background:#f0fdf4;"><strong>T2</strong><br>~3.2s</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#5b21b6; border-right:1px solid #e2e8f0;">收到 ExecutionResult<br>→ ToolMessage 回注 LLM<br>LLM 继续推理，准备画图</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#0e7490; border-right:1px solid #e2e8f0;">状态 → <strong style="color:#16a34a;">READY</strong><br>重置 idle_timeout 计时器（300s）<br>实例保留在 session_pool 中</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#1d4ed8;">清理临时文件 <code>rm -f /tmp/code_a1b2.py</code><br>SSH 连接保持（Keep-Alive）<br>工作目录中的输出文件保留</div>
+</div>
+
+<!-- T3: 第二次执行（复用） -->
+<div style="display:grid; grid-template-columns:80px 1fr 1fr 1fr; border-bottom:1px solid #f1f5f9;">
+<div style="padding:0.5rem; font-size:0.7rem; color:#64748b; border-right:1px solid #e2e8f0; background:#eff6ff;"><strong>T3</strong><br>~5s</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#5b21b6; border-right:1px solid #e2e8f0;">LLM 输出第二个 tool_call:<br><code>execute_code(code="plt.savefig...")</code><br>→ 再次调用 SandboxManager</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#0e7490; border-right:1px solid #e2e8f0;">查找 session_pool[thread_id]<br>→ <strong style="color:#16a34a;">命中！</strong>直接复用<br>状态 → EXECUTING（无需重新创建）</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#1d4ed8;">同一 SSH 连接执行新代码<br>工作目录不变，上次的 DataFrame 变量仍在内存<br>（persistent shell 保持 Python 进程）</div>
+</div>
+
+<!-- T4: 空闲超时 -->
+<div style="display:grid; grid-template-columns:80px 1fr 1fr 1fr;">
+<div style="padding:0.5rem; font-size:0.7rem; color:#64748b; border-right:1px solid #e2e8f0; background:#fef2f2;"><strong>T4</strong><br>+5min</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#5b21b6; border-right:1px solid #e2e8f0;">用户无新请求<br>Agent Loop 已结束<br>（或用户关闭对话）</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#0e7490; border-right:1px solid #e2e8f0;">idle_timeout 到期（300s）<br>状态 → <strong style="color:#ef4444;">DESTROYED</strong><br>从 session_pool 中移除</div>
+<div style="padding:0.5rem; font-size:0.68rem; color:#1d4ed8;">清理 <code>/home/agent/workspace/{thread_id}/</code><br>关闭 SSH 连接，归还到连接池<br>日志记录：session 存活时长、执行次数</div>
+</div>
+
+</div>
+
+<h3 id="63-mode-diff">6.3 两种模式的生命周期差异<a class="headerlink" href="#63-mode-diff" title="Permanent link">&para;</a></h3>
+
+<table>
+<thead>
+<tr>
+<th>生命周期阶段</th>
+<th>SSH 模式（虚拟机）</th>
+<th>腾讯沙盒模式（云容器）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>CREATING 阶段</strong><br><em>实例如何被创建</em></td>
+<td>
+  <strong>耗时：</strong>200~500ms（连接复用时 &lt;50ms）<br>
+  <strong>具体动作：</strong><br>
+  1. 从连接池取一个空闲 asyncssh 连接（若无则新建）<br>
+  2. 在远程主机创建会话目录：<code>mkdir -p /home/agent/workspace/{thread_id}</code><br>
+  3. 设置环境变量（PATH、PYTHONPATH 等）<br>
+  4. 注册到 session_pool<br>
+  <strong>失败场景：</strong>SSH 连接超时（10s）、密钥认证失败、主机不可达 → 抛出 <code>SandboxCreationError</code>
+</td>
+<td>
+  <strong>耗时：</strong>2~8s（冷启动容器）<br>
+  <strong>具体动作：</strong><br>
+  1. 调用 <code>Sandbox.create(template="code-interpreter-v1", timeout=300)</code><br>
+  2. 腾讯云分配容器资源、拉取镜像、启动运行时<br>
+  3. 返回 sandbox_id，SDK 建立 WebSocket 连接<br>
+  4. 注册到 session_pool<br>
+  <strong>失败场景：</strong>API 限流（429）、配额不足、网络超时 → 重试 1 次后抛出 <code>SandboxCreationError</code>
+</td>
+</tr>
+<tr>
+<td><strong>READY → EXECUTING</strong><br><em>如何接收并执行代码</em></td>
+<td>
+  <strong>复用优势：</strong>同一 SSH 连接、同一 shell 进程<br>
+  <strong>状态保持：</strong>Python 进程不退出，变量/import 跨调用保留<br>
+  <strong>文件持久化：</strong>上次执行生成的文件（如 output.csv）下次可直接读取<br>
+  <strong>并发限制：</strong>单实例串行执行（一个 shell channel）
+</td>
+<td>
+  <strong>复用优势：</strong>同一容器实例，无需重新创建<br>
+  <strong>状态保持：</strong><code>run_code()</code> 模式下变量持久化；<code>commands.run()</code> 模式下每次独立<br>
+  <strong>文件持久化：</strong>容器内文件在实例存活期间保留，销毁即丢失<br>
+  <strong>并发限制：</strong>单实例串行（E2B SDK 限制）
+</td>
+</tr>
+<tr>
+<td><strong>TIMEOUT 处理</strong><br><em>超时后发生什么</em></td>
+<td>
+  <strong>执行超时（600s）：</strong><br>
+  • Linux <code>timeout</code> 命令发送 SIGTERM → 等待 5s → SIGKILL<br>
+  • SSH channel 收到 exit_code=124（timeout 退出码）<br>
+  • 实例状态回到 READY（SSH 连接仍然存活）<br>
+  • 下次执行不受影响<br><br>
+  <strong>实例超时（idle_timeout=300s）：</strong><br>
+  • 定时器到期 → 清理工作目录 → 关闭连接 → DESTROYED
+</td>
+<td>
+  <strong>执行超时（600s）：</strong><br>
+  • E2B SDK 内部中断执行，返回 timeout error<br>
+  • 容器进程被 kill，但容器本身存活<br>
+  • 实例状态回到 READY<br><br>
+  <strong>实例超时（sandbox timeout=300s）：</strong><br>
+  • 腾讯云自动销毁容器（服务端 TTL 机制）<br>
+  • 或 SandboxManager 主动调用 <code>sandbox.kill()</code><br>
+  • 容器及其所有文件立即消失 → DESTROYED
+</td>
+</tr>
+<tr>
+<td><strong>ERROR 恢复</strong><br><em>出错后能否继续使用</em></td>
+<td>
+  <strong>可恢复错误：</strong><br>
+  • 代码执行报错（exit_code≠0）→ 返回 stderr，实例仍 READY<br>
+  • SSH 连接断开 → 自动重连（最多 3 次），重连成功 → READY<br><br>
+  <strong>不可恢复错误：</strong><br>
+  • 主机宕机 / 磁盘满 → DESTROYED，下次请求重新创建<br>
+  • 连续重连失败 → DESTROYED
+</td>
+<td>
+  <strong>可恢复错误：</strong><br>
+  • 代码执行报错 → 返回 error 信息，容器仍 READY<br>
+  • 网络抖动 → SDK 自动重连 WebSocket<br><br>
+  <strong>不可恢复错误：</strong><br>
+  • 容器 OOM（内存超限）→ 容器被 kill → DESTROYED<br>
+  • API 返回 404（容器已被云端回收）→ DESTROYED
+</td>
+</tr>
+<tr>
+<td><strong>DESTROYED 清理</strong><br><em>销毁时具体做了什么</em></td>
+<td>
+  1. 执行 <code>rm -rf /home/agent/workspace/{thread_id}/</code><br>
+  2. 关闭 SSH channel<br>
+  3. 将 asyncssh 连接归还连接池（不关闭物理连接）<br>
+  4. 从 session_pool 中删除映射<br>
+  5. 记录 metrics：session_duration、total_executions、total_bytes
+</td>
+<td>
+  1. 调用 <code>sandbox.kill()</code> 通知腾讯云销毁容器<br>
+  2. 腾讯云释放 CPU/内存/存储资源<br>
+  3. 容器内所有文件永久丢失（无持久化）<br>
+  4. 从 session_pool 中删除映射<br>
+  5. 记录 metrics：sandbox_id、alive_duration、api_calls_count
+</td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="64-timeout-params">6.4 超时参数配置<a class="headerlink" href="#64-timeout-params" title="Permanent link">&para;</a></h3>
+
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>作用域</th>
+<th>默认值</th>
+<th>含义</th>
+<th>超时后果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>execution_timeout</code></td>
+<td>单次代码执行</td>
+<td>600s（10分钟）</td>
+<td>单次 execute_code / terminal 调用的最大允许时长</td>
+<td>强制终止当前进程，返回 <code>SandboxTimeoutError</code>，实例回到 READY</td>
+</tr>
+<tr>
+<td><code>idle_timeout</code></td>
+<td>实例空闲</td>
+<td>300s（5分钟）</td>
+<td>实例在 READY 状态无新请求的最大等待时长</td>
+<td>触发 DESTROYED，释放所有资源</td>
+</tr>
+<tr>
+<td><code>session_max_lifetime</code></td>
+<td>实例总存活</td>
+<td>3600s（1小时）</td>
+<td>实例从 CREATING 到强制销毁的最大存活时间（防止资源泄漏）</td>
+<td>无论是否在执行，强制 DESTROYED</td>
+</tr>
+<tr>
+<td><code>connection_timeout</code></td>
+<td>SSH 连接建立</td>
+<td>10s</td>
+<td>SSH 模式下建立连接的超时时间</td>
+<td>抛出 <code>SandboxCreationError</code>，不创建实例</td>
+</tr>
+<tr>
+<td><code>sandbox_create_timeout</code></td>
+<td>容器创建</td>
+<td>30s</td>
+<td>腾讯沙盒模式下等待容器就绪的超时时间</td>
+<td>重试 1 次，仍失败则抛出 <code>SandboxCreationError</code></td>
+</tr>
+</tbody>
+</table>
+
+<blockquote>
+<p><strong>配置位置：</strong>所有超时参数在 <code>AppConfig.sandbox: SandboxSettings</code> 中配置，支持通过环境变量覆盖（如 <code>SANDBOX_EXECUTION_TIMEOUT=600</code>）。</p>
+</blockquote>
+
+<h3 id="65-edge-cases">6.5 边界场景与处理策略<a class="headerlink" href="#65-edge-cases" title="Permanent link">&para;</a></h3>
+
+<div style="margin:1.5rem 0;">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+
+<!-- 场景1: 并发请求 -->
+<div style="border:1px solid #e2e8f0;border-radius:8px;padding:1rem;background:#f8fafc;">
+<div style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:0.5rem;">🔀 场景 1：同一会话并发请求</div>
+<div style="font-size:0.78rem;color:#64748b;line-height:1.7;">
+<strong>触发条件：</strong>Agent 在同一轮推理中输出多个 tool_call（如同时调用 terminal + execute_code）<br>
+<strong>处理方式：</strong>SandboxManager 内部加锁（asyncio.Lock），串行执行，后到的请求排队等待<br>
+<strong>用户感知：</strong>第二个 tool_call 的响应延迟 = 第一个执行时长 + 自身执行时长
+</div>
+</div>
+
+<!-- 场景2: 会话恢复 -->
+<div style="border:1px solid #e2e8f0;border-radius:8px;padding:1rem;background:#f8fafc;">
+<div style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:0.5rem;">🔄 场景 2：用户中断后恢复对话</div>
+<div style="font-size:0.78rem;color:#64748b;line-height:1.7;">
+<strong>触发条件：</strong>用户 3 分钟后继续对话，实例仍在 READY（idle_timeout 未到期）<br>
+<strong>SSH 模式：</strong>直接复用，之前的文件和环境变量都在<br>
+<strong>腾讯沙盒：</strong>直接复用，容器内文件和变量仍在<br>
+<strong>若已 DESTROYED：</strong>透明重建新实例，用户无感知（但之前的文件/变量丢失）
+</div>
+</div>
+
+<!-- 场景3: 死循环代码 -->
+<div style="border:1px solid #e2e8f0;border-radius:8px;padding:1rem;background:#f8fafc;">
+<div style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:0.5rem;">♾️ 场景 3：用户代码死循环 / 内存泄漏</div>
+<div style="font-size:0.78rem;color:#64748b;line-height:1.7;">
+<strong>死循环：</strong>execution_timeout（600s）到期 → SIGTERM → SIGKILL → 返回超时错误<br>
+<strong>内存泄漏（SSH）：</strong>Linux OOM Killer 终止进程，SSH 连接存活，实例回到 READY<br>
+<strong>内存泄漏（腾讯）：</strong>容器 cgroup 内存限制触发 OOM → 容器被 kill → DESTROYED<br>
+<strong>Agent 行为：</strong>收到错误后 LLM 会尝试修改代码重新执行（最多重试 1 次）
+</div>
+</div>
+
+<!-- 场景4: 多租户隔离 -->
+<div style="border:1px solid #e2e8f0;border-radius:8px;padding:1rem;background:#f8fafc;">
+<div style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:0.5rem;">🏢 场景 4：多租户同时使用</div>
+<div style="font-size:0.78rem;color:#64748b;line-height:1.7;">
+<strong>SSH 模式：</strong>不同 thread_id 使用不同工作目录，共享同一台主机资源（CPU/内存/磁盘）<br>
+<strong>腾讯沙盒：</strong>每个 thread_id 独立容器，完全隔离（网络/文件系统/进程空间）<br>
+<strong>资源竞争：</strong>SSH 模式下高并发可能导致主机资源不足；腾讯沙盒通过云端弹性扩缩解决<br>
+<strong>安全边界：</strong>PathGuard 确保 SSH 模式下租户只能访问自己的工作目录
+</div>
+</div>
+
+</div>
+</div>
+
+<h3 id="66-session-pool">6.6 Session Pool 管理机制<a class="headerlink" href="#66-session-pool" title="Permanent link">&para;</a></h3>
+
+<div style="font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Consolas, monospace; font-size: 0.76rem; line-height: 1.55; background: #0f172a; color: #e2e8f0; padding: 1.5rem 2rem; border-radius: 10px; overflow-x: auto; margin: 1rem 0; border: 1px solid #334155;">
+
+<div style="color:#67e8f9;font-weight:600;margin-bottom:0.6rem;">Session Pool 内部结构</div>
+
+<pre style="margin:0;background:none;padding:0;"><code style="color:#e2e8f0;background:none;">
+# SandboxManager 内部数据结构
+session_pool: Dict[str, SandboxSession] = {}
+
+@dataclass
+class SandboxSession:
+    thread_id: str                    # 会话标识（对应一个用户对话）
+    provider_instance: Provider       # SSH 连接 或 Sandbox 对象
+    state: SessionState               # CREATING | READY | EXECUTING | DESTROYED
+    created_at: datetime              # 创建时间
+    last_active_at: datetime          # 最后一次执行完成的时间
+    execution_count: int              # 累计执行次数
+    total_execution_ms: int           # 累计执行耗时
+    _lock: asyncio.Lock               # 串行执行锁
+
+# 查找/创建逻辑（伪代码）
+async def get_or_create(thread_id: str) -> SandboxSession:
+    if thread_id in session_pool:
+        session = session_pool[thread_id]
+        if session.state != DESTROYED:
+            session.last_active_at = now()   # 刷新空闲计时器
+            return session
+    # 创建新实例
+    session = await _create_new_session(thread_id)
+    session_pool[thread_id] = session
+    return session
+</code></pre>
+
+<div style="margin-top:0.8rem;border-top:1px solid #334155;padding-top:0.6rem;">
+<div style="color:#94a3b8;font-size:0.72rem;line-height:1.7;">
+<strong style="color:#e2e8f0;">后台清理协程：</strong>每 60s 扫描一次 session_pool，将 <code>now() - last_active_at > idle_timeout</code> 的实例标记为 DESTROYED 并执行清理。<br>
+<strong style="color:#e2e8f0;">最大实例数：</strong>SSH 模式受连接池大小限制（默认 max_connections=10）；腾讯沙盒受 API 配额限制（默认 50 并发容器）。<br>
+<strong style="color:#e2e8f0;">驱逐策略：</strong>当达到最大实例数时，优先销毁 last_active_at 最早的 READY 实例（LRU）。
+</div>
+</div>
+
+</div>
+
+
+</body>
+</html>
