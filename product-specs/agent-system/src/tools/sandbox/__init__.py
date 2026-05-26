@@ -109,11 +109,21 @@ def create_backend(config_override: dict[str, str] | None = None) -> Backend:
     backend_type = config.get("SANDBOX_BACKEND", "ssh").strip().lower()
 
     if backend_type == "tencent":
-        logger.info("沙箱后端: 腾讯云 Agent Runtime (E2B SDK)")
+        logger.info(
+            "[sandbox] 配置加载: SANDBOX_BACKEND=tencent | domain=%s | template=%s | API=%s",
+            config.get("TENCENT_SANDBOX_DOMAIN", "ap-beijing.tencentags.com"),
+            config.get("TENCENT_SANDBOX_TEMPLATE", "code-sandbox"),
+            f"https://api.{config.get('TENCENT_SANDBOX_DOMAIN', 'ap-beijing.tencentags.com')}",
+        )
         return create_tencent_backend_from_env(config)
 
     elif backend_type == "ssh":
-        logger.info("沙箱后端: SSH 远程执行")
+        logger.info(
+            "[sandbox] 配置加载: SANDBOX_BACKEND=ssh | host=%s | user=%s | port=%s",
+            config.get("SANDBOX_SSH_HOST", ""),
+            config.get("SANDBOX_SSH_USER", "hermes"),
+            config.get("SANDBOX_SSH_PORT", "22"),
+        )
         # 从 config 构建 SSH Backend
         ssh_host = config.get("SANDBOX_SSH_HOST", "")
         if not ssh_host:

@@ -65,6 +65,11 @@ class TencentSandboxBackend(Backend):
         """当前沙箱实例 ID（可用于持久化到 session）"""
         return self._sandbox_id
 
+    @property
+    def api_base_url(self) -> str:
+        """E2B 兼容 API 的基础地址"""
+        return f"https://api.{self._tencent_config.e2b_domain}"
+
     async def connect(self, sandbox_id: str | None = None) -> None:
         """创建或恢复沙箱实例
 
@@ -79,23 +84,31 @@ class TencentSandboxBackend(Backend):
 
         from e2b import Sandbox
 
+        logger.info(
+            "[sandbox] 后端类型=TencentSandbox | API=%s | template=%s",
+            self.api_base_url, self._tencent_config.template,
+        )
+
         if sandbox_id:
             # 尝试恢复已有沙箱
             try:
+                logger.info("[sandbox] 恢复沙箱: POST %s/sandboxes/%s/resume", self.api_base_url, sandbox_id)
                 self._sandbox = await asyncio.to_thread(
                     Sandbox.connect, sandbox_id
                 )
                 self._sandbox_id = sandbox_id
                 self._connected = True
                 logger.info(
-                    "腾讯沙箱已恢复: id=%s, template=%s",
+                    "[sandbox] 沙箱已恢复: id=%s, template=%s",
                     sandbox_id, self._tencent_config.template,
                 )
                 return
             except Exception as e:
-                logger.warning("恢复沙箱失败 (id=%s): %s，将创建新沙箱", sandbox_id, e)
+                logger.warning("[sandbox] 恢复沙箱失败 (id=%s): %s，将创建新沙箱", sandbox_id, e)
 
         # 创建新沙箱
+        logger.info("[sandbox] 创建沙箱: POST %s/sandboxes {template=%s, timeout=%d}",
+                    self.api_base_url, self._tencent_config.template, self._tencent_config.timeout)
         self._sandbox = await asyncio.to_thread(
             Sandbox.create,
             template=self._tencent_config.template,
@@ -104,7 +117,7 @@ class TencentSandboxBackend(Backend):
         self._sandbox_id = self._sandbox.sandbox_id
         self._connected = True
         logger.info(
-            "腾讯沙箱已创建: id=%s, template=%s, timeout=%ds",
+            "[sandbox] 沙箱已创建: id=%s, template=%s, timeout=%ds",
             self._sandbox_id,
             self._tencent_config.template,
             self._tencent_config.timeout,
@@ -121,20 +134,22 @@ class TencentSandboxBackend(Backend):
 
         try:
             if force_kill:
+                logger.info("[sandbox] 销毁沙箱: DELETE %s/sandboxes/%s", self.api_base_url, self._sandbox_id)
                 await asyncio.to_thread(self._sandbox.kill)
-                logger.info("腾讯沙箱已销毁: id=%s", self._sandbox_id)
+                logger.info("[sandbox] 沙箱已销毁: id=%s", self._sandbox_id)
                 self._sandbox_id = None
             else:
                 try:
+                    logger.info("[sandbox] 暂停沙箱: POST %s/sandboxes/%s/pause", self.api_base_url, self._sandbox_id)
                     await asyncio.to_thread(self._sandbox.pause)
-                    logger.info("腾讯沙箱已暂停: id=%s", self._sandbox_id)
+                    logger.info("[sandbox] 沙箱已暂停: id=%s", self._sandbox_id)
                 except Exception as e:
                     # pause 不支持时直接 kill
-                    logger.warning("暂停失败，执行销毁: %s", e)
+                    logger.warning("[sandbox] 暂停失败，执行销毁: %s", e)
                     await asyncio.to_thread(self._sandbox.kill)
                     self._sandbox_id = None
         except Exception as e:
-            logger.error("断开沙箱失败: %s", e)
+            logger.error("[sandbox] 断开沙箱失败: %s", e)
         finally:
             self._sandbox = None
             self._connected = False
@@ -149,6 +164,9 @@ class TencentSandboxBackend(Backend):
         # 如果有工作目录，先 cd
         if self.config.working_dir:
             command = f"cd {shlex.quote(self.config.working_dir)} 2>/dev/null; {command}"
+
+        logger.info("[sandbox] 执行命令: POST %s/sandboxes/%s/commands | cmd=%s",
+                    self.api_base_url, self._sandbox_id, command[:100])
 
         try:
             result = await asyncio.to_thread(
@@ -210,11 +228,14 @@ class TencentSandboxBackend(Backend):
         if not self.is_connected:
             await self.connect()
 
+        logger.info("[sandbox] 写文件: POST %s/sandboxes/%s/files | path=%s, size=%d",
+                    self.api_base_url, self._sandbox_id, path, len(content))
+
         try:
             await asyncio.to_thread(self._sandbox.files.write, path, content)
             return ExecutionResult(stdout=f"已写入: {path}", exit_code=0)
         except Exception as e:
-            logger.error("写文件失败 %s: %s", path, e)
+            logger.error("[sandbox] 写文件失败 %s: %s", path, e)
             return ExecutionResult(
                 stderr=f"写文件失败: {str(e)}",
                 exit_code=-1,
@@ -225,11 +246,14 @@ class TencentSandboxBackend(Backend):
         if not self.is_connected:
             await self.connect()
 
+        logger.info("[sandbox] 读文件: GET %s/sandboxes/%s/files | path=%s",
+                    self.api_base_url, self._sandbox_id, path)
+
         try:
             content = await asyncio.to_thread(self._sandbox.files.read, path)
             return ExecutionResult(stdout=content, exit_code=0)
         except Exception as e:
-            logger.error("读文件失败 %s: %s", path, e)
+            logger.error("[sandbox] 读文件失败 %s: %s", path, e)
             return ExecutionResult(
                 stderr=f"读文件失败: {str(e)}",
                 exit_code=-1,
