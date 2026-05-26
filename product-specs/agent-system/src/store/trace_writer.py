@@ -462,8 +462,21 @@ class TraceWriter:
                                 sp[jf] = json.loads(val)
                             except (json.JSONDecodeError, TypeError):
                                 sp[jf] = {}
-                    sp['input'] = sp.pop('input_data', {})
-                    sp['output'] = sp.pop('output_data', {})
+
+                    # 从 metadata 中提取前端需要的顶层字段
+                    # （持久化时 step_name/step_name_en/detail/phase/children 存入 metadata）
+                    md = sp.get('metadata') or {}
+                    if md.get('step_name') and 'step_name' not in sp:
+                        sp['step_name'] = md['step_name']
+                    if md.get('step_name_en') and 'step_name_en' not in sp:
+                        sp['step_name_en'] = md['step_name_en']
+                    if md.get('detail') and 'detail' not in sp:
+                        sp['detail'] = md['detail']
+                    if md.get('phase') and 'phase' not in sp:
+                        sp['phase'] = md['phase']
+                    if md.get('children') and 'children' not in sp:
+                        sp['children'] = md['children']
+
                     spans.append(sp)
 
                 trace['spans'] = spans

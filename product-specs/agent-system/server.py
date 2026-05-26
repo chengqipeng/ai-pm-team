@@ -1843,6 +1843,39 @@ async def get_conversation_messages(thread_id: str):
                         "spans": spans_raw,
                     })
 
+        # 3. 补充当前正在执行的推理链路（tracing_middleware 中尚未持久化的 spans）
+        # 场景：用户在 Agent 执行过程中刷新页面，trace 尚未 finish，PG 中无数据
+        try:
+            from src.middleware.tracing import tracing_middleware
+            live_spans = tracing_middleware.get_spans_with_sub_threads(thread_id)
+            if live_spans:
+                # 检查最后一条消息是否已有 spans（避免重复）
+                last_msg_has_spans = messages and messages[-1].get("spans")
+                if not last_msg_has_spans:
+                    # 从 ThreadStore 获取当前用户输入
+                    current_input = ""
+                    try:
+                        from src.a2ui import thread_store as _ts
+                        ts = _ts.get(thread_id)
+                        if ts and ts.messages:
+                            # 找最后一条 user 消息
+                            for m in reversed(ts.messages):
+                                if m.get("role") == "user":
+                                    current_input = m.get("content", "")
+                                    break
+                    except Exception:
+                        pass
+
+                    messages.append({
+                        "trace_id": "",
+                        "user_input": current_input,
+                        "agent_output": "",
+                        "status": "running",
+                        "spans": live_spans,
+                    })
+        except Exception as _e:
+            logger.debug("get_conversation_messages: live spans fallback failed: %s", _e)
+
         return {"messages": messages}
     except Exception as e:
         logger.error("get_conversation_messages failed: %s", e)
