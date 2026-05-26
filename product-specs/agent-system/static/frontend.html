@@ -2693,9 +2693,10 @@ async function sendAgui(text, extra) {
                 const title = compData.title || '文档';
                 const content = compData.content || '';
                 const chatInner = document.getElementById('chatInner');
-                // 如果当前有"生成中"占位气泡，替换它
-                if (_aguiStreamEl) {
-                  _aguiStreamEl.remove();
+                // 如果当前有"生成中"占位气泡，移除整个气泡容器
+                const streamBubble = document.getElementById('agui-stream-bubble');
+                if (streamBubble) {
+                  streamBubble.remove();
                   _aguiStreamEl = null;
                 }
                 // 存储到 generatedDocs → 右侧"参考上下文"面板
@@ -2772,19 +2773,20 @@ async function sendAgui(text, extra) {
               }
             }
             else if (name === 'doc_stream_end') {
-              // 文档流式输出结束信号 — 将已累积的流式内容转为最终文档
+              // 文档流式输出结束信号 — 将已累积的流式内容渲染为气泡
               if (window._docStreamContent && window._docStreamContent.length > 0) {
                 const content = window._docStreamContent;
                 const firstLine = content.split('\n')[0].replace(/^#+\s*/, '').trim();
                 const title = firstLine || '分析报告';
 
-                // 移除对话区的"生成中"占位气泡
-                if (_aguiStreamEl) {
-                  _aguiStreamEl.remove();
+                // 移除对话区的"生成中"占位气泡（整个容器）
+                const streamBubble = document.getElementById('agui-stream-bubble');
+                if (streamBubble) {
+                  streamBubble.remove();
                   _aguiStreamEl = null;
                 }
 
-                // 存储到 generatedDocs
+                // 存储到 generatedDocs → 右侧面板仍可查看
                 const docId = 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
                 generatedDocs.push({ id: docId, title: title, content: content, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,5) });
                 refreshGeneratedFiles();
@@ -2795,26 +2797,25 @@ async function sendAgui(text, extra) {
                 const previewRendered = typeof marked !== 'undefined' ? marked.parse(content) : content.replace(/\n/g, '<br>');
                 document.getElementById('docPreviewContent').innerHTML = previewRendered;
 
-                // 对话区渲染为文档卡片
+                // 对话区渲染为气泡（而非卡片）
                 const chatInner = document.getElementById('chatInner');
-                const cardHtml = `
-                  <div class="flex justify-start mb-4 fade-in">
-                    <div class="max-w-[85%] bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                      <div class="px-4 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-100 cursor-pointer flex items-center justify-between"
-                           onclick="openDocPreview('${docId}')">
-                        <div class="flex items-center gap-2">
-                          <span class="text-blue-600">📄</span>
-                          <span class="font-medium text-gray-800 text-sm">${esc(title)}</span>
-                        </div>
-                        <span class="text-xs text-gray-400">点击查看全文</span>
+                const rendered = typeof marked !== 'undefined' ? marked.parse(content) : esc(content);
+                const bubbleHtml = `
+                  <div class="flex justify-start w-full animate-fade-in">
+                    <div class="max-w-[85%] flex gap-4 flex-row">
+                      <div class="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-xs font-bold shadow-sm bg-white border border-blue-100 text-blue-600">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                      </div>
+                      <div class="p-4 rounded-2xl text-[14px] shadow-sm bg-white border border-gray-100 text-gray-800">
+                        <div class="prose-content">${rendered}</div>
                       </div>
                     </div>
                   </div>`;
-                chatInner.insertAdjacentHTML('beforeend', cardHtml);
+                chatInner.insertAdjacentHTML('beforeend', bubbleHtml);
                 scrollToBottom();
 
                 // 保存到对话历史
-                hist.push({ role: 'assistant', content: '<!--doc_card:' + title + '-->\n' + content });
+                hist.push({ role: 'assistant', content: content });
                 saveHistToStorage();
 
                 // 清除流式状态
@@ -2855,8 +2856,9 @@ async function sendAgui(text, extra) {
               const firstLine = content.split('\n')[0].replace(/^#+\s*/, '').trim();
               const title = firstLine || '分析报告';
 
-              if (_aguiStreamEl) {
-                _aguiStreamEl.remove();
+              const streamBubble = document.getElementById('agui-stream-bubble');
+              if (streamBubble) {
+                streamBubble.remove();
                 _aguiStreamEl = null;
               }
 
@@ -2869,24 +2871,24 @@ async function sendAgui(text, extra) {
               const previewRendered = typeof marked !== 'undefined' ? marked.parse(content) : content.replace(/\n/g, '<br>');
               document.getElementById('docPreviewContent').innerHTML = previewRendered;
 
+              // 对话区渲染为气泡（而非卡片）
               const chatInner = document.getElementById('chatInner');
-              const cardHtml = `
-                <div class="flex justify-start mb-4 fade-in">
-                  <div class="max-w-[85%] bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                    <div class="px-4 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-100 cursor-pointer flex items-center justify-between"
-                         onclick="openDocPreview('${docId}')">
-                      <div class="flex items-center gap-2">
-                        <span class="text-blue-600">📄</span>
-                        <span class="font-medium text-gray-800 text-sm">${esc(title)}</span>
-                      </div>
-                      <span class="text-xs text-gray-400">点击查看全文</span>
+              const rendered = typeof marked !== 'undefined' ? marked.parse(content) : esc(content);
+              const bubbleHtml = `
+                <div class="flex justify-start w-full animate-fade-in">
+                  <div class="max-w-[85%] flex gap-4 flex-row">
+                    <div class="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-xs font-bold shadow-sm bg-white border border-blue-100 text-blue-600">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    </div>
+                    <div class="p-4 rounded-2xl text-[14px] shadow-sm bg-white border border-gray-100 text-gray-800">
+                      <div class="prose-content">${rendered}</div>
                     </div>
                   </div>
                 </div>`;
-              chatInner.insertAdjacentHTML('beforeend', cardHtml);
+              chatInner.insertAdjacentHTML('beforeend', bubbleHtml);
               scrollToBottom();
 
-              hist.push({ role: 'assistant', content: '<!--doc_card:' + title + '-->\n' + content });
+              hist.push({ role: 'assistant', content: content });
               saveHistToStorage();
 
               window._docStreamContent = null;
@@ -2895,6 +2897,13 @@ async function sendAgui(text, extra) {
               textMsgActive = false;
               aiContent = '';
               addStep('文档生成完成 ✓', 'done');
+            } else if (_aguiStreamEl && !aiContent) {
+              // 兜底：如果有占位气泡但没有任何内容（doc_stream 未触发或 TEXT_MESSAGE 被抑制），清除占位
+              const streamBubbleFallback = document.getElementById('agui-stream-bubble');
+              if (streamBubbleFallback) {
+                streamBubbleFallback.remove();
+              }
+              _aguiStreamEl = null;
             }
             collapseStepsContainer();
             scrollToBottom();

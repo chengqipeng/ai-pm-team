@@ -1041,16 +1041,12 @@ class AGUIConverter:
             yield e
 
         # 2. 按 output_mode 输出子 Agent 结果
-        # 如果之前已经通过 doc_stream 推送了内容，且 output_mode 是 text，
-        # 则不再重复发送 TEXT_MESSAGE（前端已有内容，doc_stream_end 会触发完成）
-        if was_doc_stream and output_mode in ("text", "streaming"):
-            logger.info(
-                "[AGUIConverter] skill_result: content already streamed via doc_stream, "
-                "skipping TEXT_MESSAGE output (doc_stream_end already sent)"
-            )
-        else:
-            async for e in self._emit_skill_direct_output(skill_apikey, content, output_mode):
-                yield e
+        # 注意：即使之前通过 doc_stream 推送了内容，仍需通过正式通道输出最终结果。
+        # 因为 doc_stream 推送的是子 Agent LLM 的流式中间输出，可能不完整或为空
+        # （例如子 Agent 直接调用工具返回结果，没有 LLM 文本产出）。
+        # 前端通过 textMsgFinalized 标志防止重复渲染。
+        async for e in self._emit_skill_direct_output(skill_apikey, content, output_mode):
+            yield e
 
         # 3. 根据 behavior 设置后续主 Agent 文本输出控制
         if behavior == "silent":
