@@ -489,7 +489,10 @@ class ChatRequest(BaseModel):
     message: str
     thread_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
     user_id: str = Field(default="default_user")
-    history: list[dict[str, str]] = Field(default_factory=list)
+    # history 字段已废弃：对话历史从后端 ai_message 表加载，不再依赖前端传递
+    history: list[dict[str, str]] = Field(default_factory=list, deprecated=True)
+    # resume 字段：中断恢复时传递用户响应（interrupt_id + value）
+    resume: dict[str, Any] | None = None
 
 
 # ── 文件上传存储 ──
@@ -862,20 +865,112 @@ async def chat_stream(req: ChatRequest):
 
     from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
-    # 构建历史消息（不含当前消息，供 QueryRewriter 使用）
-    history_messages = []
-    for msg in req.history:
-        content = msg.get("content", "").strip()
-        # 跳过与当前消息完全相同的历史条目（前端可能误将当前消息包含在 history 中）
-        if msg.get("role") == "user" and content == req.message.strip():
-            continue
-        if msg.get("role") == "user":
-            history_messages.append(HumanMessage(content=content))
-        elif msg.get("role") == "assistant":
-            history_messages.append(AIMessage(content=content))
+    # ── 检测是否是 interrupt resume 请求 ──
+    if req.resume:
+        # 使用 Command(resume=value) 从中断点恢复执行
+        from langgraph.types import Command
 
-    logger.info("[/api/chat] thread=%s, history_count=%d (raw=%d), message=%s",
-                thread_id, len(history_messages), len(req.history), req.message[:50])
+        resume_value = req.resume  # 前端传递的 {interrupt_id, value, cancelled?}
+        logger.info("[/api/chat] RESUME: thread=%s, resume=%s", thread_id, resume_value)
+
+        trace = tracer.start_trace(thread_id, f"[resume] {resume_value.get('value', '')}", model=TEXT_MODEL, agent_name="CRM-Agent")
+        trace_id = trace.trace_id
+        trace_writer.on_trace_start(trace)
+
+        config = {
+            "configurable": {
+                "thread_id": thread_id,
+                "tenant_id": str(DEFAULT_TENANT_ID),
+                "user_id": req.user_id,
+            },
+            "recursion_limit": 300,
+        }
+
+        async def resume_generator():
+            full_content = ""
+            from src.middleware.tracing import tracing_middleware
+            tracing_middleware.clear(thread_id)
+
+            try:
+                # 使用 Command(resume=value) 恢复 graph 执行
+                async for event in agent.astream_events(
+                    Command(resume=resume_value), config=config, version="v2"
+                ):
+                    kind = event.get("event", "")
+                    data = event.get("data", {})
+
+                    if kind == "on_chat_model_stream":
+                        parent_ids = event.get("parent_ids", [])
+                        if len(parent_ids) > 2:
+                            continue
+                        chunk = data.get("chunk")
+                        if chunk:
+                            content = getattr(chunk, "content", "")
+                            if isinstance(content, list):
+                                content = "".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
+                            if content:
+                                full_content += content
+                                yield f"data: {json.dumps({'type': 'token', 'content': content}, ensure_ascii=False)}\n\n"
+
+                    elif kind == "on_tool_start":
+                        tool_name = event.get("name", "")
+                        raw_input = data.get("input", {})
+                        input_str = json.dumps(raw_input, ensure_ascii=False, default=str)[:200] if isinstance(raw_input, dict) else str(raw_input)[:200]
+                        yield f"data: {json.dumps({'type': 'tool_start', 'tool_name': tool_name, 'input': input_str}, ensure_ascii=False)}\n\n"
+
+                    elif kind == "on_tool_end":
+                        tool_name = event.get("name", "")
+                        raw_output = data.get("output", "")
+                        output_content = getattr(raw_output, "content", str(raw_output)) if hasattr(raw_output, "content") else str(raw_output)
+                        yield f"data: {json.dumps({'type': 'tool_end', 'tool_name': tool_name, 'output': output_content[:300]}, ensure_ascii=False)}\n\n"
+
+            except Exception as exc:
+                from langgraph.errors import GraphInterrupt as _GraphInterrupt
+                if not isinstance(exc, _GraphInterrupt):
+                    yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
+
+            tracer.finish_trace(trace_id, "success", full_content)
+            trace_final = tracer.get_trace(trace_id)
+            if trace_final:
+                trace_writer.on_trace_finish(trace_final)
+
+            yield f"data: {json.dumps({'type': 'done', 'trace_id': trace_id}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(resume_generator(), media_type="text/event-stream")
+
+    # ── 正常对话流程（非 resume）──
+
+    # 从数据库加载对话历史（供 QueryRewriter 使用，不依赖前端传递）
+    history_messages = []
+    try:
+        from src.store.pg_pool import get_conn
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id FROM ai_conversation WHERE tenant_id=%s AND thread_id=%s AND delete_flg=0",
+                (DEFAULT_TENANT_ID, thread_id))
+            conv_row = cur.fetchone()
+            if conv_row:
+                conv_id = conv_row[0]
+                cur.execute("""
+                    SELECT query, answer FROM ai_message
+                    WHERE conversation_id=%s AND delete_flg=0
+                    ORDER BY sequence DESC LIMIT 20
+                """, (conv_id,))
+                rows = cur.fetchall()
+                if rows:
+                    rows.reverse()
+                    for query, answer in rows:
+                        if query:
+                            history_messages.append(HumanMessage(content=query))
+                        if answer:
+                            history_messages.append(AIMessage(content=answer))
+    except Exception as e:
+        logger.warning("[/api/chat] 加载对话历史失败（降级为首轮对话）: %s", e)
+        history_messages = []
+
+    logger.info("[/api/chat] thread=%s, db_history_count=%d, message=%s",
+                thread_id, len(history_messages), req.message[:50])
 
     # ══════════════════════════════════════════════════════════════
     # 入口层预处理流水线（在任何主 Agent 调用之前执行）
@@ -1489,13 +1584,8 @@ async def chat_sync(req: ChatRequest):
     agent = await _get_agent(multimodal=has_images)
     from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
-    messages = []
-    for msg in req.history:
-        if msg.get("role") == "user":
-            messages.append(HumanMessage(content=msg["content"]))
-        elif msg.get("role") == "assistant":
-            messages.append(AIMessage(content=msg["content"]))
-    messages.append(HumanMessage(content=req.message))
+    # 使用 checkpointer 时，LangGraph 自动恢复历史消息，只需传入当前轮新消息
+    messages = [HumanMessage(content=req.message)]
 
     trace = tracer.start_trace(req.thread_id, req.message, model="deepseek-v4-flash", agent_name="CRM-Agent")
     trace_writer.on_trace_start(trace)
@@ -1580,7 +1670,7 @@ async def list_conversations(limit: int = 50):
             cur = conn.cursor()
             cur.execute("""
                 SELECT thread_id, title, status, message_count, total_tokens,
-                       last_message_at, agent_name, model
+                       last_message_at, agent_name, model, created_at
                 FROM ai_conversation
                 WHERE tenant_id=%s AND delete_flg=0
                 ORDER BY last_message_at DESC LIMIT %s
@@ -1594,6 +1684,7 @@ async def list_conversations(limit: int = 50):
                 "thread_id": d["thread_id"],
                 "title": d["title"] or "对话",
                 "last_time": (d["last_message_at"] or 0) / 1000,
+                "created_at": d.get("created_at", 0),
                 "message_count": d["message_count"] or 0,
                 "total_tokens": d["total_tokens"] or 0,
                 "agent_name": d.get("agent_name", ""),
@@ -1649,61 +1740,108 @@ async def delete_conversation(thread_id: str):
 async def get_conversation_messages(thread_id: str):
     """获取对话的完整消息列表（含每条消息的推理链路 spans）
 
-    前端刷新后恢复对话时调用，一次性返回所有消息和对应的 trace spans，
-    避免 N 次 API 调用。
+    优先从 ai_message 表读取持久化的对话历史，每条消息通过 trace_id 关联
+    完整的执行链路（ai_trace_span）。前端刷新后恢复对话时调用。
     """
     try:
-        # 1. 获取该 thread 的所有 traces（按时间排序）
-        mem_traces = tracer.get_all_traces(200)
-        thread_traces = [t for t in mem_traces if t.thread_id == thread_id]
+        from src.store.pg_pool import get_conn
 
-        # 合并 PG 中的 traces
-        db_traces = trace_writer.read_traces(200)
-        mem_trace_ids = {t.trace_id for t in thread_traces}
-        for dt in db_traces:
-            if dt.get("thread_id") == thread_id and dt["trace_id"] not in mem_trace_ids:
-                thread_traces.append(dt)
-
-        if not thread_traces:
-            return {"messages": []}
-
-        # 2. 按 start_time 排序
-        def _get_start_time(t):
-            if hasattr(t, 'start_time'):
-                return t.start_time or 0
-            return (t.get("start_time") or 0) / 1000 if isinstance(t.get("start_time"), int) and t.get("start_time", 0) > 1e12 else t.get("start_time", 0)
-
-        thread_traces.sort(key=_get_start_time)
-
-        # 3. 构建消息列表（含 spans）
+        # 1. 从 ai_message 表读取持久化的消息
         messages = []
-        for t in thread_traces:
-            # 兼容内存 Trace 对象和 PG dict
-            if hasattr(t, 'trace_id'):
-                trace_id = t.trace_id
-                user_input = t.user_input or ""
-                agent_output = getattr(t, 'agent_output', '') or ""
-                spans_raw = [s.to_dict() if hasattr(s, 'to_dict') else s for s in (t.spans or [])]
-            else:
-                trace_id = t.get("trace_id", "")
-                user_input = t.get("user_input", "") or ""
-                agent_output = t.get("agent_output", "") or ""
-                spans_raw = []
+        with get_conn() as conn:
+            cur = conn.cursor()
+            # 先获取 conversation_id
+            cur.execute(
+                "SELECT id FROM ai_conversation WHERE tenant_id=%s AND thread_id=%s AND delete_flg=0",
+                (DEFAULT_TENANT_ID, thread_id))
+            conv_row = cur.fetchone()
 
-            # 如果内存中没有 spans，从 PG 加载
-            if not spans_raw and trace_id:
-                detail = trace_writer.read_trace_detail(trace_id)
-                if detail:
-                    spans_raw = detail.get("spans", [])
-                    if not agent_output:
-                        agent_output = detail.get("agent_output", "") or ""
+            if conv_row:
+                conv_id = conv_row[0]
+                cur.execute("""
+                    SELECT id, sequence, role, query, answer, model,
+                           input_tokens, output_tokens, total_tokens,
+                           iteration_count, tool_count, duration_ms,
+                           trace_id, status, error_message, created_at
+                    FROM ai_message
+                    WHERE conversation_id=%s AND delete_flg=0
+                    ORDER BY sequence ASC
+                """, (conv_id,))
+                msg_rows = cur.fetchall()
+                msg_cols = [d[0] for d in cur.description]
 
-            messages.append({
-                "trace_id": trace_id,
-                "user_input": user_input,
-                "agent_output": agent_output,
-                "spans": spans_raw,
-            })
+                for row in msg_rows:
+                    msg = dict(zip(msg_cols, row))
+                    trace_id = msg.get("trace_id", "")
+
+                    # 加载该消息对应的 trace spans
+                    spans_raw = []
+                    if trace_id:
+                        detail = trace_writer.read_trace_detail(trace_id)
+                        if detail:
+                            spans_raw = detail.get("spans", [])
+
+                    messages.append({
+                        "trace_id": trace_id,
+                        "user_input": msg.get("query", ""),
+                        "agent_output": msg.get("answer", ""),
+                        "sequence": msg.get("sequence", 0),
+                        "model": msg.get("model", ""),
+                        "total_tokens": msg.get("total_tokens", 0),
+                        "iteration_count": msg.get("iteration_count", 0),
+                        "tool_count": msg.get("tool_count", 0),
+                        "duration_ms": msg.get("duration_ms", 0),
+                        "status": msg.get("status", "success"),
+                        "error_message": msg.get("error_message", ""),
+                        "created_at": msg.get("created_at", 0),
+                        "spans": spans_raw,
+                    })
+
+        # 2. 如果 ai_message 表无数据，降级到内存 Tracer（兼容旧数据）
+        if not messages:
+            mem_traces = tracer.get_all_traces(200)
+            thread_traces = [t for t in mem_traces if t.thread_id == thread_id]
+
+            # 合并 PG 中的 traces
+            db_traces = trace_writer.read_traces(200)
+            mem_trace_ids = {t.trace_id for t in thread_traces}
+            for dt in db_traces:
+                if dt.get("thread_id") == thread_id and dt["trace_id"] not in mem_trace_ids:
+                    thread_traces.append(dt)
+
+            if thread_traces:
+                def _get_start_time(t):
+                    if hasattr(t, 'start_time'):
+                        return t.start_time or 0
+                    return (t.get("start_time") or 0) / 1000 if isinstance(t.get("start_time"), int) and t.get("start_time", 0) > 1e12 else t.get("start_time", 0)
+
+                thread_traces.sort(key=_get_start_time)
+
+                for t in thread_traces:
+                    if hasattr(t, 'trace_id'):
+                        t_id = t.trace_id
+                        user_input = t.user_input or ""
+                        agent_output = getattr(t, 'agent_output', '') or ""
+                        spans_raw = [s.to_dict() if hasattr(s, 'to_dict') else s for s in (t.spans or [])]
+                    else:
+                        t_id = t.get("trace_id", "")
+                        user_input = t.get("user_input", "") or ""
+                        agent_output = t.get("agent_output", "") or ""
+                        spans_raw = []
+
+                    if not spans_raw and t_id:
+                        detail = trace_writer.read_trace_detail(t_id)
+                        if detail:
+                            spans_raw = detail.get("spans", [])
+                            if not agent_output:
+                                agent_output = detail.get("agent_output", "") or ""
+
+                    messages.append({
+                        "trace_id": t_id,
+                        "user_input": user_input,
+                        "agent_output": agent_output,
+                        "spans": spans_raw,
+                    })
 
         return {"messages": messages}
     except Exception as e:

@@ -4,6 +4,7 @@
 - Agent 执行期间不写 PG（避免影响延迟）
 - 执行完成后批量写入（一次 trace 的所有 span 一次性 INSERT）
 - 写入失败不影响主流程（降级为仅内存，记录 error 日志）
+- on_trace_finish 同时写入 ai_message（对话历史）+ ai_token_usage（用量统计）
 """
 from __future__ import annotations
 
@@ -12,8 +13,8 @@ import logging
 import time
 from typing import Any
 
-from .models import Trace as TraceModel, TraceSpan as TraceSpanModel
-from .dao import TraceDAO, TraceSpanDAO
+from .models import Trace as TraceModel, TraceSpan as TraceSpanModel, Message, TokenUsage
+from .dao import TraceDAO, TraceSpanDAO, MessageDAO, TokenUsageDAO
 
 logger = logging.getLogger(__name__)
 
@@ -122,24 +123,33 @@ class TraceWriter:
             logger.info("TraceWriter: trace finished %s (%d spans)", trace.trace_id, len(span_models))
 
             # 3. Upsert conversation（创建或更新会话记录 + 标题）
-            self._upsert_conversation(trace, now)
+            conv_id = self._upsert_conversation(trace, now)
+
+            # 4. 写入 ai_message（对话历史）
+            self._persist_message(trace, conv_id, now)
+
+            # 5. 写入 ai_token_usage（用量统计）
+            self._persist_token_usage(trace, conv_id, now)
 
         except Exception as e:
             logger.error("TraceWriter.on_trace_finish failed: %s", e)
 
-    def _upsert_conversation(self, trace: Any, now: int) -> None:
+    def _upsert_conversation(self, trace: Any, now: int) -> int:
         """创建或更新 ai_conversation 记录，持久化会话标题
 
         标题优先级：
         1. TitleMiddleware 已持久化的 LLM 标题（直接跳过更新）
         2. trace.title（由 TitleMiddleware 通过 state 传递）
         3. 规则截取（fallback）
+
+        Returns:
+            conv_id: 会话记录 ID（用于关联 ai_message）
         """
         try:
             from .pg_pool import get_conn
             thread_id = trace.thread_id or ''
             if not thread_id:
-                return
+                return 0
 
             # 从请求上下文获取 user_id
             user_id = self._user_id
@@ -202,8 +212,11 @@ class TraceWriter:
                           'active', 1, total_tokens, now,
                           0, now, user_id, now, user_id))
 
+            return conv_id
+
         except Exception as e:
             logger.warning("_upsert_conversation failed (non-fatal): %s", e)
+            return 0
 
     @staticmethod
     def _generate_title(user_input: str) -> str:
@@ -217,6 +230,173 @@ class TraceWriter:
         if len(text) > 25:
             return text[:25] + "..."
         return text or "新对话"
+
+    def _persist_message(self, trace: Any, conv_id: int, now: int) -> None:
+        """将对话历史（query + answer）写入 ai_message 表
+
+        一次 trace 对应一条 ai_message 记录：
+        - query: 用户原始输入（trace.user_input）
+        - answer: Agent 最终回复（trace.agent_output）
+        - trace_id: 关联链路，可追溯完整执行过程
+        - iteration_count / tool_count / duration_ms: 执行统计
+        """
+        if not conv_id:
+            return
+        try:
+            from .pg_pool import get_conn
+            from .snowflake import next_id
+
+            thread_id = trace.thread_id or ''
+            user_input = trace.user_input or ''
+            agent_output = trace.agent_output or ''
+
+            # 获取 user_id
+            user_id = self._user_id
+            try:
+                from src.core.context import get_context
+                ctx = get_context()
+                if ctx.user_id:
+                    user_id = int(ctx.user_id) if str(ctx.user_id).isdigit() else 0
+            except Exception:
+                pass
+
+            # 计算 sequence（该会话的第 N 条消息）
+            with get_conn() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT COALESCE(MAX(sequence), 0) + 1 FROM ai_message WHERE conversation_id=%s",
+                    (conv_id,))
+                sequence = cur.fetchone()[0]
+
+            # 从 trace spans 中提取 token 统计
+            input_tokens = 0
+            output_tokens = 0
+            for s in (trace.spans or []):
+                span_type = s.type
+                if hasattr(span_type, 'value'):
+                    span_type = span_type.value
+                if span_type == 'llm_call' and s.metadata:
+                    meta = s.metadata if isinstance(s.metadata, dict) else {}
+                    input_tokens += meta.get('input_tokens', 0)
+                    output_tokens += meta.get('output_tokens', 0)
+
+            total_tokens = input_tokens + output_tokens
+            if not total_tokens:
+                total_tokens = trace.total_tokens or 0
+
+            # 获取脱敏后的内容（如果 InputTransformMiddleware 有记录）
+            masked_query = ''
+            masked_answer = ''
+            try:
+                from src.core.context import get_context
+                ctx = get_context()
+                input_meta = getattr(ctx, 'input_metadata', None) or {}
+                if isinstance(input_meta, dict):
+                    masked_query = input_meta.get('masked_query', '')
+            except Exception:
+                pass
+
+            # 判断状态
+            status = 'success'
+            error_message = ''
+            if trace.status == 'error':
+                status = 'error'
+                # 从最后一个 error span 提取错误信息
+                for s in reversed(trace.spans or []):
+                    s_type = s.type
+                    if hasattr(s_type, 'value'):
+                        s_type = s_type.value
+                    if s_type == 'error':
+                        err_data = s.input_data if isinstance(s.input_data, dict) else {}
+                        error_message = str(err_data.get('error', ''))[:2000]
+                        break
+
+            msg = Message(
+                tenant_id=self._tenant_id,
+                conversation_id=conv_id,
+                thread_id=thread_id,
+                sequence=sequence,
+                role='user',
+                query=user_input[:10000],
+                answer=agent_output[:50000],
+                masked_query=masked_query[:10000],
+                masked_answer=masked_answer[:50000],
+                model=trace.model or '',
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                iteration_count=trace.iteration_count or 0,
+                tool_count=trace.tool_count or 0,
+                duration_ms=int(trace.total_duration_ms) if hasattr(trace, 'total_duration_ms') and trace.total_duration_ms else 0,
+                trace_id=trace.trace_id,
+                status=status,
+                error_message=error_message,
+                created_at=now,
+                created_by=user_id,
+                updated_at=now,
+                updated_by=user_id,
+            )
+            MessageDAO.insert(msg)
+            logger.debug("TraceWriter: message persisted conv=%s seq=%d trace=%s",
+                         conv_id, sequence, trace.trace_id)
+
+        except Exception as e:
+            logger.warning("_persist_message failed (non-fatal): %s", e)
+
+    def _persist_token_usage(self, trace: Any, conv_id: int, now: int) -> None:
+        """将 Token 用量写入 ai_token_usage 表（按 trace 粒度）"""
+        total_tokens = trace.total_tokens or 0
+        if not total_tokens:
+            return
+        try:
+            # 获取 user_id
+            user_id = self._user_id
+            try:
+                from src.core.context import get_context
+                ctx = get_context()
+                if ctx.user_id:
+                    user_id = int(ctx.user_id) if str(ctx.user_id).isdigit() else 0
+            except Exception:
+                pass
+
+            # 从 spans 中汇总 input/output tokens
+            input_tokens = 0
+            output_tokens = 0
+            for s in (trace.spans or []):
+                span_type = s.type
+                if hasattr(span_type, 'value'):
+                    span_type = span_type.value
+                if span_type == 'llm_call' and s.metadata:
+                    meta = s.metadata if isinstance(s.metadata, dict) else {}
+                    input_tokens += meta.get('input_tokens', 0)
+                    output_tokens += meta.get('output_tokens', 0)
+
+            if not input_tokens and not output_tokens:
+                # 无法拆分，全部算 output
+                output_tokens = total_tokens
+
+            # 简单成本估算（DeepSeek V4: input $0.27/M, output $1.10/M）
+            cost = (input_tokens * 0.27 + output_tokens * 1.10) / 1_000_000
+
+            usage = TokenUsage(
+                tenant_id=self._tenant_id,
+                user_id=user_id,
+                conversation_id=conv_id or 0,
+                thread_id=trace.thread_id or '',
+                trace_id=trace.trace_id,
+                model=trace.model or '',
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                cost=cost,
+                created_at=now,
+            )
+            TokenUsageDAO.insert(usage)
+            logger.debug("TraceWriter: token_usage persisted trace=%s tokens=%d",
+                         trace.trace_id, total_tokens)
+
+        except Exception as e:
+            logger.warning("_persist_token_usage failed (non-fatal): %s", e)
 
     def read_traces(self, limit: int = 50) -> list[dict]:
         """从 PG 读取 trace 列表（按 tenant_id 隔离）"""

@@ -332,8 +332,11 @@ class ChatAguiRequest(BaseModel):
     """
     thread_id: str = Field(alias="threadId")
     message: str = ""
-    history: list[dict[str, str]] = Field(default_factory=list)
+    # history 字段已废弃：对话历史从后端 ai_message 表加载，不再依赖前端传递
+    history: list[dict[str, str]] = Field(default_factory=list, deprecated=True)
     run_id: str | None = Field(default=None, alias="runId")
+    # resume 字段：中断恢复时传递用户响应（interrupt_id + value）
+    resume: dict | None = None
     a2uiClientCapabilities: dict | None = None
 
     model_config = {"populate_by_name": True}
@@ -410,10 +413,9 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
 
     _req_start = _time.time()
     logger.info(
-        "[AG-UI] 收到请求: thread=%s, run=%s, message=%s, history_len=%d",
+        "[AG-UI] 收到请求: thread=%s, run=%s, message=%s",
         req.thread_id, req.run_id or "(auto)",
         repr(req.message[:100]) if req.message else "(empty)",
-        len(req.history) if req.history else 0,
     )
 
     # 1. Catalog 协商
@@ -459,7 +461,7 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
                 thread_id=req.thread_id,
                 user_input=req.message or "",
                 run_id=run_id,
-                history=req.history or None,
+                resume=req.resume,
             ):
                 _event_count += 1
                 # 详细事件日志

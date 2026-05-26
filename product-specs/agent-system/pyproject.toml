@@ -24,6 +24,7 @@ httpx = ">=0.27"                       # Metarepo / EntityData HTTP backend
 tcvectordb = ">=1.6"                  # 腾讯云向量数据库（knowledge + memory）
 tcvdb-text = ">=0.1"                  # BM25 稀疏向量编码（混合检索）
 jieba = ">=0.42"                      # 中文分词 + TF-IDF 关键词提取
+e2b = "^2.23.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"

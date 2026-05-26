@@ -487,60 +487,10 @@ let liveSpans = [];
 let generatedDocs = []; // 生成的文档列表
 let currentPreviewDoc = null; // 当前预览的文档
 
-// ═══ 会话 localStorage 持久化 ═══
-function saveHistToStorage() {
-  try {
-    const key = `deepagent_hist_${tid}`;
-    localStorage.setItem(key, JSON.stringify(hist.slice(-50))); // 最多保存 50 条
-  } catch(e) {}
-}
-function loadHistFromStorage(threadId) {
-  try {
-    const key = `deepagent_hist_${threadId}`;
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : [];
-  } catch(e) { return []; }
-}
-// 推理链路 localStorage 持久化
-function saveTraceToStorage() {
-  try {
-    const key = `deepagent_trace_${tid}`;
-    // 只保存核心字段，控制大小
-    const slim = liveSpans.map(s => ({
-      type: s.step_name_en || s.type || '',
-      name: s.title || s.step_name || '',
-      step_name: s.step_name || '',
-      step_name_en: s.step_name_en || '',
-      phase: s.phase || '',
-      detail: s.detail || '',
-      duration_ms: s.duration_ms || 0,
-      status: s.status || 'complete',
-      input_data: s.input_data || {},
-      output_data: s.output_data || {},
-      metadata: s.metadata || {},
-      children: s.sub_agent_spans || s.children || [],
-    }));
-    localStorage.setItem(key, JSON.stringify(slim));
-  } catch(e) {}
-}
-function loadTraceFromStorage(threadId) {
-  try {
-    const key = `deepagent_trace_${threadId}`;
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : [];
-  } catch(e) { return []; }
-}
-function saveChatListToStorage() {
-  try {
-    localStorage.setItem('deepagent_chat_list', JSON.stringify(chatHistory.slice(0, 100)));
-  } catch(e) {}
-}
-function loadChatListFromStorage() {
-  try {
-    const data = localStorage.getItem('deepagent_chat_list');
-    return data ? JSON.parse(data) : [];
-  } catch(e) { return []; }
-}
+// ═══ 会话持久化（全部从后端 API 加载，禁止 localStorage 缓存对话数据）═══
+// saveHistToStorage / loadHistFromStorage / saveTraceToStorage / loadTraceFromStorage
+// saveChatListToStorage / loadChatListFromStorage 已移除
+// 对话历史和链路数据统一从 /api/conversations 和 /api/conversations/:id/messages 读取
 
 // 持久化用户 ID（优先从后端获取真实用户信息，fallback 到 localStorage 随机 ID）
 let userId = localStorage.getItem('deepagent_user_id') || '';
@@ -664,7 +614,7 @@ function handleInterruptInput(interruptId) {
 }
 
 async function handleInterruptResponse(interruptId, response) {
-  // 发送 resume 请求
+  // 发送 resume 请求（使用 Command(resume=value) 从中断点恢复）
   const resumeData = { interrupt_id: interruptId, ...response };
   console.log('[interrupt] resume:', resumeData);
 
@@ -672,9 +622,69 @@ async function handleInterruptResponse(interruptId, response) {
     // AG-UI 模式：通过 /api/chat/agui 发送 resume
     await sendAgui('', { resume: resumeData });
   } else {
-    // SSE 模式：通过 /api/chat 发送（将 resume 信息作为新消息）
-    const label = response.value || '确认';
-    await send(label);
+    // SSE 模式：通过 /api/chat 发送 resume（后端使用 Command(resume=value) 恢复）
+    await sendResume(resumeData);
+  }
+}
+
+async function sendResume(resumeData) {
+  // 重置 trace 面板
+  liveSpans = [];
+  stepsContainer = null;
+  stepsWrapper = null;
+  updatePanelStatus(true);
+  createStepsContainer();
+  addStep('恢复执行中...', 'run');
+
+  try {
+    const r = await fetch(API + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '', thread_id: tid, user_id: userId, resume: resumeData })
+    });
+    if (!r.ok) throw new Error('API error: ' + r.status);
+
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let aiContent = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6);
+        if (!raw) continue;
+        try {
+          const ev = JSON.parse(raw);
+          if (ev.type === 'token') {
+            aiContent += ev.content;
+          } else if (ev.type === 'tool_start') {
+            addStep(`🔧 ${ev.tool_name}`, 'tool');
+          } else if (ev.type === 'tool_end') {
+            addStep(`✓ ${ev.tool_name}`, 'done');
+          } else if (ev.type === 'error') {
+            addAIBubble('错误: ' + ev.content);
+          } else if (ev.type === 'done') {
+            // 完成
+          }
+        } catch(e) {}
+      }
+    }
+
+    if (aiContent) {
+      addAIBubble(aiContent);
+      hist.push({ role: 'assistant', content: aiContent });
+    }
+    updatePanelStatus(false);
+    addStep('恢复完成 ✓', 'done');
+  } catch(e) {
+    addAIBubble('恢复执行失败: ' + e.message);
+    updatePanelStatus(false);
   }
 }
 // ═══ 右侧面板控制 ═══
@@ -714,10 +724,26 @@ function switchTab(tab) {
 }
 
 // ═══ 对话历史 ═══
-function renderHistoryItem(title, active, chatId) {
+function renderHistoryItem(title, active, chatId, time) {
+  // 格式化时间显示
+  let timeStr = '';
+  if (time) {
+    const d = new Date(time * 1000);
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const ts = d.getTime();
+    if (ts >= todayStart) {
+      timeStr = d.toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit', hour12: false});
+    } else if (ts >= todayStart - 86400000) {
+      timeStr = '昨天';
+    } else {
+      timeStr = (d.getMonth()+1) + '/' + d.getDate();
+    }
+  }
   return `<div class="group flex items-center gap-3 px-4 py-2.5 rounded-xl cursor-pointer transition-all ${active ? 'bg-white shadow-sm ring-1 ring-black/5 text-blue-600' : 'text-gray-600 hover:bg-white/60 hover:text-gray-900'}">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="${active ? 'text-blue-500' : 'text-gray-400 group-hover:text-gray-600'}"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
     <span class="text-xs font-medium truncate flex-1">${esc(title)}</span>
+    ${timeStr ? `<span class="text-[10px] text-gray-400 shrink-0">${timeStr}</span>` : ''}
     <button onclick="event.stopPropagation();deleteChat('${esc(chatId)}')" class="hidden group-hover:flex w-5 h-5 items-center justify-center rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all shrink-0" title="删除会话">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
@@ -726,7 +752,6 @@ function renderHistoryItem(title, active, chatId) {
 }
 
 function renderChatList() {
-  saveChatListToStorage(); // 持久化到 localStorage
   const todayItems = document.getElementById('chatListTodayItems');
   const yesterdayItems = document.getElementById('chatListYesterdayItems');
 
@@ -741,7 +766,7 @@ function renderChatList() {
 
   chatHistory.forEach(c => {
     const isActive = c.id === tid;
-    const html = `<div onclick="loadChat('${esc(c.id)}')">${renderHistoryItem(c.title || '新对话', isActive, c.id)}</div>`;
+    const html = `<div onclick="loadChat('${esc(c.id)}')">${renderHistoryItem(c.title || '新对话', isActive, c.id, c.time)}</div>`;
     if (c.time >= todayStart) todayHtml += html;
     else if (c.time >= yesterdayStart) yesterdayHtml += html;
     else yesterdayHtml += html; // 更早的也放到"更早"分组
@@ -797,7 +822,7 @@ function filterChatList(query) {
     const title = c.title || '新对话';
     if (!title.toLowerCase().includes(q)) return;
     const isActive = c.id === tid;
-    const html = `<div onclick="loadChat('${esc(c.id)}')">${renderHistoryItem(title, isActive, c.id)}</div>`;
+    const html = `<div onclick="loadChat('${esc(c.id)}')">${renderHistoryItem(title, isActive, c.id, c.time)}</div>`;
     if (c.time >= todayStart2) todayHtml += html;
     else yesterdayHtml += html;
   });
@@ -855,15 +880,25 @@ function newChat() {
 }
 
 // ═══ 消息气泡 ═══
-function addUserBubble(content) {
+function addUserBubble(content, opts) {
   const w = document.getElementById('welcomeBlock');
   if (w) w.remove();
   const inner = document.getElementById('chatInner');
+  // 格式化时间
+  let timeHtml = '';
+  if (opts && opts.time) {
+    const d = new Date(opts.time);
+    const timeStr = d.toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit', hour12: false});
+    timeHtml = `<div class="text-[10px] text-gray-400 mt-1 text-right">${timeStr}</div>`;
+  }
   inner.insertAdjacentHTML('beforeend', `
     <div class="flex justify-end w-full animate-fade-in">
       <div class="max-w-[85%] flex gap-4 flex-row-reverse">
         <div class="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-xs font-bold shadow-sm bg-blue-600 text-white shadow-lg shadow-blue-600/10">王</div>
-        <div class="p-4 rounded-2xl text-[14px] shadow-sm bg-blue-600 text-white font-medium">${esc(content)}</div>
+        <div>
+          <div class="p-4 rounded-2xl text-[14px] shadow-sm bg-blue-600 text-white font-medium">${esc(content)}</div>
+          ${timeHtml}
+        </div>
       </div>
     </div>`);
   scrollToBottom();
@@ -925,16 +960,26 @@ function addAIBubble(content, extra) {
       </div>`;
   }
 
+  // 时间显示
+  let timeHtml = '';
+  if (extra && extra.time) {
+    const d = new Date(extra.time);
+    const timeStr = d.toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit', hour12: false});
+    timeHtml = `<div class="text-[10px] text-gray-400 mt-1">${timeStr}</div>`;
+  }
+
   inner.insertAdjacentHTML('beforeend', `
     <div class="flex justify-start w-full animate-fade-in">
       <div class="max-w-[85%] flex gap-4 flex-row">
         <div class="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-xs font-bold shadow-sm bg-white border border-blue-100 text-blue-600">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
         </div>
-        <div class="p-4 rounded-2xl text-[14px] shadow-sm bg-white border border-gray-100 text-gray-800">
-          ${docInfo ? `<div class="max-h-[200px] overflow-hidden relative"><div class="prose-content">${rendered}</div><div class="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white to-transparent"></div></div>` : rendered}
-          ${docCardHtml}
-          ${extra || ''}
+        <div>
+          <div class="p-4 rounded-2xl text-[14px] shadow-sm bg-white border border-gray-100 text-gray-800">
+            ${docInfo ? `<div class="max-h-[200px] overflow-hidden relative"><div class="prose-content">${rendered}</div><div class="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white to-transparent"></div></div>` : rendered}
+            ${docCardHtml}
+          </div>
+          ${timeHtml}
         </div>
       </div>
     </div>`);
@@ -2447,7 +2492,6 @@ async function sendAgui(text, extra) {
   if (text) {
     addUserBubble(text);
     hist.push({ role: 'user', content: text });
-    saveHistToStorage();
     if (hist.filter(h => h.role === 'user').length === 1) {
       const title = text.length > 20 ? text.slice(0, 20) + '...' : text;
       document.getElementById('headerTitle').textContent = title;
@@ -2465,7 +2509,6 @@ async function sendAgui(text, extra) {
   const body = {
     message: text || '',
     threadId: tid,
-    history: hist.slice(0, -1).slice(-10),
     runId: genId(),
   };
   if (extra && extra.resume) {
@@ -2731,7 +2774,6 @@ async function sendAgui(text, extra) {
                 aiContent = '';  // 清空，防止流结束时被 finalizeAiBubble 渲染
                 // 保存到对话历史（用特殊前缀标记为 doc_card，恢复时渲染为卡片）
                 hist.push({ role: 'assistant', content: '<!--doc_card:' + title + '-->\n' + content });
-                saveHistToStorage();
                 // 清除流式状态
                 window._docStreamContent = null;
                 window._docStreamTokenCount = 0;
@@ -2816,8 +2858,6 @@ async function sendAgui(text, extra) {
 
                 // 保存到对话历史
                 hist.push({ role: 'assistant', content: content });
-                saveHistToStorage();
-
                 // 清除流式状态
                 window._docStreamContent = null;
                 window._docStreamTokenCount = 0;
@@ -2889,8 +2929,6 @@ async function sendAgui(text, extra) {
               scrollToBottom();
 
               hist.push({ role: 'assistant', content: content });
-              saveHistToStorage();
-
               window._docStreamContent = null;
               window._docStreamTokenCount = 0;
               textMsgFinalized = true;
@@ -2939,7 +2977,6 @@ async function sendAgui(text, extra) {
     }
     if (aiContent && aiContent !== '[doc_card]') {
       hist.push({ role: 'assistant', content: aiContent });
-      saveHistToStorage();
     }
 
   } catch(e) {
@@ -2949,7 +2986,6 @@ async function sendAgui(text, extra) {
 
   updatePanelStatus(false);
   scrollToBottom();
-  saveTraceToStorage(); // 对话完成后持久化链路到 localStorage
 }
 
 async function send(overrideText) {
@@ -2969,8 +3005,6 @@ async function send(overrideText) {
   // 显示用户消息
   addUserBubble(text);
   hist.push({ role: 'user', content: text });
-  saveHistToStorage();
-
   // 更新标题
   if (hist.filter(h => h.role === 'user').length === 1) {
     const title = text.length > 20 ? text.slice(0, 20) + '...' : text;
@@ -3010,12 +3044,11 @@ async function send(overrideText) {
 
   // 调用 API
   try {
-    const historyToSend = hist.slice(0, -1).slice(-10);
-    console.log('[send] tid=%s, hist.length=%d, historyToSend.length=%d', tid, hist.length, historyToSend.length);
+    console.log('[send] tid=%s, message=%s', tid, text.slice(0, 50));
     const r = await fetch(API + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, thread_id: tid, user_id: userId, history: historyToSend })
+      body: JSON.stringify({ message: text, thread_id: tid, user_id: userId })
     });
 
     if (!r.ok) throw new Error('API error: ' + r.status);
@@ -3379,7 +3412,6 @@ async function send(overrideText) {
           addAIBubble(aiContent);
         }
         hist.push({ role: 'assistant', content: aiContent });
-        saveHistToStorage();
       }
     } else {
       // JSON 响应（同步模式）
@@ -3387,8 +3419,6 @@ async function send(overrideText) {
       const reply = data.response || data.content || data.message || JSON.stringify(data);
       addAIBubble(reply);
       hist.push({ role: 'assistant', content: reply });
-      saveHistToStorage();
-
       // 处理 trace spans
       if (data.trace && data.trace.spans) {
         liveSpans = data.trace.spans.map((s, idx) => ({
@@ -3470,7 +3500,6 @@ async function send(overrideText) {
     });
     refreshTrace();
     updatePanelStatus(false);
-    saveTraceToStorage(); // 对话完成后持久化链路到 localStorage
     addStep('回复完成 ✓', 'done');
 
     // 首次对话：延迟刷新标题（TitleMiddleware 异步生成）
@@ -3498,9 +3527,6 @@ async function send(overrideText) {
 
 // ═══ 加载对话历史 ═══
 async function loadChatHistory() {
-  // 从 localStorage 加载本地会话列表
-  const localList = loadChatListFromStorage();
-
   try {
     const r = await (await fetch(API + '/api/conversations?limit=50')).json();
     const convs = r.conversations || [];
@@ -3510,12 +3536,6 @@ async function loadChatHistory() {
     chatHistory = [];
   }
 
-  // 合并 localStorage 中的会话（去重，localStorage 优先）
-  for (const lc of localList) {
-    if (!chatHistory.find(c => c.id === lc.id)) {
-      chatHistory.push(lc);
-    }
-  }
   // 按时间排序
   chatHistory.sort((a, b) => (b.time || 0) - (a.time || 0));
 
@@ -3524,48 +3544,10 @@ async function loadChatHistory() {
   }
   renderChatList();
 
-  // 刷新后自动恢复当前对话内容
-  const localHist = loadHistFromStorage(tid);
-  if (localHist.length > 0) {
-    // localStorage 有数据 — 直接恢复（无需请求服务端）
-    hist = localHist;
-    const inner = document.getElementById('chatInner');
-    const w = document.getElementById('welcomeBlock');
-    if (w) w.remove();
-    inner.innerHTML = '';
-    for (const msg of localHist) {
-      if (msg.role === 'user') addUserBubble(msg.content);
-      else if (msg.role === 'assistant') addAIBubble(msg.content, {skipDocDetect: true});
-    }
-    const c = chatHistory.find(c => c.id === tid);
-    if (c) document.getElementById('headerTitle').textContent = c.title || '对话';
-
-    // 异步加载推理链路数据（优先 localStorage，fallback 服务端）
-    const localTrace = loadTraceFromStorage(tid);
-    if (localTrace.length > 0) {
-      renderHistoricalTrace(localTrace);
-    } else {
-      (async () => {
-        try {
-          const r = await (await fetch(API + '/api/conversations/' + tid + '/messages')).json();
-          const messages = r.messages || [];
-          if (messages.length > 0) {
-            const lastMsg = messages[messages.length - 1];
-            if (lastMsg && lastMsg.spans && lastMsg.spans.length) {
-              renderHistoricalTrace(lastMsg.spans);
-            }
-          }
-        } catch(e) {
-          console.debug('[Trace] 刷新后加载链路失败:', e);
-        }
-      })();
-    }
-  } else {
-    // fallback: 从服务端加载
-    const current = chatHistory.find(c => c.id === tid);
-    if (current && current.title !== '新对话') {
-      loadChat(tid);
-    }
+  // 刷新后自动恢复当前对话内容（从服务端加载）
+  const current = chatHistory.find(c => c.id === tid);
+  if (current && current.title !== '新对话') {
+    loadChat(tid);
   }
 }
 
@@ -3581,50 +3563,21 @@ async function loadChat(chatId) {
   const inner = document.getElementById('chatInner');
   inner.innerHTML = '<div class="text-center text-gray-400 text-xs py-10">加载中...</div>';
 
-  // 优先从 localStorage 恢复消息
-  const localHist = loadHistFromStorage(chatId);
-  if (localHist.length > 0) {
-    inner.innerHTML = '';
-    hist = localHist;
-    for (const msg of localHist) {
-      if (msg.role === 'user') addUserBubble(msg.content);
-      else if (msg.role === 'assistant') addAIBubble(msg.content, {skipDocDetect: true});
-    }
-    // 恢复推理链路（优先 localStorage，fallback 服务端）
-    const localTrace = loadTraceFromStorage(chatId);
-    if (localTrace.length > 0) {
-      renderHistoricalTrace(localTrace);
-    } else {
-      try {
-        const r = await (await fetch(API + '/api/conversations/' + chatId + '/messages')).json();
-        const messages = r.messages || [];
-        if (messages.length > 0) {
-          const lastMsg = messages[messages.length - 1];
-          if (lastMsg && lastMsg.spans && lastMsg.spans.length) {
-            renderHistoricalTrace(lastMsg.spans);
-          }
-        }
-      } catch(e) {
-        console.debug('[Trace] loadChat 加载链路失败:', e);
-      }
-    }
-    return;
-  }
-
-  // fallback: 从服务端加载（SSE 模式的历史数据）
+  // 从服务端加载消息 + 链路数据
   try {
-    // 使用新 API 一次性获取消息 + spans
     const r = await (await fetch(API + '/api/conversations/' + chatId + '/messages')).json();
     const messages = r.messages || [];
     if (!messages.length) { inner.innerHTML = '<div class="text-center text-gray-400 text-xs py-10">暂无消息</div>'; return; }
     inner.innerHTML = '';
     for (const msg of messages) {
-      if (msg.user_input) { addUserBubble(msg.user_input); hist.push({ role: 'user', content: msg.user_input }); }
+      // created_at 是毫秒时间戳
+      const msgTime = msg.created_at || 0;
+      if (msg.user_input) { addUserBubble(msg.user_input, {time: msgTime}); hist.push({ role: 'user', content: msg.user_input }); }
       // 恢复内联推理步骤
       if (msg.spans && msg.spans.length > 0) {
         renderInlineSteps(msg.spans);
       }
-      if (msg.agent_output) { addAIBubble(msg.agent_output); hist.push({ role: 'assistant', content: msg.agent_output }); }
+      if (msg.agent_output) { addAIBubble(msg.agent_output, {skipDocDetect: true, time: msgTime}); hist.push({ role: 'assistant', content: msg.agent_output }); }
     }
     // 加载最后一条消息的完整推理链路到右侧面板
     const lastMsg = messages[messages.length - 1];

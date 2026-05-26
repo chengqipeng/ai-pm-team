@@ -131,29 +131,10 @@ class NeoAgentV2Adapter:
         reg.register(ReadSkillResourceTool(tenant_id=0))
 
         # 注册沙盒工具（terminal / execute_code / read_file / write_file / search_files）
+        # 根据 .env 中 SANDBOX_BACKEND 配置自动选择后端（ssh / tencent）
         try:
-            from src.tools.sandbox.backend_base import BackendConfig
-            from src.tools.sandbox.ssh_backend import SSHBackend
-            from src.tools.sandbox.terminal_tool import TerminalTool
-            from src.tools.sandbox.code_execution_tool import CodeExecutionTool
-            from src.tools.sandbox.file_tools import ReadFileTool, WriteFileTool, SearchFilesTool
-
-            sandbox_config = BackendConfig(
-                backend_type="ssh",
-                ssh_host=os.environ.get("SANDBOX_SSH_HOST", "127.0.0.1"),
-                ssh_user=os.environ.get("SANDBOX_SSH_USER", "hermes"),
-                ssh_key=os.environ.get("SANDBOX_SSH_KEY", os.path.expanduser("~/.ssh/id_rsa")),
-                ssh_port=int(os.environ.get("SANDBOX_SSH_PORT", "22")),
-                working_dir=os.environ.get("SANDBOX_WORKING_DIR", "/home/hermes"),
-            )
-            sandbox_backend = SSHBackend(sandbox_config)
-
-            reg.register(TerminalTool(sandbox_backend))
-            reg.register(CodeExecutionTool(sandbox_backend))
-            reg.register(ReadFileTool(sandbox_backend))
-            reg.register(WriteFileTool(sandbox_backend))
-            reg.register(SearchFilesTool(sandbox_backend))
-            logger.info("沙盒工具注册完成: terminal, execute_code, read_file, write_file, search_files")
+            from src.tools.sandbox import register_sandbox_tools
+            register_sandbox_tools(reg)
         except Exception as exc:
             logger.warning("沙盒工具注册失败（csv-trend-analysis 等技能将不可用）: %s", exc)
 
@@ -229,17 +210,70 @@ class NeoAgentV2Adapter:
         async for sse_event in stream_agent_response(agent, {"messages": messages}, config):
             yield sse_event.to_dict()
 
+    async def _load_history_from_db(self, thread_id: str) -> list[dict[str, str]] | None:
+        """从 ai_message 表加载对话历史（用于查询改写 + MESSAGES_SNAPSHOT）
+
+        Returns:
+            历史消息列表 [{"role": "user", "content": "..."}, ...] 或 None（首次对话）
+        """
+        try:
+            from src.store.pg_pool import get_conn
+            from src.core.context import DEFAULT_TENANT_ID
+
+            with get_conn() as conn:
+                cur = conn.cursor()
+                # 先获取 conversation_id
+                cur.execute(
+                    "SELECT id FROM ai_conversation WHERE tenant_id=%s AND thread_id=%s AND delete_flg=0",
+                    (DEFAULT_TENANT_ID, thread_id))
+                conv_row = cur.fetchone()
+                if not conv_row:
+                    return None
+
+                conv_id = conv_row[0]
+                # 加载最近 20 条消息（用于查询改写上下文）
+                cur.execute("""
+                    SELECT query, answer FROM ai_message
+                    WHERE conversation_id=%s AND delete_flg=0
+                    ORDER BY sequence DESC LIMIT 20
+                """, (conv_id,))
+                rows = cur.fetchall()
+
+            if not rows:
+                return None
+
+            # 反转为时间正序
+            rows.reverse()
+            history = []
+            for query, answer in rows:
+                if query:
+                    history.append({"role": "user", "content": query})
+                if answer:
+                    history.append({"role": "assistant", "content": answer})
+            return history if history else None
+
+        except Exception as e:
+            logger.warning("_load_history_from_db failed (non-fatal): %s", e)
+            return None
+
     async def execute_agui(
         self,
         thread_id: str,
         user_input: str,
         run_id: str | None = None,
-        history: list[dict[str, Any]] | None = None,
+        resume: dict | None = None,
     ) -> AsyncGenerator[Any, None]:
         """AG-UI 模式执行：输出标准 AG-UI 事件流
 
         使用 AGUIConverter + ProgressiveRenderer 管道，
         将 LangGraph astream_events 转换为 AG-UI 协议事件。
+
+        对话历史从后端数据库加载（ai_message 表），不依赖前端传递。
+        LangGraph checkpointer 自动维护 Agent 的消息上下文，
+        这里只需传入当前轮的新消息。
+
+        Args:
+            resume: 中断恢复数据。非 None 时使用 Command(resume=value) 恢复执行。
         """
         import uuid as _uuid
         from src.agui import create_agui_pipeline
@@ -247,6 +281,9 @@ class NeoAgentV2Adapter:
 
         agent = await self._ensure_agent()
         _run_id = run_id or _uuid.uuid4().hex
+
+        # 从数据库加载对话历史（用于查询改写 + MESSAGES_SNAPSHOT）
+        history = await self._load_history_from_db(thread_id)
 
         converter, renderer = create_agui_pipeline(
             run_id=_run_id, thread_id=thread_id,
@@ -259,31 +296,42 @@ class NeoAgentV2Adapter:
         # 必须在入口层预处理之前清除，否则会把本轮的 content_review/query_rewrite spans 清掉
         tracing_middleware.clear(thread_id)
 
-        # ── 入口层预处理：毒性检测 → 查询改写 ──
-        passed, blocked_reason = await _apply_content_review(user_input, thread_id)
-        if not passed:
-            # 拦截：直接作为单条文本消息返回
-            msg_id = _uuid.uuid4().hex[:12]
-            yield _m.run_started(_run_id, thread_id)
-            yield _m.text_message_start(msg_id)
-            yield _m.text_message_content(msg_id, blocked_reason)
-            yield _m.text_message_end(msg_id)
-            yield _m.run_finished(_run_id, thread_id)
-            return
+        # ── 如果是 resume 请求，使用 Command(resume=value) 恢复执行 ──
+        if resume:
+            from langgraph.types import Command
 
-        effective_query = await _apply_query_rewrite(user_input, history, thread_id)
+            logger.info("[execute_agui] RESUME: thread=%s, resume=%s", thread_id, resume)
+            input_data = Command(resume=resume)
+            config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 1000}
+            astream = agent.astream_events(input_data, config=config, version="v2")
+        else:
+            # ── 入口层预处理：毒性检测 → 查询改写 ──
+            passed, blocked_reason = await _apply_content_review(user_input, thread_id)
+            if not passed:
+                # 拦截：直接作为单条文本消息返回
+                msg_id = _uuid.uuid4().hex[:12]
+                yield _m.run_started(_run_id, thread_id)
+                yield _m.text_message_start(msg_id)
+                yield _m.text_message_content(msg_id, blocked_reason)
+                yield _m.text_message_end(msg_id)
+                yield _m.run_finished(_run_id, thread_id)
+                return
 
-        # 将 pending A2UI userAction 注入本次对话
-        messages = _build_messages(effective_query, history)
-        pending = self._pending_messages.pop(thread_id, None)
-        if pending:
-            # 按注入顺序追加（用户原始输入仍在末尾，保证 Agent 先看到 UI action 再看到自由文本）
-            messages = messages[:-1] + pending + messages[-1:]
+            effective_query = await _apply_query_rewrite(user_input, history, thread_id)
 
-        input_data = {"messages": messages}
-        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 1000}
+            # 使用 checkpointer 时，LangGraph 会自动恢复历史消息，
+            # 这里只需传入当前轮的新消息，不要重复传入 history。
+            from langchain_core.messages import HumanMessage
+            messages = [HumanMessage(content=effective_query)]
 
-        astream = agent.astream_events(input_data, config=config, version="v2")
+            # 将 pending A2UI userAction 注入本次对话
+            pending = self._pending_messages.pop(thread_id, None)
+            if pending:
+                messages = pending + messages
+
+            input_data = {"messages": messages}
+            config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 1000}
+            astream = agent.astream_events(input_data, config=config, version="v2")
 
         # 实时推送 mw_spans：后台 task 消费 AG-UI 事件流放入 queue，
         # 主循环从 queue 取事件并定期检查 tracing spans。
