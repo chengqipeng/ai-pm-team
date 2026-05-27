@@ -772,7 +772,7 @@ class SkillExecutor:
         将 DB 中的脚本文件增量同步到远程沙盒。
 
         Returns:
-            沙盒中的 skill 目录路径（如 /home/hermes/.skills/sales-data-analyzer），
+            沙盒中的 skill 目录路径（如 /sandbox/.skills/sales-data-analyzer），
             如果无需同步或同步失败则返回空字符串。
         """
         # 检查 skill 是否有 script_execution 配置

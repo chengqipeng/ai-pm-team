@@ -1186,7 +1186,7 @@ async def get_or_create(thread_id: str) -> SandboxSession:
 
       <!-- 返回值 -->
       <div style="margin-top:0.5rem;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:5px;padding:0.3rem 0.6rem;text-align:center;font-size:0.7rem;color:#065f46;">
-        返回 <code style="background:none;color:#047857;">skill_dir = /home/hermes/.skills/{skill_name}</code>
+        返回 <code style="background:none;color:#047857;">skill_dir = /sandbox/.skills/{skill_name}</code>
       </div>
     </div>
 
@@ -1196,7 +1196,7 @@ async def get_or_create(thread_id: str) -> SandboxSession:
     <div style="background:#fff;border:1.5px solid #a78bfa;border-radius:8px;padding:0.6rem 1rem;">
       <div style="font-weight:600;font-size:0.8rem;color:#7c3aed;">③ format_prompt(arguments, system_vars)</div>
       <div style="font-size:0.68rem;color:#64748b;margin-top:0.2rem;">
-        <code>${SKILL_DIR}</code> → <code>/home/hermes/.skills/csv-trend-analysis</code> &nbsp;|&nbsp;
+        <code>${SKILL_DIR}</code> → <code>/sandbox/.skills/csv-trend-analysis</code> &nbsp;|&nbsp;
         <code>{input_file}</code> → 用户传入的参数值
       </div>
     </div>
@@ -1226,7 +1226,7 @@ async def get_or_create(thread_id: str) -> SandboxSession:
     </div>
     <div style="background:#0f172a;border-radius:8px;padding:0.8rem 1rem;font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:#e2e8f0;line-height:1.6;">
       <span style="color:#94a3b8;">// LLM 生成的 tool_call</span><br>
-      <span style="color:#60a5fa;">terminal</span>(<span style="color:#fbbf24;">command</span>=<span style="color:#a5f3fc;">"python3 /home/hermes/.skills/csv-trend-analysis/scripts/analyze.py \<br>
+      <span style="color:#60a5fa;">terminal</span>(<span style="color:#fbbf24;">command</span>=<span style="color:#a5f3fc;">"python3 /sandbox/.skills/csv-trend-analysis/scripts/analyze.py \<br>
       &nbsp;&nbsp;--input /tmp/data.csv --type trend --output /tmp/result.json"</span>)
     </div>
   </div>
@@ -1258,10 +1258,10 @@ async def get_or_create(thread_id: str) -> SandboxSession:
 
 <div style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:0.78rem;line-height:1.6;background:#0f172a;color:#e2e8f0;padding:1.2rem 1.5rem;border-radius:10px;margin:1rem 0;border:1px solid #334155;">
 <span style="color:#94a3b8;"># SKILL_BASE_DIR 由 SANDBOX_BACKEND 决定：</span><br>
-<span style="color:#94a3b8;">#   SSH 模式 → /home/hermes/.skills</span><br>
+<span style="color:#94a3b8;">#   SSH 模式 → /sandbox/.skills</span><br>
 <span style="color:#94a3b8;">#   腾讯沙盒 → /opt</span><br>
 <br>
-<span style="color:#67e8f9;">/home/hermes/.skills/csv-trend-analysis/</span><br>
+<span style="color:#67e8f9;">/sandbox/.skills/csv-trend-analysis/</span><br>
 ├── <span style="color:#fbbf24;">scripts/</span><br>
 │&nbsp;&nbsp; ├── analyze.py&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 主脚本（chmod +x）</span><br>
 │&nbsp;&nbsp; ├── utils.py&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 辅助模块</span><br>

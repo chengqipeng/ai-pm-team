@@ -202,8 +202,8 @@ hermes dashboard
 | 问题 | 解决方案 |
 |------|----------|
 | SSH 连接超时 | 检查虚拟机防火墙 `sudo firewall-cmd --list-all` |
-| Permission denied (SSH) | 检查 `/home/hermes/.ssh/authorized_keys` 权限为 600 |
-| SELinux 阻止 SSH | `sudo restorecon -Rv /home/hermes/.ssh` |
+| Permission denied (SSH) | 检查 `/sandbox/.ssh/authorized_keys` 权限为 600 |
+| SELinux 阻止 SSH | `sudo restorecon -Rv /sandbox/.ssh` |
 | 命令仍在 Mac 本地执行 | 确认 `config.yaml` 中 `backend: ssh`，不是 `local` |
 | npm install 权限错误 | `sudo rm -rf ~/.npm/_cacache` 后不带 sudo 重新执行 |
 | passwd 拒绝简单密码 | 用 `echo "密码" \| sudo passwd --stdin hermes` |

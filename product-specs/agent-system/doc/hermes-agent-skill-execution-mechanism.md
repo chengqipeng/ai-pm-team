@@ -231,12 +231,12 @@ SSH 后端默认启用 persistent shell，意味着：
 
 ```bash
 # 第一次 tool call
-$ cd /home/hermes/project
+$ cd /sandbox/project
 $ export MY_VAR=hello
 
 # 第二次 tool call（状态保持！）
 $ pwd
-/home/hermes/project    ← cd 生效了
+/sandbox/project    ← cd 生效了
 $ echo $MY_VAR
 hello                   ← export 生效了
 ```

@@ -324,7 +324,7 @@ TERMINAL_SSH_USER=hermes
 TERMINAL_SSH_KEY=~/.ssh/hermes_vm_key
 ```
 
-> 虚拟机的 SSH 服务支持多个公钥同时授权，Mac 和新电脑的公钥分别存在虚拟机的 `/home/hermes/.ssh/authorized_keys` 文件中，互不影响。
+> 虚拟机的 SSH 服务支持多个公钥同时授权，Mac 和新电脑的公钥分别存在虚拟机的 `/sandbox/.ssh/authorized_keys` 文件中，互不影响。
 
 ---
 

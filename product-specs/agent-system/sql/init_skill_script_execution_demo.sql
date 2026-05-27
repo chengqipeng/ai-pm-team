@@ -528,22 +528,22 @@ A: 数据量可能不足（建议 ≥ 10 行），或数值波动在阈值内
 --
 -- ③ ScriptSyncer.sync("csv-trend-analysis", version="1.0.0")
 --    → 从 ai_skill_resource 查询 scripts/ 下 3 个文件
---    → 对比沙盒中 /home/hermes/.skills/csv-trend-analysis/.sync_manifest.json
+--    → 对比沙盒中 /sandbox/.skills/csv-trend-analysis/.sync_manifest.json
 --    → 增量写入变更文件到沙盒:
---       /home/hermes/.skills/csv-trend-analysis/scripts/analyze.py
---       /home/hermes/.skills/csv-trend-analysis/scripts/utils.py
---       /home/hermes/.skills/csv-trend-analysis/scripts/requirements.txt
+--       /sandbox/.skills/csv-trend-analysis/scripts/analyze.py
+--       /sandbox/.skills/csv-trend-analysis/scripts/utils.py
+--       /sandbox/.skills/csv-trend-analysis/scripts/requirements.txt
 --    → chmod +x *.py
 --    → 更新 .sync_manifest.json
 --
 -- ④ format_prompt({"input_file":"sales.csv","analysis_type":"trend"})
---    → ${SKILL_DIR} 替换为 /home/hermes/.skills/csv-trend-analysis
+--    → ${SKILL_DIR} 替换为 /sandbox/.skills/csv-trend-analysis
 --    → {input_file} 替换为 sales.csv
 --    → {analysis_type} 替换为 trend
 --
 -- ⑤ 格式化后的 prompt 注入当前对话（inline 模式）
 --    LLM 按步骤执行:
---    → terminal("pip install -r /home/hermes/.skills/csv-trend-analysis/scripts/requirements.txt")
---    → terminal("python3 /home/hermes/.skills/csv-trend-analysis/scripts/analyze.py --input sales.csv --type trend --output /tmp/analysis_result.json")
+--    → terminal("pip install -r /sandbox/.skills/csv-trend-analysis/scripts/requirements.txt")
+--    → terminal("python3 /sandbox/.skills/csv-trend-analysis/scripts/analyze.py --input sales.csv --type trend --output /tmp/analysis_result.json")
 --    → read_file(path="/tmp/analysis_result.json")
 --    → 生成结构化报告返回用户

@@ -53,7 +53,7 @@ class ReadFileTool(Tool):
         return (
             "read_file — 读取远程沙盒中的文件内容。\n"
             "支持按行范围读取大文件。\n"
-            "用法: read_file(path='/home/hermes/app/main.py')\n"
+            "用法: read_file(path='/sandbox/app/main.py')\n"
             "     read_file(path='main.py', offset=10, limit=50)"
         )
 

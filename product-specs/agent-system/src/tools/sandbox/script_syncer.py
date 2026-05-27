@@ -69,7 +69,7 @@ def _resolve_skill_base_dir() -> str:
     backend_type = config.get("SANDBOX_BACKEND", "ssh").strip().lower()
     if backend_type == "tencent":
         return "/sandbox/.skills"
-    return "/home/hermes/.skills"
+    return "/sandbox/.skills"
 
 
 SKILL_BASE_DIR = _resolve_skill_base_dir()
