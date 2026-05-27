@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any, AsyncGenerator
@@ -170,6 +171,33 @@ class AGUIConverter:
                     self._root_run_id = event.get("run_id")
                 async for agui_event in self._map_event(event):
                     yield agui_event
+        except RuntimeError as exc:
+            if "Event loop is closed" in str(exc):
+                # httpx/anyio 在连接清理阶段遇到已关闭的 event loop（客户端断开等场景）
+                # 属于非致命性错误，不应作为 RUN_ERROR 上报
+                logger.warning(
+                    "AGUIConverter.convert: event loop closed during stream cleanup "
+                    "(client likely disconnected), thread=%s",
+                    self.thread_id,
+                )
+                async for e in self._close_active_streams():
+                    yield e
+                yield m.run_finished(self.run_id, self.thread_id)
+                return
+            logger.exception("AGUIConverter.convert: unhandled RuntimeError")
+            async for e in self._close_active_streams():
+                yield e
+            yield m.run_error("INTERNAL_ERROR", code=type(exc).__name__)
+            return
+        except asyncio.CancelledError:
+            # 任务被取消（客户端断开 SSE 连接时 FastAPI 会 cancel generator）
+            logger.info(
+                "AGUIConverter.convert: stream cancelled (client disconnected), thread=%s",
+                self.thread_id,
+            )
+            async for e in self._close_active_streams():
+                yield e
+            return
         except Exception as exc:
             logger.exception("AGUIConverter.convert: unhandled error")
             async for e in self._close_active_streams():
