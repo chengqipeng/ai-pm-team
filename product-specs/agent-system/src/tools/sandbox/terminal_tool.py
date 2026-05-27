@@ -58,7 +58,7 @@ class TerminalTool(Tool):
             "不要用 terminal 执行 Python/JS 脚本 — 用 execute_code。\n"
             "terminal 适用于: 系统命令(df/top/ps/free/uname)、包管理、"
             "git 操作、进程管理、网络诊断。\n"
-            "安装 Python 包使用: /usr/local/bin/python3 -m pip install <包名>\n"
+            "安装 Python 包使用: /usr/local/bin/python3 -m pip3 install <包名>\n"
             "执行 Python 脚本使用: /usr/local/bin/python3 <脚本路径>\n"
             "\n"
             "命令返回结果后（包括空结果或报错），直接基于结果回复用户，"

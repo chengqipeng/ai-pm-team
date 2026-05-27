@@ -53,13 +53,22 @@ class SkillDefinition:
     post_output_behavior: str = "silent"         # silent | summarize | continue | passthrough
     tenant_id: int = 0                           # 0 = 平台级
 
+    # 系统变量名（通过 ${VAR} 语法注入，不属于用户参数）
+    _SYSTEM_VAR_NAMES = frozenset({"SKILL_DIR", "SKILL_NAME"})
+
     def format_prompt(self, arguments: dict[str, str], system_vars: dict[str, str] | None = None) -> str:
         """替换 prompt 中的占位符
 
         支持两类变量：
         - {arg_name} — 用户传入的命名参数
         - ${SYSTEM_VAR} — 系统变量（如 SKILL_DIR、SKILL_NAME）
+
+        校验规则：
+        - 传入的参数在 prompt 中没有对应占位符时，打告警日志并跳过（不阻断执行）
+        - prompt 中残留未替换的 {占位符} 打告警日志（不阻断执行）
         """
+        import re
+
         result = self.prompt
 
         # 1. 替换系统变量 ${VAR_NAME}
@@ -67,9 +76,21 @@ class SkillDefinition:
             for key, value in system_vars.items():
                 result = result.replace(f"${{{key}}}", str(value))
 
-        # 2. 替换用户参数 {arg_name}
+        # 2. 替换用户参数 {arg_name}，找不到占位符时仅告警
         for key, value in arguments.items():
+            if key in self._SYSTEM_VAR_NAMES:
+                continue
+            if f"{{{key}}}" not in result:
+                logger.warning("参数 '%s' 在 prompt 中未找到 {%s} 占位符，已跳过", key, key)
+                continue
             result = result.replace(f"{{{key}}}", str(value))
+
+        # 3. 检查 prompt 中是否残留未替换的 {占位符}（仅告警）
+        remaining = re.findall(r'(?<!\$)\{([a-zA-Z_][a-zA-Z0-9_]*)\}', result)
+        if remaining:
+            missing = [r for r in remaining if r not in self._SYSTEM_VAR_NAMES]
+            if missing:
+                logger.warning("prompt 中存在未提供值的占位符: %s", ", ".join("{" + m + "}" for m in missing))
 
         return result
 

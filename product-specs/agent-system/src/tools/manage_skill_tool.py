@@ -100,10 +100,16 @@ class ManageSkillTool(Tool):
             if validation_error:
                 return ToolResult(content=validation_error, is_error=True)
 
-        # 校验 arguments 占位符
+        # 校验 arguments 占位符（系统变量除外，脚本执行模式放宽）
         arguments = definition.get("arguments", [])
         prompt = definition.get("prompt", "")
+        _SYSTEM_VARS = {"SKILL_DIR", "SKILL_NAME"}
+        has_skill_dir = "${SKILL_DIR}" in prompt
         for arg in arguments:
+            if arg in _SYSTEM_VARS:
+                continue
+            if has_skill_dir:
+                continue
             if f"{{{arg}}}" not in prompt:
                 return ToolResult(
                     content=f"参数 '{arg}' 在 prompt 中未找到对应的 {{{arg}}} 占位符",

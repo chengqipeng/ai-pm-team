@@ -386,11 +386,33 @@ class SkillService:
         if not req.description: raise SkillServiceError("description 不能为空", code="MISSING_DESCRIPTION")
         if not req.prompt: raise SkillServiceError("prompt 不能为空", code="MISSING_PROMPT")
 
+    # 系统保留变量名（通过 ${VAR} 语法注入，不需要在 arguments 中声明）
+    _SYSTEM_VARS = frozenset({"SKILL_DIR", "SKILL_NAME"})
+
     @staticmethod
     def _validate_prompt_arguments(prompt: str, arguments: list[str]) -> None:
+        """校验每个声明的参数在 prompt 中都有 {arg} 占位符
+
+        特殊处理：
+        - 系统变量（SKILL_DIR、SKILL_NAME）跳过校验
+        - 当 prompt 中包含 ${SKILL_DIR} 时，表示有脚本执行场景，
+          参数可能通过脚本命令行传入，此时放宽校验（不强制要求占位符）
+        """
+        # 如果 prompt 中引用了 ${SKILL_DIR}，说明是脚本执行模式，
+        # 参数可能通过脚本参数传递而非直接嵌入 prompt 模板
+        has_skill_dir = "${SKILL_DIR}" in prompt
+
         for arg in arguments:
+            if arg in SkillService._SYSTEM_VARS:
+                continue
+            if has_skill_dir:
+                # 脚本执行模式：参数可能通过命令行传入，不强制要求 {arg} 占位符
+                continue
             if f"{{{arg}}}" not in prompt:
-                raise SkillServiceError(f"参数 '{arg}' 在 prompt 中未找到 {{{arg}}} 占位符", code="ARGUMENT_NOT_IN_PROMPT")
+                raise SkillServiceError(
+                    f"参数 '{arg}' 在 prompt 中未找到 {{{arg}}} 占位符",
+                    code="ARGUMENT_NOT_IN_PROMPT"
+                )
 
     @staticmethod
     def _validate_context(context: str) -> None:

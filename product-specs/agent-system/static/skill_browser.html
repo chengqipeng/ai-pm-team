@@ -949,6 +949,8 @@ function closeForm() {
 
 // ── 保存技能 ──
 async function saveSkill() {
+  // 先切回配置面板，确保 required 字段可见可聚焦
+  switchToConfig();
   const form = document.getElementById('skillForm');
   if (!form.checkValidity()) { form.reportValidity(); return; }
 
