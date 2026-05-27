@@ -88,6 +88,12 @@ class TencentCOSClient:
         self._region = region
         self._key_prefix = key_prefix.rstrip("/") + "/" if key_prefix else ""
         self._host = f"{bucket}.cos.{region}.myqcloud.com"
+        logger.info(
+            "TencentCOSClient initialized: host=%s prefix=%s secret_id=%s secret_key_len=%d",
+            self._host, self._key_prefix,
+            self._secret_id[:10] + "...",
+            len(self._secret_key),
+        )
 
     @property
     def host(self) -> str:
@@ -123,6 +129,17 @@ class TencentCOSClient:
         signature = hmac.new(
             sign_key.encode(), string_to_sign.encode(), hashlib.sha1,
         ).hexdigest()
+
+        logger.debug(
+            "COS sign debug: method=%s key=%s sign_time=%s "
+            "format_string=%r string_to_sign=%r "
+            "secret_id=%s secret_key_prefix=%s sign_key=%s signature=%s",
+            method, key, sign_time,
+            http_string, string_to_sign,
+            self._secret_id[:8] + "...",
+            self._secret_key[:4] + "***" + self._secret_key[-4:],
+            sign_key, signature,
+        )
 
         auth = (
             f"q-sign-algorithm=sha1"
@@ -199,7 +216,15 @@ class TencentCOSClient:
                 f"COS upload failed: status={resp.status_code} "
                 f"key={full_key} response={resp.text[:500]}"
             )
-            logger.error(error_msg)
+            logger.error(
+                "COS upload_file failed: status=%d key=%s url=%s "
+                "secret_id=%s host=%s content_type=%s file_size=%d "
+                "response_body=%s",
+                resp.status_code, full_key, url,
+                self._secret_id[:10] + "...",
+                self._host, content_type, file_size,
+                resp.text[:800],
+            )
             raise RuntimeError(error_msg)
 
     def upload_bytes(
@@ -244,7 +269,15 @@ class TencentCOSClient:
                 f"COS upload failed: status={resp.status_code} "
                 f"key={full_key} response={resp.text[:500]}"
             )
-            logger.error(error_msg)
+            logger.error(
+                "COS upload_bytes failed: status=%d key=%s url=%s "
+                "secret_id=%s host=%s content_type=%s data_size=%d "
+                "response_body=%s",
+                resp.status_code, full_key, url,
+                self._secret_id[:10] + "...",
+                self._host, content_type, len(data),
+                resp.text[:800],
+            )
             raise RuntimeError(error_msg)
 
     def generate_presigned_url(

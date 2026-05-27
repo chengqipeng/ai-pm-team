@@ -142,6 +142,8 @@ def create_deep_agent(config: LangChainAgentConfig) -> CompiledStateGraph:
         model=config.model,
         api_key=config.api_key,
         base_url=config.api_base,
+        timeout=120,          # 请求超时 120s（避免长时间挂起）
+        max_retries=2,        # 网络抖动时自动重试
     )
 
     factory = AgentFactory(

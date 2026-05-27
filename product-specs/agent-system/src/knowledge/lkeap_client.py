@@ -458,9 +458,14 @@ class TencentLKEAPClient:
         LKEAP 返回的 zip 包含：.md 文件 + .json 结构化结果 + images/ 目录
         优先级：.md > .json > .txt > .html
         """
+        import ssl
         import urllib.request
         logger.info("Downloading parse result: %s", result_url[:80] + "...")
-        resp = urllib.request.urlopen(result_url, timeout=60)
+        # LKEAP 返回的 COS 下载链接可能使用自签名证书链，跳过 SSL 验证
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+        resp = urllib.request.urlopen(result_url, timeout=60, context=ssl_ctx)
         zip_bytes = resp.read()
 
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:

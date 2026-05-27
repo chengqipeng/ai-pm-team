@@ -454,6 +454,7 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
     thread_store.set_last_run(req.thread_id, run_id)
 
     async def generator() -> AsyncGenerator[str, None]:
+        nonlocal trace
         from src.agents.adapter import neo_agent_v2_adapter
 
         _event_count = 0
@@ -508,6 +509,24 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
                     )
                 elif t_val == "RUN_ERROR":
                     logger.error("[AG-UI] [thread=%s] RUN_ERROR: %s", req.thread_id, event.data)
+                    # 记录错误到 trace 链路
+                    if trace is not None:
+                        try:
+                            _error_msg = event.data.get("message", "INTERNAL_ERROR")
+                            _error_code = event.data.get("code", "")
+                            tracer.finish_trace(
+                                trace.trace_id, "error",
+                                f"RUN_ERROR: {_error_msg} ({_error_code})" if _error_code else f"RUN_ERROR: {_error_msg}",
+                            )
+                            from src.store.trace_writer import TraceWriter
+                            from src.core.context import DEFAULT_TENANT_ID
+                            _tw_err = TraceWriter(tenant_id=DEFAULT_TENANT_ID)
+                            trace_final_err = tracer.get_trace(trace.trace_id)
+                            if trace_final_err:
+                                _tw_err.on_trace_finish(trace_final_err)
+                            trace = None  # 标记已处理，避免后续重复 finish
+                        except Exception as _te:
+                            logger.warning("AG-UI trace error persist failed: %s", _te)
                 elif t_val == "CUSTOM":
                     name = event.data.get("name", "")
                     if name == "doc_stream":
@@ -584,6 +603,21 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
         except Exception as exc:
             logger.exception("execute_agui failed")
             from src.agui import run_error
+            # 记录异常到 trace 链路
+            if trace is not None:
+                try:
+                    tracer.finish_trace(
+                        trace.trace_id, "error",
+                        f"execute_agui exception: {type(exc).__name__}: {str(exc)[:200]}",
+                    )
+                    from src.store.trace_writer import TraceWriter
+                    from src.core.context import DEFAULT_TENANT_ID
+                    _tw_exc = TraceWriter(tenant_id=DEFAULT_TENANT_ID)
+                    trace_final_exc = tracer.get_trace(trace.trace_id)
+                    if trace_final_exc:
+                        _tw_exc.on_trace_finish(trace_final_exc)
+                except Exception as _te:
+                    logger.warning("AG-UI trace exception persist failed: %s", _te)
             yield run_error("INTERNAL_ERROR", code=type(exc).__name__).to_sse()
         finally:
             pass

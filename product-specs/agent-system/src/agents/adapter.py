@@ -138,6 +138,13 @@ class NeoAgentV2Adapter:
         except Exception as exc:
             logger.warning("沙盒工具注册失败（csv-trend-analysis 等技能将不可用）: %s", exc)
 
+        # 注册 COS 文件上传工具（将生成的文件上传到腾讯云 COS 并返回可访问链接）
+        try:
+            from src.tools.cos_upload_tool import CosUploadTool
+            reg.register(CosUploadTool())
+        except Exception as exc:
+            logger.warning("COS 上传工具注册失败: %s", exc)
+
         # 初始化自改进学习循环（SkillOptimizer 写入 DB，不再落盘）
         tracker = SkillTracker(db_path="./data/skill_metrics.db")
         optimizer = SkillOptimizer(
@@ -347,6 +354,18 @@ class NeoAgentV2Adapter:
             try:
                 async for event in renderer.process(converter.convert(astream)):
                     await _event_queue.put(event)
+            except asyncio.CancelledError:
+                # 被外层 cancel（客户端断开），不作为异常传递
+                pass
+            except RuntimeError as exc:
+                if "Event loop is closed" in str(exc):
+                    # httpx 连接清理时 event loop 已关闭，非致命
+                    logger.warning(
+                        "[execute_agui] event loop closed during stream (thread=%s), treating as normal end",
+                        thread_id,
+                    )
+                else:
+                    await _event_queue.put(exc)
             except Exception as exc:
                 await _event_queue.put(exc)
             finally:
@@ -365,6 +384,16 @@ class NeoAgentV2Adapter:
                 if item is _SENTINEL:
                     break
                 elif isinstance(item, Exception):
+                    # 将异常记录到 tracing（确保链路可见）
+                    try:
+                        tracing_middleware._add_to_thread(
+                            thread_id, "error", f"stream_error: {type(item).__name__}",
+                            0,
+                            metadata={"error": str(item)[:500], "error_type": type(item).__name__},
+                            detail=f"流式执行异常: {type(item).__name__}: {str(item)[:200]}",
+                        )
+                    except Exception:
+                        pass
                     break
                 elif item is not None:
                     t_val = getattr(item.type, "value", None) or str(item.type)
