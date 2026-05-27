@@ -77,20 +77,19 @@ class CodeExecutionTool(Tool):
     def prompt(self) -> str:
         return (
             "execute_code — 在远程沙盒中执行代码片段（编程逻辑处理）。\n"
-            "支持语言: python, javascript, sh\n"
+            "支持语言: python, node, sh\n"
             "\n"
             "适用场景（需要编程逻辑时才用）:\n"
-            "- 需要 3 步以上的数据处理逻辑（循环、条件判断、数据转换）\n"
-            "- 需要第三方库（pandas 分析、matplotlib 绘图等）\n"
-            "- 需要对大量数据做过滤/聚合后再返回结果\n"
+            "- 需要多步数据处理逻辑（循环、条件判断、数据转换）\n"
+            "- 需要对数据做计算、过滤、聚合等处理后返回结果\n"
             "- 用户明确要求写代码或运行脚本\n"
             "\n"
             "不要使用 execute_code 的场景（用 terminal 代替）:\n"
             "- 简单系统命令: df/top/ps/free/uname/ls → terminal\n"
-            "- 包安装: pip install/npm install → terminal\n"
+            "- 包安装: pip3 install/npm install → terminal\n"
             "- git 操作 → terminal\n"
             "\n"
-            "用法: execute_code(language='python', code='import pandas as pd\\n...')\n"
+            "用法: execute_code(language='python', code='x = [1,2,3]\\nprint(sum(x))')\n"
             "代码执行后直接返回结果，不要因结果不理想而自行换方式重试。"
         )
 
