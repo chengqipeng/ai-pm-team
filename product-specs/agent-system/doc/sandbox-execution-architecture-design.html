@@ -170,7 +170,7 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink { opacity: 0.5;
           </div>
           <div style="background:#fff;border:1px solid #fcd34d;border-radius:5px;padding:0.35rem;text-align:center;">
             <div style="font-weight:600;font-size:0.72rem;color:var(--tencent);">📦 容器运行时</div>
-            <div style="font-size:0.62rem;color:#64748b;">Python / Node 预装</div>
+            <div style="font-size:0.62rem;color:#64748b;">Python 3.12 / Node 预装</div>
           </div>
           <div style="background:#fff;border:1px solid #fcd34d;border-radius:5px;padding:0.35rem;text-align:center;">
             <div style="font-weight:600;font-size:0.72rem;color:var(--tencent);">🌐 网络策略</div>
@@ -1097,6 +1097,354 @@ async def get_or_create(thread_id: str) -> SandboxSession:
 </div>
 
 </div>
+
+<h2 id="skill-sync-exec">七、Skill 脚本同步与沙盒执行<a class="headerlink" href="#skill-sync-exec" title="Permanent link">&para;</a></h2>
+
+<blockquote>
+<p>Skill 脚本从数据库定义到沙盒执行的完整链路。ScriptSyncer 负责将 DB 中的脚本文件增量同步到远程沙盒，LLM 根据格式化后的 Prompt SOP 在沙盒中调用脚本。</p>
+</blockquote>
+
+
+<div style="margin:1.5rem 0;">
+<div style="display:flex;flex-direction:column;gap:0;align-items:center;">
+
+  <!-- 入口：LLM 调用 skills_tool -->
+  <div style="background:#334155;color:#fff;padding:0.6rem 2rem;border-radius:8px;font-weight:600;font-size:0.9rem;text-align:center;">
+    🧠 LLM 调用 skills_tool(skill_name, arguments)
+  </div>
+  <div style="width:2px;height:20px;background:#94a3b8;"></div>
+
+  <!-- SkillExecutor -->
+  <div style="width:100%;border:2px solid #7c3aed;border-radius:12px;padding:1.2rem 1.5rem;background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);position:relative;">
+    <div style="position:absolute;top:-12px;left:20px;background:#7c3aed;color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">⚙️ SkillExecutor.execute()</div>
+
+    <!-- 步骤 1: 检查配置 -->
+    <div style="margin-top:0.6rem;display:flex;align-items:center;gap:0.8rem;">
+      <div style="background:#fff;border:1.5px solid #a78bfa;border-radius:8px;padding:0.6rem 1rem;flex:1;">
+        <div style="font-weight:600;font-size:0.8rem;color:#7c3aed;">① 检查 ext_info.script_execution</div>
+        <div style="font-size:0.68rem;color:#64748b;margin-top:0.2rem;">有配置 → 触发 ScriptSyncer &nbsp;|&nbsp; 无配置 → 跳过同步，直接格式化 prompt</div>
+      </div>
+    </div>
+
+    <div style="text-align:center;color:#a78bfa;font-size:0.8rem;margin:0.4rem 0;">▼</div>
+
+    <!-- 步骤 2: ScriptSyncer -->
+    <div style="border:1.5px dashed #0891b2;border-radius:10px;padding:1rem;background:#f0fdfa;position:relative;">
+      <div style="position:absolute;top:-10px;left:14px;background:#f0fdfa;padding:0 8px;font-size:0.72rem;color:#0e7490;font-weight:600;">② ScriptSyncer.sync(skill_name, version)</div>
+
+      <div style="display:flex;align-items:stretch;gap:0.6rem;margin-top:0.4rem;">
+
+        <!-- 左：DB 查询 -->
+        <div style="flex:1;background:#fff;border:1px solid #67e8f9;border-radius:6px;padding:0.6rem;display:flex;flex-direction:column;gap:0.3rem;">
+          <div style="font-weight:600;font-size:0.75rem;color:#0891b2;">📦 DB 查询</div>
+          <div style="font-size:0.65rem;color:#64748b;line-height:1.5;">
+            ai_skill_resource<br>
+            WHERE path LIKE 'scripts/%'<br>
+            → [{path, content, md5}]
+          </div>
+        </div>
+
+        <!-- 中：对比 -->
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.2rem;">
+          <div style="font-size:0.7rem;color:#0891b2;">⟷</div>
+          <div style="font-size:0.6rem;color:#64748b;text-align:center;writing-mode:vertical-lr;">hash 对比</div>
+        </div>
+
+        <!-- 右：沙盒 manifest -->
+        <div style="flex:1;background:#fff;border:1px solid #67e8f9;border-radius:6px;padding:0.6rem;display:flex;flex-direction:column;gap:0.3rem;">
+          <div style="font-weight:600;font-size:0.75rem;color:#0891b2;">📋 沙盒 Manifest</div>
+          <div style="font-size:0.65rem;color:#64748b;line-height:1.5;">
+            .sync_manifest.json<br>
+            {path: old_hash}<br>
+            不存在 → 全量同步
+          </div>
+        </div>
+
+      </div>
+
+      <div style="text-align:center;color:#0891b2;font-size:0.75rem;margin:0.5rem 0 0.3rem;">▼ 仅同步 hash 变更的文件</div>
+
+      <!-- 同步动作 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.4rem;">
+        <div style="background:#fff;border:1px solid #99f6e4;border-radius:5px;padding:0.4rem;text-align:center;">
+          <div style="font-size:0.72rem;font-weight:600;color:#0d9488;">📝 写入文件</div>
+          <div style="font-size:0.6rem;color:#64748b;">Backend.write_file()</div>
+        </div>
+        <div style="background:#fff;border:1px solid #99f6e4;border-radius:5px;padding:0.4rem;text-align:center;">
+          <div style="font-size:0.72rem;font-weight:600;color:#0d9488;">🔑 设权限</div>
+          <div style="font-size:0.6rem;color:#64748b;">chmod +x *.py *.sh</div>
+        </div>
+        <div style="background:#fff;border:1px solid #99f6e4;border-radius:5px;padding:0.4rem;text-align:center;">
+          <div style="font-size:0.72rem;font-weight:600;color:#0d9488;">📦 装依赖</div>
+          <div style="font-size:0.6rem;color:#64748b;">pip3 install -r req.txt</div>
+        </div>
+        <div style="background:#fff;border:1px solid #99f6e4;border-radius:5px;padding:0.4rem;text-align:center;">
+          <div style="font-size:0.72rem;font-weight:600;color:#0d9488;">💾 更新 manifest</div>
+          <div style="font-size:0.6rem;color:#64748b;">{path: new_hash}</div>
+        </div>
+      </div>
+
+      <!-- 返回值 -->
+      <div style="margin-top:0.5rem;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:5px;padding:0.3rem 0.6rem;text-align:center;font-size:0.7rem;color:#065f46;">
+        返回 <code style="background:none;color:#047857;">skill_dir = /home/hermes/.skills/{skill_name}</code>
+      </div>
+    </div>
+
+    <div style="text-align:center;color:#a78bfa;font-size:0.8rem;margin:0.4rem 0;">▼</div>
+
+    <!-- 步骤 3: format_prompt -->
+    <div style="background:#fff;border:1.5px solid #a78bfa;border-radius:8px;padding:0.6rem 1rem;">
+      <div style="font-weight:600;font-size:0.8rem;color:#7c3aed;">③ format_prompt(arguments, system_vars)</div>
+      <div style="font-size:0.68rem;color:#64748b;margin-top:0.2rem;">
+        <code>${SKILL_DIR}</code> → <code>/home/hermes/.skills/csv-trend-analysis</code> &nbsp;|&nbsp;
+        <code>{input_file}</code> → 用户传入的参数值
+      </div>
+    </div>
+
+    <div style="text-align:center;color:#a78bfa;font-size:0.8rem;margin:0.4rem 0;">▼</div>
+
+    <!-- 步骤 4: 路由 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;">
+      <div style="background:#fff;border:1.5px solid #60a5fa;border-radius:8px;padding:0.6rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.78rem;color:#2563eb;">④a inline 模式</div>
+        <div style="font-size:0.65rem;color:#64748b;margin-top:0.2rem;">返回 formatted_prompt<br>LLM 按 SOP 继续调用工具</div>
+      </div>
+      <div style="background:#fff;border:1.5px solid #f59e0b;border-radius:8px;padding:0.6rem;text-align:center;">
+        <div style="font-weight:600;font-size:0.78rem;color:#d97706;">④b fork 模式</div>
+        <div style="font-size:0.65rem;color:#64748b;margin-top:0.2rem;">创建子 Agent<br>prompt 作为任务指令独立执行</div>
+      </div>
+    </div>
+
+  </div>
+  <div style="width:2px;height:20px;background:#94a3b8;"></div>
+
+  <!-- LLM 按 SOP 调用工具 -->
+  <div style="width:100%;border:2px solid #0891b2;border-radius:12px;padding:1rem 1.5rem;background:var(--sandbox-bg);position:relative;">
+    <div style="position:absolute;top:-12px;left:20px;background:var(--sandbox);color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">⑤ LLM 按 Prompt SOP 调用沙盒工具</div>
+    <div style="font-size:0.72rem;color:#0e7490;margin:0.4rem 0 0.6rem;">
+      LLM 读取格式化后的 Skill Prompt，按步骤调用 terminal / execute_code 执行脚本
+    </div>
+    <div style="background:#0f172a;border-radius:8px;padding:0.8rem 1rem;font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:#e2e8f0;line-height:1.6;">
+      <span style="color:#94a3b8;">// LLM 生成的 tool_call</span><br>
+      <span style="color:#60a5fa;">terminal</span>(<span style="color:#fbbf24;">command</span>=<span style="color:#a5f3fc;">"python3 /home/hermes/.skills/csv-trend-analysis/scripts/analyze.py \<br>
+      &nbsp;&nbsp;--input /tmp/data.csv --type trend --output /tmp/result.json"</span>)
+    </div>
+  </div>
+  <div style="width:2px;height:20px;background:#94a3b8;"></div>
+
+  <!-- Backend 执行 -->
+  <div style="width:100%;display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+    <div style="border:1.5px solid var(--ssh);border-radius:8px;padding:0.7rem;background:linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%);text-align:center;">
+      <div style="font-weight:600;font-size:0.8rem;color:var(--ssh);">🔒 SSH Backend</div>
+      <div style="font-size:0.65rem;color:#64748b;margin-top:0.3rem;">asyncssh → 远程 Linux 主机<br>执行 python3 脚本<br>流式回传 stdout/stderr</div>
+    </div>
+    <div style="border:1.5px solid var(--tencent);border-radius:8px;padding:0.7rem;background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);text-align:center;">
+      <div style="font-weight:600;font-size:0.8rem;color:var(--tencent);">☁️ 腾讯沙盒 Backend</div>
+      <div style="font-size:0.65rem;color:#64748b;margin-top:0.3rem;">sandbox.commands.run()<br>容器内执行脚本<br>实时回调 stdout/stderr</div>
+    </div>
+  </div>
+  <div style="width:2px;height:20px;background:#94a3b8;"></div>
+
+  <!-- 结果回传 -->
+  <div style="width:100%;border:1.5px solid #4ade80;border-radius:8px;padding:0.5rem 1.5rem;background:linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%);text-align:center;">
+    <span style="font-weight:600;font-size:0.85rem;color:#16a34a;">✅ ExecutionResult → ToolMessage 回注 LLM → 继续推理或返回结果</span>
+  </div>
+
+</div>
+</div>
+
+<!-- 沙盒中的目录结构 -->
+<h3 id="71-sandbox-layout">7.1 沙盒中的 Skill 目录结构<a class="headerlink" href="#71-sandbox-layout" title="Permanent link">&para;</a></h3>
+
+<div style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:0.78rem;line-height:1.6;background:#0f172a;color:#e2e8f0;padding:1.2rem 1.5rem;border-radius:10px;margin:1rem 0;border:1px solid #334155;">
+<span style="color:#94a3b8;"># SKILL_BASE_DIR 由 SANDBOX_BACKEND 决定：</span><br>
+<span style="color:#94a3b8;">#   SSH 模式 → /home/hermes/.skills</span><br>
+<span style="color:#94a3b8;">#   腾讯沙盒 → /opt</span><br>
+<br>
+<span style="color:#67e8f9;">/home/hermes/.skills/csv-trend-analysis/</span><br>
+├── <span style="color:#fbbf24;">scripts/</span><br>
+│&nbsp;&nbsp; ├── analyze.py&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 主脚本（chmod +x）</span><br>
+│&nbsp;&nbsp; ├── utils.py&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 辅助模块</span><br>
+│&nbsp;&nbsp; └── requirements.txt&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># Python 依赖声明</span><br>
+├── <span style="color:#fbbf24;">output/</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 脚本输出目录（自动创建）</span><br>
+├── <span style="color:#4ade80;">.sync_manifest.json</span>&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 同步状态 {path: md5_hash}</span><br>
+└── <span style="color:#4ade80;">.deps_installed</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 依赖安装标记（记录 req.txt 的 hash）</span>
+</div>
+
+<!-- 增量同步策略 -->
+<h3 id="72-sync-strategy">7.2 增量同步策略<a class="headerlink" href="#72-sync-strategy" title="Permanent link">&para;</a></h3>
+
+<table>
+<thead>
+<tr><th>场景</th><th>触发条件</th><th>同步行为</th><th>耗时</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>首次执行</strong></td><td>manifest 不存在</td><td>全量写入所有 scripts/ 文件 + 安装依赖</td><td>2~30s（含 pip3 install）</td></tr>
+<tr><td><strong>重复执行</strong></td><td>manifest 存在，hash 全部匹配</td><td>跳过同步，直接返回 skill_dir</td><td>&lt;50ms</td></tr>
+<tr><td><strong>脚本更新</strong></td><td>DB 中文件 hash 与 manifest 不一致</td><td>仅写入变更文件，跳过未变文件</td><td>100~500ms</td></tr>
+<tr><td><strong>沙盒重建</strong></td><td>容器销毁后重建，manifest 丢失</td><td>自动退化为全量同步</td><td>2~30s</td></tr>
+<tr><td><strong>依赖变更</strong></td><td>requirements.txt 的 hash 与 .deps_installed 不一致</td><td>重新 pip3 install</td><td>10~60s</td></tr>
+<tr><td><strong>强制同步</strong></td><td>force=True 参数</td><td>忽略 manifest，全量重写</td><td>1~5s</td></tr>
+</tbody>
+</table>
+
+<h3 id="73-preinstalled">7.3 镜像预装公共包<a class="headerlink" href="#73-preinstalled" title="Permanent link">&para;</a></h3>
+
+<blockquote>
+<p>沙盒初始镜像默认安装 Python 3.12，并预装以下公共 Python 包，Skill 的 <code>requirements.txt</code> 只需声明额外依赖，减少首次执行的冷启动耗时。</p>
+</blockquote>
+
+<div style="margin:1.5rem 0;display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+
+<!-- SSH 模式 -->
+<div style="border:1.5px solid var(--ssh);border-radius:10px;padding:1rem;background:linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%);position:relative;">
+<div style="position:absolute;top:-10px;left:14px;background:var(--ssh);color:#fff;padding:1px 10px;border-radius:4px;font-size:0.72rem;font-weight:600;">🔒 SSH 模式 — VM 初始化脚本预装</div>
+<div style="margin-top:0.5rem;background:#0f172a;border-radius:6px;padding:0.7rem 1rem;font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:#e2e8f0;line-height:1.7;">
+<span style="color:#94a3b8;"># /etc/hermes/init_sandbox.sh</span><br>
+pip3 install \<br>
+&nbsp;&nbsp;<span style="color:#67e8f9;">numpy</span> \<br>
+&nbsp;&nbsp;<span style="color:#67e8f9;">pandas</span> \<br>
+&nbsp;&nbsp;<span style="color:#67e8f9;">requests</span> \<br>
+&nbsp;&nbsp;<span style="color:#67e8f9;">aiohttp</span> \<br>
+&nbsp;&nbsp;<span style="color:#67e8f9;">pyyaml</span>
+</div>
+<div style="font-size:0.68rem;color:#1d4ed8;margin-top:0.5rem;">一次安装，持久化到磁盘，所有 Skill 共享。</div>
+</div>
+
+<!-- 腾讯沙盒模式 -->
+<div style="border:1.5px solid var(--tencent);border-radius:10px;padding:1rem;background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);position:relative;">
+<div style="position:absolute;top:-10px;left:14px;background:var(--tencent);color:#fff;padding:1px 10px;border-radius:4px;font-size:0.72rem;font-weight:600;">☁️ 腾讯沙盒 — 自定义模板镜像 Bake</div>
+<div style="margin-top:0.5rem;background:#0f172a;border-radius:6px;padding:0.7rem 1rem;font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:#e2e8f0;line-height:1.7;">
+<span style="color:#94a3b8;"># Dockerfile (custom template)</span><br>
+FROM code-interpreter-v1<br>
+RUN pip3 install \<br>
+&nbsp;&nbsp;<span style="color:#fbbf24;">numpy</span> \<br>
+&nbsp;&nbsp;<span style="color:#fbbf24;">pandas</span> \<br>
+&nbsp;&nbsp;<span style="color:#fbbf24;">requests</span> \<br>
+&nbsp;&nbsp;<span style="color:#fbbf24;">aiohttp</span> \<br>
+&nbsp;&nbsp;<span style="color:#fbbf24;">pyyaml</span>
+</div>
+<div style="font-size:0.68rem;color:#92400e;margin-top:0.5rem;">Bake 进镜像，容器启动即可用，无运行时安装开销。</div>
+</div>
+
+</div>
+
+<!-- 包清单表格 -->
+<table>
+<thead>
+<tr><th>包名</th><th>版本策略</th><th>用途</th></tr>
+</thead>
+<tbody>
+<tr><td><code>numpy</code></td><td>最新稳定版</td><td>数值计算、数组操作</td></tr>
+<tr><td><code>pandas</code></td><td>最新稳定版</td><td>数据分析、CSV/Excel 读写</td></tr>
+<tr><td><code>requests</code></td><td>最新稳定版</td><td>同步 HTTP 请求</td></tr>
+<tr><td><code>aiohttp</code></td><td>最新稳定版</td><td>异步 HTTP 请求（配合 asyncio）</td></tr>
+<tr><td><code>pyyaml</code></td><td>最新稳定版</td><td>YAML 解析与生成</td></tr>
+</tbody>
+</table>
+
+<blockquote>
+<p><strong>说明：</strong><code>json</code>、<code>xml.etree</code>、<code>csv</code>、<code>urllib</code> 为 Python 3.12 标准库自带，无需额外安装。预装包覆盖了数据处理、HTTP 通信、配置解析三大高频场景，Skill 开发者可直接使用而无需在 <code>requirements.txt</code> 中重复声明。</p>
+</blockquote>
+
+<hr>
+
+<h2 id="tencent-sdk-ref">附录：腾讯云 Agent Runtime SDK 官方文档<a class="headerlink" href="#tencent-sdk-ref" title="Permanent link">&para;</a></h2>
+
+<blockquote>
+<p>以下内容整理自腾讯云官方文档，供开发者快速参考沙箱实例的 SDK 操作方式。<br>
+<strong>官方文档地址：</strong><a href="https://cloud.tencent.com/document/product/1814/123848" target="_blank">https://cloud.tencent.com/document/product/1814/123848</a><br>
+<em>Content was rephrased for compliance with licensing restrictions</em></p>
+</blockquote>
+
+<h3 id="tencent-prereq">前提条件</h3>
+<ul>
+<li>执行以下代码前，需先按照 <a href="https://cloud.tencent.com/document/product/1814/123847" target="_blank">配置环境变量</a> 完成环境变量设置。</li>
+<li>若使用 <code>e2b_code_interpreter</code> SDK 且不指定 template，必须已在账号下创建名为 <code>code-interpreter-v1</code> 的代码解释器沙箱工具。</li>
+</ul>
+
+<h3 id="tencent-create">创建沙箱实例</h3>
+<pre><code>from e2b import Sandbox
+from e2b_code_interpreter import Sandbox as CodeSandbox
+
+# 创建一个沙箱工具名为"code-interpreter-v1"的沙箱实例
+sandbox = Sandbox.create(template="code-interpreter-v1")
+
+# 也可以从 e2b_code_interpreter 中导入 Sandbox，默认模板为"code-interpreter-v1"
+sandbox = CodeSandbox.create()
+
+# 创建时指定超时时间（超时后沙箱将被自动删除）
+sandbox = Sandbox.create(
+    template="code-interpreter-v1",
+    timeout=300  # 单位为秒
+)</code></pre>
+<blockquote><p><strong>说明：</strong><code>create</code> 的 <code>metadata</code>、<code>envs</code>、<code>secure</code>、<code>allow_internet_access</code> 参数暂不可用，请期待后续功能更新。</p></blockquote>
+
+<h3 id="tencent-list">获取沙箱实例列表</h3>
+<p>使用 <code>Sandbox.list()</code> 获取分页器，以页为单位获取沙箱实例信息：</p>
+<pre><code>from e2b_code_interpreter import Sandbox
+
+# 调用 list 方法获取分页器
+paginator = Sandbox.list()
+
+# 若分页器还有下一页，则取出下一页
+while paginator.has_next:
+    page = paginator.next_items()
+    for sandbox_info in page:
+        print(sandbox_info)
+
+# 指定一页中有多少实例
+paginator_limit_5 = Sandbox.list(limit=5)
+
+# 获取当前分页器的偏移值
+print(paginator_limit_5.next_token)  # None
+if paginator_limit_5.has_next:
+    paginator_limit_5.next_items()
+print(paginator_limit_5.next_token)  # offset_5</code></pre>
+
+<h3 id="tencent-info">获取沙箱实例信息</h3>
+<p>通过 <code>get_info</code> 方法获取沙箱实例详细信息：</p>
+<pre><code>from e2b_code_interpreter import Sandbox
+
+sandbox = Sandbox.create()
+info = sandbox.get_info()
+print(info)
+
+# 输出结果示例
+# SandboxInfo(
+#   sandbox_id='1234567890qwertyuiopasdfghjklzxf',
+#   template_id='sdt-12345678',
+#   name='code-interpreter-v1',
+#   metadata={},
+#   started_at=datetime.datetime(...),
+#   end_at=datetime.datetime(...),
+#   state=&lt;SandboxState.RUNNING: 'running'&gt;,
+#   cpu_count=1,     # 此处无实际意义，请使用云API查询真实CPU设定
+#   memory_mb=2048,  # 此处无实际意义，请使用云API查询真实内存设定
+#   envd_version='0.2.10',
+# )</code></pre>
+
+<h3 id="tencent-delete">删除沙箱实例</h3>
+<pre><code>from e2b_code_interpreter import Sandbox
+
+sandbox = Sandbox.create()
+sandbox.kill()  # 删除沙箱实例，资源立即释放</code></pre>
+
+<h3 id="tencent-related-docs">相关文档导航</h3>
+<table>
+<thead>
+<tr><th>文档</th><th>说明</th><th>链接</th></tr>
+</thead>
+<tbody>
+<tr><td>配置环境变量</td><td>SDK 使用前的环境准备</td><td><a href="https://cloud.tencent.com/document/product/1814/123847" target="_blank">查看</a></td></tr>
+<tr><td>沙箱实例（本页）</td><td>实例创建、查询、删除</td><td><a href="https://cloud.tencent.com/document/product/1814/123848" target="_blank">查看</a></td></tr>
+<tr><td>文件系统</td><td>沙箱内文件读写操作</td><td><a href="https://cloud.tencent.com/document/product/1814/123849" target="_blank">查看</a></td></tr>
+<tr><td>终端命令</td><td>沙箱内 Shell 命令执行</td><td><a href="https://cloud.tencent.com/document/product/1814/123850" target="_blank">查看</a></td></tr>
+<tr><td>代码运行</td><td>代码解释器模式执行</td><td><a href="https://cloud.tencent.com/document/product/1814/123851" target="_blank">查看</a></td></tr>
+<tr><td>浏览器操作</td><td>沙箱内浏览器自动化</td><td><a href="https://cloud.tencent.com/document/product/1814/123852" target="_blank">查看</a></td></tr>
+<tr><td>All-In-One 沙箱操作</td><td>综合沙箱操作指南</td><td><a href="https://cloud.tencent.com/document/product/1814/130978" target="_blank">查看</a></td></tr>
+</tbody>
+</table>
 
 
 </body>

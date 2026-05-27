@@ -68,7 +68,7 @@ def _resolve_skill_base_dir() -> str:
     # 未配置 → 根据 SANDBOX_BACKEND 选择默认值
     backend_type = config.get("SANDBOX_BACKEND", "ssh").strip().lower()
     if backend_type == "tencent":
-        return "/opt"
+        return "/sandbox/.skills"
     return "/home/hermes/.skills"
 
 

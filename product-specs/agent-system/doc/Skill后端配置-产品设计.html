@@ -289,7 +289,7 @@ strong { color: var(--heading); }
 <!-- 左侧：资源文件树 -->
 <div style="width:240px;background:#f8fafc;border-right:1px solid #e2e8f0;padding:12px 0;font-size:0.78em;min-height:560px;">
 <div style="padding:6px 12px;display:flex;justify-content:space-between;align-items:center;">
-<span style="font-weight:600;color:#475569;">📁 资源文件 <span style="font-weight:400;color:#94a3b8;">4目录 · 10文件</span></span>
+<span style="font-weight:600;color:#475569;">📁 资源文件 <span style="font-weight:400;color:#94a3b8;">5目录 · 12文件</span></span>
 </div>
 <div style="padding:4px 12px;display:flex;gap:4px;margin-bottom:8px;">
 <span style="border:1px solid #d1d5db;border-radius:4px;padding:2px 6px;font-size:0.9em;cursor:pointer;">📄+</span>
@@ -303,6 +303,11 @@ strong { color: var(--heading); }
 <div style="padding:5px 12px;color:#475569;padding-left:20px;">📄 SKILL.md</div>
 <div style="padding:5px 12px;color:#475569;">📋 版本管理</div>
 <div style="padding:8px 12px;color:#475569;margin-top:4px;border-top:1px solid #e2e8f0;padding-top:8px;">
+<span style="display:flex;align-items:center;gap:4px;">▼ 📁 scripts <span style="color:#94a3b8;margin-left:auto;">2</span></span>
+</div>
+<div style="padding:3px 12px;padding-left:24px;color:#475569;">📄 data_export.py</div>
+<div style="padding:3px 12px;padding-left:24px;color:#475569;">📄 report_gen.py</div>
+<div style="padding:8px 12px;color:#475569;">
 <span style="display:flex;align-items:center;gap:4px;">▼ 📁 knowledge <span style="color:#94a3b8;margin-left:auto;">3</span></span>
 </div>
 <div style="padding:4px 12px;padding-left:24px;color:#475569;">
@@ -414,10 +419,55 @@ strong { color: var(--heading); }
 <p style="font-size:0.88em;color:#64748b;margin-bottom:12px;">每个 Skill 可关联一组知识资源文件，作为技能执行时的上下文参考：</p>
 <ul style="font-size:0.88em;color:#4b5563;">
 <li><strong>SKILL.md</strong>：技能的 Prompt 定义文件（Markdown 格式）</li>
+<li><strong>scripts/</strong>：脚本目录，用户存放自定义 Python 脚本文件，技能执行时可同步到沙盒环境中运行</li>
 <li><strong>knowledge/</strong>：知识库目录，存放行业知识、分析策略、竞品手册等参考文档</li>
 <li><strong>操作栏</strong>：支持新增文件（📄+）、新增文件夹（📁+）、删除（🗑）、刷新（🔄）</li>
 <li><strong>文件统计</strong>：顶部显示"N目录 · M文件"统计信息</li>
 </ul>
+</div>
+
+<div class="card" style="border-left:4px solid var(--green);background:linear-gradient(135deg,#ecfdf5 0%,#f0fdf4 100%);">
+<div class="card-header" style="color:var(--green);">📂 scripts 目录 — 脚本管理与沙盒联动</div>
+<p style="font-size:0.9em;color:#374151;margin:8px 0;"><code>scripts/</code> 是 Skill 定义中专门用于存放用户自定义脚本的目录，支持在技能执行时将脚本同步到沙盒环境中运行。</p>
+
+<div class="field-group">
+<div class="field-group-title">核心规则</div>
+<table style="font-size:0.88em;">
+<thead><tr><th>规则</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><strong>目录为空 → 不启动沙盒</strong></td><td>当 <code>scripts/</code> 目录存在但内容为空（无任何脚本文件）时，技能执行<strong>不会</strong>启动沙盒环境，节省资源开销</td></tr>
+<tr><td><strong>目录非空且有关联 → 启动脚本同步</strong></td><td>当 <code>scripts/</code> 目录中存在脚本文件，且 Skill 配置中关联了这些脚本时，技能执行前自动启动沙盒并将脚本同步到沙盒的工作目录中</td></tr>
+<tr><td><strong>脚本关联配置</strong></td><td>在 Skill 配置中通过 <code>script_refs</code> 字段声明需要同步的脚本文件列表（支持通配符 <code>*</code>），未关联的脚本不会被同步</td></tr>
+<tr><td><strong>同步目标路径</strong></td><td>脚本同步到沙盒的 <code>/workspace/scripts/</code> 目录下，保持原始目录结构</td></tr>
+<tr><td><strong>执行权限</strong></td><td>同步后的脚本文件自动赋予可执行权限，可通过 <code>terminal</code> 或 <code>execute_code</code> 工具直接调用（当前仅支持 Python）</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="field-group">
+<div class="field-group-title">沙盒启动判断流程</div>
+<div class="flow-diagram">
+<div class="flow-step">检查 scripts/ 目录</div>
+<span class="flow-arrow">→</span>
+<div class="flow-step">目录为空？</div>
+<span class="flow-arrow">→</span>
+<div class="flow-step" style="background:var(--green-bg);border-color:#6ee7b7;color:var(--green);">是：跳过沙盒，正常执行</div>
+</div>
+<div class="flow-diagram" style="margin-top:4px;">
+<div class="flow-step" style="visibility:hidden;">检查 scripts/ 目录</div>
+<span class="flow-arrow" style="visibility:hidden;">→</span>
+<div class="flow-step" style="visibility:hidden;">目录为空？</div>
+<span class="flow-arrow">→</span>
+<div class="flow-step" style="background:var(--blue-bg);border-color:#93c5fd;color:var(--blue);">否：启动沙盒 → 同步脚本 → 执行技能</div>
+</div>
+</div>
+
+<div style="margin-top:12px;padding:12px;background:#f0f9ff;border-radius:8px;font-size:0.8em;color:#0369a1;">
+💡 <code>scripts/</code> 目录为可选目录，创建 Skill 时默认不创建；用户可通过资源文件树的"📁+"按钮手动添加<br/>
+💡 脚本同步发生在技能执行的初始化阶段，同步完成后才开始 LLM 推理和工具调用<br/>
+💡 当前仅支持 Python 脚本（<code>.py</code>），后续可扩展其他语言<br/>
+💡 脚本文件大小限制：单文件不超过 1MB，<code>scripts/</code> 目录总大小不超过 10MB
+</div>
 </div>
 
 <hr/>
@@ -613,6 +663,41 @@ strong { color: var(--heading); }
 <td><span class="status-dot gray"></span>禁用</td>
 <td><span style="font-size:0.9em;color:#6b7280;">—</span></td>
 </tr>
+<tr style="background:#f0fdfa;">
+<td><strong>terminal</strong></td>
+<td style="color:#64748b;">在沙盒中执行 Shell 命令（别名: shell, run_command）</td>
+<td><span class="badge badge-orange">🟡 敏感</span></td>
+<td><span class="status-dot green"></span>启用</td>
+<td><span style="font-size:0.9em;color:#6b7280;">data_analysis</span></td>
+</tr>
+<tr style="background:#f0fdfa;">
+<td><strong>execute_code</strong></td>
+<td style="color:#64748b;">在沙盒中执行代码片段（支持 Python/JS/Bash/Ruby/Go）</td>
+<td><span class="badge badge-orange">🟡 敏感</span></td>
+<td><span class="status-dot green"></span>启用</td>
+<td><span style="font-size:0.9em;color:#6b7280;">data_analysis</span></td>
+</tr>
+<tr style="background:#f0fdfa;">
+<td><strong>read_file</strong></td>
+<td style="color:#64748b;">读取沙盒中的文件内容（支持行范围 offset/limit）</td>
+<td><span class="badge badge-green">🟢 安全</span></td>
+<td><span class="status-dot green"></span>启用</td>
+<td><span style="font-size:0.9em;color:#6b7280;">data_analysis</span></td>
+</tr>
+<tr style="background:#f0fdfa;">
+<td><strong>write_file</strong></td>
+<td style="color:#64748b;">在沙盒中创建/覆盖文件（自动创建父目录）</td>
+<td><span class="badge badge-orange">🟡 敏感</span></td>
+<td><span class="status-dot green"></span>启用</td>
+<td><span style="font-size:0.9em;color:#6b7280;">data_analysis</span></td>
+</tr>
+<tr style="background:#f0fdfa;">
+<td><strong>search_files</strong></td>
+<td style="color:#64748b;">在沙盒中搜索文件内容（正则 + 文件名过滤）</td>
+<td><span class="badge badge-green">🟢 安全</span></td>
+<td><span class="status-dot green"></span>启用</td>
+<td><span style="font-size:0.9em;color:#6b7280;">data_analysis</span></td>
+</tr>
 </tbody>
 </table>
 
@@ -631,7 +716,8 @@ strong { color: var(--heading); }
 <div style="margin-top:12px;padding:12px;background:#f0f9ff;border-radius:8px;font-size:0.8em;color:#0369a1;">
 💡 工具由系统注册，此页面仅供查看，不支持新增/删除工具<br/>
 💡 "关联 Skill"列展示哪些技能的 allowed_tools 中包含该工具<br/>
-💡 Skill 引用了高风险工具时，执行过程中调用该工具前会自动触发用户确认
+💡 Skill 引用了高风险工具时，执行过程中调用该工具前会自动触发用户确认<br/>
+💡 沙盒类工具（terminal / execute_code / read_file / write_file / search_files）需 Skill 的 <code>scripts/</code> 目录非空且有脚本关联时方可使用（系统自动启动沙盒并同步脚本）
 </div>
 </div>
 </div>
