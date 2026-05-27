@@ -1,7 +1,7 @@
 """
 Code Execution Tool — 在远程沙盒中执行代码片段
 
-支持 Python、JavaScript、Bash 等语言。
+支持 Python、JavaScript、Shell。
 代码写入临时文件后执行，执行完自动清理。
 """
 from __future__ import annotations
@@ -24,10 +24,7 @@ LANGUAGE_RUNNERS = {
     "javascript": "node",
     "js": "node",
     "node": "node",
-    "bash": "bash",
     "sh": "sh",
-    "ruby": "ruby",
-    "go": "go run",
 }
 
 # 语言 → 文件扩展名映射
@@ -37,10 +34,7 @@ LANGUAGE_EXTENSIONS = {
     "javascript": ".js",
     "js": ".js",
     "node": ".js",
-    "bash": ".sh",
     "sh": ".sh",
-    "ruby": ".rb",
-    "go": ".go",
 }
 
 
@@ -64,7 +58,7 @@ class CodeExecutionTool(Tool):
             "properties": {
                 "language": {
                     "type": "string",
-                    "description": "编程语言: python, javascript, bash, ruby, go",
+                    "description": "编程语言: python, javascript, sh",
                     "enum": list(LANGUAGE_RUNNERS.keys()),
                 },
                 "code": {
@@ -83,7 +77,7 @@ class CodeExecutionTool(Tool):
     def prompt(self) -> str:
         return (
             "execute_code — 在远程沙盒中执行代码片段（编程逻辑处理）。\n"
-            "支持语言: python, javascript, bash, ruby, go\n"
+            "支持语言: python, javascript, sh\n"
             "\n"
             "适用场景（需要编程逻辑时才用）:\n"
             "- 需要 3 步以上的数据处理逻辑（循环、条件判断、数据转换）\n"
