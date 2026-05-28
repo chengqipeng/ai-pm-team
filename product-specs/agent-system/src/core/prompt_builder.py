@@ -73,6 +73,18 @@ SECTION_TOOLS_HEADER = """\
 - `[SKILL_DONE:continue]` → 继续后续步骤
 - `[SKILL_DONE:passthrough]` → 完整呈现给用户
 
+## 技能管理（manage_skill）
+
+当用户要求**创建、修改、删除、查看**技能定义时，使用 `manage_skill` 工具（不是 skills_tool）。
+
+- **创建技能**: manage_skill(action="create", skill_definition={...})
+- **更新技能**: manage_skill(action="update", api_key="xxx", skill_definition={...})
+- **删除技能**: manage_skill(action="delete", api_key="xxx")
+- **列出技能**: manage_skill(action="list")
+
+⚠️ 区分：`skills_tool` 用于**执行**已有技能，`manage_skill` 用于**管理**技能定义（增删改查）。
+用户说"创建技能/新建技能/帮我做一个技能"时，必须调用 manage_skill，禁止调用 skills_tool。
+
 ## 子 Agent 委派（agent_tool）
 
 仅当任务需要独立上下文且复杂度高时：多源调研、批量处理、深度统计。
@@ -97,7 +109,11 @@ SECTION_TOOLS_HEADER = """\
 思考: 需要两步——先查客户，再查联系人
 → query_data(entity_api_key="account", ...)
 → query_data(entity_api_key="contact", ...)
-→ 汇总结果回复"""
+→ 汇总结果回复
+
+用户: "帮我创建一个技能，分析客户的扩展销售机会"
+思考: 用户要创建新技能，使用 manage_skill
+→ manage_skill(action="create", skill_definition={...})"""
 
 
 # 向后兼容：保留旧变量名（静态版本，无动态工具清单）

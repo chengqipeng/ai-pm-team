@@ -1,0 +1,4259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Skill 提示词架构优化设计</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-light: #dbeafe;
+            --secondary: #7c3aed;
+            --secondary-light: #ede9fe;
+            --success: #059669;
+            --success-light: #d1fae5;
+            --warning: #d97706;
+            --warning-light: #fef3c7;
+            --danger: #dc2626;
+            --danger-light: #fee2e2;
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-600: #4b5563;
+            --gray-700: #374151;
+            --gray-800: #1f2937;
+            --gray-900: #111827;
+            --radius: 12px;
+            --shadow: 0 1px 3px rgba(0,0,0,0.1);
+            --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                         'PingFang SC', 'Hiragino Sans GB', sans-serif;
+            line-height: 1.7; color: var(--gray-800);
+            background: var(--gray-50);
+        }
+        .page {
+            max-width: 1100px; margin: 0 auto; padding: 40px 32px;
+            page-break-after: always;
+        }
+        .page:last-child { page-break-after: avoid; }
+
+        /* Header */
+        .doc-header {
+            background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #7c3aed 100%);
+            color: white; padding: 48px 40px; border-radius: var(--radius);
+            margin-bottom: 36px; position: relative; overflow: hidden;
+        }
+        .doc-header::before {
+            content: ''; position: absolute; top: -50%; right: -20%;
+            width: 60%; height: 200%;
+            background: radial-gradient(ellipse, rgba(255,255,255,0.08) 0%, transparent 70%);
+        }
+        .doc-header h1 { font-size: 2rem; font-weight: 700; margin-bottom: 10px; position: relative; }
+        .doc-header .subtitle { font-size: 1rem; opacity: 0.9; position: relative; }
+        .doc-header .meta { margin-top: 16px; font-size: 0.8rem; opacity: 0.6; position: relative; }
+
+        /* Section */
+        .section {
+            background: white; border-radius: var(--radius); padding: 28px 32px;
+            margin-bottom: 20px; box-shadow: var(--shadow); border: 1px solid var(--gray-200);
+        }
+        .section h2 {
+            font-size: 1.35rem; color: var(--gray-900); margin-bottom: 18px;
+            padding-bottom: 10px; border-bottom: 2px solid var(--primary-light);
+            display: flex; align-items: center; gap: 10px;
+        }
+        .section h3 {
+            font-size: 1.05rem; color: var(--gray-800); margin: 20px 0 10px;
+            padding-left: 12px; border-left: 3px solid var(--primary);
+        }
+        .section p { margin-bottom: 10px; color: var(--gray-700); font-size: 0.92rem; }
+        /* Flow */
+        .arch-diagram {
+            display: flex; flex-direction: column; align-items: center;
+            gap: 0; margin: 24px 0; padding: 24px;
+            background: var(--gray-50); border-radius: 8px; border: 1px solid var(--gray-200);
+        }
+        .arch-node {
+            border: 2px solid; border-radius: 10px; padding: 14px 28px;
+            min-width: 520px; text-align: center; position: relative;
+        }
+        .arch-node.l0 { border-color: var(--primary); background: var(--primary-light); }
+        .arch-node.l1 { border-color: var(--secondary); background: var(--secondary-light); }
+        .arch-node.l2 { border-color: var(--success); background: var(--success-light); }
+        .arch-node strong { font-size: 0.95rem; }
+        .arch-node .desc { font-size: 0.8rem; color: var(--gray-600); margin-top: 4px; }
+        .arch-arrow {
+            width: 2px; height: 20px; background: var(--gray-300); position: relative;
+        }
+        .arch-arrow::after {
+            content: '▼'; position: absolute; bottom: -6px; left: 50%;
+            transform: translateX(-50%); color: var(--gray-400); font-size: 0.6rem;
+        }
+        .arch-label { font-size: 0.75rem; color: var(--gray-500); font-style: italic; margin: 2px 0; }
+
+        /* Cards */
+        .card-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin: 14px 0; }
+        .card {
+            background: var(--gray-50); border: 1px solid var(--gray-200);
+            border-radius: 8px; padding: 16px;
+        }
+        .card-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 6px; }
+        .card-desc { font-size: 0.82rem; color: var(--gray-600); line-height: 1.6; }
+
+        /* Code */
+        .code {
+            background: #1e293b; color: #e2e8f0; border-radius: 8px;
+            padding: 18px 20px; font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.8rem; line-height: 1.6; overflow-x: auto; margin: 14px 0;
+        }
+        .code .cm { color: #64748b; }
+        .code .kw { color: #c084fc; }
+        .code .str { color: #86efac; }
+        .code .hl { color: #fbbf24; }
+
+        /* Table */
+        .tbl { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin: 14px 0; }
+        .tbl th { background: var(--gray-100); font-weight: 600; text-align: left; padding: 10px 14px; border-bottom: 2px solid var(--gray-200); }
+        .tbl td { padding: 8px 14px; border-bottom: 1px solid var(--gray-100); vertical-align: top; }
+
+        /* Badge */
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: 500; }
+        .badge-blue { background: var(--primary-light); color: var(--primary); }
+        .badge-purple { background: var(--secondary-light); color: var(--secondary); }
+        .badge-green { background: var(--success-light); color: var(--success); }
+        .badge-orange { background: var(--warning-light); color: var(--warning); }
+
+        /* Callout */
+        .callout {
+            border-radius: 8px; padding: 14px 18px; margin: 14px 0;
+            font-size: 0.88rem; display: flex; gap: 10px; align-items: flex-start;
+        }
+        .callout-info { background: var(--primary-light); border-left: 4px solid var(--primary); }
+        .callout-key { background: var(--warning-light); border-left: 4px solid var(--warning); }
+
+        @media (max-width: 768px) {
+            .page { padding: 20px 16px; }
+            .arch-node { min-width: auto; width: 100%; }
+            .card-row { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- PAGE 1: 分层架构 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page">
+
+    <div class="doc-header">
+        <h1>Create Skill 提示词架构优化设计</h1>
+        <div class="subtitle">从"单体巨型 Prompt"到"分层按需加载"的架构重构</div>
+        <div class="meta">Agent System · Skill Engine · 2025-05-28</div>
+    </div>
+
+    <div class="section">
+        <h2>🏛️ 分层架构</h2>
+
+        <p><strong>核心思路</strong>：采用"主文件内联业务域 + 通用兜底按需加载"的双文件架构 —— <code>SKILL.md</code> 内联 6 大业务域的完整专业分析体系（始终可用），<code>generic.md</code> 提供前置检查、能力边界、通用框架和 ToB CRM 知识体系（按需加载）。</p>
+
+        <div class="arch-diagram">
+            <div class="arch-node l0">
+                <strong><code>SKILL.md</code> — 主文件（始终加载）</strong>
+                <div class="desc">~500 行 · 内联 6 大业务域专业分析体系 + 8 步设计流程 + 资源架构决策 + 模式库 + 工具清单 + 硬约束</div>
+            </div>
+            <div class="arch-arrow"></div>
+            <div class="arch-label">无法归类 / 跨域 / 非 CRM 标准场景时按需加载</div>
+            <div class="arch-node l1">
+                <strong><code>knowledge/domains/generic.md</code> — 通用兜底（按需加载）</strong>
+                <div class="desc">~1200 行 · 去重检查 + 能力边界 + 通用四框架 + 跨域指导 + ToB CRM 知识体系 + 异常处理</div>
+            </div>
+        </div>
+
+        <h3>各层职责</h3>
+
+        <table class="tbl">
+            <thead>
+                <tr><th>文件</th><th>内容</th><th>加载时机</th><th>解决的问题</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="badge badge-blue"><code>SKILL.md</code></span></td>
+                    <td>
+                        • 6 大业务域完整分析体系（客户/商机/预测/活动/客户成功/团队）<br>
+                        • 8 步设计流程（Step 0 前置检查 → Step 7 确认 → Step 8 创建）<br>
+                        • Step 2.5 资源架构决策（references/scripts/knowledge 判断树）<br>
+                        • 8 种快速生成模式库<br>
+                        • 完整工具清单（22 个工具 + 选择原则）<br>
+                        • 数据纪律 + 反幻觉 + 结果核验 + 硬约束
+                    </td>
+                    <td>始终加载</td>
+                    <td>覆盖 80% 的 CRM 标准场景，提供完整的专业深度指导</td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-purple"><code>generic.md</code></span></td>
+                    <td>
+                        • §一 去重检查（Step 0 前置流程）<br>
+                        • §一-B 能力边界（8 类不可承载需求 + 拒绝话术）<br>
+                        • §二 通用分析四框架（描述性/诊断性/预测性/处方性）<br>
+                        • §三 分析维度选择方法论<br>
+                        • §四 跨域组合指导<br>
+                        • §五 非分析类技能设计指导<br>
+                        • §五-B ToB CRM 领域内置知识体系（18 方法论 + 20+ 基准指标）<br>
+                        • §六-十 Prompt 骨架 / 工具选择 / 置信度 / 异常处理 / 完整示例
+                    </td>
+                    <td>按需加载（跨域/非CRM/通用场景）</td>
+                    <td>兜底保障 — 非标准场景的完整指导 + 专业性注入</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>文件结构</h3>
+
+        <div style="margin: 14px 0; padding: 24px 28px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px;">
+            <div style="font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.82rem; line-height: 2.2;">
+                <div style="font-weight:700; color:var(--gray-900); margin-bottom:8px;">skills/definitions/create_skill/</div>
+                <div style="padding-left:20px;">
+                    <div style="position:relative; padding-left:24px;">
+                        <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
+                        <span style="color:var(--primary); font-weight:600;"><code>SKILL.md</code></span>
+                        <span style="color:var(--gray-500); margin-left:12px; font-size:0.75rem;">主文件 · ~500 行 · 内联 6 域分析体系 + 完整设计流程</span>
+                    </div>
+                    <div style="position:relative; padding-left:24px;">
+                        <span style="position:absolute;left:0;color:var(--gray-400);">└──</span>
+                        <span style="font-weight:600; color:var(--gray-800);">knowledge/</span>
+                    </div>
+                    <div style="padding-left:48px;">
+                        <div style="position:relative; padding-left:24px;">
+                            <span style="position:absolute;left:0;color:var(--gray-400);">└──</span>
+                            <span style="font-weight:600; color:var(--secondary);">domains/</span>
+                            <span style="color:var(--gray-500); margin-left:12px; font-size:0.75rem;">7 个域知识文件</span>
+                        </div>
+                        <div style="padding-left:48px;">
+                            <details style="margin: 4px 0;">
+                                <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--primary); font-weight:500;">
+                                    <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
+                                    account.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">客户分析 · ABM五级分级 + 五维画像 + 成熟度判断</span>
+                                </summary>
+                                <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--gray-200); margin-left: 12px;">
+                                    ├── 一、业务本质与分析目标（3 核心问题）<br>
+                                    ├── 二、客户画像五维模型<br>
+                                    │　　├── 2.1 维度定义与数据要求<br>
+                                    │　　├── 2.2 客户分级模型（ABM 五级 S/A/B/C/D）<br>
+                                    │　　├── 2.3 客户数字化成熟度判断（5 阶段）<br>
+                                    │　　├── 2.4 关系健康度评分（5 维 × 20 分）<br>
+                                    │　　└── 2.5 LTV 预测模型（含数据不足时估算法）<br>
+                                    ├── 三、深度分析维度（5 维）<br>
+                                    │　　├── 3.1 客户健康度（信号表 + 四级判定）<br>
+                                    │　　├── 3.2 钱包份额与扩展空间<br>
+                                    │　　├── 3.3 决策链路图（含 Blocker 角色）<br>
+                                    │　　├── 3.4 竞品渗透度（5 维评估 + 替换难度）<br>
+                                    │　　└── 3.5 扩展路径（Up-sell/Cross-sell + 时机矩阵）<br>
+                                    ├── 四、客户风险因素评估<br>
+                                    ├── 五、交叉关联分析方法<br>
+                                    ├── 六、分场景分析策略（5 场景）<br>
+                                    ├── 七、行业基准参考（含分行业 IT 支出）<br>
+                                    └── 八、Prompt 设计指导（8 条）
+                                </div>
+                            </details>
+                            <details style="margin: 4px 0;">
+                                <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--primary); font-weight:500;">
+                                    <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
+                                    opportunity.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">商机管理 · MEDDIC 六维评分 + 推进策略 + 竞争分析</span>
+                                </summary>
+                                <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--gray-200); margin-left: 12px;">
+                                    ├── 一、业务本质与分析目标<br>
+                                    ├── 二、MEDDIC 评估框架<br>
+                                    │　　├── 2.1 六维度评分标准（0-100% 判断逻辑）<br>
+                                    │　　├── 2.2 整体赢率计算（加权 × 阶段系数）<br>
+                                    │　　└── 2.3 等级判定（🟢🟡🔴）<br>
+                                    ├── 三、商机推进策略<br>
+                                    │　　├── 3.1 阶段转化基准（4 阶段 × 转化率/天数/动作）<br>
+                                    │　　├── 3.2 风险信号识别（6 类 × 严重程度 × 建议动作）<br>
+                                    │　　└── 3.3 赢单路径推荐（相似商机匹配逻辑）<br>
+                                    ├── 四、竞争分析框架<br>
+                                    │　　├── 4.1 竞争态势判断<br>
+                                    │　　└── 4.2 差异化策略选择（4 场景）<br>
+                                    ├── 五、赢/丢单归因分析<br>
+                                    ├── 六、行业基准参考<br>
+                                    └── 七、Prompt 设计指导（6 条）
+                                </div>
+                            </details>
+                            <details style="margin: 4px 0;">
+                                <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--primary); font-weight:500;">
+                                    <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
+                                    forecast.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">销售预测 · Pipeline 五维健康度 + Forecast 三档 + 达成概率</span>
+                                </summary>
+                                <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--gray-200); margin-left: 12px;">
+                                    ├── 一、业务本质与分析目标<br>
+                                    ├── 二、Pipeline 健康度模型（5 维）<br>
+                                    │　　├── 覆盖率（计算 + 4 级判断）<br>
+                                    │　　├── 形态（漏斗分布 + 异常诊断）<br>
+                                    │　　├── 流速（净增速 + 健康判断）<br>
+                                    │　　├── 质量（加权金额 + 僵尸商机特征）<br>
+                                    │　　└── 时效（超期占比）<br>
+                                    ├── 三、Forecast 三档预测<br>
+                                    │　　├── 3.1 三档定义（Commit/Best Case/Upside）<br>
+                                    │　　├── 3.2 准确度校准（个人系数）<br>
+                                    │　　└── 3.3 偏差分析<br>
+                                    ├── 四、目标达成概率模型<br>
+                                    ├── 五、行业基准参考<br>
+                                    └── 六、Prompt 设计指导（6 条）
+                                </div>
+                            </details>
+                            <details style="margin: 4px 0;">
+                                <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--primary); font-weight:500;">
+                                    <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
+                                    activity.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">销售行为 · 效能五维模型 + Top Sales 模式 + 辅导建议</span>
+                                </summary>
+                                <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--gray-200); margin-left: 12px;">
+                                    ├── 一、业务本质与分析目标<br>
+                                    ├── 二、活动效能模型（5 维）<br>
+                                    │　　├── 量（日均活动 + 覆盖率）<br>
+                                    │　　├── 质（有效率 + 高层占比）<br>
+                                    │　　├── 节奏（间隔 + 断档预警规则）<br>
+                                    │　　├── 模式（Top Sales vs 普通 7 项对比）<br>
+                                    │　　└── 转化（漏斗 + 异常诊断）<br>
+                                    ├── 三、辅导建议生成逻辑<br>
+                                    │　　├── 3.1 辅导优先级判断<br>
+                                    │　　└── 3.2 辅导建议模板（量/质/节奏分别）<br>
+                                    ├── 四、行业基准参考<br>
+                                    └── 五、Prompt 设计指导（6 条）
+                                </div>
+                            </details>
+                            <details style="margin: 4px 0;">
+                                <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--primary); font-weight:500;">
+                                    <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
+                                    customer_success.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">客户成功 · 健康度五维评分 + 流失信号 + 挽回策略库</span>
+                                </summary>
+                                <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--gray-200); margin-left: 12px;">
+                                    ├── 一、业务本质与分析目标<br>
+                                    ├── 二、客户健康度评分模型（5 维）<br>
+                                    │　　├── 产品使用（30%）评分标准<br>
+                                    │　　├── 关系健康（25%）评分标准<br>
+                                    │　　├── 商业健康（20%）信号体系<br>
+                                    │　　├── 支持健康（15%）<br>
+                                    │　　└── 价值实现（10%）<br>
+                                    ├── 三、流失风险预测<br>
+                                    │　　├── 3.1 流失信号体系（13 类信号 × 权重 × 时间窗口）<br>
+                                    │　　└── 3.2 风险等级判定（🔴🟡🟢 规则）<br>
+                                    ├── 四、挽回策略库（6 种原因 × 策略 × 成功率）<br>
+                                    ├── 五、扩展机会识别<br>
+                                    ├── 六、行业基准参考<br>
+                                    └── 七、Prompt 设计指导（6 条）
+                                </div>
+                            </details>
+                            <details style="margin: 4px 0;">
+                                <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--primary); font-weight:500;">
+                                    <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
+                                    team.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">团队管理 · 绩效五维 + 九宫格 + 辅导 ROI 算法</span>
+                                </summary>
+                                <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--gray-200); margin-left: 12px;">
+                                    ├── 一、业务本质与分析目标<br>
+                                    ├── 二、团队绩效模型（5 维）<br>
+                                    │　　├── 目标达成（绝对/趋势/差距/同比）<br>
+                                    │　　├── 效率指标（5 项 + 基准）<br>
+                                    │　　└── 能力矩阵（四维雷达图 + 评分标准）<br>
+                                    ├── 三、九宫格绩效矩阵<br>
+                                    │　　├── 3.1 矩阵定义（绩效 × 潜力）<br>
+                                    │　　├── 3.2 潜力评估维度<br>
+                                    │　　└── 3.3 各象限管理策略（7 象限 × 具体动作）<br>
+                                    ├── 四、辅导优先级算法<br>
+                                    │　　├── 4.1 ROI 排序逻辑<br>
+                                    │　　└── 4.2 辅导类型匹配（4 短板 × 方式 × 见效时间）<br>
+                                    ├── 五、资源分配合理性评估<br>
+                                    ├── 六、行业基准参考<br>
+                                    └── 七、Prompt 设计指导（6 条）
+                                </div>
+                            </details>
+                            <details style="margin: 4px 0;">
+                                <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--warning); font-weight:600;">
+                                    <span style="position:absolute;left:0;color:var(--gray-400);">└──</span>
+                                    generic.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">通用兜底 · ~1190 行 · 前置检查 + 四框架 + 知识体系</span>
+                                </summary>
+                                <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--gray-200); margin-left: 12px;">
+                                    ├── §一 适用场景与去重检查（Step 0）<br>
+                                    ├── §一-B 能力边界（8 类拒绝 + 灰色地带）<br>
+                                    ├── §二 通用分析四框架（描述/诊断/预测/处方）<br>
+                                    ├── §三 分析维度选择方法论<br>
+                                    ├── §四 跨域组合指导<br>
+                                    ├── §五 非分析类技能设计指导<br>
+                                    ├── §五-B ToB CRM 知识体系（18 方法论 + 20+ 基准）<br>
+                                    ├── §六 通用 Prompt 骨架<br>
+                                    ├── §七 工具选择指南（22 工具 + 7 Pipeline）<br>
+                                    ├── §八 置信度标注规范<br>
+                                    ├── §九 异常处理规范（10 种 + 降级链）<br>
+                                    └── §十 端到端完整示例（2 个）
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <h3><code>SKILL.md</code> 内联的 6 大业务域</h3>
+
+        <table class="tbl">
+            <thead>
+                <tr><th>业务域</th><th>核心方法论</th><th>分析体系</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="badge badge-blue">域 1</span> 客户分析</td>
+                    <td>客户 360 + LTV</td>
+                    <td>五维画像（基础/业务/组织/关系/价值）+ 5 深度分析维度 + 交叉关联逻辑</td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-blue">域 2</span> 商机管理</td>
+                    <td>MEDDIC 框架</td>
+                    <td>6 维度完成度评估 + 商机推进策略（阶段转化/竞争态势/风险信号/赢单路径/预测置信度）</td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-blue">域 3</span> 销售预测</td>
+                    <td>Pipeline Coverage</td>
+                    <td>5 维健康度模型（覆盖率/形态/流速/质量/时效）+ Forecast 准确度分析</td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-blue">域 4</span> 销售行为</td>
+                    <td>活动效能模型</td>
+                    <td>量/质/节奏/模式/转化 五维 + 最佳实践提取 + 风险预警 + 辅导建议</td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-blue">域 5</span> 客户成功</td>
+                    <td>Health Score</td>
+                    <td>5 维健康度评分（产品使用/关系/商业/支持/价值）+ 续约风险预测 + 挽回策略</td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-blue">域 6</span> 团队管理</td>
+                    <td>绩效矩阵</td>
+                    <td>目标达成/效率指标/能力矩阵/资源分配/辅导优先级</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>设计流程（8 步）</h3>
+
+        <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 0.78rem; margin: 14px 0;">
+            <span style="background:var(--danger-light); color:var(--danger); padding:4px 10px; border-radius:4px; font-weight:600;">Step 0 前置检查</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--primary-light); color:var(--primary); padding:4px 10px; border-radius:4px; font-weight:500;">Step 1 意图识别</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--primary-light); color:var(--primary); padding:4px 10px; border-radius:4px; font-weight:500;">Step 2 数据评估</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--secondary-light); color:var(--secondary); padding:4px 10px; border-radius:4px; font-weight:600;">Step 2.5 资源架构</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--success-light); color:var(--success); padding:4px 10px; border-radius:4px; font-weight:500;">Step 3 构建体系</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--warning-light); color:var(--warning); padding:4px 10px; border-radius:4px; font-weight:500;">Step 4 编写 Prompt</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--gray-100); color:var(--gray-700); padding:4px 10px; border-radius:4px; font-weight:500;">Step 5 生成定义</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--danger-light); color:var(--danger); padding:4px 10px; border-radius:4px; font-weight:500;">Step 6 质量自检</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--gray-100); color:var(--gray-700); padding:4px 10px; border-radius:4px; font-weight:500;">Step 7-8 确认+创建</span>
+        </div>
+
+        <h3>关键优势</h3>
+
+        <div class="card-row">
+            <div class="card" style="border-top: 3px solid var(--primary);">
+                <div class="card-title">🎯 内联即用，零延迟</div>
+                <div class="card-desc">6 大业务域分析体系直接内联在 <code>SKILL.md</code> 中，无需额外工具调用加载，LLM 立即可用。</div>
+            </div>
+            <div class="card" style="border-top: 3px solid var(--secondary);">
+                <div class="card-title">📚 专业深度完整</div>
+                <div class="card-desc">每个域含完整分析体系（画像结构 + 深度维度 + Prompt 逻辑要求），从方法论到落地一步到位。</div>
+            </div>
+            <div class="card" style="border-top: 3px solid var(--success);">
+                <div class="card-title">🛡️ 双重保障</div>
+                <div class="card-desc"><code>SKILL.md</code> 覆盖标准场景，<code>generic.md</code> 兜底非标场景（跨域/非CRM/新兴业务），无死角。</div>
+            </div>
+            <div class="card" style="border-top: 3px solid var(--warning);">
+                <div class="card-title">🔧 资源架构内置</div>
+                <div class="card-desc">Step 2.5 内置完整的资源决策树（references/scripts/knowledge），指导被创建技能的资源规划。</div>
+            </div>
+        </div>
+
+    </div>
+
+</div><!-- end page 1 -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- PAGE 2: 具体设计思路 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page">
+
+    <div class="section">
+        <h2>⚙️ 具体设计思路</h2>
+
+        <h3>1. <code>SKILL.md</code> — 主文件设计（始终加载）</h3>
+
+        <p><code>SKILL.md</code> 约 500 行，<strong>内联 6 大业务域的完整专业分析体系</strong>，同时包含完整的设计流程和质量保障机制：</p>
+
+        <div style="margin: 14px 0; background: #f8fafc; border: 1px solid var(--gray-200); border-radius: 8px; overflow: hidden;">
+            <!-- 角色 -->
+            <div style="padding: 14px 20px; border-bottom: 1px solid var(--gray-200);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">📌 角色定义</div>
+                <div style="font-size: 0.88rem; color: var(--gray-700);">你是一位 toB CRM 领域的技能架构师。你深谙 B2B 销售方法论（MEDDIC/Challenger/Solution Selling）、客户成功体系（Health Score/QBR/Expansion）、销售管理体系（Pipeline Management/Forecast/Territory Planning）。</div>
+            </div>
+            <!-- 6 大业务域 -->
+            <div style="padding: 14px 20px; border-bottom: 1px solid var(--gray-200);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">🏢 内联 6 大业务域（§一）</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; font-size: 0.84rem; color: var(--gray-700);">
+                    <div>域 1: 客户分析 — 五维画像 + 深度分析维度</div>
+                    <div>域 2: 商机管理 — MEDDIC 框架 + 推进策略</div>
+                    <div>域 3: 销售预测 — Pipeline 健康度 + Forecast</div>
+                    <div>域 4: 销售行为 — 活动效能模型</div>
+                    <div>域 5: 客户成功 — Health Score + 续约风险</div>
+                    <div>域 6: 团队管理 — 绩效矩阵 + 辅导优先级</div>
+                </div>
+            </div>
+            <!-- 设计流程 -->
+            <div style="padding: 14px 20px; border-bottom: 1px solid var(--gray-200);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">🔄 8 步设计流程（§二）</div>
+                <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 0.78rem;">
+                    <span style="background:var(--danger-light); color:var(--danger); padding:3px 8px; border-radius:4px; font-weight:600;">Step 0 前置检查</span>
+                    <span style="color:var(--gray-400);">→</span>
+                    <span style="background:var(--primary-light); color:var(--primary); padding:3px 8px; border-radius:4px; font-weight:500;">Step 1 意图识别</span>
+                    <span style="color:var(--gray-400);">→</span>
+                    <span style="background:var(--primary-light); color:var(--primary); padding:3px 8px; border-radius:4px; font-weight:500;">Step 2 数据评估</span>
+                    <span style="color:var(--gray-400);">→</span>
+                    <span style="background:var(--secondary-light); color:var(--secondary); padding:3px 8px; border-radius:4px; font-weight:600;">Step 2.5 资源架构</span>
+                    <span style="color:var(--gray-400);">→</span>
+                    <span style="background:var(--success-light); color:var(--success); padding:3px 8px; border-radius:4px; font-weight:500;">Step 3-4</span>
+                    <span style="color:var(--gray-400);">→</span>
+                    <span style="background:var(--warning-light); color:var(--warning); padding:3px 8px; border-radius:4px; font-weight:500;">Step 5-6</span>
+                    <span style="color:var(--gray-400);">→</span>
+                    <span style="background:var(--gray-100); color:var(--gray-700); padding:3px 8px; border-radius:4px; font-weight:500;">Step 7-8</span>
+                </div>
+            </div>
+            <!-- 核心原则 -->
+            <div style="padding: 14px 20px; border-bottom: 1px solid var(--gray-200);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">📐 5 大设计原则（§二 Step 3）</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; font-size: 0.84rem; color: var(--gray-700);">
+                    <div>① 数据→指标→基准→判断→行动 完整链路</div>
+                    <div>② 纵深优于广度（3-4 维度深入）</div>
+                    <div>③ 可行动洞察 > 信息汇总</div>
+                    <div>④ 每个结论必须有数据溯源 [来源:xxx]</div>
+                    <div style="grid-column: span 2;">⑤ 输出前必须执行结果核验（一致性/来源/逻辑/置信度）</div>
+                </div>
+            </div>
+            <!-- 域路由 -->
+            <div style="padding: 14px 20px; border-bottom: 1px solid var(--gray-200);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">🗺️ 域路由规则（Step 1）</div>
+                <div style="font-size: 0.82rem; color: var(--gray-700); line-height: 1.8;">
+                    • 匹配预定义域（域 1-6）→ 使用该域的内联专业分析体系<br>
+                    • 无法归类 / 跨域 / 非 CRM 标准场景 → 加载 <code>knowledge/domains/generic.md</code><br>
+                    • 跨域需求 → 主域内联体系 + <code>generic.md</code> 跨域组合指导
+                </div>
+            </div>
+            <!-- 模式库 + 工具 -->
+            <div style="padding: 14px 20px;">
+                <div style="font-size: 0.78rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">📦 附加模块</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; font-size: 0.84rem; color: var(--gray-700);">
+                    <div>§三 快速生成模式库（8 种模式 A-H）</div>
+                    <div>§四 完整工具清单（22 个工具 + 选择原则）</div>
+                    <div>§五 硬约束（10 条不可违反的规则）</div>
+                    <div>Step 2.5 资源架构决策树</div>
+                </div>
+            </div>
+        </div>
+
+        <h3>2. Step 0 — 前置检查（去重 + 能力边界）</h3>
+
+        <p><strong>在任何设计工作之前，必须先执行前置检查</strong>，避免重复创建和超出能力边界：</p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0;">
+            <div style="padding: 14px 16px; background: var(--primary-light); border-radius: 8px; border-left: 4px solid var(--primary);">
+                <div style="font-weight: 600; color: var(--primary); margin-bottom: 6px; font-size: 0.85rem;">0-A: 去重检查</div>
+                <div style="font-size: 0.8rem; line-height: 1.7; color: var(--gray-700);">
+                    1. 调用 <code>query_data(entity_api_key="ai_skill")</code> 获取已发布技能<br>
+                    2. 语义匹配 name + description<br>
+                    3. 四维度加权判断（对象 40% / 目标 30% / 输出类型 20% / 参数 10%）<br>
+                    4. 完全匹配→建议使用 / 高度相似→建议优化 / 部分重叠→询问用户
+                </div>
+            </div>
+            <div style="padding: 14px 16px; background: var(--danger-light); border-radius: 8px; border-left: 4px solid var(--danger);">
+                <div style="font-weight: 600; color: var(--danger); margin-bottom: 6px; font-size: 0.85rem;">0-B: 能力边界检查</div>
+                <div style="font-size: 0.8rem; line-height: 1.7; color: var(--gray-700);">
+                    快速判断（任一命中则拒绝）：<br>
+                    • 物理世界操作 • 外部系统非公开数据<br>
+                    • 实时/持续运行 • 专业资质判断<br>
+                    • 创意内容生产 • 跨系统写入<br>
+                    • 训练/修改 AI • 违规/有害内容<br>
+                    拒绝三要素：明确说不能做 + 原因 + 替代建议
+                </div>
+            </div>
+        </div>
+
+        <h3>3. Step 2.5 — 资源架构决策</h3>
+
+        <p>根据技能的分析需求，判断是否需要附加资源文件。<strong>不是每个技能都需要，但需要时必须明确规划。</strong></p>
+
+        <div style="margin: 14px 0; padding: 16px 20px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px;">
+            <div style="font-size: 0.82rem; line-height: 2; color: var(--gray-700);">
+                <div style="font-weight: 600; margin-bottom: 4px;">决策树：</div>
+                <div style="padding-left: 12px;">
+                    需要"超出 CRM 数据"的领域知识？ → <span style="color:var(--primary); font-weight:600;">references/</span>（方法论/评分模型）<br>
+                    需要"复杂计算"（统计/建模/可视化）？ → <span style="color:var(--success); font-weight:600;">scripts/</span>（Python 脚本）<br>
+                    需要"已有企业知识库文档"？ → <span style="color:var(--secondary); font-weight:600;">knowledge_search</span>（知识库检索）<br>
+                    需要"实时外部信息"？ → <span style="color:var(--warning); font-weight:600;">web_search</span>（网络搜索）
+                </div>
+            </div>
+        </div>
+
+        <div class="card-row">
+            <div class="card" style="border-top: 3px solid var(--primary);">
+                <div class="card-title">references/ — HOW（怎么分析）</div>
+                <div class="card-desc">
+                    方法论和模型定义。如 MEDDIC 评分标准、健康度权重、行业基准数据。<br>
+                    <em>通过 preload_resources 自动注入</em>
+                </div>
+            </div>
+            <div class="card" style="border-top: 3px solid var(--secondary);">
+                <div class="card-title">knowledge/ — WHAT（需要知道什么）</div>
+                <div class="card-desc">
+                    行业知识和领域数据。如行业特征/竞品情报/基准数据/销售剧本。<br>
+                    <em>通过 read_skill_resource 按需加载</em>
+                </div>
+            </div>
+            <div class="card" style="border-top: 3px solid var(--success);">
+                <div class="card-title">scripts/ — COMPUTE（复杂计算）</div>
+                <div class="card-desc">
+                    超出简单聚合的计算。如时序预测/客户聚类/可视化报表/大数据量处理。<br>
+                    <em>通过 terminal + execute_code 执行</em>
+                </div>
+            </div>
+        </div>
+
+        <h3>4. 执行路径示例</h3>
+
+        <table class="tbl">
+            <thead>
+                <tr><th>用户场景</th><th>执行路径</th><th>加载内容</th><th>效果</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>"创建商机赢率分析技能"</td>
+                    <td>Step 0 → Step 1（域 2）→ Step 2 → Step 4</td>
+                    <td><code>SKILL.md</code> 内联域 2（MEDDIC）</td>
+                    <td>MEDDIC 6 维度完整评估 + 推进策略，零额外加载</td>
+                </tr>
+                <tr>
+                    <td>"创建客户流失预警技能"</td>
+                    <td>Step 0 → Step 1（域 5）→ Step 2.5 → Step 4</td>
+                    <td><code>SKILL.md</code> 内联域 5 + references/</td>
+                    <td>健康度评分模型 + 流失信号识别 + 挽回策略</td>
+                </tr>
+                <tr>
+                    <td>"创建周报生成技能"</td>
+                    <td>Step 0 → Step 1（非标）→ 加载 <code>generic.md</code></td>
+                    <td><code>SKILL.md</code> + <strong><code>generic.md</code></strong>（非分析类指导）</td>
+                    <td>通用"报告生成类"指导 + Prompt 骨架</td>
+                </tr>
+                <tr>
+                    <td>"统计本月新增客户数"</td>
+                    <td>Step 0 → <strong>劝退</strong></td>
+                    <td>仅 <code>SKILL.md</code></td>
+                    <td>硬约束 #2：一句 query_data 能解决，不值得建技能</td>
+                </tr>
+                <tr>
+                    <td>"客户+商机综合分析"</td>
+                    <td>Step 0 → Step 1（跨域）→ 加载 <code>generic.md</code></td>
+                    <td><code>SKILL.md</code> 内联域 1+2 + <code>generic.md</code>（跨域指导）</td>
+                    <td>主域深度 + 跨域组合方法论</td>
+                </tr>
+                <tr>
+                    <td>"客户行业前景分析"</td>
+                    <td>Step 0 → Step 1（域 1）→ Step 2.5</td>
+                    <td><code>SKILL.md</code> 内联域 1 + knowledge/ + web_search</td>
+                    <td>客户画像 + 行业知识 + 实时动态</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>5. <code>generic.md</code> 加载时机</h3>
+
+        <p><code>generic.md</code> 通过 <code>read_skill_resource</code> 按需加载，仅在以下场景触发：</p>
+
+        <div style="margin: 14px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div style="padding: 12px 16px; background: var(--secondary-light); border-radius: 8px;">
+                <div style="font-weight: 600; color: var(--secondary); margin-bottom: 4px; font-size: 0.85rem;">触发加载的场景</div>
+                <div style="font-size: 0.8rem; line-height: 1.7; color: var(--gray-700);">
+                    • 用户需求无法归类到 6 大业务域<br>
+                    • 跨域组合需求（需要跨域指导）<br>
+                    • 非分析类技能（导出/报告/自动化）<br>
+                    • 非 CRM 标准场景<br>
+                    • 需要专业性注入（知识体系参考）
+                </div>
+            </div>
+            <div style="padding: 12px 16px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px;">
+                <div style="font-weight: 600; color: var(--gray-700); margin-bottom: 4px; font-size: 0.85rem;">不需要加载的场景</div>
+                <div style="font-size: 0.8rem; line-height: 1.7; color: var(--gray-600);">
+                    • 明确属于 6 大业务域之一<br>
+                    • <code>SKILL.md</code> 内联体系已足够指导<br>
+                    • 简单技能（被劝退或快速路径）
+                </div>
+            </div>
+        </div>
+
+        <div class="callout callout-info">
+            <span style="font-size:1.1rem;">💡</span>
+            <div><strong>实现要点</strong>：6 大业务域的专业分析体系直接内联在 <code>SKILL.md</code> 中，LLM 无需任何工具调用即可使用。仅当遇到非标场景时，通过 <code>read_skill_resource(skill_name="create_skill", resource_name="knowledge/domains/generic.md")</code> 按需加载兜底知识。</div>
+        </div>
+    </div>
+
+</div><!-- end page 2 -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- PAGE 3: SKILL.md 详细设计 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page">
+
+    <div class="section">
+        <h2>📄 <code>SKILL.md</code> 详细设计</h2>
+
+        <p><code>SKILL.md</code> 的完整 Markdown 原文请在最后一页的文件树中点击查看。此处展示核心结构概览：</p>
+
+        <!-- Frontmatter -->
+        <div style="margin: 16px 0; background: #f0f4f8; border: 1px solid var(--gray-200); border-radius: 8px; overflow: hidden;">
+            <div style="background: var(--gray-100); padding: 10px 20px; border-bottom: 1px solid var(--gray-200); font-size: 0.78rem; font-weight: 600; color: var(--gray-600); text-transform: uppercase; letter-spacing: 0.5px;">YAML Frontmatter</div>
+            <div style="padding: 14px 20px; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; line-height: 1.8; color: var(--gray-700);">
+                <div><span style="color:var(--secondary);">name:</span> create_skill</div>
+                <div><span style="color:var(--secondary);">description:</span> 基于 toB CRM 业务场景，通过对话创建高质量的深度分析技能</div>
+                <div><span style="color:var(--secondary);">when_to_use:</span> 创建技能|新建技能|保存为技能|生成技能|定义技能|记住这个流程</div>
+                <div><span style="color:var(--secondary);">context:</span> inline</div>
+                <div><span style="color:var(--secondary);">allowed-tools:</span> manage_skill, ask_user, query_schema, query_data, analyze_data, web_search, knowledge_search, list_knowledge_bases, read_skill_resource</div>
+                <div><span style="color:var(--secondary);">arguments:</span> requirement</div>
+            </div>
+        </div>
+
+        <div style="margin: 14px 0; padding: 16px 20px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px; font-size: 0.82rem; line-height: 2.2; color: var(--gray-700);">
+            <div style="font-weight:700; margin-bottom:8px;">章节结构：</div>
+            <div style="padding-left:12px;">
+                <div>├── §一 toB CRM 技能体系（6 大业务域，每域含完整分析体系）</div>
+                <div>├── §二 技能设计流程（Step 0-8，含前置检查 + 资源架构决策）</div>
+                <div>├── §三 快速生成模式库（8 种模式 A-H）</div>
+                <div>├── §四 可用工具清单（22 个工具 + 选择原则）</div>
+                <div>└── §五 硬约束（10 条不可违反的规则）</div>
+            </div>
+        </div>
+
+    </div>
+</div><!-- end page 3 -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- PAGE 4: generic.md 详细设计 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page">
+
+    <div class="section">
+        <h2>🛡️ <code>generic.md</code> 完整设计</h2>
+
+        <p><code>generic.md</code> 的完整 Markdown 原文请在最后一页的文件树中点击查看。此处展示核心结构概览：</p>
+
+        <div style="margin: 14px 0; padding: 16px 20px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px; font-size: 0.82rem; line-height: 2.2; color: var(--gray-700);">
+            <div style="font-weight:700; margin-bottom:8px;">章节结构（~1190 行）：</div>
+            <div style="padding-left:12px;">
+                <div style="color:var(--danger); font-weight:600;">├── §一 适用场景与去重检查（Step 0 最先执行）</div>
+                <div style="color:var(--danger); font-weight:600;">├── §一-B 能力边界（8 类拒绝 + 灰色地带）</div>
+                <div>├── §二 通用分析四框架（描述/诊断/预测/处方）</div>
+                <div>├── §三 分析维度选择方法论（3 标准打分 + 反模式）</div>
+                <div>├── §四 跨域组合指导（主域/辅域 + 数据关联）</div>
+                <div>├── §五 非分析类技能设计指导（导出/报告/自动化）</div>
+                <div style="color:var(--secondary); font-weight:600;">├── §五-B ToB CRM 知识体系（18 方法论 + 20+ 基准 + 18 维度）</div>
+                <div>├── §六 通用 Prompt 骨架</div>
+                <div>├── §七 工具选择指南（22 工具 + 7 Pipeline 模板）</div>
+                <div>├── §八 置信度标注规范</div>
+                <div>├── §九 异常处理规范（10 种 + 降级链）</div>
+                <div>└── §十 端到端完整示例（2 个含 JSON）</div>
+            </div>
+        </div>
+
+    </div>
+</div><!-- end page 4 -->
+
+
+
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- PAGE 5: 文件树 — 左侧导航 + 右侧原文 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page">
+
+    <div class="section" style="padding: 20px 24px;">
+        <h2>📂 知识文件浏览器</h2>
+        <p style="font-size: 0.85rem; color: var(--gray-600); margin-bottom: 16px;">点击左侧文件树中的文件，右侧显示 Markdown 原文。</p>
+
+        <div style="display: flex; gap: 0; border: 1px solid var(--gray-200); border-radius: 8px; overflow: hidden; height: 600px;">
+            <!-- 左侧：文件树 -->
+            <div style="width: 280px; min-width: 280px; background: var(--gray-50); border-right: 1px solid var(--gray-200); overflow-y: auto; padding: 12px 0;">
+                <div style="padding: 8px 16px; font-size: 0.72rem; font-weight: 600; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">EXPLORER</div>
+
+                <!-- Root: create_skill/ -->
+                <div style="padding: 4px 12px; font-size: 0.78rem; font-weight: 700; color: var(--gray-800);">
+                    <span style="margin-right: 4px;">📁</span> create_skill/
+                </div>
+
+                <!-- SKILL.md (root level) -->
+                <div class="tree-item" onclick="showFile('SKILL_md')" style="padding: 5px 12px 5px 28px; cursor: pointer; border-radius: 4px; font-size: 0.8rem;" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
+                    <span style="color:var(--gray-400); font-size:0.7rem; margin-right:4px;">├──</span>
+                    <span style="margin-right: 5px;">📄</span><span style="font-weight:700; color:var(--primary);">SKILL.md</span>
+                </div>
+
+                <!-- knowledge/ folder -->
+                <div style="padding: 5px 12px 5px 28px; font-size: 0.8rem; color: var(--gray-700);">
+                    <span style="color:var(--gray-400); font-size:0.7rem; margin-right:4px;">└──</span>
+                    <span style="margin-right: 5px;">📁</span><span style="font-weight:600;">knowledge/</span>
+                </div>
+
+                <!-- domains/ folder -->
+                <div style="padding: 5px 12px 5px 52px; font-size: 0.8rem; color: var(--gray-700);">
+                    <span style="color:var(--gray-400); font-size:0.7rem; margin-right:4px;">└──</span>
+                    <span style="margin-right: 5px;">📁</span><span style="font-weight:600;">domains/</span>
+                </div>
+
+                <!-- Domain files (indented under domains/) -->
+                <div class="tree-item" onclick="showFile('knowledge_domains_account_md')" style="padding: 5px 12px 5px 76px; cursor: pointer; border-radius: 4px; font-size: 0.8rem;" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
+                    <span style="color:var(--gray-400); font-size:0.7rem; margin-right:4px;">├──</span>
+                    <span style="margin-right: 5px;">📄</span><span style="font-weight:500; color:var(--secondary);">account.md</span>
+                </div>
+                <div class="tree-item" onclick="showFile('knowledge_domains_opportunity_md')" style="padding: 5px 12px 5px 76px; cursor: pointer; border-radius: 4px; font-size: 0.8rem;" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
+                    <span style="color:var(--gray-400); font-size:0.7rem; margin-right:4px;">├──</span>
+                    <span style="margin-right: 5px;">📄</span><span style="font-weight:500; color:var(--secondary);">opportunity.md</span>
+                </div>
+                <div class="tree-item" onclick="showFile('knowledge_domains_forecast_md')" style="padding: 5px 12px 5px 76px; cursor: pointer; border-radius: 4px; font-size: 0.8rem;" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
+                    <span style="color:var(--gray-400); font-size:0.7rem; margin-right:4px;">├──</span>
+                    <span style="margin-right: 5px;">📄</span><span style="font-weight:500; color:var(--secondary);">forecast.md</span>
+                </div>
+                <div class="tree-item" onclick="showFile('knowledge_domains_activity_md')" style="padding: 5px 12px 5px 76px; cursor: pointer; border-radius: 4px; font-size: 0.8rem;" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
+                    <span style="color:var(--gray-400); font-size:0.7rem; margin-right:4px;">├──</span>
+                    <span style="margin-right: 5px;">📄</span><span style="font-weight:500; color:var(--secondary);">activity.md</span>
+                </div>
+                <div class="tree-item" onclick="showFile('knowledge_domains_customer_success_md')" style="padding: 5px 12px 5px 76px; cursor: pointer; border-radius: 4px; font-size: 0.8rem;" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
+                    <span style="color:var(--gray-400); font-size:0.7rem; margin-right:4px;">├──</span>
+                    <span style="margin-right: 5px;">📄</span><span style="font-weight:500; color:var(--secondary);">customer_success.md</span>
+                </div>
+                <div class="tree-item" onclick="showFile('knowledge_domains_team_md')" style="padding: 5px 12px 5px 76px; cursor: pointer; border-radius: 4px; font-size: 0.8rem;" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
+                    <span style="color:var(--gray-400); font-size:0.7rem; margin-right:4px;">├──</span>
+                    <span style="margin-right: 5px;">📄</span><span style="font-weight:500; color:var(--secondary);">team.md</span>
+                </div>
+                <div class="tree-item" onclick="showFile('knowledge_domains_generic_md')" style="padding: 5px 12px 5px 76px; cursor: pointer; border-radius: 4px; font-size: 0.8rem;" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
+                    <span style="color:var(--gray-400); font-size:0.7rem; margin-right:4px;">└──</span>
+                    <span style="margin-right: 5px;">📄</span><span style="font-weight:700; color:var(--warning);">generic.md</span>
+                </div>
+            </div>
+
+            <!-- 右侧：文件内容 -->
+            <div id="file_viewer" style="flex: 1; overflow: hidden; display: flex; flex-direction: column; background: #1e293b;">
+                <div id="content_placeholder" style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--gray-400); font-size: 0.9rem;">
+                    ← 点击左侧文件查看内容
+                </div>
+                    <div id="content_SKILL_md" class="file-content" style="display:none;">
+                        <div style="padding: 8px 16px; background: var(--gray-100); border-bottom: 1px solid var(--gray-200); font-size: 0.75rem; font-weight: 600; color: var(--gray-600);">SKILL.md</div>
+                        <pre style="margin:0; padding:16px 20px; font-size:0.72rem; line-height:1.7; color:#e2e8f0; white-space:pre-wrap; word-wrap:break-word; overflow-y:auto; height:100%; background:#1e293b;"><code>---
+name: create_skill
+description: 基于 toB CRM 业务场景，通过对话创建高质量的深度分析技能
+when_to_use: 创建技能|新建技能|保存为技能|生成技能|定义技能|记住这个流程
+context: inline
+allowed-tools:
+  - manage_skill
+  - ask_user
+  - query_schema
+  - query_data
+  - analyze_data
+  - web_search
+  - knowledge_search
+  - list_knowledge_bases
+  - read_skill_resource
+arguments:
+  - requirement
+---
+
+你是一位 toB CRM 领域的技能架构师。你深谙 B2B 销售方法论（MEDDIC/Challenger/Solution Selling）、客户成功体系（Health Score/QBR/Expansion）、销售管理体系（Pipeline Management/Forecast/Territory Planning），你的职责是将用户的业务意图转化为一个**有专业深度的 Agent 技能**。
+
+## 用户需求
+{requirement}
+
+---
+
+## 一、toB CRM 技能体系
+
+用户创建的技能必然落在以下业务域之一。根据用户意图快速定位所属业务域，然后应用该域的**专业分析体系**：
+
+### 域 1: 客户分析（Account Intelligence）
+
+**业务本质**：帮助销售理解客户的业务全貌，找到切入点和扩展路径。
+
+**专业分析体系**：
+```
+客户画像构建
+├── 基础画像: 行业/规模/区域/成立年限/融资阶段
+├── 业务画像: 主营业务/商业模式/收入结构/增长引擎
+├── 组织画像: 决策链/部门结构/IT 成熟度/数字化阶段
+├── 关系画像: 历史合作/关键人关系/竞品渗透/合作满意度
+└── 价值画像: LTV 预测/钱包份额/扩展潜力/战略匹配度
+
+深度分析维度（每个维度必须有数据支撑+判断逻辑+行动指引）:
+  1. 客户健康度 — 基于活动频次/商机进展/NPS/续约信号的加权评分
+  2. 钱包份额 — 我方收入 / 客户该品类总预算，识别扩展空间
+  3. 决策链路图 — 经济买家/技术买家/使用者/教练的角色识别
+  4. 竞品渗透度 — 客户已采购的竞品产品/金额/满意度/替换难度
+  5. 扩展路径 — 基于已购产品推导 Cross-sell/Up-sell 机会
+```
+
+**Prompt 中必须包含的分析逻辑**：
+- 不是查一下客户名称和联系人就完了
+- 必须交叉关联：客户的商机历史 × 活动记录 × 联系人角色 × 行业特征
+- 必须有判断：这个客户值不值得投入？投入的最佳切入点是什么？
+- 必须有预测：基于历史模式预判下一步最可能发生什么
+
+### 域 2: 商机管理（Opportunity Management）
+
+**业务本质**：帮助销售推进商机、识别风险、提高赢率。
+
+**专业分析体系**：
+```
+商机健康度评估（基于 MEDDIC 框架）
+├── Metrics: 客户的量化业务痛点是什么？ROI 如何计算？
+├── Economic Buyer: 经济决策人是否已识别并接触？
+├── Decision Criteria: 客户的评估标准是什么？我方是否匹配？
+├── Decision Process: 决策流程/时间线/审批层级是否清晰？
+├── Identify Pain: 痛点是否被客户自己承认（而非我方假设）？
+└── Champion: 是否有内部支持者在推动？其影响力如何？
+
+商机推进策略:
+  1. 阶段转化分析 — 当前阶段的历史转化率/平均停留时间/关键动作
+  2. 竞争态势 — 竞品是否参与？我方差异化优势是什么？
+  3. 风险信号 — 活动断档/关键人变动/需求变更/预算冻结
+  4. 赢单路径 — 基于相似商机的成功模式推荐下一步动作
+  5. 预测置信度 — 基于多维信号的加权赢率计算
+```
+
+**Prompt 中必须包含的分析逻辑**：
+- 不是列出商机字段就完了
+- 必须评估：MEDDIC 每个维度的完成度（0-100%），给出整体赢率
+- 必须对比：与同阶段已赢/已丢商机的特征对比，识别差距
+- 必须建议：基于差距给出具体的推进动作（联系谁、做什么、什么时候）
+
+### 域 3: 销售预测（Forecast &amp; Pipeline）
+
+**业务本质**：帮助销售经理准确预测收入、管理团队 Pipeline。
+
+**专业分析体系**：
+```
+Pipeline 健康度模型
+├── 覆盖率: Pipeline 金额 / 目标 ≥ 3x 为健康
+├── 形态: 各阶段分布是否呈漏斗形（上宽下窄）
+├── 流速: 新增速度 vs 关闭速度 vs 流失速度的平衡
+├── 质量: 加权金额（金额 × 阶段赢率）vs 目标的差距
+└── 时效: 超期商机占比 / 本季度可关闭金额的置信度
+
+Forecast 准确度分析:
+  1. Commit vs Actual 的历史偏差率
+  2. 各销售的预测准确度排名（谁总是过于乐观/保守）
+  3. 阶段赢率的实际值 vs 系统默认值的偏差
+  4. 本季度 Upside/Commit/Best Case 三档预测
+```
+
+### 域 4: 销售行为分析（Activity Intelligence）
+
+**业务本质**：通过活动数据洞察销售行为模式，识别最佳实践和改进点。
+
+**专业分析体系**：
+```
+活动效能模型
+├── 量: 活动总量/日均活动数/客户覆盖率
+├── 质: 有效活动占比/推进商机的活动占比/高层拜访占比
+├── 节奏: 活动间隔/跟进及时性/关键节点覆盖
+├── 模式: 成功销售 vs 普通销售的活动模式差异
+└── 转化: 活动→商机→签约的转化漏斗
+
+行为洞察:
+  1. 最佳实践提取 — Top Sales 的活动模式是什么？
+  2. 风险预警 — 哪些客户/商机的活动出现断档？
+  3. 辅导建议 — 基于行为差距给出具体改进建议
+```
+
+### 域 5: 客户成功（Customer Success）
+
+**业务本质**：帮助 CSM 管理客户健康度、预防流失、驱动扩展。
+
+**专业分析体系**：
+```
+客户健康度评分模型
+├── 产品使用: 登录频次/功能覆盖度/使用深度/活跃用户占比
+├── 关系健康: 联系频次/NPS/投诉率/关键人稳定性
+├── 商业健康: 续约意向/扩展信号/付款及时性/合同剩余期限
+├── 支持健康: 工单数量趋势/解决时效/升级频次
+└── 价值实现: 客户 KPI 达成度/ROI 验证/成功案例产出
+
+续约风险预测:
+  1. 流失信号识别 — 使用下降/联系减少/竞品接触/关键人离职
+  2. 风险等级判定 — 红/黄/绿三级 + 置信度
+  3. 挽回策略 — 基于流失原因的差异化挽回方案
+  4. 扩展机会 — 健康客户的 Up-sell/Cross-sell 时机识别
+```
+
+### 域 6: 团队管理（Sales Management）
+
+**业务本质**：帮助销售经理管理团队绩效、辅导下属、优化资源分配。
+
+**专业分析体系**：
+```
+团队绩效模型
+├── 目标达成: 个人/团队的目标完成率 + 趋势
+├── 效率指标: 人均产出/赢单周期/客单价/活动转化率
+├── 能力矩阵: 各销售在不同维度（开拓/推进/关闭/维护）的能力评估
+├── 资源分配: 客户分配合理性/区域覆盖度/大客户集中度
+└── 辅导优先级: 谁最需要辅导？辅导什么？预期提升多少？
+```
+
+---
+
+## 二、技能设计流程
+
+### Step 0: 前置检查（去重 + 能力边界）
+
+**在任何设计工作之前，必须先执行以下检查：**
+
+#### 0-A: 去重检查 — 系统中是否已存在类似技能？
+
+```
+1. 调用 query_data(entity_api_key=&quot;ai_skill&quot;, filters={status: &quot;published&quot;}) 获取已发布技能列表
+2. 将用户需求与已有技能的 name + description 进行语义匹配
+3. 判断结果：
+   ├── 完全匹配 → 告知用户&quot;系统中已存在「{skill_name}」技能，无需重复创建。
+   │               您可以直接使用，或告诉我希望在现有基础上做哪些优化？&quot;
+   ├── 高度相似（&gt;70%覆盖）→ 告知用户已有技能的覆盖范围和差异点，
+   │               建议&quot;在现有技能基础上优化，而非重新创建&quot;
+   ├── 部分重叠（30-70%）→ 告知重叠部分，询问&quot;A) 扩展现有技能 B) 创建独立新技能？&quot;
+   └── 无重叠 → 继续下一步
+```
+
+#### 0-B: 能力边界检查 — 需求是否可承载？
+
+```
+快速判断（任一命中则拒绝）：
+├── 需要操作物理世界？（打电话/发邮件/制造实物）→ 拒绝
+├── 数据不在 CRM 中？（外部系统内部数据）→ 拒绝（可降级为 web_search 公开信息）
+├── 需要实时/持续运行？（监控/自动响应）→ 拒绝
+├── 需要专业资质？（法律/医疗/审计意见）→ 拒绝（可做数据辅助，声明不替代专业判断）
+├── 涉及跨系统写入？（同步飞书/发邮件/更新 ERP）→ 拒绝
+├── 违反安全策略？（伪造数据/绕过权限）→ 拒绝
+└── 全部通过 → 继续 Step 1
+
+拒绝时必须包含三要素：
+1. 明确说&quot;不能做&quot;
+2. 一句话解释原因
+3. 给出替代建议（如有）
+```
+
+详细的能力边界定义和灰色地带处理，参见 `knowledge/domains/generic.md` 第一-B节。
+
+---
+
+### Step 1: 意图识别与业务域定位
+
+根据用户描述，快速判断：
+- 属于上述 6 个业务域中的哪一个（或跨域组合）？
+- 用户的角色是什么（销售/销售经理/CSM/运营）？
+- 分析的对象是什么（单个客户/客户群/单个商机/Pipeline/团队）？
+- 期望的输出是什么（评分/报告/建议/预警/排名）？
+
+**域路由规则：**
+- 匹配预定义域（域 1-6）→ 使用该域的专业分析体系
+- 无法归类 / 跨域组合 / 非 CRM 标准场景 → 加载 `knowledge/domains/generic.md` 作为兜底指导
+- 跨域需求 → 加载主域文件 + generic.md 的跨域组合指导
+
+如果无法确定，追问：
+- &quot;这个技能主要给谁用？销售还是销售经理？&quot;
+- &quot;分析的对象是单个客户还是一批客户？&quot;
+- &quot;你期望得到什么样的输出？评分、报告、还是具体的行动建议？&quot;
+
+### Step 2: 数据可用性评估
+
+调用 query_schema 确认 CRM 中有哪些数据可以支撑分析：
+
+```
+query_schema(query_type=&quot;list_entities&quot;)  → 了解有哪些业务对象
+query_schema(query_type=&quot;entity_items&quot;, entity_api_key=&quot;account&quot;)  → 客户有哪些字段
+query_schema(query_type=&quot;entity_items&quot;, entity_api_key=&quot;opportunity&quot;)  → 商机有哪些字段
+```
+
+基于数据可用性调整分析深度：
+- 数据充足 → 全维度分析
+- 部分缺失 → 标注&quot;数据不足&quot;维度，用 web_search 补充外部数据
+- 严重缺失 → 降级为可行的分析范围，明确告知用户局限性
+
+### Step 2.5: 资源架构决策 — 是否需要 references / scripts / knowledge
+
+根据技能的分析需求，判断是否需要附加资源文件。**不是每个技能都需要，但需要时必须明确规划。**
+
+#### 判断决策树
+
+```
+用户需求
+  │
+  ├── 分析是否需要&quot;超出 CRM 数据&quot;的领域知识？
+  │     │
+  │     ├── YES → 需要 references（知识文件）
+  │     │     例: 行业分析需要行业特征库、竞品分析需要竞品情报库、
+  │     │         销售方法论需要 MEDDIC 评分标准、客户分级需要分级模型定义
+  │     │
+  │     └── NO → 纯 CRM 数据分析，不需要 references
+  │
+  ├── 分析是否需要&quot;复杂计算&quot;（统计/建模/可视化）？
+  │     │
+  │     ├── YES → 需要 scripts（Python 脚本）
+  │     │     例: 趋势预测需要时序模型、聚类分析需要 sklearn、
+  │     │         可视化报表需要 matplotlib、大数据量处理需要 pandas
+  │     │
+  │     └── NO → analyze_data 的聚合能力足够，不需要 scripts
+  │
+  ├── 分析是否需要&quot;已有的企业知识库文档&quot;？
+  │     │
+  │     ├── YES → 需要 knowledge_search（知识库检索）
+  │     │     例: 需要参考产品文档、操作手册、历史方案、FAQ
+  │     │
+  │     └── NO → 不需要知识库
+  │
+  └── 分析是否需要&quot;实时外部信息&quot;？
+        │
+        ├── YES → 需要 web_search
+        │     例: 客户最新动态、行业政策变化、竞品新闻
+        │
+        └── NO → 纯内部数据分析
+```
+
+#### references（知识资源文件）— 何时需要
+
+**需要 references 的场景：**
+
+| 场景 | 需要的 references 文件 | 原因 |
+|------|----------------------|------|
+| 客户行业分析 | `references/industries/{行业}.md` | CRM 中只有行业标签，没有行业特征/趋势/KSF 等深度知识 |
+| 竞品攻防 | `references/competitors/{竞品}.md` | CRM 中没有竞品产品对比、话术、攻防策略 |
+| 销售方法论评估 | `references/methodology/meddic-scoring.md` | 评分标准和权重需要固化，不能每次让 LLM 自由发挥 |
+| 客户分级模型 | `references/models/account-scoring.md` | 分级规则（A/B/C/D）需要明确定义，保证一致性 |
+| 行业基准数据 | `references/benchmarks/{行业}-kpi.md` | &quot;高于行业平均&quot;需要有基准数据支撑 |
+| 最佳实践库 | `references/playbooks/{场景}.md` | 推荐行动需要基于已验证的最佳实践 |
+
+**不需要 references 的场景：**
+- 纯数据查询和统计（如&quot;统计本月商机数量&quot;）
+- 分析逻辑完全基于 CRM 数据的对比（如&quot;活动趋势变化率&quot;）
+- 判断标准可以内嵌在 Prompt 中且不超过 20 行
+
+**references 文件规划规范：**
+```
+references/
+├── _index.md                    # 必须有：列出所有文件及用途
+├── methodology/                 # 方法论和评分模型
+│   ├── meddic-scoring.md       # MEDDIC 各维度评分标准
+│   └── health-score-model.md   # 健康度评分权重和阈值
+├── industries/                  # 行业知识（按需加载）
+│   ├── _index.md               # 行业索引
+│   ├── manufacturing.md        # 制造业特征/KSF/基准
+│   └── saas.md                 # SaaS 行业特征/指标
+├── competitors/                 # 竞品情报（按需加载）
+│   ├── _index.md
+│   └── competitor-a.md         # 竞品 A 的产品/优劣势/攻防
+├── benchmarks/                  # 基准数据
+│   └── industry-kpi.md         # 各行业关键指标基准值
+└── playbooks/                   # 最佳实践
+    ├── new-logo-playbook.md    # 新客开拓剧本
+    └── expansion-playbook.md   # 扩展销售剧本
+```
+
+**配置 preload_resources（自动预加载）：**
+```json
+{
+  &quot;preload_resources&quot;: {
+    &quot;always&quot;: [&quot;references/_index.md&quot;, &quot;references/methodology/meddic-scoring.md&quot;],
+    &quot;scene_map&quot;: {
+      &quot;制造|工业|汽车&quot;: [&quot;references/industries/manufacturing.md&quot;],
+      &quot;SaaS|软件|订阅&quot;: [&quot;references/industries/saas.md&quot;],
+      &quot;竞品|竞争|对手&quot;: [&quot;references/competitors/_index.md&quot;]
+    },
+    &quot;max_preload&quot;: 4
+  }
+}
+```
+
+#### scripts（Python 脚本）— 何时需要
+
+**需要 scripts 的场景：**
+
+| 场景 | 需要的脚本 | 原因 |
+|------|-----------|------|
+| 趋势预测 | `scripts/forecast.py` | analyze_data 只能做简单聚合，无法做时序预测（ARIMA/指数平滑） |
+| 客户聚类 | `scripts/clustering.py` | 需要 K-Means/DBSCAN 对客户分群，CRM 工具无此能力 |
+| 可视化报表 | `scripts/visualize.py` | 需要生成图表（漏斗图/雷达图/趋势图），CRM 工具无此能力 |
+| 大数据量处理 | `scripts/batch_process.py` | 数据量 &gt; 1000 条时，需要 pandas 批量处理而非逐条查询 |
+| 复杂评分模型 | `scripts/scoring.py` | 评分逻辑涉及多变量加权/归一化/非线性映射 |
+| 数据清洗 | `scripts/clean.py` | 需要正则匹配/去重/格式标准化等 ETL 操作 |
+
+**不需要 scripts 的场景：**
+- analyze_data 的 count/sum/avg/min/max + group_by 能满足的统计需求
+- 简单的百分比计算（如转化率 = 赢单数/总数）
+- 简单的排序和筛选
+- 数据量 &lt; 200 条的分析
+
+**scripts 文件规划规范：**
+```
+scripts/
+├── main.py              # 主入口（必须有）
+├── utils.py             # 工具函数
+├── models.py            # 评分/预测模型
+├── visualize.py         # 可视化生成
+└── requirements.txt     # 依赖声明（必须有）
+```
+
+**Prompt 中引用脚本的方式：**
+```markdown
+## 步骤 N: 执行计算脚本
+terminal(command=&quot;pip install -r ${SKILL_DIR}/scripts/requirements.txt&quot;)
+terminal(command=&quot;python3 ${SKILL_DIR}/scripts/main.py --input /tmp/data.json --output /tmp/result.json&quot;)
+read_file(path=&quot;/tmp/result.json&quot;)
+```
+
+**ext_info 中的 script_execution 配置：**
+```json
+{
+  &quot;script_execution&quot;: {
+    &quot;entry&quot;: &quot;scripts/main.py&quot;,
+    &quot;language&quot;: &quot;python&quot;,
+    &quot;required_packages&quot;: [&quot;pandas&gt;=2.0&quot;, &quot;scikit-learn&gt;=1.3&quot;],
+    &quot;auto_install&quot;: true,
+    &quot;timeout&quot;: 120
+  }
+}
+```
+
+#### knowledge（行业知识目录）— 何时需要
+
+**knowledge/ 是 Skill 自带的行业知识文件目录**，存储在 `ai_skill_resource` 表中，通过 `read_skill_resource` 工具按需加载。它提供分析所需的**行业深度知识**，是让技能具备专业深度的关键。
+
+**knowledge/ vs references/ 的区别：**
+
+| 维度 | references/ | knowledge/ |
+|------|------------|-----------|
+| 存什么 | 方法论、评分模型、流程定义 | 行业知识、市场数据、领域专业内容 |
+| 特点 | 通用的、跨行业的、结构化的 | 行业特定的、知识密集的、需要专业积累的 |
+| 示例 | meddic-scoring.md、health-score-model.md | manufacturing.md、saas-metrics.md、new-energy-supply-chain.md |
+| 加载时机 | preload_resources 自动注入（每次都需要） | 按行业/场景匹配后按需加载（不是每次都需要全部） |
+| 更新频率 | 低（方法论不常变） | 中（行业数据定期更新） |
+
+**需要 knowledge/ 的场景：**
+
+| 场景 | 需要的 knowledge 文件 | 原因 |
+|------|---------------------|------|
+| 客户行业分析 | `knowledge/industries/{行业}.md` | 需要了解该行业的产业链结构、关键成功因素、市场规模、增长趋势 |
+| 竞品攻防策略 | `knowledge/competitors/{竞品}.md` | 需要竞品的产品能力、定价、优劣势、典型客户、攻防话术 |
+| 行业基准对比 | `knowledge/benchmarks/{行业}-kpi.md` | &quot;高于行业平均&quot;需要有具体的基准数字支撑 |
+| 客户业务模式理解 | `knowledge/business-models/{模式}.md` | 理解客户的商业模式（订阅/项目制/平台/制造）才能判断合作价值 |
+| 政策法规影响 | `knowledge/regulations/{领域}.md` | 分析政策变化对客户业务的影响（如数据安全法对 SaaS 客户的影响） |
+| 技术趋势判断 | `knowledge/tech-trends/{方向}.md` | 判断客户的技术选型是否符合趋势（如云原生/AI/低代码） |
+
+**不需要 knowledge/ 的场景：**
+- 纯 CRM 数据统计（如&quot;统计商机数量&quot;）
+- 分析不涉及行业特征（如&quot;活动频次趋势&quot;）
+- 行业知识可以通过 web_search 实时获取且不需要结构化积累
+
+**knowledge/ 目录规划规范：**
+```
+knowledge/
+├── _index.md                      # 必须有：知识索引（列出所有可用知识及适用场景）
+├── industries/                    # 行业知识
+│   ├── _index.md                 # 行业索引（列出已覆盖的行业）
+│   ├── manufacturing.md          # 制造业：产业链/KSF/头部企业/数字化阶段/采购特征
+│   ├── saas.md                   # SaaS：关键指标/估值逻辑/增长模式/续约驱动因素
+│   ├── finance.md                # 金融：监管环境/IT投入/合规要求/采购流程
+│   ├── healthcare.md             # 医疗：政策驱动/准入壁垒/决策链/预算周期
+│   └── new-energy.md             # 新能源：技术路线/产能周期/政策依赖/供应链格局
+├── competitors/                   # 竞品情报
+│   ├── _index.md                 # 竞品索引
+│   ├── competitor-a.md           # 竞品A：产品矩阵/定价/优势/劣势/典型客户/攻防策略
+│   └── competitor-b.md           # 竞品B：同上
+├── benchmarks/                    # 行业基准数据
+│   ├── saas-benchmarks.md        # SaaS 行业：NRR/Logo Retention/CAC Payback 基准值
+│   └── enterprise-sales-benchmarks.md  # 企业销售：赢率/周期/客单价/活动转化率基准
+├── business-models/               # 商业模式知识
+│   ├── subscription.md           # 订阅模式：续约驱动/扩展路径/流失信号
+│   └── project-based.md          # 项目制：预算周期/决策流程/复购模式
+└── playbooks/                     # 销售剧本（最佳实践）
+    ├── new-logo.md               # 新客开拓：从 0 到 1 的标准打法
+    ├── expansion.md              # 扩展销售：Cross-sell/Up-sell 时机和策略
+    ├── competitive-displacement.md  # 竞品替换：如何从竞品手中抢客户
+    └── renewal-risk.md           # 续约保卫：流失预警后的挽回剧本
+```
+
+**配置 preload_resources（按场景自动加载行业知识）：**
+```json
+{
+  &quot;preload_resources&quot;: {
+    &quot;always&quot;: [&quot;knowledge/_index.md&quot;],
+    &quot;scene_map&quot;: {
+      &quot;制造|工业|汽车|机械&quot;: [&quot;knowledge/industries/manufacturing.md&quot;],
+      &quot;SaaS|软件|订阅|云&quot;: [&quot;knowledge/industries/saas.md&quot;],
+      &quot;金融|银行|保险|证券&quot;: [&quot;knowledge/industries/finance.md&quot;],
+      &quot;医疗|医药|器械|医院&quot;: [&quot;knowledge/industries/healthcare.md&quot;],
+      &quot;新能源|光伏|锂电|储能&quot;: [&quot;knowledge/industries/new-energy.md&quot;],
+      &quot;竞品|竞争|替换|对手&quot;: [&quot;knowledge/competitors/_index.md&quot;],
+      &quot;扩展|Cross-sell|Up-sell|增购&quot;: [&quot;knowledge/playbooks/expansion.md&quot;],
+      &quot;新客|开拓|新签&quot;: [&quot;knowledge/playbooks/new-logo.md&quot;]
+    },
+    &quot;max_preload&quot;: 4
+  }
+}
+```
+
+**三者的完整关系：**
+
+```
+references/          → 方法论和模型（HOW：怎么分析）
+  meddic-scoring.md     &quot;MEDDIC 各维度怎么打分&quot;
+  health-score-model.md &quot;健康度权重怎么算&quot;
+
+knowledge/           → 行业知识和领域数据（WHAT：分析时需要知道什么）
+  industries/saas.md    &quot;SaaS 行业的 NRR 基准是 120%&quot;
+  competitors/a.md      &quot;竞品 A 的核心优势是价格低 30%&quot;
+
+scripts/             → 计算能力（COMPUTE：超出简单聚合的计算）
+  forecast.py           &quot;用指数平滑预测下季度收入&quot;
+  clustering.py         &quot;用 K-Means 对客户分群&quot;
+```
+
+**选择原则：**
+- 分析需要&quot;怎么做&quot;的标准流程 → references/
+- 分析需要&quot;知道什么&quot;的行业/领域知识 → knowledge/
+- 分析需要&quot;算什么&quot;的复杂计算 → scripts/
+- 三者可以组合使用
+
+#### 综合决策示例
+
+| 用户需求 | references/ | knowledge/ | scripts/ | web_search | 理由 |
+|----------|------------|-----------|---------|------------|------|
+| &quot;分析客户商机赢率&quot; | ✅ meddic-scoring.md | ❌ | ❌ | ❌ | 需要评分标准，不需要行业知识 |
+| &quot;分析客户所在行业前景&quot; | ❌ | ✅ industries/{行业}.md | ❌ | ✅ | 需要行业知识 + 实时动态 |
+| &quot;预测本季度收入&quot; | ❌ | ❌ | ✅ forecast.py | ❌ | 需要时序预测模型 |
+| &quot;客户聚类分群&quot; | ✅ scoring-model.md | ❌ | ✅ clustering.py | ❌ | 需要分群模型定义 + 计算 |
+| &quot;竞品对比分析&quot; | ❌ | ✅ competitors/ | ❌ | ✅ | 需要竞品知识 + 实时新闻 |
+| &quot;客户扩展机会分析&quot; | ✅ health-score.md | ✅ playbooks/expansion.md | ❌ | ❌ | 需要评分模型 + 扩展策略知识 |
+| &quot;客户流失预警&quot; | ✅ health-score-model.md | ✅ industries/{行业}.md | ❌ | ✅ | 需要评分模型 + 行业基准 + 外部风险 |
+| &quot;团队绩效排名&quot; | ❌ | ✅ benchmarks/enterprise-sales.md | ❌ | ❌ | 需要销售基准数据做对比 |
+| &quot;团队绩效排名&quot; | ❌ | ❌ | ❌ | ❌ | 纯 CRM 数据统计，analyze_data 足够 |
+| &quot;客户流失预警&quot; | ✅ health-score-model.md | ❌ | ❌ | ✅ | 需要固定的评分模型 + 外部风险信号 |
+
+### Step 3: 构建分析体系
+
+根据业务域 + 数据可用性，构建技能的分析体系。
+
+**专业性保障**：如果用户需求属于 ToB CRM 领域（数据分析/报告/业务建议），必须引用内置知识体系确保专业性：
+- **方法论注入**：从 `generic.md §5B.1` 的方法论库中选择匹配的方法论注入 Prompt
+- **基准数据注入**：从 `generic.md §5B.2` 的行业基准中选择对应指标作为判断标准
+- **维度选择**：从 `generic.md §5B.3` 的维度池中选择分析维度（优先选有方法论支撑的）
+- **深度保障**：每个维度必须达到 Level 2+（有对比有判断），专业技能要求 Level 3-4（有归因有建议）
+
+**核心原则**：
+
+**原则 1: 每个分析维度必须形成完整的&quot;数据→指标→判断→行动&quot;链路**
+```
+数据采集（调哪个工具、查什么字段）
+    ↓
+指标计算（如何从原始数据得出指标）
+    ↓
+基准对比（与什么对比？历史/同行/目标 — 优先用客户历史，无则用行业基准）
+    ↓
+判断逻辑（IF/ELIF/ELSE 的决策树）
+    ↓
+行动建议（具体做什么、优先级、预期效果）
+```
+
+**原则 2: 分析必须有&quot;纵深&quot;而非&quot;广度&quot;**
+
+❌ 广度型（10 个维度各看一眼）：
+```
+查客户基本信息、查商机、查联系人、查活动、查合同...
+```
+
+✅ 纵深型（3-4 个核心维度深入分析）：
+```
+维度 1: 客户业务理解（深入到商业模式和增长引擎）
+  → 不只是&quot;制造业&quot;，而是&quot;精密零部件制造，服务于新能源汽车产业链，
+     受益于电动化渗透率提升，但面临原材料价格波动风险&quot;
+
+维度 2: 合作关系评估（深入到决策链和竞争态势）
+  → 不只是&quot;有 3 个联系人&quot;，而是&quot;经济买家是 VP of IT，
+     技术评估由架构师团队主导，内部 Champion 是数字化总监，
+     但 CFO 对 ROI 要求严格，需要准备量化价值证明&quot;
+
+维度 3: 机会识别（深入到具体的切入点和时机）
+  → 不只是&quot;有扩展潜力&quot;，而是&quot;Q4 有 ERP 升级预算 500 万，
+     当前用的是竞品 A 但满意度只有 60%，切入点是集成能力，
+     最佳时机是 9 月预算审批前完成 POC&quot;
+```
+
+**原则 3: 输出必须是&quot;可直接行动的洞察&quot;而非&quot;信息汇总&quot;**
+
+❌ 信息汇总：
+```
+客户 A：制造业，500 人，年营收 3 亿，有 5 个商机共 200 万
+```
+
+✅ 可行动洞察：
+```
+## 核心判断
+客户 A 正处于数字化转型加速期（证据：IT 预算同比增长 40%，
+新任 CIO 上任 6 个月内已启动 3 个数字化项目）。
+这是我方切入的最佳窗口期。
+
+## 关键风险
+但竞品 B 已在该客户有 2 个在用产品（CRM + BI），
+客户对&quot;一站式平台&quot;有偏好，我方需要证明集成能力。
+
+## 推荐行动
+1. [本周] 通过 Champion（数字化总监）安排与新 CIO 的高层会面
+2. [2 周内] 准备&quot;平台集成能力&quot;专题 Demo，重点展示与竞品 B 的数据互通
+3. [1 个月内] 推动 POC 立项，锁定 Q4 预算窗口
+```
+
+**原则 4: 每个结论必须标注数据来源（Data Provenance）— 反幻觉核心机制**
+
+这是最重要的原则。**任何结论、判断、数字都必须标注它来自哪个具体的数据查询结果。** 没有数据支撑的结论禁止输出。
+
+技能 Prompt 中必须强制要求 Agent 在输出时使用**数据溯源标注格式**：
+
+```
+每个结论后面必须用 [来源:xxx] 标注数据出处：
+
+[来源:query_data] — 来自 CRM 系统查询结果
+[来源:analyze_data] — 来自聚合统计计算结果
+[来源:web_search] — 来自网络搜索结果（标注 URL）
+[来源:knowledge] — 来自知识库检索结果
+[来源:推算] — 基于已有数据的逻辑推导（必须说明推导过程）
+[来源:用户输入] — 用户在对话中提供的信息
+```
+
+**示例（正确 — 每个结论有数据支撑）：**
+```
+## 客户健康度评估
+
+### 活跃度: 72/100
+- 最近 30 天活动 8 次 [来源:query_data → activity, filters={account_id, last_30_days}]
+- 月均活动 5.2 次，高于该行业客户均值 3.8 次 [来源:analyze_data → activity count group by account]
+- 但较上月下降 23%（上月 10.4 次）[来源:query_data → activity, filters={last_60_days} 对比计算]
+
+### 商机进展: 45/100
+- 当前 3 个活跃商机，总金额 180 万 [来源:query_data → opportunity, filters={account_id, status=active}]
+- 其中 2 个商机超过 45 天未推进阶段 [来源:query_data → opportunity.stage_updated_at 计算]
+- ⚠️ 行业平均阶段停留时间为 28 天 [来源:analyze_data → opportunity avg(stage_duration) where industry=制造业]
+
+### 综合判断
+该客户活跃度尚可但呈下降趋势，商机推进明显滞后。
+[来源:推算 — 活跃度下降 23% + 2 个商机超期 → 判断客户内部可能有优先级变化或决策阻塞]
+
+建议: 48h 内联系 Champion 确认是否有内部变化 [来源:推算 — 基于活跃度下降+商机停滞的组合信号]
+```
+
+**示例（错误 — 无数据支撑的幻觉）：**
+```
+❌ &quot;该客户年营收约 5 亿&quot; — 没有标注来源，可能是编造的
+❌ &quot;客户对我方产品满意度很高&quot; — 没有 NPS 数据支撑
+❌ &quot;预计 Q4 会签约&quot; — 没有说明预测依据
+❌ &quot;竞品 A 的市场份额是 30%&quot; — 没有标注信息来源
+```
+
+**技能 Prompt 中必须包含的反幻觉指令：**
+
+```markdown
+## ⚠️ 数据纪律（严格遵守）
+
+1. **禁止编造数据** — 所有数字必须来自工具查询结果，不得凭空生成
+2. **禁止无源结论** — 每个判断必须用 [来源:xxx] 标注数据出处
+3. **区分事实与推断** — 事实标注 [来源:query_data/analyze_data]，推断标注 [来源:推算] 并说明推导逻辑
+4. **数据缺失时明确声明** — 不要用模糊语言掩盖数据缺失，直接说&quot;该维度无数据，无法评估&quot;
+5. **矛盾数据时标注冲突** — 如果不同来源的数据矛盾，列出两方数据并标注&quot;数据冲突，需人工确认&quot;
+6. **外部数据标注时效** — web_search 结果标注搜索时间，知识库结果标注文档更新时间
+```
+
+**原则 5: 结果自校验 — 输出前必须执行核验步骤**
+
+技能 Prompt 的最后一步必须是**自校验**，在输出最终结果前检查：
+
+```markdown
+## 步骤 N: 结果核验（输出前必须执行）
+
+### 核验 1: 数据一致性
+- 检查各维度引用的数据是否自洽（如：商机总金额 = 各商机金额之和）
+- 检查同一指标在不同步骤中的引用是否一致
+
+### 核验 2: 来源完整性
+- 检查输出中每个数字/结论是否都有 [来源:xxx] 标注
+- 如果发现无源结论 → 删除该结论或补充数据查询
+
+### 核验 3: 逻辑合理性
+- 检查结论是否与数据方向一致（如：活动增加但判断&quot;客户不活跃&quot;→ 矛盾）
+- 检查建议是否与判断匹配（如：判断&quot;低风险&quot;但建议&quot;紧急挽回&quot;→ 矛盾）
+
+### 核验 4: 置信度标注
+对每个核心结论标注置信度：
+- 🟢 高置信（多数据源交叉验证，数据充分）
+- 🟡 中置信（单一数据源，或数据有限但逻辑合理）
+- 🔴 低置信（数据不足，主要基于推断，需人工确认）
+```
+
+### Step 4: Prompt 编写
+
+基于分析体系编写技能 Prompt，结构：
+
+```markdown
+# 角色定义
+你是一位 [具体角色]，专注于 [具体领域]。
+你的分析方法论基于 [具体框架]。
+
+# 分析目标
+[一句话说清楚这个技能要回答什么问题]
+
+# ⚠️ 数据纪律（严格遵守）
+1. 禁止编造数据 — 所有数字必须来自工具查询结果
+2. 禁止无源结论 — 每个判断必须用 [来源:xxx] 标注数据出处
+3. 区分事实与推断 — 事实标注 [来源:query_data]，推断标注 [来源:推算] 并说明推导逻辑
+4. 数据缺失时明确声明 — 直接说&quot;该维度无数据，无法评估&quot;
+5. 矛盾数据时标注冲突 — 列出两方数据并标注&quot;数据冲突，需人工确认&quot;
+
+# 分析步骤
+
+## 步骤 1: 数据采集
+[明确调用哪些工具、查什么数据、如何处理缺失]
+[每个查询的预期返回字段和用途]
+
+## 步骤 2: [核心分析维度 1]
+[数据→指标→基准→判断→建议的完整链路]
+[每个结论必须标注 [来源:xxx]]
+
+## 步骤 3: [核心分析维度 2]
+[同上]
+
+## 步骤 4: [核心分析维度 3]
+[同上]
+
+## 步骤 5: 综合判断与行动建议
+[交叉各维度结论，给出整体判断和优先级排序的行动建议]
+[每个建议标注依据哪些维度的数据得出]
+
+## 步骤 6: 结果核验（输出前必须执行）
+- 核验 1: 检查每个数字/结论是否都有 [来源:xxx] 标注，无源结论删除
+- 核验 2: 检查数据一致性（如总金额 = 各项之和）
+- 核验 3: 检查结论与数据方向是否一致（无逻辑矛盾）
+- 核验 4: 对每个核心结论标注置信度（🟢高/🟡中/🔴低）
+
+# 输出格式
+[结构化模板，含评分/表格/关键发现/风险/建议]
+[每个结论后附 [来源:xxx] 标注]
+[末尾附置信度说明和数据局限性声明]
+
+# 异常处理
+[数据缺失/查询失败/结果矛盾时的处理策略]
+```
+
+### Step 5: 生成完整定义
+
+```json
+{
+  &quot;api_key&quot;: &quot;snake_case 唯一标识&quot;,
+  &quot;name&quot;: &quot;简短中文名称&quot;,
+  &quot;description&quot;: &quot;一句话描述核心价值（面向使用者）&quot;,
+  &quot;when_to_use&quot;: &quot;精准触发关键词|用|分隔&quot;,
+  &quot;category&quot;: &quot;crm&quot;,
+  &quot;context&quot;: &quot;inline 或 fork&quot;,
+  &quot;arguments&quot;: [&quot;参数名（camelCase）&quot;],
+  &quot;argument_descriptions&quot;: {&quot;参数名&quot;: &quot;描述（含示例值）&quot;},
+  &quot;allowed_tools&quot;: [&quot;根据分析步骤精确选择&quot;],
+  &quot;risk_level&quot;: &quot;read_only&quot;,
+  &quot;max_tool_calls&quot;: &quot;根据步骤数设置&quot;,
+  &quot;timeout_ms&quot;: &quot;根据复杂度设置&quot;,
+  &quot;prompt&quot;: &quot;完整的高质量 Prompt&quot;
+}
+```
+
+### Step 6: 质量自检
+
+**流程合规性：**
+- [ ] 是否执行了 Step 0 去重检查？（确认不与已有技能重复）
+- [ ] 是否执行了 Step 0 能力边界检查？（确认需求可承载）
+
+**专业性检查（参见 generic.md §5B.5）：**
+- [ ] 是否引用了至少 1 个行业方法论？（MEDDIC/Health Score/Pipeline Coverage 等，非自创框架）
+- [ ] 是否有明确的判断基准？（客户历史数据或行业基准，标注 [来源:xxx]）
+- [ ] 分析维度是否来自标准维度池？（非随意发明的维度）
+- [ ] 每个维度是否达到 Level 2+ 深度？（有对比有判断，非纯统计）
+- [ ] 是否使用了 CRM 行业标准术语？（Pipeline/Quota/NRR 等）
+
+**技术质量检查：**
+- [ ] 每个分析维度是否有完整的&quot;数据→指标→基准→判断→行动&quot;链路？
+- [ ] **Prompt 中是否包含&quot;数据纪律&quot;段落（禁止编造/必须标注来源）？**
+- [ ] **Prompt 中是否包含&quot;结果核验&quot;步骤（一致性/来源完整性/逻辑合理性/置信度）？**
+- [ ] **输出模板中是否要求每个结论附 [来源:xxx] 标注？**
+- [ ] 输出是否是&quot;可直接行动的洞察&quot;而非&quot;信息汇总&quot;？
+- [ ] 是否有纵深（3-4 个维度深入）而非广度（10 个维度浅尝）？
+- [ ] 建议是否具体可执行？（&quot;将跟进间隔从7天缩短到3天&quot; vs &quot;加强跟进&quot;）
+- [ ] 异常处理是否完备（数据缺失/矛盾/查询失败/权限不足/超出边界）？
+
+### Step 7: 展示并等待确认
+
+```
+ask_user(
+  interrupt_type=&quot;skill_confirm&quot;,
+  title=&quot;确认创建技能&quot;,
+  message=&quot;请确认以下技能定义&quot;,
+  options=[{&quot;id&quot;: &quot;skill_definition&quot;, &quot;label&quot;: &quot;技能名称&quot;, &quot;description&quot;: &quot;&lt;JSON&gt;&quot;}]
+)
+```
+
+### Step 8: 执行创建
+
+- 用户确认 → manage_skill(action=&quot;create&quot;, skill_definition=最终定义)
+- 用户取消 → 回复&quot;已取消&quot;
+- 用户修改 → 使用修改后的版本
+
+---
+
+## 三、快速生成高质量 Skill 的模式库
+
+当用户的需求匹配以下模式时，可以快速套用对应的分析体系骨架，然后根据具体需求细化：
+
+### 模式 A: &quot;分析某个客户&quot;
+→ 套用**客户 360 分析体系**
+→ 核心维度：业务理解 + 关系评估 + 机会识别 + 风险预警
+→ 输出：客户评分 + 关键洞察 + Top3 行动建议
+
+### 模式 B: &quot;分析某个商机 / 评估赢率&quot;
+→ 套用 **MEDDIC 评估体系**
+→ 核心维度：6 个 MEDDIC 维度的完成度评估
+→ 输出：赢率评分 + 薄弱环节 + 推进策略
+
+### 模式 C: &quot;看看我的 Pipeline / 预测本季度&quot;
+→ 套用 **Pipeline 健康度模型**
+→ 核心维度：覆盖率 + 形态 + 流速 + 质量 + 时效
+→ 输出：Pipeline 健康评分 + 风险商机清单 + Forecast 三档预测
+
+### 模式 D: &quot;分析团队表现 / 谁需要辅导&quot;
+→ 套用**团队绩效矩阵**
+→ 核心维度：目标达成 + 效率指标 + 能力矩阵 + 辅导优先级
+→ 输出：团队排名 + 能力雷达图 + 辅导建议
+
+### 模式 E: &quot;哪些客户有流失风险 / 续约分析&quot;
+→ 套用**客户健康度评分模型**
+→ 核心维度：产品使用 + 关系健康 + 商业健康 + 价值实现
+→ 输出：风险等级（红/黄/绿）+ 流失信号 + 挽回策略
+
+### 模式 F: &quot;找到扩展机会 / Cross-sell&quot;
+→ 套用**钱包份额 + 扩展路径模型**
+→ 核心维度：当前渗透度 + 未覆盖需求 + 扩展时机 + 竞品空白
+→ 输出：扩展机会清单 + 优先级排序 + 切入策略
+
+### 模式 G: &quot;分析销售活动 / 最佳实践&quot;
+→ 套用**活动效能模型**
+→ 核心维度：量 + 质 + 节奏 + 模式 + 转化
+→ 输出：活动效能评分 + Top Sales 模式对比 + 改进建议
+
+### 模式 H: &quot;竞品分析 / 如何打竞品&quot;
+→ 套用**竞争定位 + 攻防策略**
+→ 核心维度：产品对比 + 客户重叠 + 赢/丢单归因 + 差异化话术
+→ 输出：竞品攻防手册 + 场景化话术 + 成功案例参考
+
+---
+
+## 四、被创建 Skill 的可用工具清单
+
+以下是系统中当前所有可用的工具。**你创建的技能只能从这个清单中选择 allowed_tools，禁止使用清单之外的工具。** 根据技能的实际需要精确选择，不要全选。
+
+### 业务数据工具
+| 工具 | 用途 | 关键参数 | 适用技能类型 |
+|------|------|----------|-------------|
+| query_schema | 查询业务对象的字段结构、关联关系、选项值 | query_type(list_entities/entity/entity_items/entity_links/entity_pick_options), entity_api_key, item_api_key | 需要动态了解数据结构的技能 |
+| query_data | 查询业务数据记录 | action(query/get/count), entity_api_key, filters, fields, order_by, page, page_size | 几乎所有分析类技能都需要 |
+| modify_data | 修改业务数据（创建/更新/删除） | action(create/update/delete), entity_api_key, data, record_id | 涉及数据写入的技能（需配合 ask_user 确认） |
+| analyze_data | 数据聚合分析（count/sum/avg/min/max + 分组） | entity_api_key, metrics([{field,function}]), group_by, filters | 需要统计/汇总/对比的技能 |
+
+### 元数据工具
+| 工具 | 用途 | 关键参数 | 适用技能类型 |
+|------|------|----------|-------------|
+| browse_metamodel | 浏览元模型层定义（元模型注册/字段定义/列映射） | query_type(list_metamodels/get_metamodel/list_meta_items/column_mapping/list_meta_links/list_meta_options/item_type_mapping/trace_db_column), metamodel_api_key | 元数据管理/配置类技能 |
+| query_metadata | 查询元数据实例（实体/字段/关联/规则/业务类型） | query_type, metamodel_api_key, filters | 元数据管理/配置类技能 |
+
+### 知识与记忆工具
+| 工具 | 用途 | 关键参数 | 适用技能类型 |
+|------|------|----------|-------------|
+| knowledge_search | 知识库语义检索 | query(必填), knowledge_base_id, top_k | 需要参考产品文档/历史方案/FAQ 的技能 |
+| list_knowledge_bases | 列出可用知识库 | 无 | 需要动态选择知识库的技能 |
+| knowledge_doc_detail | 获取知识文档完整内容 | doc_id(必填) | 需要加载完整文档的技能 |
+| read_skill_resource | 读取 Skill 关联的资源文件（knowledge//references/ 目录） | skill_name(必填), resource_name(必填) | 有 knowledge/ 或 references/ 目录的技能 |
+| manage_memory | 管理 Agent 长期记忆（查询/删除/清空） | action(list/delete/delete_by_ids/clear), keyword, memory_ids | 涉及记忆管理的技能 |
+| memory_read | 按需读取记忆详情 | memory_id(必填), level(L1目录/L2完整内容) | 需要读取历史记忆的技能 |
+
+### 沙盒执行工具
+| 工具 | 用途 | 关键参数 | 适用技能类型 |
+|------|------|----------|-------------|
+| terminal | 远程沙盒执行 Shell 命令，工作目录跨命令保持 | command(必填), timeout(默认180s) | 有 scripts/ 目录的技能（安装依赖/运行脚本） |
+| execute_code | 在沙盒中执行代码片段（python/javascript/bash/ruby/go） | language(必填), code(必填), timeout(默认60s) | 需要动态计算/数据处理的技能 |
+| read_file | 读取沙盒中的文件，支持按行范围 | path(必填), offset(起始行), limit(行数) | 读取脚本输出结果/生成的报告 |
+| write_file | 在沙盒中创建或覆盖文件，自动创建父目录 | path(必填), content(必填) | 写入数据供脚本处理/保存中间结果 |
+| search_files | 在沙盒中递归搜索文件内容（支持正则） | pattern(必填), path(搜索目录), include(文件名过滤) | 在脚本/配置中查找特定内容 |
+
+### 交互与外部工具
+| 工具 | 用途 | 关键参数 | 适用技能类型 |
+|------|------|----------|-------------|
+| ask_user | 向用户发起确认/选择/输入请求（中断等待响应） | interrupt_type(confirm/select/multi_select/input), title, message, options | 涉及写操作或需要用户补充信息的技能 |
+| ask_clarification | 信息不足或有歧义时中断追问 | question(必填), clarification_type, options | 参数可能不完整的技能 |
+| web_search | 搜索互联网获取实时外部信息 | query(必填), max_results | 需要行业动态/公司信息/竞品新闻的技能 |
+| cos_upload | 上传文件到 COS 对象存储，返回 URL | file_path(必填), bucket, prefix | 需要导出报告/图表文件的技能 |
+
+### 工具选择原则
+
+```
+1. 只读分析类技能 → query_data + analyze_data（基础）+ web_search（外部信息）
+2. 需要行业知识 → 加 read_skill_resource（加载 knowledge/ 文件）
+3. 需要复杂计算 → 加 terminal + execute_code + read_file + write_file
+4. 涉及数据写入 → 加 modify_data + ask_user（必须配对，写前确认）
+5. 需要产品文档 → 加 knowledge_search
+6. 需要导出文件 → 加 cos_upload
+
+禁止：
+- 不要把 manage_skill 加到普通技能中（那是 create_skill 专用的）
+- 不要把 browse_metamodel/query_metadata 加到业务分析技能中（那是元数据管理专用的）
+- 不要无脑全选，工具越少越精确，LLM 越不容易走偏
+```
+
+---
+
+## 五、硬约束
+
+1. **必须等用户确认后才能调用 manage_skill**
+2. **太简单的需求应劝退** — 如果一句 query_data 就能解决，不值得创建技能
+3. **Prompt 必须有纵深** — 3-4 个维度深入分析，而非 10 个维度浅尝
+4. **输出必须可行动** — 不是信息汇总，是洞察 + 判断 + 建议
+5. **必须基于 CRM 方法论** — MEDDIC/Health Score/Pipeline Coverage 等
+6. **每个结论必须有数据溯源** — Prompt 中必须包含&quot;数据纪律&quot;段落和 [来源:xxx] 标注要求
+7. **必须包含结果核验步骤** — Prompt 最后一步必须是自校验（一致性/来源/逻辑/置信度）
+8. **禁止生成可能产生幻觉的 Prompt** — 如果某个分析维度在 CRM 中无数据支撑，不要设计该维度，或明确标注需要 web_search 补充
+9. api_key 必须 snake_case，prompt 中 {参数名} 必须与 arguments 一致
+10. allowed_tools 只选实际需要的
+</code></pre>
+                    </div>
+                    <div id="content_knowledge_domains_account_md" class="file-content" style="display:none;">
+                        <div style="padding: 8px 16px; background: var(--gray-100); border-bottom: 1px solid var(--gray-200); font-size: 0.75rem; font-weight: 600; color: var(--gray-600);">knowledge/domains/account.md</div>
+                        <pre style="margin:0; padding:16px 20px; font-size:0.72rem; line-height:1.7; color:#e2e8f0; white-space:pre-wrap; word-wrap:break-word; overflow-y:auto; height:100%; background:#1e293b;"><code># 客户分析（Account Intelligence）— 行业知识指南
+
+&gt; 本文件为 create_skill 提供客户分析领域的专业知识，指导生成具备行业深度的客户分析类技能 Prompt。
+
+---
+
+## 一、业务本质与分析目标
+
+客户分析的终极目标不是&quot;展示客户信息&quot;，而是回答三个核心问题：
+1. **值不值得投入？** — 客户的战略价值和商业潜力
+2. **从哪里切入？** — 最佳的业务切入点和时机
+3. **下一步做什么？** — 具体可执行的行动建议
+
+**关键区分**：新客户分析侧重&quot;切入可行性&quot;，存量客户分析侧重&quot;扩展与留存&quot;。
+
+---
+
+## 二、客户画像五维模型
+
+### 2.1 维度定义与数据要求
+
+| 维度 | 核心问题 | 关键数据点 | 判断输出 |
+|:---|:---|:---|:---|
+| 基础画像 | 这是一家什么样的公司？ | 行业/规模/区域/成立年限/融资阶段/经营状态 | 客户分级（S/A/B/C/D） |
+| 业务画像 | 它靠什么赚钱？增长引擎是什么？ | 主营业务/商业模式/收入结构/增长率/数字化阶段 | 业务匹配度 + 成熟度判断 |
+| 组织画像 | 谁说了算？采购怎么决策？ | 决策链/部门结构/审批流程/预算周期 | 销售策略选择 |
+| 关系画像 | 我们和它的关系怎么样？ | 历史合作/关键人关系/竞品渗透/互动质量 | 关系健康度评分 |
+| 价值画像 | 它能给我们带来多少价值？ | LTV/钱包份额/扩展潜力/战略匹配/标杆价值 | 投入优先级排序 |
+
+### 2.2 客户分级模型（ABM 五级）
+
+分级不仅看规模，更看**战略匹配度**和**增长潜力**：
+
+```
+S 级（标杆客户）：行业标杆 + 战略匹配度极高 + 有标杆效应（即使规模不大）
+  → 策略：不计短期 ROI，追求标杆案例和行业影响力
+A 级（战略客户）：规模大 + 预算充足 + 数字化成熟 + 多产品线需求
+  → 策略：ABM 专属团队，高层对接，定制方案
+B 级（重点客户）：中等规模 + 有明确需求 + 预算可支撑 + 决策链可触达
+  → 策略：标准大客户销售流程，重点跟进
+C 级（标准客户）：需求明确但预算有限，或规模小但行业有代表性
+  → 策略：标准化方案，效率优先
+D 级（观望客户）：需求不明确 / 预算不足 / 时机未到
+  → 策略：低成本培育（内容营销/活动邀请），等待时机
+
+分级权重：
+├── 战略匹配度（30%）：我方产品与客户核心业务的契合程度
+├── 商业潜力（25%）：预估 3 年 LTV
+├── 增长动能（20%）：客户自身的增长速度和数字化投入趋势
+├── 可触达性（15%）：决策链是否可接触，是否有 Champion
+└── 标杆价值（10%）：行业影响力，能否带来同行业客户
+```
+
+### 2.3 客户数字化成熟度判断
+
+成熟度直接决定销售策略（教育型 vs 方案型 vs 替换型）：
+
+| 阶段 | 特征 | 销售策略 | 典型周期 |
+|:---|:---|:---|:---|
+| 觉醒期 | 知道需要数字化，但不知道怎么做 | 教育型：行业案例+方法论输出+免费诊断 | 6-12 月 |
+| 探索期 | 在评估方案，可能有小规模试点 | 顾问型：POC+业务咨询+ROI 测算 | 3-6 月 |
+| 实施期 | 已有系统，在扩展或优化 | 方案型：集成能力+扩展方案+迁移支持 | 2-4 月 |
+| 深化期 | 系统成熟，追求更高价值 | 价值型：高级功能+数据智能+战略合作 | 1-3 月 |
+| 替换期 | 对现有系统不满，考虑更换 | 替换型：差异化+迁移保障+快速见效 | 3-6 月 |
+
+### 2.4 关系健康度评分
+
+```
+评分维度（各 20 分，满分 100）：
+├── 互动频次（20分）：月均互动 ≥4次=20, 2-3次=12, 1次=6, 0次=0
+├── 关系层级（20分）：有 C-level 关系=20, VP 级=15, 总监级=10, 仅执行层=5
+├── 互动质量（20分）：有实质性业务讨论=20, 仅关系维护=12, 仅事务性=6
+├── 响应速度（20分）：24h内回复=20, 3天内=12, 超过3天=6, 不回复=0
+└── 主动度（20分）：客户主动联系 &gt;30%=20, 10-30%=12, &lt;10%=6, 从不主动=0
+```
+
+### 2.5 LTV 预测模型
+
+```
+标准公式：
+LTV = 年合同金额 × 预期续约年数 × (1 + 年均增长率)
+预期续约年数 = 1 / (1 - 历史续约率)
+
+数据不足时的估算方法：
+├── 无续约率数据 → 按行业基准估算（SaaS: 90%, 传统软件: 80%, 服务: 70%）
+├── 无增长率数据 → 按客户分级估算（A级: 15%, B级: 10%, C级: 5%）
+├── 新客户（无历史）→ 按同行业同规模客户的中位数估算
+└── 快速估算法：LTV ≈ 首单金额 × 行业 LTV 系数
+    SaaS 产品：系数 5-8x
+    项目制服务：系数 2-3x
+    平台型产品：系数 8-12x
+```
+
+---
+
+## 三、深度分析维度（5 维）
+
+每个维度必须形成完整的 **数据→指标→基准→判断→行动** 链路。
+
+### 3.1 客户健康度
+
+| 信号类别 | 正面信号（加分） | 负面信号（减分） |
+|:---|:---|:---|
+| 活动频次 | 月均互动 ≥4次，且呈上升趋势 | 互动频次下降 &gt;30%，或连续 14天无互动 |
+| 商机进展 | 有活跃商机且阶段在推进 | 商机停滞 &gt;30天，或连续丢单 |
+| NPS/满意度 | NPS ≥ 8，无投诉 | NPS &lt; 6，或有升级投诉 |
+| 续约信号 | 主动询问续约/扩展 | 询问合同终止条款，或接触竞品 |
+| 使用深度 | 功能使用覆盖 &gt;70%，活跃用户增长 | 使用率下降，核心功能停用 |
+
+**健康度等级：**
+- 🟢 健康（80-100）：可推动扩展，优先分配资源
+- 🟡 关注（60-79）：需主动干预，安排深度沟通
+- 🔴 预警（40-59）：流失风险高，启动挽回计划
+- ⚫ 危险（&lt;40）：极高风险，升级管理层介入
+
+### 3.2 钱包份额与扩展空间
+
+```
+钱包份额 = 我方年收入 / 客户该品类年度总预算
+扩展空间 = (1 - 钱包份额) × 客户总预算
+
+判断标准：
+├── &gt; 60%：深度绑定，重点维护，防御竞品
+├── 30-60%：有扩展空间，识别未覆盖需求，制定扩展计划
+├── 10-30%：大量空间，分析竞品占位，寻找差异化切入
+├── &lt; 10%：刚起步，需要证明价值后再扩展
+└── 无法计算：标注 [信息空白]，建议通过 QBR/客户访谈获取
+
+预算获取方法（当 CRM 无数据时）：
+├── 直接法：QBR 中直接询问年度 IT/数字化预算
+├── 推算法：同行业同规模企业的平均 IT 支出占比（通常 3-8% 营收）
+├── 信号法：客户招聘 IT 岗位数量 × 平均薪资 ≈ IT 投入规模
+└── 竞品法：已知竞品合同金额 + 我方金额 ≈ 该品类总预算下限
+```
+
+### 3.3 决策链路图
+
+| 角色 | 识别信号 | 影响力 | 销售策略 |
+|:---|:---|:---|:---|
+| 经济买家（EB） | C-level/VP + 预算审批权 + 参与合同谈判 | 最终决策 | 价值导向：ROI 量化 + 战略对齐 |
+| 技术买家（TB） | 参与 POC/技术评估 + 架构师/IT 负责人 | 否决权 | 技术深度：方案演示 + 集成验证 |
+| 使用者（User） | 日常使用 + 提需求 + 反馈问题 | 影响采纳 | 体验导向：易用性 + 培训支持 |
+| 教练（Champion） | 主动推动 + 内部宣传 + 提供内部信息 | 推动力 | 赋能武装：提供内部汇报材料 |
+| 阻碍者（Blocker） | 倾向竞品 / 抵制变化 / 利益冲突 | 阻碍力 | 中和策略：绕过或转化 |
+
+**覆盖度判断：**
+- 🟢 完整：EB + TB + Champion 均已识别并多次接触，无活跃 Blocker
+- 🟡 部分：缺少 EB 或 Champion，或有未处理的 Blocker
+- 🔴 薄弱：仅接触 User 层，或 EB 完全未触达
+
+**多线程覆盖原则**：
+- 每个活跃商机至少覆盖 3 个不同角色的联系人
+- A/B 级客户至少有 2 条独立的关系线（避免单点依赖）
+
+### 3.4 竞品渗透度
+
+```
+评估框架（5 维度）：
+├── 竞品数量：客户已采购几家竞品产品？
+├── 渗透深度：竞品覆盖了哪些业务场景？核心还是边缘？
+├── 客户满意度：客户对竞品的满意度如何？
+│   获取方式：NPS/投诉记录/续约行为/Champion 反馈
+├── 合同锁定：竞品合同剩余期限？有无排他条款？
+└── 替换成本：数据迁移量/集成复杂度/培训成本/业务中断风险
+
+替换难度综合判断：
+├── 低（可攻）：满意度 &lt;6 + 合同 &lt;6月到期 + 切换成本可控 + 有内部 Champion
+├── 中（需策略）：满意度中等 + 有差异化切入点 + 可分步替换
+├── 高（暂缓）：满意度高 + 合同锁定 &gt;1年 + 深度集成 + 无内部支持
+└── 策略选择：
+    低 → 正面竞争，加速推进
+    中 → 侧翼进攻，先切边缘场景再扩展
+    高 → 长期培育，等待合同到期或满意度下降
+```
+
+### 3.5 扩展路径
+
+```
+扩展机会识别（按优先级排序）：
+
+1. Up-sell（升级）— 最容易，已有信任基础
+   信号：用户数接近许可上限 / 功能需求超出当前版本 / 使用深度持续增长
+   策略：用数据证明当前版本的瓶颈，展示升级后的增量价值
+
+2. Cross-sell（交叉）— 中等难度，需要新的业务理解
+   信号：新部门开始使用 / 业务扩张到新领域 / 相关需求在沟通中提出
+   策略：从已有成功案例切入，降低新产品的信任门槛
+
+3. 增加用户/部门 — 低风险，量的扩展
+   信号：活跃用户 &gt;80% 许可 / 其他部门表达兴趣 / 集团化推广
+   策略：提供部门级试用 + 内部推荐激励
+
+时机判断矩阵：
+├── 最佳时机：续约前 60天 / 年度 QBR / 客户融资后 / 新 CIO 上任
+├── 次佳时机：新项目启动 / 组织架构调整 / 竞品合同到期
+├── 避免时机：客户裁员/亏损 / 预算冻结期 / 关键人刚变动
+└── 创造时机：主动发起 QBR / 分享行业洞察 / 邀请参加客户活动
+```
+
+---
+
+## 四、客户风险因素评估
+
+除了关系和使用维度，还需关注客户自身的经营风险：
+
+| 风险类别 | 信号 | 对合作的影响 | 应对策略 |
+|:---|:---|:---|:---|
+| 经营下滑 | 裁员/营收下降/亏损公告 | 预算削减，可能降级或不续约 | 提前沟通降级方案，锁定核心模块 |
+| 组织动荡 | 高管更替/架构重组/并购 | 决策链断裂，项目暂停 | 快速建立新关系，重新对齐价值 |
+| 行业风险 | 政策变化/市场萎缩/技术颠覆 | 客户业务收缩，IT 投入减少 | 调整方案定位，强调降本增效价值 |
+| 资金风险 | 付款延迟/融资失败/现金流紧张 | 可能拖欠或终止合同 | 缩短账期，考虑分期方案 |
+
+---
+
+## 五、交叉关联分析方法
+
+客户分析的专业深度体现在**交叉关联**，而非单维度罗列：
+
+```
+必须交叉的维度组合（按价值排序）：
+├── 健康度趋势 × 合同节点 → 预判续约风险和最佳干预时机
+├── 决策链覆盖 × 商机阶段 → 判断当前推进是否有足够的关系支撑
+├── 竞品渗透 × 客户满意度 → 识别竞品替换的机会窗口
+├── 客户增长率 × 钱包份额 → 预测未来 3 年的收入潜力
+├── 数字化成熟度 × 产品匹配 → 选择正确的销售策略（教育/方案/替换）
+└── 经营风险 × 合同金额 → 评估坏账风险和应对优先级
+```
+
+---
+
+## 六、分场景分析策略
+
+| 场景 | 分析侧重 | 核心输出 |
+|:---|:---|:---|
+| 新客开拓 | 基础画像 + 业务匹配 + 决策链 + 成熟度 | 切入可行性评估 + 首次拜访策略 |
+| 续约评审 | 健康度 + 使用深度 + 关系稳定性 + 风险因素 | 续约风险等级 + 挽回/扩展建议 |
+| 扩展规划 | 钱包份额 + 扩展路径 + 时机判断 | 扩展机会清单 + 优先级排序 |
+| 竞品攻防 | 竞品渗透 + 客户满意度 + 差异化 | 攻防策略 + 切入点建议 |
+| 定期巡检 | 健康度变化 + 风险信号 + 新机会 | 状态变更摘要 + 行动项 |
+
+---
+
+## 七、行业基准参考
+
+### 通用基准
+
+| 指标 | ToB SaaS 基准 | 优秀线 | 预警线 |
+|:---|:---|:---|:---|
+| 客户留存率（Logo） | 85-90% | &gt;95% | &lt;80% |
+| 净收入留存率（NRR） | 100-110% | &gt;120% | &lt;90% |
+| 客户获取成本回收期 | 12-18 月 | &lt;12 月 | &gt;24 月 |
+| 钱包份额（战略客户） | 30-40% | &gt;50% | &lt;20% |
+| 决策链覆盖度 | 2-3 角色 | ≥4 角色 | 仅 1 角色 |
+| 客户健康度均分 | 65-75 | &gt;80 | &lt;55 |
+
+### 分行业 IT 支出占比（用于估算客户预算）
+
+| 行业 | IT 支出占营收比 | 数字化投入增速 |
+|:---|:---|:---|
+| 金融/银行 | 7-10% | 15-20%/年 |
+| 科技/互联网 | 8-15% | 10-15%/年 |
+| 制造业 | 2-4% | 20-30%/年（智能制造驱动） |
+| 零售/消费 | 3-5% | 15-25%/年 |
+| 医疗/医药 | 3-6% | 20-30%/年（合规驱动） |
+| 教育 | 2-4% | 10-15%/年 |
+
+---
+
+## 八、Prompt 设计指导
+
+生成客户分析类技能 Prompt 时，必须确保：
+
+1. **不是信息罗列**：不能只查客户名称和联系人就结束
+2. **必须有分级判断**：给出客户等级（S/A/B/C/D）和投入优先级
+3. **必须有交叉关联**：至少 2 个维度的数据交叉分析
+4. **必须有成熟度判断**：客户处于什么数字化阶段，决定销售策略
+5. **必须有行动建议**：基于判断给出具体的下一步（联系谁/做什么/什么时候）
+6. **必须有风险标注**：客户自身经营风险 + 关系风险
+7. **必须有数据溯源**：每个结论标注 [来源:xxx]
+8. **必须区分场景**：新客/续约/扩展/竞品攻防，侧重点不同
+</code></pre>
+                    </div>
+                    <div id="content_knowledge_domains_opportunity_md" class="file-content" style="display:none;">
+                        <div style="padding: 8px 16px; background: var(--gray-100); border-bottom: 1px solid var(--gray-200); font-size: 0.75rem; font-weight: 600; color: var(--gray-600);">knowledge/domains/opportunity.md</div>
+                        <pre style="margin:0; padding:16px 20px; font-size:0.72rem; line-height:1.7; color:#e2e8f0; white-space:pre-wrap; word-wrap:break-word; overflow-y:auto; height:100%; background:#1e293b;"><code># 商机管理（Opportunity Management）— 行业知识指南
+
+&gt; 本文件为 create_skill 提供商机管理领域的专业知识，指导生成具备行业深度的商机分析类技能 Prompt。
+
+---
+
+## 一、业务本质与分析目标
+
+商机分析的终极目标不是&quot;展示商机字段&quot;，而是回答三个核心问题：
+1. **能不能赢？** — 基于多维信号的赢率判断
+2. **卡在哪里？** — 识别推进障碍和薄弱环节
+3. **下一步做什么？** — 具体的推进动作和优先级
+
+---
+
+## 二、MEDDIC 评估框架
+
+### 2.1 六维度评分标准
+
+每个维度独立评分 0-100%，整体赢率为加权综合。
+
+| 维度 | 权重 | 核心问题 | 评分逻辑 |
+|:---|:---|:---|:---|
+| Metrics | 15% | 客户的量化业务痛点是什么？ | 有明确量化 ROI=80+，仅定性=40-60，未识别=0-20 |
+| Economic Buyer | 20% | 经济决策人是否已接触？ | 多次深度接触=80+，已识别未接触=40-60，未识别=0-20 |
+| Decision Criteria | 15% | 评估标准是什么？我方匹配度？ | 标准明确且匹配=80+，部分匹配=40-60，不匹配/不清楚=0-20 |
+| Decision Process | 15% | 决策流程和时间线清晰吗？ | 完全清晰=80+，部分清晰=40-60，不清晰=0-20 |
+| Identify Pain | 15% | 痛点是客户承认的还是我方假设？ | 客户主动表达=80+，引导后承认=40-60，我方假设=0-20 |
+| Champion | 20% | 有内部支持者在推动吗？ | 有且有影响力=80+，有但弱=40-60，无=0-20 |
+
+### 2.2 整体赢率计算
+
+```
+赢率 = Σ(维度得分 × 权重) × 阶段系数
+
+阶段系数：
+├── 初步接触：0.6
+├── 需求确认：0.7
+├── 方案演示：0.8
+├── 商务谈判：0.9
+└── 签约阶段：0.95
+
+示例：MEDDIC 加权得分 72%，当前阶段&quot;方案演示&quot;
+赢率 = 72% × 0.8 = 57.6%
+```
+
+### 2.3 等级判定
+
+```
+🟢 良好（≥70%）：推进顺利，保持节奏
+🟡 关注（40-69%）：有薄弱环节，需针对性补强
+🔴 风险（&lt;40%）：多维度缺失，需重新评估是否继续投入
+```
+
+---
+
+## 三、商机推进策略
+
+### 3.1 阶段转化基准
+
+| 阶段转化 | 行业平均转化率 | 平均停留天数 | 关键动作 |
+|:---|:---|:---|:---|
+| 初步接触 → 需求确认 | 60-70% | 7-14天 | 首次会议/需求调研/痛点确认 |
+| 需求确认 → 方案演示 | 50-60% | 14-21天 | 方案定制/POC 准备/技术对接 |
+| 方案演示 → 商务谈判 | 40-50% | 21-30天 | 报价/合同条款/商务条件 |
+| 商务谈判 → 签约 | 70-80% | 14-30天 | 审批流程/合同签署/付款 |
+
+**停留时间预警：**
+- 正常：≤ 基准天数
+- 关注：超过基准 1.5 倍
+- 预警：超过基准 2 倍
+
+### 3.2 风险信号识别
+
+| 风险类别 | 具体信号 | 严重程度 | 建议动作 |
+|:---|:---|:---|:---|
+| 活动断档 | &gt;14天无任何互动 | 🔴 高 | 48h 内联系 Champion 确认状态 |
+| 关键人变动 | Champion 离职/调岗 | 🔴 高 | 立即识别新 Champion，高层对接 |
+| 需求变更 | 范围扩大/缩小/方向变化 | 🟡 中 | 重新评估方案匹配度和报价 |
+| 预算冻结 | 财年调整/组织变动 | 🔴 高 | 确认冻结范围和恢复时间 |
+| 竞品介入 | 客户提及竞品/邀请竞品演示 | 🟡 中 | 强化差异化，加速推进节奏 |
+| 决策延迟 | 原定时间线推迟 | 🟡 中 | 确认延迟原因，调整策略 |
+
+### 3.3 赢单路径推荐
+
+```
+基于相似商机的成功模式匹配：
+├── 匹配维度：同行业 + 同规模 + 同阶段 + 相似金额
+├── 提取模式：已赢商机在该阶段的关键动作序列
+├── 推荐逻辑：
+│   1. 找到 3-5 个最相似的已赢商机
+│   2. 提取它们在当前阶段的共性动作
+│   3. 对比当前商机已完成的动作
+│   4. 差距即为推荐的下一步
+└── 输出格式：具体动作 + 联系谁 + 什么时候 + 预期效果
+```
+
+---
+
+## 四、竞争分析框架
+
+### 4.1 竞争态势判断
+
+```
+竞争态势 = f(竞品数量, 客户偏好, 我方差异化)
+
+├── 优势（可加速）：无竞品或客户明确偏好我方
+├── 均势（需差异化）：有竞品但无明显偏好
+├── 劣势（需策略）：客户倾向竞品，我方需改变游戏规则
+└── 未知（需情报）：不清楚竞品参与情况 → 通过 Champion 获取
+```
+
+### 4.2 差异化策略选择
+
+| 竞争场景 | 策略 | 关键动作 |
+|:---|:---|:---|
+| 我方先入 | 设置壁垒 | 深化需求理解，让评估标准向我方倾斜 |
+| 竞品先入 | 改变规则 | 引入竞品无法满足的新维度 |
+| 同时进入 | 速度+深度 | 更快响应 + 更深的业务理解 |
+| 替换竞品 | 降低风险 | 量化切换收益，提供迁移保障 |
+
+---
+
+## 五、赢/丢单归因分析
+
+### 5.1 常见赢单因素（按影响力排序）
+
+1. **Champion 强力推动**（35%）— 内部有人替我们说话
+2. **痛点量化清晰**（25%）— 客户自己算清了 ROI
+3. **决策链覆盖完整**（20%）— EB/TB/User 都认可
+4. **方案匹配度高**（15%）— 技术方案精准解决问题
+5. **竞品差异化明显**（5%）— 有独特优势
+
+### 5.2 常见丢单因素（按影响力排序）
+
+1. **无 Champion / Champion 无影响力**（30%）
+2. **未接触 Economic Buyer**（25%）
+3. **痛点不够痛 / 优先级不够高**（20%）
+4. **竞品价格优势**（15%）
+5. **决策流程不清晰导致失控**（10%）
+
+---
+
+## 六、行业基准参考
+
+| 指标 | ToB SaaS 基准 | 优秀线 | 预警线 |
+|:---|:---|:---|:---|
+| 整体赢率 | 20-25% | &gt;35% | &lt;15% |
+| 平均销售周期 | 60-90天 | &lt;45天 | &gt;120天 |
+| 平均客单价 | 行业相关 | 同比增长 | 同比下降 |
+| 阶段转化率（需求→方案） | 50-60% | &gt;70% | &lt;40% |
+| 商机推进速度 | 每 2 周推进 1 阶段 | 每周推进 | &gt;1 月无推进 |
+
+---
+
+## 七、Prompt 设计指导
+
+生成商机分析类技能 Prompt 时，必须确保：
+
+1. **不是字段罗列**：不能只列出商机名称、金额、阶段就结束
+2. **必须有评估**：MEDDIC 每个维度给出完成度评分和整体赢率
+3. **必须有对比**：与同阶段已赢/已丢商机的特征对比，识别差距
+4. **必须有建议**：基于差距给出具体推进动作（联系谁/做什么/什么时候）
+5. **必须有风险标注**：识别当前最大的 1-2 个风险信号
+6. **必须有数据溯源**：每个判断标注数据来源
+</code></pre>
+                    </div>
+                    <div id="content_knowledge_domains_forecast_md" class="file-content" style="display:none;">
+                        <div style="padding: 8px 16px; background: var(--gray-100); border-bottom: 1px solid var(--gray-200); font-size: 0.75rem; font-weight: 600; color: var(--gray-600);">knowledge/domains/forecast.md</div>
+                        <pre style="margin:0; padding:16px 20px; font-size:0.72rem; line-height:1.7; color:#e2e8f0; white-space:pre-wrap; word-wrap:break-word; overflow-y:auto; height:100%; background:#1e293b;"><code># 销售预测（Forecast &amp; Pipeline）— 行业知识指南
+
+&gt; 本文件为 create_skill 提供销售预测领域的专业知识，指导生成具备行业深度的 Pipeline 管理和 Forecast 类技能 Prompt。
+
+---
+
+## 一、业务本质与分析目标
+
+销售预测的终极目标不是&quot;统计 Pipeline 金额&quot;，而是回答三个核心问题：
+1. **能完成目标吗？** — 基于当前 Pipeline 的目标达成概率
+2. **哪里有问题？** — Pipeline 的结构性缺陷和风险点
+3. **怎么补缺口？** — 具体的补救措施和优先级
+
+---
+
+## 二、Pipeline 健康度模型（5 维）
+
+### 2.1 五维评估框架
+
+| 维度 | 核心问题 | 计算方法 | 健康标准 | 预警标准 |
+|:---|:---|:---|:---|:---|
+| 覆盖率 | Pipeline 够不够？ | Pipeline 总金额 / 季度目标 | ≥ 3x | &lt; 2x |
+| 形态 | 分布合理吗？ | 各阶段金额占比 | 漏斗形 | 倒三角/断层 |
+| 流速 | 进出平衡吗？ | 新增 vs 关闭 vs 流失 | 净增 &gt; 0 | 流失 &gt; 新增 |
+| 质量 | 加权后够吗？ | Σ(金额 × 阶段赢率) / 目标 | ≥ 1.2x | &lt; 1.0x |
+| 时效 | 有没有僵尸商机？ | 超期商机金额占比 | &lt; 20% | &gt; 40% |
+
+### 2.2 各维度详细判断标准
+
+#### 覆盖率
+
+```
+Pipeline 覆盖率 = 活跃 Pipeline 总金额 / 季度目标
+
+判断逻辑：
+├── ≥ 4x：充裕，可选择性推进高质量商机
+├── 3-4x：健康，保持当前节奏
+├── 2-3x：紧张，需加速新商机开发
+├── &lt; 2x：危险，目标达成概率 &lt; 50%
+└── &lt; 1x：极度危险，即使全部赢单也无法达标
+
+加权覆盖率（更准确）：
+加权覆盖率 = Σ(商机金额 × 阶段赢率) / 季度目标
+```
+
+#### 形态（阶段分布）
+
+```
+健康的漏斗形态（金额占比参考）：
+├── 初步接触：30-40%（上层宽）
+├── 需求确认：25-30%
+├── 方案演示：15-20%
+├── 商务谈判：10-15%（下层窄）
+└── 签约阶段：5-10%
+
+异常形态诊断：
+├── 倒三角（下层 &gt; 上层）：新商机开发不足，未来会断粮
+├── 中间断层：某阶段转化率异常低，需排查原因
+├── 底部堆积：大量商机卡在商务谈判，可能是定价/条款问题
+└── 顶部堆积：大量商机停在初步接触，推进能力不足
+```
+
+#### 流速
+
+```
+Pipeline 流速分析（按月/季度）：
+├── 新增金额：本期新进入 Pipeline 的商机总金额
+├── 关闭金额：本期赢单关闭的金额
+├── 流失金额：本期丢单/放弃/过期的金额
+└── 净增速 = 新增 - 关闭 - 流失
+
+健康判断：
+├── 🟢 健康：净增速 &gt; 0 且 新增 &gt; 流失
+├── 🟡 关注：净增速 ≈ 0 或 流失接近新增
+└── 🔴 预警：净增速 &lt; 0 或 流失 &gt; 新增
+```
+
+#### 质量
+
+```
+商机质量评估维度：
+├── 金额真实性：预估金额是否有依据（vs 拍脑袋）
+├── 阶段准确性：实际推进状态是否匹配标记阶段
+├── 时间合理性：预计关闭日期是否现实
+└── 活跃度：近 30 天是否有实质性推进活动
+
+低质量商机特征（僵尸商机）：
+├── 超过 30 天无任何活动
+├── 预计关闭日期已过但未更新
+├── 阶段长期未变化（超过基准 2 倍）
+└── 无明确的下一步动作
+```
+
+---
+
+## 三、Forecast 三档预测
+
+### 3.1 三档定义
+
+| 档位 | 定义 | 计算方法 | 准确度要求 |
+|:---|:---|:---|:---|
+| Commit | 销售承诺本季度可关闭的金额 | 销售主观判断 + 历史校准 | 偏差 &lt; 10% |
+| Best Case | 乐观情况下可能达到的金额 | Commit + 高概率 Upside | 偏差 &lt; 20% |
+| Upside | 有可能但不确定的额外金额 | 活跃商机中概率 30-60% 的部分 | 参考值 |
+
+### 3.2 Forecast 准确度校准
+
+```
+个人校准系数 = 历史实际完成 / 历史 Commit 承诺
+
+示例：
+├── 张三：历史 Commit 100万，实际完成 120万 → 系数 1.2（偏保守）
+├── 李四：历史 Commit 100万，实际完成 80万 → 系数 0.8（偏乐观）
+└── 校准后 Commit = 原始 Commit × 个人校准系数
+
+团队 Forecast = Σ(各人校准后 Commit)
+```
+
+### 3.3 Forecast 偏差分析
+
+```
+偏差率 = |Commit - Actual| / Actual × 100%
+
+判断标准：
+├── 优秀：偏差 &lt; 10%
+├── 正常：偏差 10-20%
+├── 需改进：偏差 20-30%
+└── 严重：偏差 &gt; 30%
+
+偏差方向分析：
+├── 系统性高估（Commit &gt; Actual）：团队过于乐观，需加强商机审核
+└── 系统性低估（Commit &lt; Actual）：团队过于保守，可能错失加速机会
+```
+
+---
+
+## 四、目标达成概率模型
+
+```
+目标达成概率 = f(加权覆盖率, 历史转化率, 剩余时间)
+
+简化计算：
+├── 已赢单金额 / 目标 &gt; 80% → 概率 &gt; 90%（基本达标）
+├── (已赢单 + Commit) / 目标 &gt; 100% → 概率 70-90%
+├── (已赢单 + Best Case) / 目标 &gt; 100% → 概率 40-70%
+├── (已赢单 + 全部 Pipeline × 历史赢率) / 目标 &gt; 100% → 概率 20-40%
+└── 即使全部赢单也 &lt; 目标 → 概率 &lt; 20%（需紧急补充 Pipeline）
+```
+
+---
+
+## 五、行业基准参考
+
+| 指标 | ToB SaaS 基准 | 优秀线 | 预警线 |
+|:---|:---|:---|:---|
+| Pipeline 覆盖率 | 3x | &gt;4x | &lt;2x |
+| 加权覆盖率 | 1.2x | &gt;1.5x | &lt;1.0x |
+| Forecast 准确度 | 偏差 15% | &lt;10% | &gt;25% |
+| 僵尸商机占比 | 15-20% | &lt;10% | &gt;30% |
+| 月均新增 Pipeline | 目标的 1x | &gt;1.5x | &lt;0.5x |
+| Pipeline 流失率 | 10-15%/月 | &lt;10% | &gt;20% |
+
+---
+
+## 六、Prompt 设计指导
+
+生成 Pipeline/Forecast 类技能 Prompt 时，必须确保：
+
+1. **不是简单统计**：不能只算 Pipeline 总金额就结束
+2. **必须多维评估**：覆盖率+形态+流速+质量+时效，至少 3 个维度
+3. **必须有基准对比**：与目标对比、与历史同期对比
+4. **必须有预测**：目标达成概率 + 三档 Forecast
+5. **必须有诊断**：识别结构性问题（断层/堆积/僵尸）
+6. **必须有行动**：缺口多大？怎么补？优先级是什么？
+</code></pre>
+                    </div>
+                    <div id="content_knowledge_domains_activity_md" class="file-content" style="display:none;">
+                        <div style="padding: 8px 16px; background: var(--gray-100); border-bottom: 1px solid var(--gray-200); font-size: 0.75rem; font-weight: 600; color: var(--gray-600);">knowledge/domains/activity.md</div>
+                        <pre style="margin:0; padding:16px 20px; font-size:0.72rem; line-height:1.7; color:#e2e8f0; white-space:pre-wrap; word-wrap:break-word; overflow-y:auto; height:100%; background:#1e293b;"><code># 销售行为分析（Activity Intelligence）— 行业知识指南
+
+&gt; 本文件为 create_skill 提供销售行为分析领域的专业知识，指导生成具备行业深度的活动分析类技能 Prompt。
+
+---
+
+## 一、业务本质与分析目标
+
+活动分析的终极目标不是&quot;统计活动数量&quot;，而是回答三个核心问题：
+1. **谁做得好？** — 识别 Top Sales 的行为模式
+2. **谁有问题？** — 发现行为偏差和风险信号
+3. **怎么改进？** — 给出具体可模仿的行为建议
+
+---
+
+## 二、活动效能模型（5 维）
+
+### 2.1 五维评估框架
+
+| 维度 | 核心问题 | 关键指标 | 行业基准 |
+|:---|:---|:---|:---|
+| 量 | 活动够不够？ | 日均活动数/客户覆盖率 | 日均 5-8 次 |
+| 质 | 活动有没有用？ | 有效活动占比/高层拜访占比 | 有效率 &gt;60% |
+| 节奏 | 跟进及时吗？ | 平均跟进间隔/断档率 | 间隔 &lt;7天 |
+| 模式 | 行为模式对吗？ | 与 Top Sales 模式的偏差 | 偏差 &lt;30% |
+| 转化 | 活动能变成钱吗？ | 活动→商机→签约转化率 | 活动→商机 &gt;5% |
+
+### 2.2 各维度详细判断标准
+
+#### 量（Activity Volume）
+
+```
+评估指标：
+├── 日均活动数：所有类型活动的日均次数
+├── 客户覆盖率：有活动的客户数 / 负责的客户总数
+├── 新客户触达率：首次接触的新客户数 / 月
+└── 活动类型分布：电话/邮件/会议/拜访的占比
+
+判断标准：
+├── 🟢 充足：日均 ≥8次，覆盖率 &gt;70%
+├── 🟡 一般：日均 5-7次，覆盖率 50-70%
+├── 🔴 不足：日均 &lt;5次，覆盖率 &lt;50%
+└── 注意：量不是越多越好，需结合质来看
+```
+
+#### 质（Activity Quality）
+
+```
+有效活动定义：
+├── 推进了商机阶段（阶段变化在活动后 7 天内发生）
+├── 获取了关键信息（决策人/预算/时间线/竞品）
+├── 建立了新的联系人关系（新角色覆盖）
+├── 获得了客户承诺（下一步/时间/资源）
+└── 解决了客户顾虑（技术/商务/风险）
+
+质量评分：
+├── 高层拜访占比：VP+ 级别的互动 / 总互动
+├── 多线程覆盖：每个商机接触的联系人数
+├── 推进关联度：活动后 7 天内有阶段推进的比例
+└── 信息获取率：获取关键信息的活动占比
+```
+
+#### 节奏（Activity Cadence）
+
+```
+跟进节奏评估：
+├── 平均跟进间隔：两次活动之间的平均天数
+├── 最大间隔：最长的一次断档天数
+├── 关键节点覆盖：重要时间点（续约前/季度末/POC 后）是否有活动
+└── 响应速度：客户发起后我方响应的平均时间
+
+断档预警规则：
+├── 🟢 正常：最近活动 &lt; 7天
+├── 🟡 关注：最近活动 7-14天
+├── 🔴 预警：最近活动 &gt; 14天
+└── ⚫ 失联：最近活动 &gt; 30天
+
+触发条件（任一命中即预警）：
+├── 活跃商机的客户 &gt; 7天无活动
+├── 本月活动量 &lt; 上月的 50%
+├── A 级客户 &gt; 14天无活动
+└── 商机在关键阶段（方案演示/商务谈判）&gt; 7天无活动
+```
+
+#### 模式（Activity Pattern）
+
+```
+Top Sales 行为模式特征：
+
+| 特征 | Top 20% | 普通销售 | 差距倍数 |
+|:---|:---|:---|:---|
+| 日均活动数 | 8-12 次 | 3-5 次 | 2-3x |
+| 高层拜访占比 | &gt; 30% | &lt; 10% | 3x |
+| 跟进间隔 | 2-3 天 | 7-14 天 | 3-5x |
+| 多线程覆盖 | 3+ 联系人/商机 | 1-2 联系人 | 2x |
+| 活动→商机转化 | &gt; 8% | &lt; 3% | 2.5x |
+| 首次响应时间 | &lt; 2小时 | &gt; 24小时 | 12x |
+| 会议准备度 | 有议程+材料 | 无准备 | — |
+
+模式偏差分析：
+├── 计算个人各指标与 Top Sales 均值的偏差
+├── 偏差 &gt; 50% 的维度标记为&quot;重点改进项&quot;
+├── 偏差 &lt; 20% 的维度标记为&quot;已达标&quot;
+└── 输出：个人行为雷达图 vs Top Sales 基准线
+```
+
+#### 转化（Activity Conversion）
+
+```
+转化漏斗：
+活动总量 → 有效活动 → 产生商机 → 推进阶段 → 赢单
+
+各环节转化率基准：
+├── 活动 → 有效活动：60-70%
+├── 有效活动 → 产生商机：8-12%
+├── 商机 → 阶段推进：每 2 周推进 1 阶段
+└── 商机 → 赢单：20-25%
+
+转化率异常诊断：
+├── 活动多但有效率低 → 活动质量问题（在做无效的事）
+├── 有效率高但商机少 → 客户选择问题（找错了人）
+├── 商机多但推进慢 → 推进能力问题（不会推）
+└── 推进快但赢率低 → 判断力问题（推错了商机）
+```
+
+---
+
+## 三、辅导建议生成逻辑
+
+### 3.1 辅导优先级判断
+
+```
+辅导 ROI = 预期提升金额 / 辅导投入时间
+
+优先辅导对象：
+├── 有潜力但有明确短板（偏差大但态度好）
+├── 新人 Ramp 期（入职 3-6 月，行为模式未定型）
+├── 业绩下滑者（近 2 月趋势下降 &gt;20%）
+└── 不优先：已达标者 / 态度问题者 / 即将离职者
+```
+
+### 3.2 辅导建议模板
+
+```
+针对不同短板的具体建议（必须可执行，禁止&quot;加强跟进&quot;式模糊建议）：
+
+量不足：
+├── &quot;将每日活动目标从 X 提升到 Y，建议增加 Z 类型活动&quot;
+├── &quot;每周一规划本周客户覆盖计划，确保 A/B 级客户每周至少 1 次互动&quot;
+└── &quot;参考 [Top Sales 名字] 的时间分配：上午电话/下午拜访/晚上邮件&quot;
+
+质不高：
+├── &quot;每次拜访前准备 3 个关键问题（决策人/预算/时间线）&quot;
+├── &quot;将高层拜访占比从 X% 提升到 30%，每周至少 1 次 VP+ 级别互动&quot;
+└── &quot;每次活动后记录获取的关键信息，确保每次互动有信息增量&quot;
+
+节奏差：
+├── &quot;将跟进间隔从 X 天缩短到 3 天，设置日历提醒&quot;
+├── &quot;对活跃商机设置 48h 跟进规则：任何客户互动后 48h 内必须有下一步&quot;
+└── &quot;每周五检查下周的关键节点（续约/POC/评审），提前安排活动&quot;
+```
+
+---
+
+## 四、行业基准参考
+
+| 指标 | ToB SaaS 基准 | Top 20% | 预警线 |
+|:---|:---|:---|:---|
+| 日均活动数 | 5-8 次 | &gt;10 次 | &lt;3 次 |
+| 有效活动占比 | 60-70% | &gt;80% | &lt;40% |
+| 高层拜访占比 | 15-20% | &gt;30% | &lt;5% |
+| 平均跟进间隔 | 5-7 天 | 2-3 天 | &gt;14 天 |
+| 活动→商机转化率 | 5-8% | &gt;10% | &lt;3% |
+| 客户覆盖率 | 60-70% | &gt;85% | &lt;40% |
+| 多线程覆盖 | 2-3 人/商机 | &gt;4 人 | 1 人 |
+
+---
+
+## 五、Prompt 设计指导
+
+生成活动分析类技能 Prompt 时，必须确保：
+
+1. **不是活动计数**：不能只统计&quot;本月活动 X 次&quot;就结束
+2. **必须有模式分析**：与 Top Sales 行为模式对比，识别差距
+3. **必须有风险预警**：断档客户/商机的具体清单
+4. **必须有具体建议**：可执行的行为改进建议（&quot;将 X 从 A 改为 B&quot;）
+5. **必须有转化视角**：活动最终是否转化为商业结果
+6. **必须区分个人/团队**：个人行为诊断 vs 团队模式提炼
+</code></pre>
+                    </div>
+                    <div id="content_knowledge_domains_customer_success_md" class="file-content" style="display:none;">
+                        <div style="padding: 8px 16px; background: var(--gray-100); border-bottom: 1px solid var(--gray-200); font-size: 0.75rem; font-weight: 600; color: var(--gray-600);">knowledge/domains/customer_success.md</div>
+                        <pre style="margin:0; padding:16px 20px; font-size:0.72rem; line-height:1.7; color:#e2e8f0; white-space:pre-wrap; word-wrap:break-word; overflow-y:auto; height:100%; background:#1e293b;"><code># 客户成功（Customer Success）— 行业知识指南
+
+&gt; 本文件为 create_skill 提供客户成功领域的专业知识，指导生成具备行业深度的客户健康度/续约/流失预测类技能 Prompt。
+
+---
+
+## 一、业务本质与分析目标
+
+客户成功分析的终极目标不是&quot;展示客户状态&quot;，而是回答三个核心问题：
+1. **谁会流失？** — 基于多维信号的流失风险预测
+2. **为什么会流失？** — 流失根因诊断
+3. **怎么挽回/扩展？** — 差异化的干预策略
+
+---
+
+## 二、客户健康度评分模型（5 维）
+
+### 2.1 五维评估框架
+
+| 维度 | 权重 | 核心问题 | 关键指标 |
+|:---|:---|:---|:---|
+| 产品使用 | 30% | 客户在用吗？用得深吗？ | 登录频次/功能覆盖/使用深度/活跃用户占比 |
+| 关系健康 | 25% | 关系稳定吗？满意吗？ | 联系频次/NPS/投诉率/关键人稳定性 |
+| 商业健康 | 20% | 会续约吗？会扩展吗？ | 续约意向/扩展信号/付款及时性/合同剩余期限 |
+| 支持健康 | 15% | 问题多吗？解决快吗？ | 工单趋势/解决时效/升级频次 |
+| 价值实现 | 10% | 客户得到价值了吗？ | KPI 达成度/ROI 验证/成功案例 |
+
+### 2.2 各维度评分标准
+
+#### 产品使用（30%）
+
+```
+评分维度（各 25 分，满分 100）：
+├── 登录频次：日活/周活趋势
+│   25分：DAU/MAU &gt; 60%，且环比增长
+│   15分：DAU/MAU 30-60%，稳定
+│   8分：DAU/MAU &lt; 30%，或环比下降 &gt;20%
+│   0分：近 30 天无登录
+├── 功能覆盖度：使用的功能模块数 / 已购功能总数
+│   25分：覆盖 &gt; 70%
+│   15分：覆盖 40-70%
+│   8分：覆盖 &lt; 40%
+├── 使用深度：核心功能的使用频次和复杂度
+│   25分：使用高级功能（自定义/集成/自动化）
+│   15分：使用标准功能
+│   8分：仅使用基础功能
+└── 活跃用户占比：活跃用户 / 已开通账号
+    25分：&gt; 80%
+    15分：50-80%
+    8分：&lt; 50%
+```
+
+#### 关系健康（25%）
+
+```
+├── 联系频次：CSM 与客户的互动频率
+│   25分：月均 ≥4次，客户主动发起 &gt;30%
+│   15分：月均 2-3次
+│   8分：月均 &lt;2次
+│   0分：超过 30 天无互动
+├── NPS/满意度：
+│   25分：NPS ≥ 9（推荐者）
+│   15分：NPS 7-8（被动者）
+│   8分：NPS ≤ 6（贬损者）
+├── 投诉率：
+│   25分：无投诉
+│   15分：有投诉但已解决
+│   0分：有未解决投诉或升级投诉
+└── 关键人稳定性：
+    25分：对接人稳定 &gt;12 月，有多个联系人
+    15分：对接人稳定 6-12 月
+    8分：近 6 月有对接人变动
+    0分：关键对接人离职且无新接口人
+```
+
+#### 商业健康（20%）
+
+```
+├── 续约意向信号：
+│   正面：主动询问续约/提前续约/增加预算
+│   中性：正常沟通，无明确信号
+│   负面：询问终止条款/要求降价/缩减范围
+├── 扩展信号：
+│   强信号：新部门使用/增加用户/询问新产品
+│   弱信号：使用量接近上限/提出新需求
+├── 付款及时性：
+│   正常：按时付款
+│   关注：延迟 1-15 天
+│   预警：延迟 &gt;15 天
+└── 合同剩余期限：
+    安全：&gt; 6 月
+    关注：3-6 月（应启动续约流程）
+    紧急：&lt; 3 月（必须已在续约谈判中）
+```
+
+---
+
+## 三、流失风险预测
+
+### 3.1 流失信号体系
+
+| 信号类别 | 具体信号 | 风险权重 | 时间窗口 |
+|:---|:---|:---|:---|
+| 使用信号 | 登录频次下降 &gt;30% | 高 | 连续 2 周 |
+| 使用信号 | 核心功能使用停止 | 极高 | 连续 1 周 |
+| 使用信号 | 活跃用户数减少 &gt;20% | 高 | 连续 1 月 |
+| 关系信号 | 联系频次下降 &gt;50% | 中 | 连续 1 月 |
+| 关系信号 | 关键对接人离职 | 极高 | 即时 |
+| 关系信号 | 会议取消/推迟 ≥2次 | 中 | 连续 1 月 |
+| 商业信号 | 询问合同终止条款 | 极高 | 即时 |
+| 商业信号 | 付款延迟 &gt;15天 | 高 | 即时 |
+| 商业信号 | 要求降价/缩减范围 | 高 | 续约谈判期 |
+| 竞品信号 | 接触竞品/参加竞品活动 | 极高 | 即时 |
+| 竞品信号 | 内部评估替代方案 | 极高 | 即时 |
+| 支持信号 | 工单数量激增 &gt;100% | 中 | 连续 2 周 |
+| 支持信号 | 升级投诉 | 高 | 即时 |
+
+### 3.2 风险等级判定
+
+```
+风险等级 = f(信号数量, 信号权重, 合同剩余期限)
+
+🔴 高风险（立即干预）：
+├── 任一&quot;极高&quot;权重信号命中
+├── 或 3+ 个&quot;高&quot;权重信号同时命中
+├── 或 健康度评分 &lt; 40 且合同剩余 &lt; 6 月
+└── 行动：48h 内启动挽回计划，升级到管理层
+
+🟡 中风险（主动关注）：
+├── 1-2 个&quot;高&quot;权重信号命中
+├── 或 健康度评分 40-60
+├── 或 健康度连续 2 月下降
+└── 行动：1 周内安排深度沟通，制定干预计划
+
+🟢 低风险（正常维护）：
+├── 无高权重信号
+├── 健康度评分 &gt; 60 且稳定
+└── 行动：按正常节奏维护，关注扩展机会
+```
+
+---
+
+## 四、挽回策略库
+
+### 4.1 按流失原因的差异化策略
+
+| 流失原因 | 挽回策略 | 关键动作 | 最佳时间窗口 | 历史成功率 |
+|:---|:---|:---|:---|:---|
+| 使用不足 | 价值激活 | 安排培训/指派专属 CSM/推送使用指南/设置里程碑 | 续约前 90 天 | 60-70% |
+| 关键人变动 | 关系重建 | 快速建立新关系/高层对接/价值重述/QBR 安排 | 变动后 30 天内 | 40-50% |
+| 竞品替代 | 差异化防守 | 差异化价值证明/迁移成本分析/优惠方案/高层介入 | 评估期内 | 30-40% |
+| 预算削减 | 灵活方案 | 降级方案/分期付款/ROI 重新论证/延期续约 | 预算确认前 | 50-60% |
+| 产品不满 | 问题修复 | 问题修复承诺+时间表/产品路线图沟通/补偿方案 | 投诉后 14 天内 | 55-65% |
+| 价值未实现 | 价值证明 | ROI 量化报告/成功案例对标/使用优化建议 | QBR 时 | 45-55% |
+
+### 4.2 挽回计划模板
+
+```
+挽回计划结构：
+├── 诊断：流失根因是什么？（基于信号分析）
+├── 目标：挽回的具体目标（续约/降级续约/延期）
+├── 策略：选择哪种挽回策略？
+├── 行动：
+│   ├── 第 1 周：[具体动作]
+│   ├── 第 2-3 周：[具体动作]
+│   └── 第 4 周：[评估效果]
+├── 资源：需要谁参与？（CSM/销售/产品/高层）
+└── 兜底：如果挽回失败，降级方案是什么？
+```
+
+---
+
+## 五、扩展机会识别
+
+### 5.1 扩展时机信号
+
+```
+强信号（可主动推动）：
+├── 活跃用户接近许可上限（&gt;80%）
+├── 新部门/团队开始使用
+├── 客户融资/扩张/新业务线
+├── NPS ≥ 9 且主动推荐
+├── 合同续约前 60 天（捆绑扩展）
+└── 年度 QBR 时（战略对齐）
+
+弱信号（需进一步验证）：
+├── 询问新功能/新模块
+├── 提出定制需求
+├── 使用量持续增长
+└── 行业/政策变化带来新需求
+```
+
+### 5.2 扩展类型与策略
+
+| 扩展类型 | 触发条件 | 策略 | 预期增长 |
+|:---|:---|:---|:---|
+| Up-sell（升级） | 使用接近上限/需要高级功能 | 展示高版本价值差异 | 30-50% |
+| Cross-sell（交叉） | 新部门/新场景需求 | 从已有成功案例切入 | 50-100% |
+| 增加用户 | 活跃用户 &gt;80% 许可 | 按使用数据证明需求 | 20-40% |
+| 增值服务 | 有定制/培训/咨询需求 | 打包服务方案 | 10-30% |
+
+---
+
+## 六、行业基准参考
+
+| 指标 | ToB SaaS 基准 | 优秀线 | 预警线 |
+|:---|:---|:---|:---|
+| Logo 续约率 | 85-90% | &gt;95% | &lt;80% |
+| 净收入留存率（NRR） | 100-110% | &gt;120% | &lt;90% |
+| 毛收入留存率（GRR） | 85-90% | &gt;92% | &lt;80% |
+| NPS | 30-50 | &gt;60 | &lt;20 |
+| 客户健康度均分 | 65-75 | &gt;80 | &lt;55 |
+| 扩展率（已有客户） | 15-25% | &gt;30% | &lt;10% |
+| 平均挽回成功率 | 40-50% | &gt;60% | &lt;30% |
+
+---
+
+## 七、Prompt 设计指导
+
+生成客户成功类技能 Prompt 时，必须确保：
+
+1. **不是状态展示**：不能只列出客户的合同信息和使用数据
+2. **必须有评分**：健康度五维评分 + 综合等级
+3. **必须有预测**：基于信号的流失风险判定（红/黄/绿）
+4. **必须有归因**：风险的根本原因是什么（不是表象）
+5. **必须有策略**：针对性的挽回/扩展策略（不是通用建议）
+6. **必须有时间线**：什么时候做什么，有明确的行动节奏
+</code></pre>
+                    </div>
+                    <div id="content_knowledge_domains_team_md" class="file-content" style="display:none;">
+                        <div style="padding: 8px 16px; background: var(--gray-100); border-bottom: 1px solid var(--gray-200); font-size: 0.75rem; font-weight: 600; color: var(--gray-600);">knowledge/domains/team.md</div>
+                        <pre style="margin:0; padding:16px 20px; font-size:0.72rem; line-height:1.7; color:#e2e8f0; white-space:pre-wrap; word-wrap:break-word; overflow-y:auto; height:100%; background:#1e293b;"><code># 团队管理（Sales Management）— 行业知识指南
+
+&gt; 本文件为 create_skill 提供团队管理领域的专业知识，指导生成具备行业深度的团队绩效/辅导/资源分配类技能 Prompt。
+
+---
+
+## 一、业务本质与分析目标
+
+团队管理分析的终极目标不是&quot;展示排名&quot;，而是回答三个核心问题：
+1. **谁需要帮助？** — 识别辅导优先级和具体短板
+2. **资源分配合理吗？** — 诊断结构性问题
+3. **怎么提升团队产出？** — 可落地的管理动作
+
+---
+
+## 二、团队绩效模型（5 维）
+
+### 2.1 五维评估框架
+
+| 维度 | 核心问题 | 关键指标 | 管理动作 |
+|:---|:---|:---|:---|
+| 目标达成 | 完成得怎么样？ | 完成率/趋势/差距 | 目标调整/资源倾斜 |
+| 效率指标 | 效率高不高？ | 人均产出/周期/客单价 | 流程优化/工具赋能 |
+| 能力矩阵 | 能力均衡吗？ | 四维能力评估 | 针对性辅导 |
+| 资源分配 | 分配合理吗？ | 客户分配/区域覆盖 | 重新分配/补充资源 |
+| 辅导优先级 | 该辅导谁？ | ROI 排序 | 辅导计划制定 |
+
+### 2.2 各维度详细评估标准
+
+#### 目标达成
+
+```
+评估维度：
+├── 绝对达成率：actual / target × 100%
+│   🟢 达标：≥ 100%
+│   🟡 接近：80-99%
+│   🔴 落后：&lt; 80%
+├── 趋势分析：近 3 月的达成率变化
+│   上升趋势：连续 2 月环比增长 → 正面
+│   下降趋势：连续 2 月环比下降 → 预警
+│   波动：无明确趋势 → 关注稳定性
+├── 差距分析：
+│   剩余目标 = target - actual
+│   日均需完成 = 剩余目标 / 剩余工作日
+│   可行性判断 = 日均需完成 vs 历史日均产出
+└── 同比分析：
+    vs 去年同期 / vs 团队均值 / vs 个人历史最佳
+```
+
+#### 效率指标
+
+| 指标 | 计算方法 | 行业基准 | 优秀线 | 预警线 |
+|:---|:---|:---|:---|:---|
+| 人均产出 | 赢单金额 / 人数 | 150-250万/年 | &gt;300万 | &lt;100万 |
+| 赢单周期 | 平均从创建到赢单的天数 | 60-90天 | &lt;45天 | &gt;120天 |
+| 客单价 | 赢单金额 / 赢单数 | 行业相关 | 同比增长 | 同比下降 |
+| 活动转化率 | 赢单数 / 活动总数 | 3-5% | &gt;7% | &lt;2% |
+| 商机创建率 | 新商机数 / 月 | 5-8个/人 | &gt;10个 | &lt;3个 |
+
+#### 能力矩阵（四维雷达图）
+
+```
+销售能力四象限（每维度 0-100 分）：
+
+开拓能力（Hunting）：
+├── 新客户获取数
+├── 首次会议转化率
+├── 线索跟进速度
+└── 评分 = 加权综合
+
+推进能力（Advancing）：
+├── 阶段转化率
+├── 商机推进速度
+├── 多线程覆盖度
+└── 评分 = 加权综合
+
+关闭能力（Closing）：
+├── 赢率
+├── 谈判周期
+├── 折扣率控制
+└── 评分 = 加权综合
+
+维护能力（Farming）：
+├── 续约率
+├── 扩展率
+├── 客户满意度/NPS
+└── 评分 = 加权综合
+
+能力等级：
+├── 90-100：标杆级，可作为导师
+├── 70-89：优秀，稳定产出
+├── 50-69：合格，有提升空间
+├── 30-49：需辅导，明确改进方向
+└── 0-29：需紧急干预
+```
+
+---
+
+## 三、九宫格绩效矩阵
+
+### 3.1 矩阵定义
+
+```
+        │ 低绩效（&lt;80%） │ 中绩效（80-100%）│ 高绩效（&gt;100%）
+────────┼───────────────┼────────────────┼───────────────
+高潜力  │ ⭐ 重点辅导    │ 🚀 加速培养     │ 👑 晋升候选
+中潜力  │ 📋 明确改进    │ ✅ 稳定发展     │ 💪 激励保持
+低潜力  │ ⚠️ 绩效改进计划│ 🔄 调整岗位     │ 🛡️ 防止倦怠
+```
+
+### 3.2 潜力评估维度
+
+```
+潜力 = f(学习速度, 能力提升趋势, 态度/意愿)
+
+高潜力信号：
+├── 能力评分连续 3 月提升
+├── 主动学习新方法/工具
+├── 积极接受反馈并改进
+├── 能举一反三，不重复犯错
+└── 有清晰的职业发展意愿
+
+低潜力信号：
+├── 能力评分长期停滞
+├── 抗拒改变和新方法
+├── 反复出现相同问题
+├── 缺乏自驱力
+└── 无职业发展意愿
+```
+
+### 3.3 各象限管理策略
+
+| 象限 | 管理策略 | 具体动作 | 时间投入 |
+|:---|:---|:---|:---|
+| 重点辅导 | 高频 1:1 + 陪访 | 每周 1:1，每月 2 次陪访 | 30% 管理时间 |
+| 加速培养 | 挑战性任务 + 导师 | 分配大客户/复杂商机 | 20% |
+| 晋升候选 | 授权 + 领导力培养 | 带新人/主持会议/跨部门项目 | 10% |
+| 明确改进 | 目标分解 + 周跟踪 | 每周检查改进计划执行 | 15% |
+| 稳定发展 | 正常管理节奏 | 双周 1:1，季度回顾 | 10% |
+| 激励保持 | 认可 + 新挑战 | 公开表彰/新领域探索 | 5% |
+| 绩效改进 | PIP + 明确时间线 | 30/60/90 天改进计划 | 10% |
+
+---
+
+## 四、辅导优先级算法
+
+### 4.1 ROI 排序逻辑
+
+```
+辅导 ROI = 预期提升金额 / (辅导难度 × 时间投入)
+
+计算步骤：
+1. 识别每人的&quot;最大短板维度&quot;（能力矩阵中最低分的维度）
+2. 估算该短板提升到合格线（70分）的预期收入增量
+   增量 = (70 - 当前分) / 100 × 该维度对应的历史收入贡献
+3. 评估辅导难度（1-5 分）：
+   1分：态度好+有基础+只需方法指导
+   3分：需要持续跟进+实战演练
+   5分：态度问题+基础薄弱+需要大量时间
+4. ROI = 预期增量 / (难度 × 预计辅导周数)
+5. 按 ROI 降序排列 → 辅导优先级
+```
+
+### 4.2 辅导类型匹配
+
+| 短板维度 | 辅导方式 | 具体内容 | 预期见效时间 |
+|:---|:---|:---|:---|
+| 开拓弱 | 陪访+话术训练 | 每周 1 次陪同拜访，录音复盘 | 4-6 周 |
+| 推进弱 | 案例复盘+方法论 | 每周复盘 1 个商机，MEDDIC 训练 | 6-8 周 |
+| 关闭弱 | 谈判技巧+高层陪同 | 模拟谈判+实战中高层支持 | 4-6 周 |
+| 维护弱 | 流程建设+模板 | QBR 模板/预警机制/续约 SOP | 8-12 周 |
+
+---
+
+## 五、资源分配合理性评估
+
+### 5.1 评估维度
+
+| 评估维度 | 计算方法 | 健康标准 | 预警标准 |
+|:---|:---|:---|:---|
+| 客户集中度 | Top 3 客户收入占比 | &lt; 30% | &gt; 50% |
+| 区域覆盖 | 有活动的区域 / 总区域 | &gt; 80% | &lt; 60% |
+| 大客户分配 | 大客户数 / 销售人数 | 均匀（±20%） | 偏差 &gt; 50% |
+| 新老客户比 | 新客户商机 / 总商机 | 30-50% | &lt; 20% 或 &gt; 70% |
+| 能力匹配度 | 客户难度 vs 销售能力 | 匹配 | 严重错配 |
+
+### 5.2 常见资源分配问题
+
+```
+问题诊断：
+├── 大客户过度集中：1-2 人负责 &gt;50% 大客户 → 风险集中
+├── 新人无客户：新人 Ramp 期无足够客户练手 → 成长慢
+├── 能力错配：初级销售负责复杂大客户 → 丢单率高
+├── 区域空白：部分区域无人覆盖 → 市场机会流失
+└── 忙闲不均：部分人超负荷，部分人闲置 → 效率低
+
+调整建议：
+├── 大客户分散：每人负责大客户不超过总数的 30%
+├── 新人培养：分配 B/C 级客户 + 导师陪同 A 级客户
+├── 能力匹配：复杂客户配资深销售，标准客户配中级
+├── 区域补充：招聘/调配覆盖空白区域
+└── 负载均衡：按客户数 × 难度系数均衡分配
+```
+
+---
+
+## 六、行业基准参考
+
+| 指标 | ToB SaaS 基准 | 优秀线 | 预警线 |
+|:---|:---|:---|:---|
+| 团队目标达成率 | 60-70% | &gt;80% | &lt;50% |
+| 人均年产出 | 150-250万 | &gt;300万 | &lt;100万 |
+| 新人 Ramp Time | 4-6 月 | &lt;3 月 | &gt;9 月 |
+| 销售离职率 | 15-20%/年 | &lt;10% | &gt;30% |
+| 辅导覆盖率 | 每人每月 ≥1次 1:1 | 每周 1:1 | 无定期辅导 |
+| Top/Bottom 差距 | Top 20% 产出 3-4x Bottom 20% | &lt;3x | &gt;5x |
+
+---
+
+## 七、Prompt 设计指导
+
+生成团队管理类技能 Prompt 时，必须确保：
+
+1. **不是简单排名**：不能只列出&quot;张三第一、李四第二&quot;就结束
+2. **必须有多维评估**：目标达成+效率+能力+资源，至少 3 个维度
+3. **必须有诊断**：识别结构性问题（能力错配/资源不均/辅导缺失）
+4. **必须有优先级**：辅导谁？先辅导什么？预期多久见效？
+5. **必须有具体建议**：可执行的管理动作（&quot;每周 1:1 + 陪访 1 次&quot;）
+6. **必须区分个人/团队**：个人诊断 vs 团队整体健康度
+</code></pre>
+                    </div>
+                    <div id="content_knowledge_domains_generic_md" class="file-content" style="display:none;">
+                        <div style="padding: 8px 16px; background: var(--gray-100); border-bottom: 1px solid var(--gray-200); font-size: 0.75rem; font-weight: 600; color: var(--gray-600);">knowledge/domains/generic.md</div>
+                        <pre style="margin:0; padding:16px 20px; font-size:0.72rem; line-height:1.7; color:#e2e8f0; white-space:pre-wrap; word-wrap:break-word; overflow-y:auto; height:100%; background:#1e293b;"><code># 通用分析技能设计 — 专家知识
+
+## 一、适用场景与去重检查
+
+### 1.1 去重检查（Step 0 最先执行）
+
+在开始设计新技能之前，**必须先检查系统中是否已存在功能相似的技能**：
+
+```
+去重检查流程：
+Step 0-A: 调用 query_data(entity_api_key=&quot;ai_skill&quot;, filters={status: &quot;published&quot;}) 
+          获取当前已发布的技能列表
+Step 0-B: 将用户需求与已有技能的 name + description 进行语义匹配
+Step 0-C: 判断相似度：
+  ├── 完全匹配（功能一致）→ 告知用户并建议直接使用
+  ├── 高度相似（覆盖 &gt;70% 需求）→ 告知用户并建议优化现有技能
+  ├── 部分重叠（覆盖 30-70%）→ 告知用户重叠部分，确认是新建还是扩展
+  └── 无重叠 → 进入正常创建流程
+```
+
+**匹配到已有技能时的标准话术：**
+
+```
+完全匹配：
+&quot;系统中已存在「{skill_name}」技能，功能与您的需求一致，无需重复创建。
+您可以直接使用该技能，或者告诉我您希望在现有基础上做哪些优化？&quot;
+
+高度相似：
+&quot;系统中已存在「{skill_name}」技能，与您的需求高度相似：
+- 已覆盖：{已有功能点}
+- 未覆盖：{用户需求中的差异点}
+建议在现有技能基础上进行优化，而非重新创建。是否需要我帮您优化该技能？&quot;
+
+部分重叠：
+&quot;系统中存在「{skill_name}」技能，与您的需求有部分重叠：
+- 重叠部分：{重叠功能}
+- 您的新增需求：{差异部分}
+您希望：A) 扩展现有技能  B) 创建独立新技能？&quot;
+```
+
+**去重判断维度：**
+
+| 判断维度 | 匹配方式 | 权重 |
+|:---|:---|:---|
+| 分析对象（entity_api_key） | 相同业务对象 = 高相似 | 40% |
+| 分析目标（description） | 语义相似度 | 30% |
+| 输出类型（评分/报告/建议/预警） | 相同输出类型 = 相似 | 20% |
+| 参数范围（arguments） | 参数可覆盖 = 相似 | 10% |
+
+### 1.2 本指南的适用场景
+
+典型场景：
+- 跨域组合需求（如&quot;客户+商机+活动综合分析&quot;）
+- 新兴业务场景（如&quot;渠道管理&quot;、&quot;合作伙伴分析&quot;、&quot;市场活动 ROI&quot;）
+- 非分析类技能（如&quot;数据导出&quot;、&quot;周报生成&quot;、&quot;流程自动化&quot;）
+- 非 CRM 场景（如&quot;产品使用数据分析&quot;、&quot;运营指标监控&quot;）
+
+---
+
+## 一-B、能力边界 — 明确拒绝不可承载的需求（Step 0 前置检查）
+
+### 核心原则
+
+本系统是一个 **基于 CRM 数据的业务分析与自动化平台**。技能的能力边界由以下三个条件共同决定：
+1. **数据边界**：只能处理 CRM 系统中存在的业务数据（通过 query_data/analyze_data 可获取的）
+2. **工具边界**：只能执行系统内置工具支持的操作（见第七节完整工具清单）
+3. **认知边界**：LLM 的分析/建议基于数据和知识库，不能替代专业人士的判断
+
+### 不可承载的需求类型（必须明确拒绝）
+
+| 类别 | 典型示例 | 拒绝原因 | 建议回复模板 |
+|:---|:---|:---|:---|
+| **物理世界操作** | &quot;创建一个制造火箭的技能&quot;、&quot;帮我打电话给客户&quot;、&quot;自动发快递&quot; | 系统无法操作物理世界 | &quot;抱歉，本系统只能处理数据分析和业务流程自动化，无法执行物理世界的操作。&quot; |
+| **超出数据范围** | &quot;分析竞品公司的内部财务数据&quot;、&quot;获取客户的银行账户信息&quot; | 系统只能访问本 CRM 中的数据 | &quot;抱歉，本系统只能分析您 CRM 中已有的业务数据，无法获取外部系统的非公开数据。&quot; |
+| **实时控制类** | &quot;监控服务器状态并自动重启&quot;、&quot;实时拦截异常交易&quot; | 系统不具备实时监控和即时响应能力 | &quot;抱歉，本系统是按需触发的分析工具，不具备实时监控和自动响应能力。建议使用专业的监控系统。&quot; |
+| **专业资质类** | &quot;给出法律意见&quot;、&quot;出具审计报告&quot;、&quot;开具医疗处方&quot; | 需要专业资质，AI 不能替代 | &quot;抱歉，本系统可以做数据分析辅助决策，但不能替代需要专业资质的判断。建议咨询专业人士。&quot; |
+| **创意生产类** | &quot;设计产品 UI&quot;、&quot;写一首歌&quot;、&quot;生成营销视频&quot; | 系统定位是数据分析，非创意工具 | &quot;抱歉，本系统专注于业务数据分析和流程自动化，不支持创意内容生产。&quot; |
+| **跨系统写入** | &quot;把数据同步到飞书&quot;、&quot;自动发邮件给客户&quot;、&quot;更新 ERP 库存&quot; | 系统只能写入本 CRM 数据 | &quot;抱歉，本系统只能操作 CRM 内的数据，无法写入外部系统。建议通过集成平台实现。&quot; |
+| **训练/修改 AI** | &quot;修改你的模型&quot;、&quot;让你学会新语言&quot;、&quot;调整你的性格&quot; | 用户无法修改底层模型 | &quot;抱歉，技能是基于现有 AI 能力的任务编排，无法修改底层模型行为。&quot; |
+| **违规/有害内容** | &quot;帮我伪造数据&quot;、&quot;生成虚假报告&quot;、&quot;绕过权限限制&quot; | 违反安全策略 | &quot;抱歉，该请求违反平台安全策略，无法执行。&quot; |
+
+### 可承载的需求范围（正面清单）
+
+```
+✅ 可以做的：
+├── 数据查询与统计（任何 CRM 中存在的业务对象）
+├── 数据分析与洞察（趋势/异常/对比/归因/预测）
+├── 报告与可视化（周报/月报/看板/排名）
+├── 业务建议生成（基于数据的行动建议，非专业意见）
+├── CRM 数据写入（创建/更新/删除记录，需用户确认）
+├── 流程自动化（CRM 内的批量操作/数据清洗/状态流转）
+├── 知识检索（产品文档/FAQ/最佳实践）
+├── 外部信息补充（通过 web_search 获取公开信息）
+├── 计算与建模（通过 execute_code 执行统计模型）
+└── 文件导出（CSV/报告文件通过 cos_upload 下载）
+
+❌ 不能做的：
+├── 物理世界操作（打电话/发邮件/寄快递/制造实物）
+├── 访问外部系统数据（ERP/财务系统/竞品内部数据）
+├── 实时监控与自动响应（需要持续运行的任务）
+├── 替代专业资质判断（法律/医疗/审计/合规意见）
+├── 创意内容生产（设计/视频/音乐/文学创作）
+├── 跨系统数据写入（飞书/邮件/微信/第三方 API）
+├── 修改 AI 模型本身（训练/微调/人格修改）
+└── 违规操作（伪造数据/绕过权限/有害内容）
+```
+
+### 边界判断流程
+
+```
+收到用户需求后，先执行边界检查：
+
+Step 0: 边界检查（在 Step 1 意图识别之前）
+├── Q1: 这个需求是否需要操作物理世界？ → 是 → 拒绝
+├── Q2: 这个需求的数据是否在 CRM 中存在？ → 否 → 拒绝（或降级为 web_search 公开信息）
+├── Q3: 这个需求是否需要实时/持续运行？ → 是 → 拒绝
+├── Q4: 这个需求是否需要专业资质？ → 是 → 拒绝（可做数据辅助，但声明不替代专业判断）
+├── Q5: 这个需求是否涉及跨系统写入？ → 是 → 拒绝
+├── Q6: 这个需求是否违反安全策略？ → 是 → 拒绝
+└── 全部通过 → 进入 Step 1 正常流程
+```
+
+### 灰色地带处理（需要降级而非直接拒绝）
+
+| 场景 | 处理方式 |
+|:---|:---|
+| &quot;分析竞品的市场策略&quot; | 可以做：web_search 获取公开信息 + 分析。不能做：获取竞品内部数据。明确告知数据来源限制。 |
+| &quot;预测明年的市场趋势&quot; | 可以做：基于历史数据外推 + web_search 行业报告。标注 🔴低置信度 + &quot;预测基于有限数据，仅供参考&quot;。 |
+| &quot;帮我写一封跟进邮件&quot; | 可以做：基于客户数据生成邮件文本内容。不能做：自动发送。告知&quot;已生成邮件内容，请手动发送&quot;。 |
+| &quot;自动给客户打标签&quot; | 可以做：分析数据 + 生成标签建议 + modify_data 写入（需确认）。属于 CRM 内操作，可承载。 |
+| &quot;监控商机异常&quot; | 可以做：按需触发分析当前异常。不能做：实时持续监控。建议&quot;可定期手动触发，或配置系统定时任务&quot;。 |
+
+### 拒绝话术规范
+
+```
+拒绝时必须包含三要素：
+1. 明确说&quot;不能做&quot; — 不含糊、不绕弯
+2. 解释原因 — 一句话说清为什么不能（数据/工具/能力边界）
+3. 给出替代建议 — 如果有降级方案或替代路径，主动提供
+
+示例：
+&quot;抱歉，本系统无法 {用户想做的事}，因为 {原因}。
+不过我可以帮您 {替代方案}，您需要吗？&quot;
+```
+
+---
+
+## 二、通用分析四框架
+
+根据用户期望的输出类型选择框架（可组合串联）。
+
+### 框架选择决策树
+
+```
+用户意图判断流程：
+│
+├─ 用户问&quot;是什么/有多少/现状如何&quot; ──→ 框架 A（描述性）
+│
+├─ 用户问&quot;为什么/什么原因/哪里出了问题&quot; ──→ 框架 B（诊断性）
+│   └─ 前置：先用框架 A 确认现象
+│
+├─ 用户问&quot;会怎样/趋势/风险/下个月&quot; ──→ 框架 C（预测性）
+│   └─ 前置：先用框架 A 获取历史数据
+│
+├─ 用户问&quot;怎么办/建议/优化/策略&quot; ──→ 框架 D（处方性）
+│   └─ 前置：先用框架 B 定位问题
+│
+└─ 多个信号词同时出现 ──→ 按以下优先级组合：
+    ① 确认核心问题类型（用户最终想要什么？）
+    ② 核心框架作为主体，其他框架作为前置步骤
+    ③ 最多串联 3 个框架，避免 Prompt 过长
+```
+
+### 框架组合优先级矩阵
+
+| 用户核心诉求 | 主框架 | 前置框架 | 典型串联 |
+|:---|:---|:---|:---|
+| 了解现状 | A | — | A |
+| 找出原因 | B | A | A→B |
+| 预判趋势 | C | A | A→C |
+| 获取建议 | D | A+B | A→B→D |
+| 全面诊断 | B+D | A | A→B→D |
+| 预警+应对 | C+D | A | A→C→D |
+
+---
+
+### 框架 A: 描述性分析（What happened?）
+
+**步骤链路：** 数据查询 → 统计汇总 → 趋势识别 → 异常标注 → 可视化呈现
+**适用场景：** 现状报告、数据看板、定期汇总、KPI 监控
+**信号词：** 统计、汇总、报表、看板、多少、列出、概览、现状、分布、排名
+
+**工具 Pipeline：**
+```
+query_data(获取明细) → analyze_data(聚合统计) → analyze_data(分组对比) → [cos_upload(导出)]
+```
+
+**Prompt 构建要求：**
+1. 明确时间范围和对比基准：
+   - 环比（本期 vs 上期）
+   - 同比（本期 vs 去年同期）
+   - 目标值对比（实际 vs 计划）
+   - 选择依据：周期性业务用同比，趋势性业务用环比
+2. 异常值判定规则（必须写入 Prompt）：
+   - 绝对阈值：业务有明确标准时使用（如&quot;转化率&lt;5%为异常&quot;）
+   - 相对阈值：无明确标准时使用（如&quot;偏离均值&gt;30%为异常&quot;）
+   - 选择依据：有行业基准→绝对阈值；无基准→相对阈值
+   - 样本量&lt;10 时：不做异常判定，标注&quot;样本量不足，仅供参考&quot;
+3. 趋势方向判断逻辑：
+   - 连续 3 期同方向变化 → 确认趋势（🟢高置信度）
+   - 连续 2 期同方向变化 → 疑似趋势（🟡中置信度）
+   - 单期变化 → 波动，不判定趋势（🔴低置信度）
+
+**完整示例（描述性分析技能）：**
+
+```
+用户需求：&quot;帮我看看本月各渠道的线索转化情况&quot;
+
+生成的 Prompt 关键片段：
+---
+## 步骤 1: 数据采集
+query_data(entity_api_key=&quot;lead&quot;, filters={created_at: &quot;本月&quot;}, 
+           fields=[&quot;source_channel&quot;, &quot;status&quot;, &quot;convert_time&quot;, &quot;owner&quot;])
+
+## 步骤 2: 渠道转化率分析
+analyze_data(entity_api_key=&quot;lead&quot;, 
+             metrics=[{field:&quot;id&quot;, function:&quot;count&quot;}, {field:&quot;convert_time&quot;, function:&quot;count&quot;}],
+             group_by=[&quot;source_channel&quot;], filters={created_at: &quot;本月&quot;})
+- 各渠道线索总量 [来源:analyze_data]
+- 各渠道转化率 = 已转化数/总量 [来源:计算]
+- 环比变化 = (本月转化率 - 上月转化率) / 上月转化率 [来源:计算]
+- 异常判定：转化率偏离整体均值 &gt;30% 标注为异常渠道
+
+## 步骤 3: 趋势与异常
+- 连续 3 月下降的渠道 → 标注&quot;持续下降趋势&quot; 🟢高置信度
+- 单月突变的渠道 → 标注&quot;需关注，暂不判定趋势&quot; 🔴低置信度
+---
+```
+
+---
+
+### 框架 B: 诊断性分析（Why did it happen?）
+
+**步骤链路：** 现象描述 → 维度拆解 → 对比分析 → 归因定位 → 根因验证
+**适用场景：** 问题排查、下降原因分析、异常诊断、差距分析
+**信号词：** 为什么、原因、下降、异常、问题、差距、对比、诊断、根因
+
+**工具 Pipeline：**
+```
+analyze_data(确认现象) → analyze_data(分组下钻) → query_data(明细验证) → [web_search(外部因素)]
+```
+
+**Prompt 构建要求：**
+1. 维度拆解策略（逐层下钻，每层选最大偏差维度）：
+   - 第一层：时间维度（哪个时段开始异常？）
+   - 第二层：组织维度（哪个团队/区域？）
+   - 第三层：人员维度（哪些个体？）
+   - 第四层：行为维度（哪个环节/动作？）
+   - 下钻规则：每层选偏差最大的分组继续下钻，最多 3 层
+2. 对比基准选择逻辑：
+   - 与自身历史对比 → 识别&quot;变差了&quot;
+   - 与同行/团队均值对比 → 识别&quot;本来就差&quot;
+   - 与目标值对比 → 识别&quot;差距有多大&quot;
+   - 三种对比得出不同结论，Prompt 中必须明确用哪种
+3. 归因置信度标注：
+   - 单因素归因（仅一个维度异常）→ 🟢高置信度
+   - 多因素交叉（2-3 个维度同时异常）→ 🟡中置信度，列出各因素贡献度
+   - 无法定位（各维度均匀下降）→ 🔴低置信度，建议&quot;可能是外部因素，需人工确认&quot;
+
+**完整示例（诊断性分析技能）：**
+
+```
+用户需求：&quot;本月商机转化率为什么下降了？&quot;
+
+生成的 Prompt 关键片段：
+---
+## 步骤 1: 确认现象
+analyze_data(entity_api_key=&quot;opportunity&quot;, metrics=[{field:&quot;id&quot;, function:&quot;count&quot;}],
+             group_by=[&quot;stage&quot;], filters={close_date: &quot;本月&quot;})
+- 确认整体转化率数值及下降幅度 [来源:analyze_data]
+- 对比上月同期数据 [来源:analyze_data]
+
+## 步骤 2: 时间维度下钻
+analyze_data(...group_by=[&quot;close_date_week&quot;])
+- 定位从哪一周开始下降 [来源:analyze_data]
+
+## 步骤 3: 组织维度下钻
+analyze_data(...group_by=[&quot;owner_department&quot;], filters={close_date: &quot;异常周&quot;})
+- 定位哪个团队贡献了最大降幅 [来源:analyze_data]
+- 偏差最大的团队继续下钻到人员维度
+
+## 步骤 4: 归因判断
+- 如果单一团队贡献 &gt;60% 降幅 → &quot;主因：XX团队转化异常&quot; 🟢高置信度
+- 如果多团队均匀下降 → &quot;可能是市场/产品外部因素&quot; 🔴低置信度，建议人工确认
+- 每个归因结论标注 [来源:xxx] 和置信度
+---
+```
+
+---
+
+### 框架 C: 预测性分析（What will happen?）
+
+**步骤链路：** 历史模式提取 → 特征识别 → 趋势外推 → 置信度标注 → 风险预警
+**适用场景：** 趋势预测、风险预警、目标预判、容量规划
+**信号词：** 预测、趋势、预警、风险、下个月、未来、可能、预判、达成率
+
+**工具 Pipeline：**
+```
+query_data(历史数据) → analyze_data(趋势统计) → execute_code(建模计算) → [web_search(外部信号)]
+```
+
+**Prompt 构建要求：**
+1. 预测方法选择（根据数据量和复杂度）：
+   - 数据 &lt;6 期：简单外推（最近 3 期均值），标注 🔴低置信度
+   - 数据 6-12 期：加权移动平均（近期权重更高），标注 🟡中置信度
+   - 数据 &gt;12 期：线性回归/季节性分解（execute_code），标注 🟢高置信度
+   - 选择依据必须写入 Prompt，让 LLM 根据实际数据量动态选择
+2. 置信区间操作定义：
+   - 🟢高置信度：历史数据充足（&gt;12期）+ 趋势稳定（波动率&lt;15%）+ 无重大外部变化
+   - 🟡中置信度：数据量中等（6-12期）或 趋势有波动（波动率 15-30%）
+   - 🔴低置信度：数据不足（&lt;6期）或 趋势剧烈波动（波动率&gt;30%）或 存在已知外部干扰
+3. 风险预警规则：
+   - 预测值 vs 目标值差距 &gt;20% → 红色预警
+   - 预测值 vs 目标值差距 10-20% → 黄色预警
+   - 预测值 vs 目标值差距 &lt;10% → 绿色（正常）
+4. 关键假设声明（必须包含）：
+   - &quot;本预测基于以下假设：{假设1}、{假设2}&quot;
+   - &quot;如果 {风险因素} 发生，预测结果可能偏差 ±X%&quot;
+   - 明确标注&quot;预测≠事实&quot;，所有预测数据标注 [来源:推算]
+
+**完整示例（预测性分析技能）：**
+
+```
+用户需求：&quot;预测下个季度的营收达成情况&quot;
+
+生成的 Prompt 关键片段：
+---
+## 步骤 1: 历史数据采集
+query_data(entity_api_key=&quot;opportunity&quot;, 
+           filters={close_date: &quot;过去12个月&quot;, stage: &quot;won&quot;},
+           fields=[&quot;amount&quot;, &quot;close_date&quot;, &quot;owner_department&quot;])
+- 获取过去 12 个月的成交数据 [来源:query_data]
+
+## 步骤 2: 趋势建模
+execute_code(language=&quot;python&quot;, code=&quot;&quot;&quot;
+import numpy as np
+# 加权移动平均 + 季节性因子
+monthly_revenue = [...]  # 从步骤1获取
+weights = [0.1, 0.15, 0.2, 0.25, 0.3]  # 近期权重更高
+seasonal_factor = monthly_revenue[month-12] / avg_12m  # 季节性
+forecast = weighted_avg * seasonal_factor
+confidence = &#x27;high&#x27; if cv &lt; 0.15 else &#x27;medium&#x27; if cv &lt; 0.30 else &#x27;low&#x27;
+&quot;&quot;&quot;)
+- 预测值: {forecast} [来源:推算，方法:加权移动平均+季节性]
+- 置信度: {confidence}，基于波动率 {cv}
+
+## 步骤 3: 风险预警
+- 预测达成率 = forecast / target [来源:计算]
+- 如果 &lt;80% → 🔴红色预警：&quot;按当前趋势，预计缺口 {gap}&quot;
+- 如果 80-90% → 🟡黄色预警：&quot;存在风险，建议关注 {top_risk}&quot;
+- 关键假设：假设市场环境不变、团队人员稳定、无重大产品变化
+---
+```
+
+---
+
+### 框架 D: 处方性分析（What should we do?）
+
+**步骤链路：** 目标定义 → 现状评估 → 差距识别 → 方案生成 → 优先级排序 → 行动计划
+**适用场景：** 行动建议、策略推荐、资源优化、改进方案
+**信号词：** 建议、怎么做、优化、改进、策略、方案、行动、下一步、提升
+
+**工具 Pipeline：**
+```
+query_data(现状) → analyze_data(差距量化) → knowledge_search(最佳实践) → [web_search(行业方案)] → ask_user(确认优先级)
+```
+
+**Prompt 构建要求：**
+1. 建议生成规则（每条建议必须包含 4 要素）：
+   - 依据：基于哪个数据/差距得出（标注 [来源:xxx]）
+   - 行动：具体做什么（可执行，非空泛建议）
+   - 预期效果：量化估算（如&quot;预计提升 X%&quot;，标注 [来源:推算]）
+   - 时间线：本周/2 周内/1 个月内/下季度
+2. 优先级排序标准（2×2 矩阵）：
+   - 影响大 + 实施易 → P0（立即执行）
+   - 影响大 + 实施难 → P1（规划执行）
+   - 影响小 + 实施易 → P2（顺手做）
+   - 影响小 + 实施难 → P3（暂缓/放弃）
+   - 影响大小判断：对核心 KPI 的贡献度
+   - 实施难易判断：所需资源/时间/跨部门协调程度
+3. 建议数量控制：
+   - P0 建议：最多 3 条（聚焦）
+   - P1 建议：最多 3 条
+   - P2/P3：可选，最多各 2 条
+   - 总计不超过 8 条建议，避免信息过载
+
+**完整示例（处方性分析技能）：**
+
+```
+用户需求：&quot;我的团队转化率低于平均水平，给我改进建议&quot;
+
+生成的 Prompt 关键片段：
+---
+## 步骤 1: 现状评估
+analyze_data(entity_api_key=&quot;opportunity&quot;, 
+             metrics=[{field:&quot;id&quot;, function:&quot;count&quot;}],
+             group_by=[&quot;stage&quot;, &quot;owner&quot;], filters={owner_department: &quot;{team}&quot;})
+- 团队整体转化率 vs 公司均值 [来源:analyze_data]
+- 各成员转化率分布 [来源:analyze_data]
+
+## 步骤 2: 差距定位
+- 哪个阶段流失最多？（阶段转化漏斗）[来源:analyze_data]
+- 哪些成员拉低均值？（人员维度）[来源:analyze_data]
+- 与 Top 团队的差距在哪？（对标分析）[来源:analyze_data]
+
+## 步骤 3: 方案生成（每条含依据+行动+预期+时间线）
+knowledge_search(query=&quot;提升销售转化率最佳实践&quot;)
+
+建议格式：
+| 优先级 | 建议 | 依据 | 预期效果 | 时间线 |
+|:---|:---|:---|:---|:---|
+| P0 | {具体行动} | {数据差距} [来源:xxx] | 预计提升 X% [来源:推算] | 本周 |
+
+## 步骤 4: 确认
+ask_user(interrupt_type=&quot;confirm&quot;, title=&quot;改进建议确认&quot;,
+         message=&quot;以上建议是否符合您的实际情况？是否需要调整优先级？&quot;)
+---
+```
+
+---
+
+💡 **组合使用规则：**
+- 多数复杂技能需要串联 2-3 个框架
+- 如&quot;客户流失预警&quot; = 描述性（现状）+ 预测性（风险信号）+ 处方性（挽回建议）
+- 串联时，前一个框架的输出作为后一个框架的输入
+- 每个框架对应 Prompt 中的 1-2 个步骤，总步骤数控制在 5-7 步
+
+---
+
+## 三、分析维度选择方法论
+
+当需要为技能选择 3-4 个核心分析维度时，使用以下方法：
+
+### 维度选择决策流程
+
+```
+Step 1: 列出所有可能的分析维度（通常 6-10 个）
+Step 2: 用以下 3 个标准打分（每项 1-3 分）：
+  - 数据可得性：CRM 中是否有对应字段？（3=直接可查, 2=需计算, 1=无数据）
+  - 决策影响力：对用户决策的帮助程度？（3=直接影响行动, 2=辅助判断, 1=仅供了解）
+  - 差异化价值：是否提供非显而易见的洞察？（3=深度洞察, 2=常规分析, 1=简单统计）
+Step 3: 总分排序，选 Top 3-4 个维度
+Step 4: 验证选中维度之间有逻辑关联（能形成分析链路）
+```
+
+### 维度选择反模式（禁止）
+
+| 反模式 | 问题 | 正确做法 |
+|:---|:---|:---|
+| 选 8-10 个维度浅尝 | LLM 注意力分散，每个维度只有 1-2 句 | 选 3-4 个维度深入 |
+| 选无数据支撑的维度 | 导致幻觉或空洞分析 | 先 query_schema 确认字段存在 |
+| 选相互独立的维度 | 无法形成洞察链路 | 确保维度间有因果/关联关系 |
+| 选用户自己能看到的维度 | 无增量价值 | 选需要计算/对比/推断的维度 |
+
+---
+
+## 四、跨域组合指导
+
+当用户需求涉及多个业务域时：
+
+### 跨域组合规则
+
+1. **识别主域和辅域**：
+   - 主域 = 用户最关心的核心问题（分配 60-70% 分析深度）
+   - 辅域 = 支撑主域判断的补充信息（分配 30-40% 分析深度）
+   - 判断依据：用户语句中的主语/动词指向哪个域
+
+2. **主域使用完整分析体系**（加载对应域文件），辅域只取关键指标
+
+3. **在 Prompt 中明确标注**哪些维度来自主域、哪些来自辅域
+
+4. **辅域数据作为&quot;补充证据&quot;**而非&quot;独立分析&quot;
+
+### 跨域组合示例
+
+| 用户需求 | 主域 | 辅域 | 组合方式 |
+|:---|:---|:---|:---|
+| &quot;客户扩展机会分析&quot; | account.md（客户画像） | opportunity（只取赢率+渗透度） | 客户 360 + 商机渗透率 |
+| &quot;团队 Pipeline 健康度&quot; | team.md（绩效矩阵） | forecast（只取覆盖率） | 人员绩效 + Pipeline 指标 |
+| &quot;活动对商机的影响&quot; | activity.md（效能模型） | opportunity（只取阶段推进） | 活动量 → 商机推进关联 |
+| &quot;客户+商机+活动综合&quot; | generic.md（本文件） | 各域取 1-2 个核心指标 | 通用框架 + 多域关键指标 |
+
+### 跨域数据关联方法
+
+```
+关联路径（通过 entity_link 或共同字段）：
+- 客户 → 商机：account_api_key 关联
+- 商机 → 活动：opportunity_api_key 关联
+- 客户 → 活动：account_api_key 关联
+- 人员 → 商机/活动：owner 字段关联
+- 团队 → 人员：department 字段关联
+
+Prompt 中必须明确关联路径，禁止假设关联关系存在。
+先用 query_schema(query_type=&quot;entity_links&quot;) 确认关联关系。
+```
+
+---
+
+## 五、非分析类技能设计指导
+
+### 5.1 数据导出类
+
+**设计要点：**
+- 明确导出格式（Markdown 表格 / JSON / CSV）
+- 明确字段选择逻辑（全量 or 用户指定，通过 arguments 参数化）
+- 明确筛选条件参数化（{时间范围}、{筛选条件}）
+- 大数据量处理策略：
+  - 记录数 &lt;100：直接展示 Markdown 表格
+  - 记录数 100-1000：cos_upload 生成 CSV 下载链接
+  - 记录数 &gt;1000：分页查询 + cos_upload，提示用户&quot;数据量较大，已生成文件&quot;
+- 输出方式选择：直接展示（小量）/ cos_upload 文件下载（大量）
+
+**工具选择：** `query_data` + `cos_upload`（大数据量时）+ `ask_user`（确认导出范围）
+
+**Prompt 骨架：**
+```
+## 步骤 1: 确认导出范围
+- 如果 {筛选条件} 不明确 → ask_clarification 追问
+## 步骤 2: 查询数据
+- query_data(entity_api_key=&quot;{对象}&quot;, filters={...}, fields=[...])
+- 先 count 确认数据量
+## 步骤 3: 格式化输出
+- &lt;100 条：Markdown 表格直接展示
+- ≥100 条：write_file → cos_upload → 返回下载链接
+## 步骤 4: 数据完整性声明
+- &quot;共导出 X 条记录，时间范围：{range}，筛选条件：{filters}&quot;
+```
+
+### 5.2 报告生成类
+
+**设计要点：**
+- 明确报告结构（章节划分、每章数据源）
+- 明确受众（给谁看决定详略和术语）：
+  - 给高管：结论先行，数据精简，重点是趋势和决策建议
+  - 给经理：数据详实，含对比分析，重点是团队表现和行动项
+  - 给一线：操作导向，含具体客户/商机列表，重点是下一步动作
+- 明确时间范围参数化（{报告周期}）
+- 报告结构模板：
+  - 📊 摘要（3-5 句话概括核心发现）
+  - 📈 数据部分（表格/指标，每个数据标注来源）
+  - 🔍 分析部分（趋势/异常/对比）
+  - 💡 建议部分（可行动的下一步）
+  - ⚠️ 局限性声明（数据范围/缺失/假设）
+
+**工具选择：** `query_data` + `analyze_data` + `knowledge_search`（模板/历史报告）+ `cos_upload`（长报告）
+
+**Prompt 骨架：**
+```
+## 步骤 1: 数据采集（按章节分别查询）
+## 步骤 2: 各章节分析
+- 每章遵循&quot;数据→指标→判断&quot;链路
+- 每个数据点标注 [来源:query_data/analyze_data/计算]
+## 步骤 3: 综合摘要（最后写，基于各章结论）
+## 步骤 4: 格式化输出
+- 按受众调整详略
+- 末尾附数据局限性声明
+```
+
+### 5.3 流程自动化类
+
+**设计要点：**
+- 明确触发条件（参数化）
+- 明确执行步骤（有序、每步可验证）
+- 涉及写操作必须配合 ask_user 确认
+- 明确异常处理策略：
+  - 查询失败 → 重试一次，仍失败则中止并告知用户
+  - 数据校验失败 → 中止，列出校验失败项，ask_user 确认是否继续
+  - 写入失败 → 中止，不做部分写入，告知用户失败原因
+- 明确幂等性（重复执行不产生副作用）：
+  - 写入前先查询是否已存在
+  - 更新操作使用条件更新（where 条件包含预期旧值）
+
+**工具选择：** `query_data`（查询现状）+ `modify_data`（写入）+ `ask_user`（确认，必须）+ `ask_clarification`（参数不全时）
+
+**Prompt 骨架：**
+```
+## 步骤 1: 参数校验
+- 检查所有必要参数是否完整
+- 不完整 → ask_clarification
+## 步骤 2: 前置检查
+- query_data 确认目标数据存在
+- 检查是否已执行过（幂等性）
+## 步骤 3: 执行预览
+- 列出将要执行的操作（不执行）
+- ask_user(interrupt_type=&quot;confirm&quot;) 确认
+## 步骤 4: 执行
+- modify_data 逐条执行
+- 每步记录结果
+## 步骤 5: 结果汇报
+- 成功/失败数量
+- 失败项明细
+```
+
+- 成功/失败数量
+- 失败项明细
+```
+
+---
+
+## 五-B、ToB CRM 领域内置知识体系
+
+当用户需求属于数据分析与洞察、报告与可视化、业务建议生成等 ToB CRM 专业领域时，生成的 Skill Prompt 必须融入以下内置知识体系，确保输出具备行业专业性。
+
+### 5B.1 CRM 核心方法论库
+
+以下方法论按场景自动注入到生成的 Prompt 中，LLM 不需要从零发明分析框架：
+
+#### 销售管理方法论
+
+| 方法论 | 适用场景 | 核心要素 | Prompt 中的应用方式 |
+|:---|:---|:---|:---|
+| **MEDDIC** | 商机评估/赢率预测 | Metrics, Economic Buyer, Decision Criteria, Decision Process, Identify Pain, Champion | 作为评分维度，每维度 0-100 打分 |
+| **BANT** | 线索资质评估 | Budget, Authority, Need, Timeline | 作为线索评级标准（A/B/C/D） |
+| **销售漏斗理论** | 转化率分析/Pipeline 管理 | 阶段定义→转化率→流失点→瓶颈定位 | 作为分析链路的骨架结构 |
+| **Challenger Sale** | 销售行为分析 | Teach, Tailor, Take Control | 作为活动质量评估标准 |
+| **Miller Heiman** | 大客户策略 | 决策链角色（EB/UB/TB/Coach） | 作为客户关系分析维度 |
+
+#### 客户成功方法论
+
+| 方法论 | 适用场景 | 核心要素 | Prompt 中的应用方式 |
+|:---|:---|:---|:---|
+| **Health Score 模型** | 客户健康度评估 | 使用频率 + 功能深度 + 支持工单 + 续约信号 + NPS | 作为多维评分体系 |
+| **Customer Lifecycle** | 客户阶段管理 | Onboarding→Adoption→Expansion→Renewal | 作为阶段判断标准 |
+| **Churn Prediction** | 流失预警 | 行为衰减信号 + 合同到期 + 竞品接触 + 满意度下降 | 作为预警规则库 |
+| **LTV/CAC** | 客户价值分析 | 生命周期价值 / 获客成本 | 作为投入产出判断基准 |
+| **Net Revenue Retention** | 收入健康度 | 续约率 + 扩展率 - 流失率 - 缩减率 | 作为收入质量指标 |
+
+#### 销售预测方法论
+
+| 方法论 | 适用场景 | 核心要素 | Prompt 中的应用方式 |
+|:---|:---|:---|:---|
+| **Pipeline Coverage** | 目标达成预判 | 覆盖率 = Pipeline / Quota（健康值 3-4x） | 作为预测健康度判断 |
+| **Forecast 三档法** | 收入预测 | Commit / Best Case / Upside | 作为预测输出结构 |
+| **Win Rate 分析** | 转化效率评估 | 历史赢率 × 当前 Pipeline = 预期收入 | 作为预测计算公式 |
+| **Sales Velocity** | 销售效率度量 | (商机数 × 赢率 × 均单) / 销售周期 | 作为效率对比基准 |
+| **Weighted Pipeline** | 加权预测 | 各阶段商机金额 × 阶段赢率 | 作为预测建模方法 |
+
+#### 团队管理方法论
+
+| 方法论 | 适用场景 | 核心要素 | Prompt 中的应用方式 |
+|:---|:---|:---|:---|
+| **绩效九宫格** | 人员评估 | 业绩达成(高/中/低) × 能力成长(高/中/低) | 作为人员分类标准 |
+| **Ramp Time 模型** | 新人成长分析 | 入职→首单→达标→稳定 各阶段时长 | 作为成长基准对比 |
+| **Activity-Based Coaching** | 辅导优先级 | 活动量→转化率→单产 三级诊断 | 作为辅导建议逻辑 |
+| **Quota Distribution** | 目标分配合理性 | 历史业绩 + 市场潜力 + 资源配置 | 作为公平性评估标准 |
+
+### 5B.2 行业基准数据（默认参考值）
+
+当 CRM 中无明确基准时，使用以下 ToB SaaS 行业默认值作为参考（必须标注 [来源:行业基准]）：
+
+```
+⚠️ 使用规则：
+1. 优先使用客户自身历史数据作为基准
+2. 无历史数据时，使用以下行业基准，并标注 [来源:行业基准，仅供参考]
+3. 不同行业/规模的基准差异较大，必须提示用户&quot;基准值为行业中位数，请根据实际情况调整&quot;
+```
+
+#### 销售效率基准
+
+| 指标 | 行业中位数 | 优秀线 | 预警线 | 适用说明 |
+|:---|:---|:---|:---|:---|
+| 商机赢率 | 20-25% | &gt;35% | &lt;15% | ToB SaaS，ACV &gt;5万 |
+| 销售周期 | 60-90 天 | &lt;45 天 | &gt;120 天 | 中大型客户 |
+| Pipeline 覆盖率 | 3x | &gt;4x | &lt;2x | Quota 覆盖倍数 |
+| 线索→商机转化率 | 15-20% | &gt;30% | &lt;10% | MQL→SQL |
+| 商机→成交转化率 | 20-30% | &gt;40% | &lt;15% | SQL→Won |
+| 首次响应时间 | &lt;4 小时 | &lt;1 小时 | &gt;24 小时 | 入站线索 |
+| 平均活动量/周 | 15-20 次 | &gt;25 次 | &lt;10 次 | 有效客户触达 |
+
+#### 客户成功基准
+
+| 指标 | 行业中位数 | 优秀线 | 预警线 | 适用说明 |
+|:---|:---|:---|:---|:---|
+| 年度续约率（Logo） | 85-90% | &gt;95% | &lt;80% | 客户数维度 |
+| 年度续约率（Revenue） | 90-100% | &gt;110%(含扩展) | &lt;85% | 收入维度 |
+| NRR（净收入留存） | 100-110% | &gt;120% | &lt;90% | 含扩展和流失 |
+| NPS | 30-50 | &gt;60 | &lt;20 | 净推荐值 |
+| 客户健康度及格线 | 70/100 | &gt;85 | &lt;50 | 综合健康评分 |
+| 平均 Onboarding 时长 | 30-60 天 | &lt;21 天 | &gt;90 天 | 首次价值实现 |
+| 支持工单响应时间 | &lt;8 小时 | &lt;2 小时 | &gt;24 小时 | 首次响应 |
+
+#### 团队效能基准
+
+| 指标 | 行业中位数 | 优秀线 | 预警线 | 适用说明 |
+|:---|:---|:---|:---|:---|
+| 人均 Quota 达成率 | 60-70% | &gt;100% | &lt;40% | 团队整体 |
+| Ramp Time（新人达标） | 4-6 个月 | &lt;3 个月 | &gt;9 个月 | 从入职到首次达标 |
+| 销售人效（人均产出） | 因行业而异 | Top 20% | Bottom 20% | 用团队内排名 |
+| 经理辅导覆盖率 | 每人每月 2 次 | 每周 1 次 | 每月 &lt;1 次 | 1:1 辅导频率 |
+
+### 5B.3 通用分析维度库
+
+当需要为技能选择分析维度时，以下是 ToB CRM 领域最常用的分析维度，按业务对象分类：
+
+#### 商机分析维度池
+
+| 维度 | 数据来源 | 分析价值 | 常用指标 |
+|:---|:---|:---|:---|
+| 阶段分布 | opportunity.stage | 漏斗健康度 | 各阶段数量/金额占比 |
+| 赢率趋势 | opportunity.status + close_date | 转化效率变化 | 月度/季度赢率 |
+| 金额分布 | opportunity.amount | 客户结构 | 大/中/小单占比 |
+| 周期分析 | opportunity.created_at → close_date | 效率评估 | 平均/中位数销售周期 |
+| 流失阶段 | opportunity.lost_stage + lost_reason | 瓶颈定位 | 各阶段流失率 + Top 丢单原因 |
+| 竞争格局 | opportunity.competitor | 竞品威胁 | 竞品出现频率 + 对应赢率 |
+| 来源渠道 | opportunity.source | 渠道 ROI | 各渠道贡献量/赢率/均单 |
+
+#### 客户分析维度池
+
+| 维度 | 数据来源 | 分析价值 | 常用指标 |
+|:---|:---|:---|:---|
+| 行业分布 | account.industry | 市场聚焦度 | 行业集中度/渗透率 |
+| 规模分层 | account.employee_count / revenue | 客户结构 | 大/中/小客户占比 |
+| 生命周期阶段 | account.lifecycle_stage | 成熟度分布 | 各阶段客户数/收入占比 |
+| 活跃度 | 最近活动/登录/工单 | 健康度信号 | 30/60/90 天活跃率 |
+| 钱包份额 | account.revenue / 预估总预算 | 扩展空间 | 渗透率 + 扩展潜力 |
+| 决策链完整度 | contact.role 覆盖 | 关系深度 | EB/UB/TB/Coach 覆盖率 |
+
+#### 活动分析维度池
+
+| 维度 | 数据来源 | 分析价值 | 常用指标 |
+|:---|:---|:---|:---|
+| 活动量 | activity.count by type | 投入度 | 日/周均活动量 |
+| 活动类型分布 | activity.type | 行为模式 | 电话/邮件/拜访/会议占比 |
+| 活动→商机关联 | activity → opportunity 推进 | 效能评估 | 活动转化率 |
+| 活动节奏 | activity.date 间隔 | 跟进连续性 | 平均跟进间隔/断档天数 |
+| 活动质量 | activity.duration + outcome | 深度评估 | 有效活动占比 |
+
+### 5B.4 专业性注入规则
+
+```
+规则 1: 方法论匹配
+  当技能涉及以下关键词时，必须注入对应方法论到 Prompt 中：
+  - &quot;赢率/评估/资质&quot; → MEDDIC 或 BANT
+  - &quot;漏斗/转化/阶段&quot; → 销售漏斗理论
+  - &quot;健康度/流失/续约&quot; → Health Score 模型
+  - &quot;预测/Pipeline/覆盖&quot; → Pipeline Coverage + Forecast 三档
+  - &quot;绩效/辅导/团队&quot; → 绩效九宫格 + Activity-Based Coaching
+  - &quot;效率/速度/周期&quot; → Sales Velocity
+
+规则 2: 基准数据注入
+  当 Prompt 中有&quot;判断&quot;或&quot;评估&quot;步骤时：
+  - 优先指导 LLM 用客户历史数据作为基准
+  - 无历史数据时，注入行业基准值 + 标注 [来源:行业基准]
+  - 必须在 Prompt 中写明：&quot;如果客户有自定义基准，以客户基准为准&quot;
+
+规则 3: 维度选择优先级
+  从维度池中选择时，优先选择：
+  - 有明确行业方法论支撑的维度（如 MEDDIC 六维度）
+  - 有行业基准可对比的维度（如赢率、续约率）
+  - 能形成&quot;数据→指标→基准→判断→行动&quot;完整链路的维度
+
+规则 4: 专业术语使用
+  生成的 Prompt 中应使用 CRM 行业标准术语：
+  - Pipeline（而非&quot;销售管道&quot;）
+  - Quota（而非&quot;销售目标&quot;）
+  - ACV/ARR（而非&quot;年度合同额&quot;）
+  - MQL/SQL（而非&quot;营销线索/销售线索&quot;）
+  - Churn Rate（而非&quot;流失率&quot;，或中英并用）
+  - NRR/GRR（而非&quot;净收入留存&quot;，或中英并用）
+  但必须在 Prompt 的角色定义中注明：&quot;输出时使用中文为主，关键指标保留英文缩写并附中文解释&quot;
+
+规则 5: 分析深度保障
+  每个分析维度必须达到以下深度（不能停留在&quot;统计数字&quot;层面）：
+  - Level 1 统计：是什么数字？（描述性）
+  - Level 2 对比：比基准好还是差？差多少？（诊断性）
+  - Level 3 归因：为什么好/差？哪个因素贡献最大？（归因性）
+  - Level 4 行动：应该做什么？优先级如何？（处方性）
+  最低要求：达到 Level 2（有对比有判断）
+  专业要求：达到 Level 3-4（有归因有建议）
+```
+
+### 5B.5 专业性自检清单
+
+生成技能 Prompt 后，用以下清单验证专业性：
+
+```
+□ 是否引用了至少 1 个行业方法论？（非自创框架）
+□ 是否有明确的判断基准？（行业基准或历史基准，非拍脑袋）
+□ 分析维度是否来自维度池？（非随意发明的维度）
+□ 每个维度是否达到 Level 2+ 深度？（有对比有判断，非纯统计）
+□ 是否使用了 CRM 行业标准术语？（Pipeline/Quota/NRR 等）
+□ 建议是否具体可执行？（&quot;优化跟进节奏，将间隔从7天缩短到3天&quot; vs &quot;加强跟进&quot;）
+□ 是否标注了基准来源？（[来源:行业基准] 或 [来源:历史数据]）
+□ 是否考虑了数据局限性？（哪些维度可能无数据）
+```
+
+---
+
+## 六、通用 Prompt 骨架
+
+当无法套用预定义域方法论时，使用以下骨架构建技能 Prompt。
+
+### 骨架使用说明
+
+```
+使用前必须完成：
+1. 第一节的去重检查（确认需要新建）
+2. 第一-B节的能力边界检查（确认可承载）
+3. 第二节的框架选择（确定用哪个/哪几个框架）
+4. 第三节的维度选择（确定 3-4 个核心维度）
+
+骨架中的占位符填充规则：
+- {领域}：用户业务所在领域，如&quot;销售管理&quot;、&quot;渠道运营&quot;、&quot;客户服务&quot;
+- {具体方向}：技能聚焦的细分方向，如&quot;转化率优化&quot;、&quot;ROI 分析&quot;、&quot;流失预警&quot;
+- {对象}：CRM 中的 entity_api_key，必须通过 query_schema 确认存在
+- {核心分析维度 N}：从第三节维度选择方法论中选出的 Top 3-4 维度
+- {报告周期}/{时间范围}：参数化，由用户运行时传入
+
+步骤数动态调整：
+- 🟢简单技能（单数据源、1-2 步分析）：3-4 步（采集 + 分析 + 核验）
+- 🟡中等技能（多数据源、需框架指导）：5-6 步（采集 + 2-3 维度分析 + 综合 + 核验）
+- 🔴复杂技能（计算模型、跨域组合）：6-8 步（采集 + 3-4 维度分析 + 建模 + 综合 + 核验）
+```
+
+### 完整骨架模板
+
+```markdown
+# 角色定义
+你是一位 {领域} 分析专家，专注于 {具体方向}。
+你的核心价值是：将 CRM 数据转化为可直接行动的业务洞察。
+你必须严格遵守数据纪律，绝不编造数据或给出无依据的结论。
+
+# 分析目标
+{一句话说清这个技能要回答什么核心问题}
+分析框架：{框架 A/B/C/D 或组合，如&quot;A→B→D（描述现状→诊断原因→给出建议）&quot;}
+
+# ⚠️ 数据纪律（严格遵守，违反任何一条即为失败输出）
+1. 禁止编造数据 — 所有数字必须来自工具查询结果，无数据时说&quot;无数据&quot;
+2. 禁止无源结论 — 每个判断必须标注 [来源:query_data/analyze_data/计算/推算/web_search]
+3. 区分事实与推断 — 事实标注 [来源:xxx]，推断标注 [来源:推算，逻辑:{推算方法}]
+4. 数据缺失时明确声明 — &quot;该维度无数据，无法分析&quot;，不降低标准硬凑
+5. 矛盾数据时标注冲突 — 列出两方数据及来源，标注&quot;数据矛盾，需人工确认&quot;
+6. 样本量不足时降级 — 样本&lt;10条时标注&quot;样本量不足，结论仅供参考 🔴&quot;
+
+# 分析步骤
+
+## 步骤 1: 数据采集与校验
+1.1 查询主数据：
+    query_data(entity_api_key=&quot;{对象}&quot;, filters={...}, fields=[...])
+1.2 数据校验：
+    - 返回记录数：{n} 条
+    - 如果 n=0：声明&quot;无数据，终止分析&quot;，直接跳到输出格式的局限性声明
+    - 如果 n&lt;10：标注&quot;样本量不足&quot;，后续所有结论最高 🔴低置信度
+    - 如果 n≥30：正常分析
+1.3 补充数据（如需）：
+    analyze_data(entity_api_key=&quot;{对象}&quot;, metrics=[...], group_by=[...])
+
+## 步骤 2: {核心分析维度 1} — {维度名称}
+选择依据：数据可得性({分}) + 决策影响力({分}) + 差异化价值({分}) = {总分}分
+
+分析链路（必须完整）：
+- 数据：从步骤 1 中取 {具体字段}
+- 指标：计算 {指标名} = {计算公式} [来源:计算]
+- 基准：与 {对比基准} 对比（选择依据：{为什么选这个基准}）
+- 判断规则：
+  · 如果 指标 &gt; 基准 × 1.2 → 判定为&quot;优秀&quot; 🟢
+  · 如果 指标 在 基准 × 0.8~1.2 → 判定为&quot;正常&quot; 🟡
+  · 如果 指标 &lt; 基准 × 0.8 → 判定为&quot;需关注&quot; 🔴
+- 行动建议：基于判断结果给出具体可执行的建议
+- 置信度：根据数据完整性和样本量标注 🟢/🟡/🔴
+
+## 步骤 3: {核心分析维度 2} — {维度名称}
+选择依据：...
+// 同步骤 2 结构，完整的 数据→指标→基准→判断→建议 链路
+
+## 步骤 4: {核心分析维度 3} — {维度名称}
+选择依据：...
+// 同步骤 2 结构
+// 注意：如果是🟢简单技能，此步骤可省略
+
+## 步骤 N-1: 综合判断与行动建议
+- 交叉分析：各维度之间是否存在关联？（如维度1差+维度2差 → 可能有共同根因）
+- 优先级排序（2×2 矩阵）：
+  · P0（影响大+实施易）：{建议}，依据：{维度X结论} [来源:xxx]
+  · P1（影响大+实施难）：{建议}，依据：{维度Y结论} [来源:xxx]
+  · P2（影响小+实施易）：{建议}
+- 行动时间线：
+  · 本周：{P0 建议}
+  · 2 周内：{P1 建议}
+  · 1 个月内：{长期改进}
+- 每条建议必须包含：依据 + 具体行动 + 预期效果 + 时间线
+
+## 步骤 N: 结果核验（输出前必须执行，不可跳过）
+逐项检查：
+- [ ] 核验 1 数据溯源：每个数字/结论是否有 [来源:xxx]？→ 缺失则补充或删除该结论
+- [ ] 核验 2 数据一致性：总数 = 各分项之和？百分比之和 ≈ 100%？
+- [ ] 核验 3 逻辑合理性：结论方向与数据方向一致？（数据↑但结论说↓ = 必须修正）
+- [ ] 核验 4 置信度完整：每个核心结论都标注了 🟢/🟡/🔴？
+- [ ] 核验 5 建议可行性：每条建议是否具体可执行？（&quot;加强管理&quot;太空泛 → 不合格）
+- [ ] 核验 6 局限性声明：是否列出了数据范围、已知缺失、关键假设？
+如有不通过项 → 修正后再输出，不允许带着问题输出
+
+# 输出格式
+
+## 📊 分析摘要（3-5 句话）
+{核心发现概括，结论先行}
+
+## 📈 详细分析
+### 维度 1: {名称}
+| 指标 | 数值 | 基准 | 判断 | 置信度 |
+|:---|:---|:---|:---|:---|
+| {指标名} | {值} [来源:xxx] | {基准值} | {优秀/正常/需关注} | 🟢/🟡/🔴 |
+
+### 维度 2: {名称}
+// 同上
+
+### 维度 3: {名称}
+// 同上
+
+## 💡 行动建议
+| 优先级 | 建议 | 依据 | 预期效果 | 时间线 |
+|:---|:---|:---|:---|:---|
+| P0 | {具体行动} | {数据依据} [来源:xxx] | {量化预期} [来源:推算] | 本周 |
+| P1 | ... | ... | ... | 2周内 |
+
+## ⚠️ 数据局限性
+- 分析时间范围：{range}
+- 数据覆盖率：{X}%（{缺失说明}）
+- 关键假设：{假设内容}
+- 建议下一步：{如需更多数据/人工确认/定期复查}
+
+# 异常处理（参见第九节完整规范）
+- 数据缺失 → 跳过该维度，标注&quot;无数据&quot;
+- 查询失败 → 重试一次，仍失败则跳过并告知
+- 样本不足 → 降级分析，所有结论标 🔴
+- 权限不足 → 中止该部分，告知用户联系管理员
+- 超出边界 → 明确告知不支持，建议替代方案
+```
+
+### 骨架适配指南（根据技能类型调整）
+
+| 技能类型 | 调整要点 |
+|:---|:---|
+| 纯描述性（看板/统计） | 去掉&quot;行动建议&quot;部分，步骤 N-1 改为&quot;趋势总结&quot; |
+| 纯诊断性（原因分析） | 步骤 2-4 改为&quot;逐层下钻&quot;结构（时间→组织→人员→行为） |
+| 预测性（预警/预判） | 增加&quot;预测方法说明&quot;和&quot;关键假设&quot;段落，置信度更严格 |
+| 处方性（建议/策略） | 强化&quot;行动建议&quot;部分，增加 knowledge_search 步骤 |
+| 非分析类（导出/报告/自动化） | 参见第五节专用骨架，不使用本通用骨架 |
+| 跨域组合 | 步骤 1 拆为&quot;主域数据采集&quot;+&quot;辅域数据采集&quot;，标注数据来源域 |
+
+---
+
+## 七、通用工具选择指南
+
+### 完整工具清单与适用场景
+
+| 工具 | 核心用途 | 关键参数 | 适用技能类型 | 使用频率 |
+|:---|:---|:---|:---|:---|
+| **query_data** | 查询业务数据记录明细 | action, entity_api_key, filters, fields, order_by, page, page_size | 几乎所有技能 | ⭐⭐⭐⭐⭐ |
+| **analyze_data** | 数据聚合统计（count/sum/avg/min/max + 分组） | entity_api_key, metrics, group_by, filters | 需要统计/汇总/对比的技能 | ⭐⭐⭐⭐⭐ |
+| **query_schema** | 查询业务对象的字段结构、关联关系、选项值 | query_type, entity_api_key, item_api_key | 需要动态了解数据结构的技能 | ⭐⭐⭐ |
+| **modify_data** | 修改业务数据（创建/更新/删除） | action, entity_api_key, data, record_id | 涉及数据写入的技能 | ⭐⭐ |
+| **web_search** | 搜索互联网获取实时外部信息 | query, max_results | 需要行业动态/竞品/外部基准的技能 | ⭐⭐⭐ |
+| **execute_code** | 在沙盒中执行代码（python/js/bash） | language, code, timeout | 需要复杂计算/统计建模/数据处理的技能 | ⭐⭐⭐ |
+| **knowledge_search** | 知识库语义检索 | query, knowledge_base_id, top_k | 需要参考产品文档/FAQ/最佳实践的技能 | ⭐⭐⭐ |
+| **list_knowledge_bases** | 列出可用知识库 | 无 | 需要动态选择知识库的技能 | ⭐ |
+| **knowledge_doc_detail** | 获取知识文档完整内容 | doc_id | 需要加载完整文档的技能 | ⭐⭐ |
+| **read_skill_resource** | 读取 Skill 关联的资源文件 | skill_name, resource_name | 有 knowledge/ 或 references/ 目录的技能 | ⭐⭐ |
+| **ask_user** | 向用户发起确认/选择/输入请求 | interrupt_type, title, message, options | 涉及写操作或需要用户补充信息的技能 | ⭐⭐⭐⭐ |
+| **ask_clarification** | 信息不足或有歧义时中断追问 | question, clarification_type, options | 参数可能不完整的技能 | ⭐⭐⭐ |
+| **terminal** | 远程沙盒执行 Shell 命令 | command, timeout | 有 scripts/ 目录的技能 | ⭐⭐ |
+| **read_file** | 读取沙盒中的文件 | path, offset, limit | 读取脚本输出/生成报告 | ⭐⭐ |
+| **write_file** | 在沙盒中创建或覆盖文件 | path, content | 写入数据供脚本处理/保存中间结果 | ⭐⭐ |
+| **search_files** | 在沙盒中递归搜索文件内容 | pattern, path, include | 在脚本/配置中查找特定内容 | ⭐ |
+| **cos_upload** | 上传文件到 COS 对象存储 | file_path, bucket, prefix | 需要导出报告/图表/大数据文件的技能 | ⭐⭐ |
+| **manage_memory** | 管理 Agent 长期记忆 | action, keyword, memory_ids | 涉及记忆管理的技能 | ⭐ |
+| **memory_read** | 按需读取记忆详情 | memory_id, level | 需要读取历史记忆的技能 | ⭐ |
+| **browse_metamodel** | 浏览元模型层定义 | query_type, metamodel_api_key | 元数据管理/配置类技能 | ⭐ |
+| **query_metadata** | 查询元数据实例 | query_type, metamodel_api_key, filters | 元数据管理/配置类技能 | ⭐ |
+
+### 工具组合模式（Pipeline 模板）
+
+根据技能类型选择对应的工具组合模式：
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Pipeline A: 只读分析（最常用）                                            │
+│ query_data → analyze_data → [web_search] → 输出                         │
+│ 适用：KPI 看板、现状报告、排名统计                                         │
+│ allowed_tools: [&quot;query_data&quot;, &quot;analyze_data&quot;]                           │
+│ 可选追加: &quot;web_search&quot;（需外部对比时）                                     │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Pipeline B: 深度诊断                                                     │
+│ analyze_data(概览) → analyze_data(分组下钻) → query_data(明细) → 输出     │
+│ 适用：原因分析、异常诊断、差距定位                                          │
+│ allowed_tools: [&quot;query_data&quot;, &quot;analyze_data&quot;]                           │
+│ 可选追加: &quot;web_search&quot;（排查外部因素时）                                   │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Pipeline C: 预测建模                                                     │
+│ query_data(历史) → execute_code(建模) → analyze_data(验证) → 输出        │
+│ 适用：趋势预测、风险预警、目标预判                                          │
+│ allowed_tools: [&quot;query_data&quot;, &quot;analyze_data&quot;, &quot;execute_code&quot;]           │
+│ 可选追加: &quot;write_file&quot;, &quot;read_file&quot;（中间结果存储）                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Pipeline D: 知识增强分析                                                  │
+│ query_data → analyze_data → knowledge_search(最佳实践) → 输出            │
+│ 适用：策略建议、改进方案、对标分析                                          │
+│ allowed_tools: [&quot;query_data&quot;, &quot;analyze_data&quot;, &quot;knowledge_search&quot;]       │
+│ 可选追加: &quot;web_search&quot;（行业基准）, &quot;read_skill_resource&quot;（域知识）         │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Pipeline E: 数据写入流程                                                  │
+│ query_data(查现状) → ask_user(确认) → modify_data(执行) → query_data(验证)│
+│ 适用：批量更新、数据清洗、流程自动化                                        │
+│ allowed_tools: [&quot;query_data&quot;, &quot;modify_data&quot;, &quot;ask_user&quot;]                │
+│ ⚠️ modify_data 必须与 ask_user 配对，写前必须确认                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Pipeline F: 报告导出                                                     │
+│ query_data → analyze_data → write_file(生成) → cos_upload(上传) → 输出   │
+│ 适用：周报/月报生成、数据导出、文件下载                                     │
+│ allowed_tools: [&quot;query_data&quot;, &quot;analyze_data&quot;, &quot;write_file&quot;, &quot;cos_upload&quot;]│
+│ 可选追加: &quot;execute_code&quot;（复杂格式处理）                                   │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Pipeline G: 脚本驱动分析                                                  │
+│ terminal(安装依赖) → write_file(写脚本) → execute_code(执行) → read_file  │
+│ 适用：复杂统计模型、可视化图表、自定义算法                                   │
+│ allowed_tools: [&quot;terminal&quot;, &quot;execute_code&quot;, &quot;write_file&quot;, &quot;read_file&quot;,  │
+│                 &quot;query_data&quot;, &quot;cos_upload&quot;]                              │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 工具选择原则
+
+```
+核心原则：工具越少越精确，LLM 越不容易走偏。
+
+选择规则：
+1. 只读分析类 → query_data + analyze_data（基础，几乎必选）
+2. 需要外部信息 → 追加 web_search
+3. 需要行业知识/最佳实践 → 追加 knowledge_search
+4. 需要域专家知识 → 追加 read_skill_resource
+5. 需要复杂计算/建模 → 追加 execute_code（+ write_file + read_file）
+6. 需要安装依赖/运行脚本 → 追加 terminal
+7. 涉及数据写入 → 追加 modify_data + ask_user（必须配对）
+8. 需要导出文件 → 追加 cos_upload（+ write_file）
+9. 参数可能不完整 → 追加 ask_clarification
+10. 需要用户决策/确认 → 追加 ask_user
+
+禁止组合：
+- ❌ modify_data 不配 ask_user → 写操作必须有确认
+- ❌ browse_metamodel/query_metadata 加到业务分析技能 → 那是元数据管理专用
+- ❌ manage_skill 加到普通技能 → 那是 create_skill 专用
+- ❌ 无脑全选所有工具 → 增加 LLM 决策负担，降低输出质量
+- ❌ execute_code 不配 query_data → 没有数据输入的计算无意义
+
+推荐数量：
+- 简单技能：2-3 个工具
+- 中等技能：3-5 个工具
+- 复杂技能：5-8 个工具
+- 超过 8 个工具 → 考虑拆分为多个技能
+```
+
+---
+
+## 八、置信度标注操作规范
+
+### 置信度等级定义
+
+| 等级 | 符号 | 判定条件（满足全部） | 典型场景 |
+|:---|:---|:---|:---|
+| 高 | 🟢 | 数据覆盖率&gt;90% + 样本量&gt;30 + 数据源一致 + 结论方向明确 | 基于完整数据的统计结论 |
+| 中 | 🟡 | 覆盖率60-90% 或 样本量10-30 或 多源基本一致 或 需要推算 | 基于部分数据的分析判断 |
+| 低 | 🔴 | 覆盖率&lt;60% 或 样本量&lt;10 或 数据源矛盾 或 纯推算 | 预测、外推、假设性结论 |
+
+### 置信度标注规则
+
+```
+规则 1: 每个核心结论必须标注置信度（非核心的辅助说明可省略）
+规则 2: 标注格式统一为 &quot;[来源:xxx] 🟢/🟡/🔴&quot;
+规则 3: 如果一个结论依赖多个数据源，取最低置信度
+规则 4: 推算/预测类结论最高为 🟡（除非有 &gt;12 期历史数据验证）
+规则 5: 外部数据（web_search）最高为 🟡（无法验证准确性）
+规则 6: 置信度为 🔴 的结论必须附加&quot;建议人工确认&quot;
+```
+
+### 防止置信度膨胀（Anti-pattern）
+
+```
+❌ 错误：所有结论都标 🟢（讨好用户倾向）
+✅ 正确：严格按条件判定，宁可标低不标高
+
+❌ 错误：只标注高置信度的结论，低置信度的不标
+✅ 正确：所有核心结论都标注，低置信度更需要标注
+
+❌ 错误：置信度标注但不解释原因
+✅ 正确：🔴低置信度时附加原因（如&quot;样本量仅 5 条&quot;）
+```
+
+---
+
+## 九、异常处理完整规范
+
+### 异常分类与处理策略
+
+| 异常类型 | 识别方式 | 处理策略 | Prompt 中的表述 |
+|:---|:---|:---|:---|
+| 数据缺失 | query_data 返回空/字段为 null | 跳过该维度，标注&quot;无数据&quot; | &quot;该维度无数据，无法分析&quot; |
+| 查询失败 | query_data 返回错误 | 重试 1 次，仍失败则跳过 | &quot;查询异常，该部分暂无法分析&quot; |
+| 数据过期 | 最后更新时间 &gt;7 天 | 继续分析但标注时效性 | &quot;数据最后更新于 {date}，可能不是最新&quot; |
+| 权限不足 | 返回 403/permission denied | 中止该部分，告知用户 | &quot;无权访问该数据，请联系管理员&quot; |
+| 数据量过大 | 单次返回 &gt;1000 条 | 分页处理或缩小范围 | 自动分页，不需要告知用户 |
+| 结果矛盾 | 两个数据源数值冲突 | 列出两方数据，标注冲突 | &quot;数据矛盾：A 显示 X，B 显示 Y，需人工确认&quot; |
+| 样本量不足 | 记录数 &lt;10 | 降级分析，标注局限性 | &quot;样本量仅 {n} 条，结论仅供参考 🔴&quot; |
+| 超出能力边界 | 需求涉及系统不支持的功能 | 明确告知，建议替代方案 | &quot;当前不支持 {xxx}，建议 {替代方案}&quot; |
+| 参数歧义 | 用户输入可多种理解 | ask_clarification 追问 | 中断追问，不猜测 |
+| 计算溢出 | execute_code 超时/报错 | 简化计算逻辑，重试 | &quot;计算复杂度过高，已简化处理&quot; |
+
+### 降级策略
+
+```
+完整分析（理想状态）
+  ↓ 数据部分缺失
+有限分析（标注缺失维度，其余正常分析）
+  ↓ 数据严重缺失（&gt;50% 维度无数据）
+最小分析（只分析有数据的维度，明确告知局限性）
+  ↓ 完全无数据
+中止分析（告知用户&quot;数据不足，无法完成分析&quot;，建议数据补充方向）
+```
+
+---
+
+## 十、端到端完整示例
+
+### 示例 1: 跨域组合分析技能
+
+**用户需求：** &quot;创建一个渠道 ROI 分析技能&quot;
+
+**分析过程：**
+- 场景判断：非预定义域（渠道管理），使用 generic.md
+- 框架选择：描述性（现状）+ 诊断性（哪个渠道好/差）+ 处方性（优化建议）= A→B→D
+- 维度选择：
+  - 渠道投入产出比（数据可得 3 + 决策影响 3 + 差异化 2 = 8）✅
+  - 渠道转化漏斗（数据可得 3 + 决策影响 3 + 差异化 2 = 8）✅
+  - 渠道质量评分（数据可得 2 + 决策影响 3 + 差异化 3 = 8）✅
+  - 渠道趋势变化（数据可得 3 + 决策影响 2 + 差异化 1 = 6）❌ 不选
+- 工具选择：Pipeline A + D = query_data + analyze_data + knowledge_search + web_search
+- 复杂度：🟡中等
+
+**生成的技能定义：**
+```json
+{
+  &quot;name&quot;: &quot;渠道 ROI 分析&quot;,
+  &quot;api_key&quot;: &quot;channel_roi_analysis&quot;,
+  &quot;description&quot;: &quot;分析各获客渠道的投入产出比、转化效率和质量评分，定位最优/最差渠道并给出优化建议&quot;,
+  &quot;arguments&quot;: [&quot;time_range&quot;, &quot;channel_filter&quot;],
+  &quot;argument_descriptions&quot;: {
+    &quot;time_range&quot;: &quot;分析时间范围，如&#x27;本月&#x27;、&#x27;本季度&#x27;、&#x27;2024Q1&#x27;&quot;,
+    &quot;channel_filter&quot;: &quot;渠道筛选，&#x27;all&#x27;=全部渠道，或具体渠道名称&quot;
+  },
+  &quot;allowed_tools&quot;: [&quot;query_data&quot;, &quot;analyze_data&quot;, &quot;knowledge_search&quot;, &quot;web_search&quot;],
+  &quot;risk_level&quot;: &quot;read_only&quot;,
+  &quot;max_tool_calls&quot;: 12
+}
+```
+
+### 示例 2: 非分析类技能（报告生成）
+
+**用户需求：** &quot;创建一个销售周报自动生成技能&quot;
+
+**分析过程：**
+- 场景判断：报告生成类，使用 5.2 节指导
+- 受众判断：给销售经理看 → 数据详实 + 团队表现 + 行动项
+- 工具选择：Pipeline F = query_data + analyze_data + write_file + cos_upload
+- 复杂度：🟡中等
+
+**生成的技能定义：**
+```json
+{
+  &quot;name&quot;: &quot;销售周报生成&quot;,
+  &quot;api_key&quot;: &quot;weekly_sales_report&quot;,
+  &quot;description&quot;: &quot;自动生成本周销售团队周报，含业绩数据、商机动态、活动统计和下周重点&quot;,
+  &quot;arguments&quot;: [&quot;team&quot;, &quot;week&quot;],
+  &quot;argument_descriptions&quot;: {
+    &quot;team&quot;: &quot;团队范围：&#x27;my_team&#x27;=我的团队，或具体团队名称&quot;,
+    &quot;week&quot;: &quot;报告周次：&#x27;本周&#x27;（默认）或具体日期如&#x27;2025-05-19&#x27;&quot;
+  },
+  &quot;allowed_tools&quot;: [&quot;query_data&quot;, &quot;analyze_data&quot;, &quot;write_file&quot;, &quot;cos_upload&quot;],
+  &quot;risk_level&quot;: &quot;read_only&quot;,
+  &quot;max_tool_calls&quot;: 15
+}
+```
+</code></pre>
+                    </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    function showFile(fileId) {
+        document.querySelectorAll('.file-content').forEach(el => el.style.display = 'none');
+        document.getElementById('content_placeholder').style.display = 'none';
+        const target = document.getElementById('content_' + fileId);
+        if (target) {
+            target.style.display = 'flex';
+            target.style.flexDirection = 'column';
+            target.style.height = '100%';
+        }
+    }
+    </script>
+
+</div><!-- end page 5 -->
+
+</body>
+</html>
