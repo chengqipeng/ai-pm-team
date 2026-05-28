@@ -888,8 +888,12 @@ function filterChatList(query) {
 
 // ═══ 新建对话 ═══
 function newChat() {
-  // 清理之前未使用的空对话（标题仍为"新对话"且不是当前对话的）
-  chatHistory = chatHistory.filter(c => c.id === tid || c.title !== '新对话');
+  // 如果当前已经是空对话（没有消息），不重复创建
+  if (hist.length === 0 && chatHistory.find(c => c.id === tid && c.title === '新对话')) {
+    return;
+  }
+  // 清理所有未使用的空对话（标题仍为"新对话"的）
+  chatHistory = chatHistory.filter(c => c.title !== '新对话');
   tid = genId();
   localStorage.setItem('deepagent_current_tid', tid);
   hist = [];
@@ -2447,6 +2451,7 @@ const SPAN_LABELS = {
 
 // 中间件英文名 → 中文名映射
 const MW_CN_NAMES = {
+  'TitleMiddleware': '标题生成',
   'DanglingToolCallMiddleware': '悬挂调用检测',
   'FileProcessMiddleware': '文件处理',
   'InputTransformMiddleware': '输入转换',
@@ -2532,6 +2537,9 @@ async function sendAgui(text, extra) {
     if (hist.filter(h => h.role === 'user').length === 1) {
       const title = text.length > 20 ? text.slice(0, 20) + '...' : text;
       document.getElementById('headerTitle').textContent = title;
+      const c = chatHistory.find(c => c.id === tid);
+      if (c) c.title = title;
+      renderChatList();
     }
   }
 
@@ -2714,7 +2722,7 @@ async function sendAgui(text, extra) {
                 input_data: sp.input_data || {}, output_data: sp.output_data || {}, metadata: meta,
               });
               // 关键步骤也显示在左侧
-              if (['content_review', 'query_rewrite', 'context_build', 'memory_retrieval', 'memory_extract'].includes(spanType)) {
+              if (['title_generation', 'content_review', 'query_rewrite', 'context_build', 'memory_retrieval', 'memory_extract'].includes(spanType)) {
                 addStep(`${stepName}`, 'done');
               } else if (spanType === 'skill_execution') {
                 // 技能执行完成 — 更新左侧步骤状态（从"执行中"变为"完成"）
@@ -2927,6 +2935,20 @@ async function sendAgui(text, extra) {
           }
           // RUN_FINISHED
           else if (type === 'RUN_FINISHED') {
+            // ── 标题更新：从后端获取最新标题 ──
+            try {
+              const convResp = await fetch(API + '/api/conversations?limit=50');
+              const convData = await convResp.json();
+              const convs = convData.conversations || convData || [];
+              const current = convs.find(c => c.thread_id === tid);
+              if (current && current.title && current.title !== '新对话' && current.title !== '对话') {
+                document.getElementById('headerTitle').textContent = current.title;
+                const ch = chatHistory.find(c => c.id === tid);
+                if (ch) ch.title = current.title;
+                renderChatList();
+              }
+            } catch(e) { /* 标题更新失败不影响主流程 */ }
+
             // ── doc_stream 兜底：如果流式文档内容已累积但未收到完成信号，自动完成 ──
             if (window._docStreamContent && window._docStreamContent.length > 0) {
               const content = window._docStreamContent;
@@ -3362,10 +3384,27 @@ async function send(overrideText) {
               addStep('开始生成文档: ' + (serverDocMeta.title || ''), 'run');
             }
 
+            // ── 标题实时更新（LLM 优化标题就绪）──
+            else if (evt.type === 'title_update') {
+              if (evt.title) {
+                document.getElementById('headerTitle').textContent = evt.title;
+                const c = chatHistory.find(c => c.id === tid);
+                if (c) c.title = evt.title;
+                renderChatList();
+              }
+            }
+
             // ── 完成 ──
             else if (evt.type === 'done') {
               // 自动折叠推理链路
               collapseStepsContainer();
+              // 首次对话：立即使用后端返回的标题更新
+              if (evt.title && evt.title !== '新对话' && evt.title !== '对话') {
+                document.getElementById('headerTitle').textContent = evt.title;
+                const c = chatHistory.find(c => c.id === tid);
+                if (c) c.title = evt.title;
+                renderChatList();
+              }
               // 处理后端文档检测结果（兜底：即使没有 doc_start，done 中也可能有 document）
               if (evt.document && !serverDocMeta) {
                 serverDocMeta = evt.document;
@@ -3539,7 +3578,7 @@ async function send(overrideText) {
     updatePanelStatus(false);
     addStep('回复完成 ✓', 'done');
 
-    // 首次对话：延迟刷新标题（TitleMiddleware 异步生成）
+    // 首次对话：延迟刷新标题（等待 LLM 异步优化标题完成后覆盖）
     if (hist.filter(h => h.role === 'user').length <= 1) {
       setTimeout(async () => {
         try {
@@ -3552,7 +3591,7 @@ async function send(overrideText) {
             renderChatList();
           }
         } catch(e) {}
-      }, 3000);
+      }, 8000);
     }
 
   } catch(e) {

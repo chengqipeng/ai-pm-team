@@ -184,6 +184,24 @@ class AGUIConverter:
                     yield e
                 yield m.run_finished(self.run_id, self.thread_id)
                 return
+            # GraphRecursionError 继承自 RuntimeError — 单独处理，给出友好提示
+            if "Recursion limit" in str(exc) or "GraphRecursionError" in type(exc).__name__:
+                logger.error(
+                    "AGUIConverter.convert: GraphRecursionError — Agent 执行步数超限, thread=%s",
+                    self.thread_id,
+                )
+                async for e in self._close_active_streams():
+                    yield e
+                # 发送一条文本消息告知用户
+                _err_msg_id = uuid.uuid4().hex[:12]
+                yield m.text_message_start(_err_msg_id)
+                yield m.text_message_content(
+                    _err_msg_id,
+                    "抱歉，本次对话的处理步骤超出了安全限制。请尝试简化问题或拆分为多个小问题重新提问。"
+                )
+                yield m.text_message_end(_err_msg_id)
+                yield m.run_error("EXECUTION_LIMIT_EXCEEDED", code="GraphRecursionError")
+                return
             logger.exception("AGUIConverter.convert: unhandled RuntimeError")
             async for e in self._close_active_streams():
                 yield e

@@ -148,7 +148,7 @@ class NeoAgentV2Adapter:
                 "extend_params": extend_params or {},
                 "parsed_files": [],
             },
-            "recursion_limit": 150,
+            "recursion_limit": 500,
         }
 
         async for sse_event in stream_agent_response(agent, {"messages": messages}, config):
@@ -240,13 +240,80 @@ class NeoAgentV2Adapter:
         # 必须在入口层预处理之前清除，否则会把本轮的 content_review/query_rewrite spans 清掉
         tracing_middleware.clear(thread_id)
 
+        # ── 标题生成（首次对话时同步生成规则标题 + 异步 LLM 优化）──
+        if user_input and not resume:
+            from src.middleware.title import TitleMiddleware
+            from src.core.context import DEFAULT_TENANT_ID
+            # 判断首次对话：检查 checkpointer 中是否有历史
+            _is_first = True
+            try:
+                from src.a2ui import thread_store as _ts
+                _thread_state = _ts.get(thread_id)
+                if _thread_state and len([m for m in _thread_state.messages if m.get("role") == "user"]) > 1:
+                    _is_first = False
+            except Exception:
+                pass
+            if _is_first:
+                rule_title = TitleMiddleware._rule_generate(user_input)
+                tracing_middleware._add_to_thread(
+                    thread_id, "title_generation", "title_generation", 0,
+                    {"title": rule_title, "method": "rule", "phase": "entry"},
+                    input_data={"trigger": "首次对话", "user_input": user_input[:200]},
+                    output_data={"title": rule_title, "method": "rule", "async_llm_optimize": "后台执行中"},
+                    detail=f"生成会话标题「{rule_title}」（规则）",
+                    status="success",
+                )
+                # 确保 conversation 记录存在（兜底：on_trace_start 可能未创建）
+                try:
+                    from src.store.pg_pool import get_conn
+                    import time as _time
+                    _now = int(_time.time() * 1000)
+                    with get_conn() as _conn:
+                        _cur = _conn.cursor()
+                        _cur.execute(
+                            "SELECT id FROM ai_conversation WHERE tenant_id=%s AND thread_id=%s AND delete_flg=0",
+                            (int(DEFAULT_TENANT_ID), thread_id))
+                        if not _cur.fetchone():
+                            from src.store.snowflake import next_id
+                            _conv_id = next_id()
+                            _cur.execute("""
+                                INSERT INTO ai_conversation
+                                (id, tenant_id, user_id, thread_id, agent_name, title, model,
+                                 status, message_count, total_tokens, last_message_at,
+                                 delete_flg, created_at, created_by, updated_at, updated_by)
+                                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            """, (_conv_id, int(DEFAULT_TENANT_ID), 0, thread_id,
+                                  'CRM-Agent', rule_title, '',
+                                  'active', 0, 0, _now,
+                                  0, _now, 0, _now, 0))
+                            logger.info("[adapter] conversation pre-created: thread=%s title='%s'", thread_id, rule_title)
+                except Exception as _db_e:
+                    logger.warning("[adapter] conversation pre-create failed: %s", _db_e)
+                # 启动 LLM 异步优化
+                try:
+                    from langchain_openai import ChatOpenAI
+                    import os as _os
+                    _aux_llm = ChatOpenAI(
+                        model="deepseek-v4-flash",
+                        api_key=_os.environ.get("DEEPSEEK_API_KEY", ""),
+                        base_url="https://tokenhub.tencentmaas.com/v1",
+                        max_tokens=2048,
+                    )
+                    _title_mw = TitleMiddleware(llm=_aux_llm)
+                    _title_mw.start_async_optimize(
+                        thread_id, str(DEFAULT_TENANT_ID), "default_user",
+                        user_input, rule_title,
+                    )
+                except Exception as _e:
+                    logger.warning("[adapter] TitleMiddleware async optimize failed: %s", _e)
+
         # ── 如果是 resume 请求，使用 Command(resume=value) 恢复执行 ──
         if resume:
             from langgraph.types import Command
 
             logger.info("[execute_agui] RESUME: thread=%s, resume=%s", thread_id, resume)
             input_data = Command(resume=resume)
-            config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 1000}
+            config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 500}
             astream = agent.astream_events(input_data, config=config, version="v2")
         else:
             # ── 入口层预处理：毒性检测 → 查询改写 ──
@@ -274,7 +341,7 @@ class NeoAgentV2Adapter:
                 messages = pending + messages
 
             input_data = {"messages": messages}
-            config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 1000}
+            config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 500}
             astream = agent.astream_events(input_data, config=config, version="v2")
 
         # 实时推送 mw_spans：后台 task 消费 AG-UI 事件流放入 queue，

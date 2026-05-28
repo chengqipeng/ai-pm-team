@@ -71,6 +71,7 @@ _agent = None
 _agent_mm = None  # 多模态 Agent
 _agent_lock = asyncio.Lock()
 _skill_registry = None  # SkillRegistry 实例，Agent 初始化后可用
+_middlewares = None  # 中间件列表，Agent 初始化后可用
 
 # ── 共享 CRM 后端实例（Agent 和 mock-data API 共用，修改即时可见）──
 _crm_backend = None
@@ -85,7 +86,7 @@ def get_crm_backend():
 
 
 async def _get_agent(multimodal: bool = False):
-    global _agent, _agent_mm, _skill_registry
+    global _agent, _agent_mm, _skill_registry, _middlewares
     target = _agent_mm if multimodal else _agent
     if target is not None:
         return target
@@ -177,6 +178,7 @@ async def _get_agent(multimodal: bool = False):
             agent_name="CRM-Agent", memory_engine=memory_engine,
             file_upload_enabled=True, llm=aux_llm,
         )
+        _middlewares = middlewares  # 暴露给 /api/chat 入口层使用
 
         model_name = MULTIMODAL_MODEL if multimodal else TEXT_MODEL
 
@@ -883,7 +885,7 @@ async def chat_stream(req: ChatRequest):
                 "tenant_id": str(DEFAULT_TENANT_ID),
                 "user_id": req.user_id,
             },
-            "recursion_limit": 300,
+            "recursion_limit": 500,
         }
 
         async def resume_generator():
@@ -981,10 +983,12 @@ async def chat_stream(req: ChatRequest):
     from src.middleware.tracing import tracing_middleware
     tracing_middleware.clear(thread_id)
 
-    # ── Step 0: 标题生成（首次对话时同步记录 span，异步生成标题）──
+    # ── Step 0: 标题生成（首次对话时同步记录 span）──
+    _entry_rule_title = ""  # 供 done 事件携带
     if not history_messages:
         from src.middleware.title import TitleMiddleware
         rule_title = TitleMiddleware._rule_generate(req.message)
+        _entry_rule_title = rule_title
         tracing_middleware._add_to_thread(
             thread_id, "title_generation", "title_generation", 0,
             {"title": rule_title, "method": "rule", "phase": "entry"},
@@ -1047,7 +1051,30 @@ async def chat_stream(req: ChatRequest):
     # 开始 Trace（使用用户原始输入，改写是内部处理不暴露）
     trace = tracer.start_trace(thread_id, req.message, model=TEXT_MODEL, agent_name="CRM-Agent")
     trace_id = trace.trace_id
+    # 注入规则标题，供 _ensure_conversation 创建记录时使用
+    if _entry_rule_title:
+        trace.title = _entry_rule_title
     trace_writer.on_trace_start(trace)
+
+    # ── Step 0 续：启动 LLM 异步优化标题（必须在 on_trace_start 之后，确保 conversation 已创建）──
+    if _entry_rule_title:
+        from src.middleware.title import TitleMiddleware
+        try:
+            # 直接创建 TitleMiddleware 实例（避免从 tracing wrapper 中查找的复杂性）
+            from langchain_openai import ChatOpenAI
+            _aux_llm = ChatOpenAI(
+                model="deepseek-v4-flash",
+                api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
+                base_url="https://tokenhub.tencentmaas.com/v1",
+                max_tokens=2048,
+            )
+            _title_mw = TitleMiddleware(llm=_aux_llm)
+            _title_mw.start_async_optimize(
+                thread_id, str(DEFAULT_TENANT_ID), req.user_id,
+                req.message, _entry_rule_title,
+            )
+        except Exception as _e:
+            logger.warning("[/api/chat] TitleMiddleware async optimize start failed: %s", _e)
 
     def _record_model_phase_middlewares(phase: str, tid: str):
         """记录 before_model/after_model 阶段的中间件 span
@@ -1102,7 +1129,7 @@ async def chat_stream(req: ChatRequest):
                 "input_metadata": {"entry_review_passed": True},
                 "knowledge_provider": getattr(app.state, "knowledge_provider", None),
             },
-            "recursion_limit": 300,
+            "recursion_limit": 500,
         }
         full_content = ""
         current_tool_span = None
@@ -1525,6 +1552,9 @@ async def chat_stream(req: ChatRequest):
         # 持久化到 PG（在所有 span 合并完成后）
         trace_final = tracer.get_trace(trace_id)
         if trace_final:
+            # 首次对话：将规则标题注入 trace，供 TraceWriter 创建会话时使用
+            if _entry_rule_title:
+                trace_final.title = _entry_rule_title
             trace_writer.on_trace_finish(trace_final)
 
         # 检测最终内容是否为可下载文档（LLM 判断 + 规则兜底）
@@ -1562,6 +1592,39 @@ async def chat_stream(req: ChatRequest):
         done_payload = {'type': 'done', 'trace_id': trace_id}
         if doc_meta:
             done_payload['document'] = doc_meta
+        # 首次对话：在 done 事件中携带最新标题，前端立即更新
+        if not history_messages:
+            # 等待 LLM 优化标题（最多 2 秒，不阻塞太久）
+            from src.middleware.title import register_title_listener, get_updated_title
+            _title_evt = register_title_listener(thread_id)
+            try:
+                await asyncio.wait_for(_title_evt.wait(), timeout=2.0)
+                _llm_title = get_updated_title(thread_id)
+                if _llm_title:
+                    # LLM 标题在 2 秒内就绪，推送 title_update 事件
+                    yield f"data: {json.dumps({'type': 'title_update', 'title': _llm_title, 'thread_id': thread_id}, ensure_ascii=False)}\n\n"
+                    done_payload['title'] = _llm_title
+                else:
+                    done_payload['title'] = _entry_rule_title
+            except asyncio.TimeoutError:
+                # LLM 超时，使用规则标题；LLM 完成后前端可通过 /api/conversations 获取
+                get_updated_title(thread_id)  # 清理监听器
+                # 尝试从 DB 获取（可能规则标题已持久化）
+                _final_title = _entry_rule_title
+                try:
+                    from src.store.pg_pool import get_conn as _get_conn
+                    with _get_conn() as _conn:
+                        _cur = _conn.cursor()
+                        _cur.execute(
+                            "SELECT title FROM ai_conversation WHERE tenant_id=%s AND thread_id=%s AND delete_flg=0",
+                            (DEFAULT_TENANT_ID, thread_id))
+                        _row = _cur.fetchone()
+                        if _row and _row[0] and _row[0] not in ('', '新对话', '对话'):
+                            _final_title = _row[0]
+                except Exception:
+                    pass
+                if _final_title:
+                    done_payload['title'] = _final_title
 
         yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
 

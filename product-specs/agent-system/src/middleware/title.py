@@ -1,23 +1,22 @@
 """会话标题生成中间件 — 入口阶段异步生成，不阻塞主流程
 
 仅在首次对话（thread 第一条消息）时触发：
-1. before_agent（最早节点）检测首次对话
-2. 同步用规则生成标题（<1ms）并记录 span，前端立即看到
-3. 同步持久化规则标题到 ai_conversation 表
-4. 启动后台任务调用 LLM 优化标题（基于用户输入），成功后覆盖
-5. 前端通过轮询 /api/conversations 获取最终标题
+1. server.py 入口层同步调用 _rule_generate 生成规则标题（<1ms）
+2. 入口层调用 start_async_optimize 启动 LLM 异步优化
+3. LLM 优化完成后通过事件通道通知 SSE 流推送 title_update 事件
+4. 前端收到 title_update 事件后实时更新标题
 
 设计要点：
-- 在入口阶段触发，作为推理链路第一个节点
+- 入口层统一调度，中间件 before_agent 作为兜底
 - 不阻塞 Agent 响应流（规则同步 + LLM 异步）
-- 规则标题立即可用，LLM 优化是锦上添花
+- LLM 标题通过 SSE 事件实时推送，无需前端轮询
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
-from typing import Any
+from typing import Any, Dict, Optional
 
 from langchain_core.messages import HumanMessage
 from langchain.agents.middleware.types import AgentMiddleware, AgentState
@@ -26,14 +25,70 @@ from langgraph.runtime import Runtime
 
 logger = logging.getLogger(__name__)
 
+# ═══════════════════════════════════════════════════════════
+# 标题更新事件通道 — 供 SSE 流监听 LLM 优化结果
+# ═══════════════════════════════════════════════════════════
+_title_events: Dict[str, asyncio.Event] = {}
+_title_values: Dict[str, str] = {}
+
+
+def register_title_listener(thread_id: str) -> asyncio.Event:
+    """SSE 流注册标题更新监听器
+
+    Returns:
+        asyncio.Event: LLM 标题就绪时会被 set()
+    """
+    evt = asyncio.Event()
+    _title_events[thread_id] = evt
+    return evt
+
+
+def get_updated_title(thread_id: str) -> Optional[str]:
+    """获取 LLM 优化后的标题（取后即删）"""
+    _title_events.pop(thread_id, None)
+    return _title_values.pop(thread_id, None)
+
+
+def _notify_title_update(thread_id: str, title: str) -> None:
+    """LLM 标题就绪后通知监听方"""
+    _title_values[thread_id] = title
+    evt = _title_events.get(thread_id)
+    if evt:
+        evt.set()
+
 
 class TitleMiddleware(AgentMiddleware):
-    """会话标题生成 — 入口阶段异步触发，规则同步 + LLM 异步优化"""
+    """会话标题生成 — 入口阶段异步触发，规则同步 + LLM 异步优化
+
+    主流程由 server.py 入口层驱动：
+    1. 入口层调用 _rule_generate() 同步生成规则标题
+    2. 入口层调用 start_async_optimize() 启动 LLM 异步优化
+    3. before_agent 作为兜底（入口层已标记 _generated 则跳过）
+    """
 
     def __init__(self, llm: Any = None) -> None:
         super().__init__()
         self._llm = llm
         self._generated: set[str] = set()  # 已生成标题的 thread_id
+
+    def start_async_optimize(
+        self, thread_id: str, tenant_id: str, user_id: str, user_input: str, rule_title: str,
+    ) -> None:
+        """由 server.py 入口层调用 — 标记已处理 + 启动 LLM 异步优化
+
+        这是 TitleMiddleware 对外暴露的唯一入口方法（除 _rule_generate 外）。
+        调用后 before_agent 不会重复触发。
+        """
+        self._generated.add(thread_id)
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                self._async_persist_and_optimize(
+                    thread_id, tenant_id, user_id, user_input, rule_title,
+                )
+            )
+        except RuntimeError:
+            logger.debug("[TitleMiddleware] no running loop, skip async optimize")
 
     def before_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
         """同步版本 — fallback 用"""
@@ -100,26 +155,50 @@ class TitleMiddleware(AgentMiddleware):
     ) -> None:
         """后台任务：延迟持久化规则标题 + LLM 优化
 
-        延迟几秒等待 TraceWriter 创建 ai_conversation 记录后，再持久化标题。
-        同时调用 LLM 生成优化标题（如果 LLM 可用）。
+        延迟等待 TraceWriter 创建 ai_conversation 记录后，再持久化标题。
+        注意：conversation 记录在 on_trace_finish 时才创建（Agent 执行完毕后），
+        所以重试窗口需要覆盖 Agent 的最大执行时间（通常 < 120 秒）。
         """
         # 先启动 LLM 任务（不等），避免串行等待
         llm_task = None
         if self._llm is not None:
             llm_task = asyncio.create_task(self._llm_generate_safe(user_input))
 
-        # 延迟 2 秒等 TraceWriter 创建 conv 记录
-        await asyncio.sleep(2)
-        self._persist_title(thread_id, tenant_id, user_id, rule_title)
+        # 延迟等待 TraceWriter 创建 conv 记录
+        # conversation 在 on_trace_start 时提前创建，通常 1-2 秒内可用
+        # 保留重试以应对极端情况（DB 延迟、并发等）
+        persisted = False
+        for delay in (1, 2, 3, 5, 10, 15):
+            await asyncio.sleep(delay)
+            if self._persist_title(thread_id, tenant_id, user_id, rule_title):
+                persisted = True
+                break
+
+        if not persisted:
+            logger.warning("[TitleMiddleware] rule title persist failed after retries, thread=%s (conv not found in ai_conversation for tenant=%s)",
+                           thread_id, tenant_id)
 
         # 等 LLM 结果（最多 15 秒）
         if llm_task is not None:
             try:
                 llm_title = await asyncio.wait_for(llm_task, timeout=15)
                 if llm_title and llm_title != rule_title:
-                    self._persist_title(thread_id, tenant_id, user_id, llm_title)
-                    logger.info("[TitleMiddleware] LLM title='%s' replaced rule='%s' thread=%s",
-                                llm_title, rule_title, thread_id)
+                    # LLM 标题就绪后持久化
+                    # conversation 在 on_trace_start 时已创建，通常第一次就能成功
+                    for delay in (0, 1, 3, 5, 10, 15):
+                        if delay:
+                            await asyncio.sleep(delay)
+                        if self._persist_title(thread_id, tenant_id, user_id, llm_title):
+                            logger.info("[TitleMiddleware] LLM title='%s' replaced rule='%s' thread=%s",
+                                        llm_title, rule_title, thread_id)
+                            # 通知 SSE 流推送 title_update 事件
+                            _notify_title_update(thread_id, llm_title)
+                            break
+                    else:
+                        logger.warning("[TitleMiddleware] LLM title persist failed after retries, thread=%s (conv not found in ai_conversation for tenant=%s)",
+                                       thread_id, tenant_id)
+                        # 即使持久化失败，也通知前端（前端可展示，下次刷新再从 DB 读）
+                        _notify_title_update(thread_id, llm_title)
             except asyncio.TimeoutError:
                 logger.warning("[TitleMiddleware] LLM timeout, keep rule title='%s'", rule_title)
             except Exception as e:
@@ -171,11 +250,21 @@ class TitleMiddleware(AgentMiddleware):
         """规则生成：提取核心意图关键词
 
         策略：
-        1. 去掉常见前缀（帮我、请、麻烦等）
-        2. 去掉自我介绍的冗余部分，保留角色关键词
-        3. 超长文本提取前半段核心内容
+        1. 去掉无意义前缀（重复字符、帮我、请、麻烦等）
+        2. 去掉文件路径，保留动作+对象
+        3. 去掉自我介绍的冗余部分，保留角色关键词
+        4. 超长文本提取前半段核心内容
         """
+        import re
+
         text = user_input.strip()
+        if not text:
+            return "新对话"
+
+        # 去掉开头的无意义重复字符（如 "aaaaaaa "、"......"）
+        text = re.sub(r'^[a-zA-Z]{4,}\s*', '', text)
+        text = re.sub(r'^[.。…·~～!！?？]{3,}\s*', '', text)
+        text = text.strip()
         if not text:
             return "新对话"
 
@@ -186,16 +275,26 @@ class TitleMiddleware(AgentMiddleware):
                 break
         text = text.strip()
 
+        # 替换文件路径为文件名（/tmp/test_sales.csv → test_sales.csv）
+        def _replace_path(m):
+            path = m.group(0)
+            # 提取文件名
+            parts = path.rstrip('/').split('/')
+            filename = parts[-1] if parts else path
+            # 去掉扩展名
+            name_no_ext = re.sub(r'\.[a-zA-Z0-9]{1,5}$', '', filename)
+            return name_no_ext if name_no_ext else filename
+
+        text = re.sub(r'[/\\][\w./\\-]+', _replace_path, text)
+        text = text.strip()
+
         # 自我介绍场景：提取角色关键词
         if text.startswith("我是") or text.startswith("是"):
-            # "我是华东区的销售总监，管理15个人的团队" → "华东区销售总监"
             intro = text[2:] if text.startswith("我是") else text[1:]
-            # 取第一个逗号/句号前的内容
-            for sep in ("，", ",", "。", "；", "，"):
+            for sep in ("，", ",", "。", "；"):
                 if sep in intro:
                     intro = intro[:intro.index(sep)]
                     break
-            # 去掉"的"
             intro = intro.replace("的", "")
             if len(intro) <= 20:
                 return intro.strip() or text[:20]
@@ -236,8 +335,12 @@ class TitleMiddleware(AgentMiddleware):
         except Exception as e:
             logger.debug("[TitleMiddleware] record span failed: %s", e)
 
-    def _persist_title(self, thread_id: str, tenant_id: str, user_id: str, title: str) -> None:
-        """将标题持久化到 ai_conversation 表"""
+    def _persist_title(self, thread_id: str, tenant_id: str, user_id: str, title: str) -> bool:
+        """将标题持久化到 ai_conversation 表
+
+        Returns:
+            True 如果成功更新或记录已存在，False 如果记录不存在（触发重试）
+        """
         try:
             from src.store.pg_pool import get_conn
 
@@ -254,16 +357,22 @@ class TitleMiddleware(AgentMiddleware):
 
                 if row:
                     conv_id, existing_title = row
-                    # 允许覆盖：空、默认值、或以 ... 结尾的规则标题
+                    # 允许覆盖：空、默认值、规则标题（以 ... 结尾或长度 ≤ 20）
+                    # LLM 标题总是可以覆盖规则标题
                     if (not existing_title
                             or existing_title in ('', '新对话', '对话')
-                            or existing_title.endswith('...')):
+                            or existing_title.endswith('...')
+                            or len(existing_title) <= 20):
                         cur.execute(
                             "UPDATE ai_conversation SET title=%s, updated_at=%s WHERE id=%s",
                             (title, now, conv_id))
                         logger.info("[TitleMiddleware] persisted: conv=%s title='%s'", conv_id, title)
-                # conversation 不存在时（before_agent 阶段 TraceWriter 尚未创建 conv 记录），
-                # 标题生成后再次调用 persist 时会更新
+                    return True
+                else:
+                    # conversation 不存在（TraceWriter 尚未创建），返回 False 触发重试
+                    logger.debug("[TitleMiddleware] conv not found: tenant=%s thread=%s", tid, thread_id)
+                    return False
 
         except Exception as e:
-            logger.warning("[TitleMiddleware] persist failed: %s", e)
+            logger.warning("[TitleMiddleware] persist failed: thread=%s tenant=%s error=%s", thread_id, tenant_id, e)
+            return False

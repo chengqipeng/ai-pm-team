@@ -750,6 +750,12 @@ class MiddlewareTracingWrapper(AgentMiddleware):
     记录耗时和效果到 TracingMiddleware。
 
     不包装 TracingMiddleware 自身（避免递归）。
+
+    重要：只覆盖 inner middleware 实际实现的 hook 方法。
+    create_agent 通过 `m.__class__.METHOD is not AgentMiddleware.METHOD` 检测
+    中间件是否实现了某个 hook，如果 wrapper 无条件覆盖所有方法，会导致
+    create_agent 为每个中间件注册所有阶段的图节点，极大增加每轮 ReAct 循环
+    消耗的 recursion steps，最终触发 GraphRecursionError。
     """
 
     # 不需要追踪的中间件（TracingMiddleware 自身 + 纯日志类）
@@ -959,6 +965,10 @@ def wrap_middlewares_with_tracing(middlewares: list[AgentMiddleware]) -> list[Ag
 
     TracingMiddleware 自身不被包装（避免递归）。
     AgentLoggingMiddleware 不被包装（纯日志，无需追踪）。
+
+    重要：使用动态类生成，只覆盖 inner middleware 实际实现的 hook 方法。
+    这确保 create_agent 只为每个中间件注册其设计归属阶段的图节点，
+    避免冗余节点导致 recursion steps 膨胀。
     """
     wrapped = []
     for mw in middlewares:
@@ -966,8 +976,233 @@ def wrap_middlewares_with_tracing(middlewares: list[AgentMiddleware]) -> list[Ag
         if name in MiddlewareTracingWrapper._SKIP_NAMES:
             wrapped.append(mw)
         else:
-            wrapped.append(MiddlewareTracingWrapper(mw))
+            wrapped.append(_create_selective_tracing_wrapper(mw))
     return wrapped
+
+
+def _create_selective_tracing_wrapper(inner: AgentMiddleware) -> AgentMiddleware:
+    """为单个中间件创建选择性追踪包装器
+
+    只覆盖 inner 实际实现的 hook 方法，避免 create_agent 注册冗余图节点。
+    动态类直接继承 AgentMiddleware（不继承 MiddlewareTracingWrapper），
+    确保未覆盖的方法保持基类默认行为。
+    """
+    inner_cls = type(inner)
+    mw_name = inner_cls.__name__
+
+    # 检测 inner 实际覆盖了哪些方法
+    has_before_agent = (
+        inner_cls.before_agent is not AgentMiddleware.before_agent
+        or inner_cls.abefore_agent is not AgentMiddleware.abefore_agent
+    )
+    has_after_agent = (
+        inner_cls.after_agent is not AgentMiddleware.after_agent
+        or inner_cls.aafter_agent is not AgentMiddleware.aafter_agent
+    )
+    has_before_model = (
+        inner_cls.before_model is not AgentMiddleware.before_model
+        or inner_cls.abefore_model is not AgentMiddleware.abefore_model
+    )
+    has_after_model = (
+        inner_cls.after_model is not AgentMiddleware.after_model
+        or inner_cls.aafter_model is not AgentMiddleware.aafter_model
+    )
+    has_wrap_tool_call = (
+        inner_cls.wrap_tool_call is not AgentMiddleware.wrap_tool_call
+        or inner_cls.awrap_tool_call is not AgentMiddleware.awrap_tool_call
+    )
+
+    # 动态构建类属性字典，只包含 inner 实际实现的方法
+    attrs: dict[str, Any] = {
+        'name': property(lambda self: self._mw_name),
+        'inner': property(lambda self: self._inner),
+        '_should_trace': MiddlewareTracingWrapper._should_trace,
+        '_MW_DESIGN_PHASES': MiddlewareTracingWrapper._MW_DESIGN_PHASES,
+        '_SELF_TRACING_NAMES': MiddlewareTracingWrapper._SELF_TRACING_NAMES,
+    }
+
+    if has_before_agent:
+        attrs['before_agent'] = _make_before_agent_sync()
+        attrs['abefore_agent'] = _make_before_agent_async()
+
+    if has_after_agent:
+        attrs['after_agent'] = _make_after_agent_sync()
+        attrs['aafter_agent'] = _make_after_agent_async()
+
+    if has_before_model:
+        attrs['before_model'] = _make_before_model_sync()
+        attrs['abefore_model'] = _make_before_model_async()
+
+    if has_after_model:
+        attrs['after_model'] = _make_after_model_sync()
+        attrs['aafter_model'] = _make_after_model_async()
+
+    if has_wrap_tool_call:
+        attrs['wrap_tool_call'] = _make_wrap_tool_call_sync()
+        attrs['awrap_tool_call'] = _make_wrap_tool_call_async()
+
+    # 动态创建类 — 直接继承 AgentMiddleware，不继承 MiddlewareTracingWrapper
+    # 这样 create_agent 的检查 `m.__class__.METHOD is not AgentMiddleware.METHOD`
+    # 只会对实际覆盖的方法返回 True
+    wrapper_cls = type(f"TracedWrapper_{mw_name}", (AgentMiddleware,), attrs)
+    instance = object.__new__(wrapper_cls)
+    AgentMiddleware.__init__(instance)
+    instance._inner = inner
+    instance._name = mw_name
+    instance._mw_name = mw_name
+    return instance
+
+
+# ── 工厂函数：生成各阶段的 tracing 方法 ──
+
+def _make_before_agent_sync():
+    def before_agent(self, state, runtime):
+        start = time.monotonic()
+        result = self._inner.before_agent(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if self._should_trace("before_agent", result is not None):
+            tracing_middleware.record_middleware_execution(
+                self._mw_name, "before_agent", dur, has_effect=result is not None)
+        return result
+    return before_agent
+
+
+def _make_before_agent_async():
+    async def abefore_agent(self, state, runtime):
+        start = time.monotonic()
+        inner_cls = type(self._inner)
+        if hasattr(inner_cls, 'abefore_agent') and inner_cls.abefore_agent is not AgentMiddleware.abefore_agent:
+            result = await self._inner.abefore_agent(state, runtime)
+        else:
+            result = self._inner.before_agent(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if self._should_trace("before_agent", result is not None):
+            tracing_middleware.record_middleware_execution(
+                self._mw_name, "before_agent", dur, has_effect=result is not None)
+        return result
+    return abefore_agent
+
+
+def _make_after_agent_sync():
+    def after_agent(self, state, runtime):
+        start = time.monotonic()
+        result = self._inner.after_agent(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if self._should_trace("after_agent", result is not None):
+            tracing_middleware.record_middleware_execution(
+                self._mw_name, "after_agent", dur, has_effect=result is not None)
+        return result
+    return after_agent
+
+
+def _make_after_agent_async():
+    async def aafter_agent(self, state, runtime):
+        start = time.monotonic()
+        inner_cls = type(self._inner)
+        if hasattr(inner_cls, 'aafter_agent') and inner_cls.aafter_agent is not AgentMiddleware.aafter_agent:
+            result = await self._inner.aafter_agent(state, runtime)
+        else:
+            result = self._inner.after_agent(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if self._should_trace("after_agent", result is not None):
+            tracing_middleware.record_middleware_execution(
+                self._mw_name, "after_agent", dur, has_effect=result is not None)
+        return result
+    return aafter_agent
+
+
+def _make_before_model_sync():
+    def before_model(self, state, runtime):
+        start = time.monotonic()
+        result = self._inner.before_model(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if self._should_trace("before_model", result is not None):
+            tracing_middleware.record_middleware_execution(
+                self._mw_name, "before_model", dur, has_effect=result is not None)
+        return result
+    return before_model
+
+
+def _make_before_model_async():
+    async def abefore_model(self, state, runtime):
+        start = time.monotonic()
+        inner_cls = type(self._inner)
+        if hasattr(inner_cls, 'abefore_model') and inner_cls.abefore_model is not AgentMiddleware.abefore_model:
+            result = await self._inner.abefore_model(state, runtime)
+        else:
+            result = self._inner.before_model(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if self._should_trace("before_model", result is not None):
+            tracing_middleware.record_middleware_execution(
+                self._mw_name, "before_model", dur, has_effect=result is not None)
+        return result
+    return abefore_model
+
+
+def _make_after_model_sync():
+    def after_model(self, state, runtime):
+        start = time.monotonic()
+        result = self._inner.after_model(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if self._should_trace("after_model", result is not None):
+            tracing_middleware.record_middleware_execution(
+                self._mw_name, "after_model", dur, has_effect=result is not None)
+        return result
+    return after_model
+
+
+def _make_after_model_async():
+    async def aafter_model(self, state, runtime):
+        start = time.monotonic()
+        inner_cls = type(self._inner)
+        if hasattr(inner_cls, 'aafter_model') and inner_cls.aafter_model is not AgentMiddleware.aafter_model:
+            result = await self._inner.aafter_model(state, runtime)
+        else:
+            result = self._inner.after_model(state, runtime)
+        dur = (time.monotonic() - start) * 1000
+        if self._should_trace("after_model", result is not None):
+            tracing_middleware.record_middleware_execution(
+                self._mw_name, "after_model", dur, has_effect=result is not None)
+        return result
+    return aafter_model
+
+
+def _make_wrap_tool_call_sync():
+    def wrap_tool_call(self, request, handler):
+        inner_cls = type(self._inner)
+        if hasattr(inner_cls, 'wrap_tool_call') and inner_cls.wrap_tool_call is not AgentMiddleware.wrap_tool_call:
+            start = time.monotonic()
+            result = self._inner.wrap_tool_call(request, handler)
+            dur = (time.monotonic() - start) * 1000
+            if self._should_trace("wrap_tool_call", True):
+                tool_name = request.tool_call.get("name", "unknown")
+                tool_call_id = request.tool_call.get("id", "")
+                tracing_middleware.record_middleware_execution(
+                    self._mw_name, "wrap_tool_call", dur,
+                    has_effect=True, detail=f"{self._mw_name}: {tool_name}",
+                    tool_call_id=tool_call_id)
+            return result
+        return handler(request)
+    return wrap_tool_call
+
+
+def _make_wrap_tool_call_async():
+    async def awrap_tool_call(self, request, handler):
+        inner_cls = type(self._inner)
+        if hasattr(inner_cls, 'awrap_tool_call') and inner_cls.awrap_tool_call is not AgentMiddleware.awrap_tool_call:
+            start = time.monotonic()
+            result = await self._inner.awrap_tool_call(request, handler)
+            dur = (time.monotonic() - start) * 1000
+            if self._should_trace("wrap_tool_call", True):
+                tool_name = request.tool_call.get("name", "unknown")
+                tool_call_id = request.tool_call.get("id", "")
+                tracing_middleware.record_middleware_execution(
+                    self._mw_name, "wrap_tool_call", dur,
+                    has_effect=True, detail=f"{self._mw_name}: {tool_name}",
+                    tool_call_id=tool_call_id)
+            return result
+        return await handler(request)
+    return awrap_tool_call
 
 
 # 全局单例

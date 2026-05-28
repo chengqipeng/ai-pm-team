@@ -45,7 +45,7 @@ class TraceWriter:
         self._user_id: int = 0  # 由请求上下文动态设置
 
     def on_trace_start(self, trace: Any) -> None:
-        """trace 开始时写入 ai_trace（status=running）"""
+        """trace 开始时写入 ai_trace（status=running）+ 提前创建 conversation"""
         try:
             now = int(time.time() * 1000)
             t = TraceModel(
@@ -64,6 +64,59 @@ class TraceWriter:
             logger.debug("TraceWriter: trace started %s", trace.trace_id)
         except Exception as e:
             logger.error("TraceWriter.on_trace_start failed: %s", e)
+
+        # 提前创建 conversation 记录（确保 TitleMiddleware 后台任务能尽早持久化标题）
+        try:
+            self._ensure_conversation(trace, now)
+        except Exception as e:
+            logger.warning("TraceWriter: early conversation create failed: %s", e)
+
+    def _ensure_conversation(self, trace: Any, now: int) -> int:
+        """确保 conversation 记录存在（不存在则创建，已存在则跳过）
+
+        在 on_trace_start 时调用，提前创建空记录，
+        让 TitleMiddleware 后台任务能尽早持久化标题。
+        on_trace_finish 时 _upsert_conversation 会更新统计信息。
+        """
+        from .pg_pool import get_conn
+        thread_id = trace.thread_id or ''
+        if not thread_id:
+            return 0
+
+        user_id = self._user_id
+        try:
+            from src.core.context import get_context
+            ctx = get_context()
+            if ctx.user_id:
+                user_id = int(ctx.user_id) if str(ctx.user_id).isdigit() else 0
+        except Exception:
+            pass
+
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id FROM ai_conversation WHERE tenant_id=%s AND thread_id=%s AND delete_flg=0",
+                (self._tenant_id, thread_id))
+            row = cur.fetchone()
+            if row:
+                return row[0]
+
+            # 不存在 → 创建（标题留空，由 TitleMiddleware 后续填充）
+            from .snowflake import next_id
+            conv_id = next_id()
+            title = getattr(trace, 'title', '') or ''
+            cur.execute("""
+                INSERT INTO ai_conversation
+                (id, tenant_id, user_id, thread_id, agent_name, title, model,
+                 status, message_count, total_tokens, last_message_at,
+                 delete_flg, created_at, created_by, updated_at, updated_by)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (conv_id, self._tenant_id, user_id, thread_id,
+                  trace.agent_name or 'CRM-Agent', title, trace.model or '',
+                  'active', 0, 0, now,
+                  0, now, user_id, now, user_id))
+            logger.info("TraceWriter: conversation pre-created %s thread=%s", conv_id, thread_id)
+            return conv_id
 
     def on_trace_finish(self, trace: Any) -> None:
         """trace 完成时：批量写入所有 span + 更新 trace"""
