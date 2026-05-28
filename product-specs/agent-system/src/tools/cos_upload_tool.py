@@ -69,9 +69,10 @@ class CosUploadTool(Tool):
         return (
             "将文件上传到腾讯云 COS 对象存储，返回可通过浏览器直接访问的 URL。\n"
             "支持两种模式：\n"
-            "1. 传入 content + file_name：直接将内容生成文件并上传（适合动态生成 HTML/Markdown/文本）\n"
-            "2. 传入 file_path：上传已有的本地文件\n"
-            "上传后返回预签名 URL（有效期 7 天），用户可直接在浏览器中打开。"
+            "1. 传入 file_path：上传已有的本地文件（推荐，如已用 write_file 写入沙盒则直接传路径即可，无需再 read_file）\n"
+            "2. 传入 content + file_name：直接将内容生成文件并上传（适合动态生成 HTML/Markdown/文本，无需先 write_file 再上传）\n"
+            "上传后返回预签名 URL（有效期 7 天），用户可直接在浏览器中打开。\n"
+            "注意：如果你已经用 write_file 生成了文件，直接传 file_path 即可，不要再 read_file 读取内容。"
         )
 
     def input_schema(self) -> dict[str, Any]:
@@ -82,7 +83,8 @@ class CosUploadTool(Tool):
                     "type": "string",
                     "description": (
                         "要上传的本地文件路径（绝对路径或相对路径）。"
-                        "与 content 二选一：指定 file_path 上传已有文件，指定 content 则生成新文件并上传。"
+                        "如果已用 write_file 写入了文件，直接传该路径即可（如 /sandbox/report.html），无需先 read_file。"
+                        "与 content 二选一。"
                     ),
                 },
                 "content": {
@@ -231,8 +233,10 @@ class CosUploadTool(Tool):
             result = (
                 f"文件上传成功！\n\n"
                 f"📄 文件: {path.name} ({file_size / 1024:.1f} KB)\n"
-                f"🔗 访问链接（有效期 {expires_desc}）:\n{presigned_url}\n\n"
-                f"📌 永久链接（需 COS 权限）:\n{raw_url}"
+                f"🔗 访问链接（有效期 {expires_desc}）:\n"
+                f"[{path.stem}]({presigned_url})\n\n"
+                f"【重要】回复用户时，必须将上面的 Markdown 链接原样包含在回复中。"
+                f"即 [{path.stem}](完整URL) 格式，不要省略 URL 部分，不要只写文件名。"
             )
 
             return ToolResult(

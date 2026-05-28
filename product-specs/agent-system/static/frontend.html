@@ -86,6 +86,30 @@ window.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+// 配置 marked：启用 GFM 自动链接 + 链接在新标签页打开
+if (typeof marked !== 'undefined') {
+  const renderer = new marked.Renderer();
+  const origLink = renderer.link.bind(renderer);
+  renderer.link = function(href, title, text) {
+    // marked v5+ 传入对象参数
+    if (typeof href === 'object') {
+      const token = href;
+      const h = token.href || '';
+      const t = token.title || '';
+      const txt = token.text || '';
+      return `<a href="${h}" target="_blank" rel="noopener noreferrer"${t ? ' title="' + t + '"' : ''}>${txt}</a>`;
+    }
+    const link = origLink(href, title, text);
+    return link.replace('<a ', '<a target="_blank" rel="noopener noreferrer" ');
+  };
+  marked.setOptions({
+    renderer: renderer,
+    gfm: true,
+    breaks: true
+  });
+}
+</script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -115,6 +139,8 @@ textarea:focus { outline: none; }
 #docPreviewContent code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 11px; }
 #docPreviewContent pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 0.5rem 0; }
 #docPreviewContent pre code { background: none; color: inherit; padding: 0; }
+#docPreviewContent a { color: #2563eb; text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
+#docPreviewContent a:hover { color: #1d4ed8; }
 /* 对话区内文档内容截断样式 */
 .prose-content h1 { font-size: 1rem; font-weight: 700; margin: 0.3rem 0; }
 .prose-content h2 { font-size: 0.9rem; font-weight: 600; margin: 0.3rem 0; }
@@ -131,6 +157,8 @@ textarea:focus { outline: none; }
 .prose-content pre code { background: none; color: inherit; padding: 0; }
 .prose-content blockquote { border-left: 3px solid #3b82f6; padding-left: 12px; margin: 0.4rem 0; color: #4b5563; font-style: italic; }
 .prose-content hr { border: none; border-top: 1px solid #e5e7eb; margin: 0.6rem 0; }
+.prose-content a { color: #2563eb; text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
+.prose-content a:hover { color: #1d4ed8; text-decoration-color: #3b82f6; }
 
 /* ═══ 布局基线（不依赖 Tailwind JIT 任意值）═══ */
 /* 防止 Tailwind CDN 未加载/未处理任意值时布局崩溃 */
