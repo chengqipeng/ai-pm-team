@@ -31,6 +31,11 @@ class KnowledgeSearchAdapterTool(Tool):
         self._provider = None  # 由 register_knowledge_tools 注入
         self._tenant_id = 0
 
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "KnowledgeSearchAdapterTool":
+        """自包含初始化 — provider 在运行时动态获取"""
+        return cls()
+
     def set_provider(self, provider, tenant_id: int = 0):
         """注入 knowledge_provider（服务启动后调用）"""
         self._provider = provider
@@ -169,6 +174,11 @@ class ListKnowledgeBasesTool(Tool):
     帮助 Agent 决定在哪个知识库中检索。
     """
 
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "ListKnowledgeBasesTool":
+        """自包含初始化 — 无外部依赖"""
+        return cls()
+
     @property
     def name(self) -> str:
         return "list_knowledge_bases"
@@ -250,6 +260,11 @@ class KnowledgeDocDetailAdapterTool(Tool):
 
     当 knowledge_search 返回的切片不够完整时，用此工具深入获取文档的特定章节。
     """
+
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "KnowledgeDocDetailAdapterTool":
+        """自包含初始化 — 无外部依赖"""
+        return cls()
 
     @property
     def name(self) -> str:

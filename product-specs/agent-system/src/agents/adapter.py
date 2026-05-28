@@ -13,19 +13,6 @@ from langgraph.graph.state import CompiledStateGraph
 logger = logging.getLogger(__name__)
 
 
-def _build_metarepo_backend():
-    """按环境变量选择 Sim 或 HTTP 后端（与 /api/meta/* 共享同一 AuthClient）"""
-    from src.tools._http_auth import get_shared_auth_client
-    client = get_shared_auth_client()
-    if client is not None:
-        from src.tools.metarepo_http_backend import MetarepoHttpBackend
-        logger.info("Metarepo tool backend: HTTP → %s", client.base_url)
-        return MetarepoHttpBackend(auth_client=client)
-    from src.tools.metarepo_backend import MetarepoSimulatedBackend
-    logger.info("Metarepo tool backend: Simulated")
-    return MetarepoSimulatedBackend()
-
-
 class NeoAgentV2Adapter:
     """v2 Agent 适配器（单例），懒加载 + 流式输出"""
 
@@ -47,28 +34,22 @@ class NeoAgentV2Adapter:
             return self._agent
 
     async def _create_agent(self) -> CompiledStateGraph:
-        """创建 Agent — 使用 build_middleware 动态组装中间件"""
+        """创建 Agent — 使用 ToolFactory 从数据库驱动工具注册"""
         from src.agents.langchain_agent import create_deep_agent, LangChainAgentConfig
         from src.tools.base import ToolRegistry
-        from src.tools.crm_backend import CrmSimulatedBackend
-        from src.tools.crm_tools import register_crm_tools
-        from src.tools.metarepo_backend import MetarepoSimulatedBackend
-        from src.tools.metarepo_tools import register_metarepo_tools
         from src.skills.base import SkillRegistry
         from src.core.prompt_builder import build_system_prompt
         from src.middleware.builder import build_middleware
-        from src.memory.viking_engine import VikingMemoryEngine
         from src.skills.tracker import SkillTracker
         from src.skills.optimizer import SkillOptimizer
+        from src.tools.factory import ToolFactory
         import os
 
-        backend = CrmSimulatedBackend()
-        metarepo_backend = _build_metarepo_backend()
-        reg = ToolRegistry()
-
-        # 业务数据 backend — 始终使用内部模拟后端（agent-system 内部闭环）
-        data_backend = backend
-        logger.info("CRM data backend for Agent: Simulated (内部闭环)")
+        # ═══ 工具注册：ToolFactory 从数据库驱动 ═══
+        reg = ToolRegistry(skip_db_check=True)  # Factory 自己做 DB 校验
+        factory = ToolFactory(tenant_id=0)
+        results = factory.register_all(reg)
+        logger.info("ToolFactory 注册结果: %s", results)
 
         skill_reg = SkillRegistry()
         # 权威数据源：ai_skill_definition 表（禁止硬编码）
@@ -97,53 +78,9 @@ class NeoAgentV2Adapter:
             max_tokens=2048,
         )
 
-        # 初始化长期记忆引擎 — VikingMemoryEngine（腾讯向量库 + PG）
-        memory_engine = None
-        if os.environ.get("DISABLE_MEMORY", "").strip() in ("1", "true", "yes"):
-            logger.info("DISABLE_MEMORY=1，跳过记忆引擎初始化")
-        else:
-            try:
-                memory_engine = VikingMemoryEngine(
-                    vdb_url=os.environ.get("TENCENT_VDB_URL", "http://10.60.2.17"),
-                    vdb_key=os.environ.get("TENCENT_VDB_KEY", "bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck"),
-                    vdb_username=os.environ.get("TENCENT_VDB_USERNAME", "root"),
-                    database_name=os.environ.get("TENCENT_VDB_DATABASE", "viking_memory"),
-                    collection_name=os.environ.get("TENCENT_VDB_COLLECTION", "agent_memories"),
-                    llm=aux_llm,
-                    agent_rules_threshold=5,
-                )
-            except Exception as exc:
-                logger.warning("VikingMemoryEngine 初始化失败（记忆功能降级）: %s", exc)
-
-        register_crm_tools(reg, data_backend, memory_engine=memory_engine)
-        register_metarepo_tools(reg, metarepo_backend)
-
-        # 注册知识库工具（供 knowledge_doc_search 技能使用）
-        from src.tools.knowledge_tools import register_knowledge_tools
-        register_knowledge_tools(reg, provider=None, tenant_id=0)
-
-        # 注册 ManageSkillTool（供 create_skill 技能使用）
-        from src.tools.manage_skill_tool import ManageSkillTool
-        reg.register(ManageSkillTool())
-
-        # 注册 ReadSkillResourceTool（供 fork 模式子 Agent 加载知识文件）
-        from src.tools.skill_resource_tool import ReadSkillResourceTool
-        reg.register(ReadSkillResourceTool(tenant_id=0))
-
-        # 注册沙盒工具（terminal / execute_code / read_file / write_file / search_files）
-        # 根据 .env 中 SANDBOX_BACKEND 配置自动选择后端（ssh / tencent）
-        try:
-            from src.tools.sandbox import register_sandbox_tools
-            register_sandbox_tools(reg)
-        except Exception as exc:
-            logger.warning("沙盒工具注册失败（csv-trend-analysis 等技能将不可用）: %s", exc)
-
-        # 注册 COS 文件上传工具（将生成的文件上传到腾讯云 COS 并返回可访问链接）
-        try:
-            from src.tools.cos_upload_tool import CosUploadTool
-            reg.register(CosUploadTool())
-        except Exception as exc:
-            logger.warning("COS 上传工具注册失败: %s", exc)
+        # 获取记忆引擎（与 ManageMemoryTool/MemoryReadTool 共享同一实例）
+        from src.tools.crm_tools import _resolve_memory_engine
+        memory_engine = _resolve_memory_engine()
 
         # 初始化自改进学习循环（SkillOptimizer 写入 DB，不再落盘）
         tracker = SkillTracker(db_path="./data/skill_metrics.db")

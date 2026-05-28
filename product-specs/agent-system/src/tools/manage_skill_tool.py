@@ -20,6 +20,11 @@ class ManageSkillTool(Tool):
     def __init__(self, skill_service=None):
         self._skill_service = skill_service
 
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "ManageSkillTool":
+        """自包含初始化 — 无外部依赖"""
+        return cls()
+
     @property
     def name(self) -> str:
         return "manage_skill"

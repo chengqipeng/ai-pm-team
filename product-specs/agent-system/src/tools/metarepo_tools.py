@@ -15,10 +15,34 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 from typing import Any
 
 from src.core.dtypes import ToolResult
 from src.tools.base import Tool, ToolRegistry
+
+logger = logging.getLogger(__name__)
+
+# ═══ 依赖解析（供 create() 工厂方法使用） ═══
+
+_metarepo_backend_instance = None
+
+
+def _resolve_metarepo_backend():
+    """解析 Metarepo backend（单例，按环境变量选择 Sim 或 HTTP）"""
+    global _metarepo_backend_instance
+    if _metarepo_backend_instance is None:
+        from src.tools._http_auth import get_shared_auth_client
+        client = get_shared_auth_client()
+        if client is not None:
+            from src.tools.metarepo_http_backend import MetarepoHttpBackend
+            _metarepo_backend_instance = MetarepoHttpBackend(auth_client=client)
+            logger.info("Metarepo backend resolved: HTTP → %s", client.base_url)
+        else:
+            from src.tools.metarepo_backend import MetarepoSimulatedBackend
+            _metarepo_backend_instance = MetarepoSimulatedBackend()
+            logger.info("Metarepo backend resolved: Simulated")
+    return _metarepo_backend_instance
 
 
 async def _await(value: Any) -> Any:
@@ -30,8 +54,14 @@ async def _await(value: Any) -> Any:
 class BrowseMetamodelTool(Tool):
     """浏览元模型层（p_meta_model / p_meta_item / p_meta_link / p_meta_option / ItemTypeEnum）"""
 
-    def __init__(self, backend):
+    def __init__(self, backend=None):
         self._backend = backend
+
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "BrowseMetamodelTool":
+        """自包含初始化 — 自动解析 metarepo backend"""
+        backend = _resolve_metarepo_backend()
+        return cls(backend=backend)
 
     @property
     def name(self): return "browse_metamodel"
@@ -149,8 +179,14 @@ class BrowseMetamodelTool(Tool):
 class QueryMetadataTool(Tool):
     """查询元数据实例（Common + Tenant 合并后的数据，对齐 /meta/metadata/*）"""
 
-    def __init__(self, backend):
+    def __init__(self, backend=None):
         self._backend = backend
+
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "QueryMetadataTool":
+        """自包含初始化 — 自动解析 metarepo backend"""
+        backend = _resolve_metarepo_backend()
+        return cls(backend=backend)
 
     @property
     def name(self): return "query_metadata"

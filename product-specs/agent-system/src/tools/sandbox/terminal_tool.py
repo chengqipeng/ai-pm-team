@@ -21,6 +21,22 @@ class TerminalTool(Tool):
     def __init__(self, backend: Backend):
         self._backend = backend
 
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "TerminalTool":
+        """自包含初始化 — 自动解析沙盒 backend
+
+        Raises:
+            ToolCreateSkipped: 沙盒未配置时跳过
+        """
+        from src.tools.factory import ToolCreateSkipped
+        try:
+            from src.tools.sandbox import _get_shared_sandbox_backend
+            return cls(backend=_get_shared_sandbox_backend())
+        except ValueError as e:
+            raise ToolCreateSkipped(f"沙盒未配置: {e}")
+        except Exception as e:
+            raise ToolCreateSkipped(f"沙盒初始化失败: {e}")
+
     @property
     def name(self) -> str:
         return "terminal"

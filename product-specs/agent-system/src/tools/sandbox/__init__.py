@@ -45,6 +45,27 @@ __all__ = [
     "register_sandbox_tools",
 ]
 
+# ═══ 共享 sandbox backend 单例（供各 Tool.create() 使用） ═══
+
+_shared_sandbox_backend: Backend | None = None
+_sandbox_backend_resolved: bool = False
+
+
+def _get_shared_sandbox_backend() -> Backend:
+    """获取共享的沙盒 backend 单例
+
+    Raises:
+        ValueError: 沙盒未配置
+    """
+    global _shared_sandbox_backend, _sandbox_backend_resolved
+    if _sandbox_backend_resolved:
+        if _shared_sandbox_backend is None:
+            raise ValueError("沙盒 backend 之前初始化失败")
+        return _shared_sandbox_backend
+    _sandbox_backend_resolved = True
+    _shared_sandbox_backend = create_backend()
+    return _shared_sandbox_backend
+
 
 def _load_env_config() -> dict[str, str]:
     """从 .env 文件加载配置（不污染 os.environ）"""

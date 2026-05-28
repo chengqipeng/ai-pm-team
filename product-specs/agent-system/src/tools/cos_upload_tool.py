@@ -34,6 +34,22 @@ class CosUploadTool(Tool):
         """
         self._cos_client = cos_client
 
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "CosUploadTool":
+        """自包含初始化 — COS 凭证从环境变量懒加载
+
+        Raises:
+            ToolCreateSkipped: COS 凭证未配置时跳过注册
+        """
+        from src.tools.factory import ToolCreateSkipped
+
+        secret_id = os.environ.get("COS_SECRET_ID", "")
+        secret_key = os.environ.get("COS_SECRET_KEY", "")
+        if not secret_id or not secret_key:
+            raise ToolCreateSkipped("COS 凭证未配置（COS_SECRET_ID / COS_SECRET_KEY）")
+        # 凭证存在，实例化（实际 client 仍然懒加载）
+        return cls()
+
     def _ensure_client(self):
         """懒加载 COS 客户端"""
         if self._cos_client is not None:

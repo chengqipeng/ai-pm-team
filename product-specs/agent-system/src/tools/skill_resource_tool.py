@@ -18,6 +18,11 @@ class ReadSkillResourceTool(Tool):
     def __init__(self, tenant_id: int = 0):
         self._tenant_id = tenant_id
 
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "ReadSkillResourceTool":
+        """自包含初始化 — 仅需 tenant_id"""
+        return cls(tenant_id=tenant_id)
+
     @property
     def name(self) -> str:
         return "read_skill_resource"

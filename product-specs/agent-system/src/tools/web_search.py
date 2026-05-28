@@ -26,6 +26,11 @@ class WebSearchTool(Tool):
     def __init__(self, api_key: str = ""):
         self._api_key = api_key or os.environ.get("BAIDU_SEARCH_API_KEY", DEFAULT_API_KEY)
 
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "WebSearchTool":
+        """自包含初始化 — API key 从环境变量获取"""
+        return cls()
+
     @property
     def name(self) -> str:
         return "web_search"

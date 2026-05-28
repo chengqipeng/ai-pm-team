@@ -5,8 +5,73 @@ CRM 业务工具 — 调用 CrmSimulatedBackend 的真实 CRUD 逻辑
 from __future__ import annotations
 
 import json
+import logging
+import os
 from src.tools.base import Tool, ToolRegistry
 from src.core.dtypes import ToolResult, ValidationResult
+
+logger = logging.getLogger(__name__)
+
+# ═══ 依赖解析（供 create() 工厂方法使用） ═══
+
+_crm_backend_instance = None
+_memory_engine_instance = None
+_memory_engine_resolved = False  # 区分"未解析"和"解析后为 None"
+
+
+def _resolve_crm_backend():
+    """解析 CRM 数据 backend（单例，始终使用内部模拟后端）"""
+    global _crm_backend_instance
+    if _crm_backend_instance is None:
+        from src.tools.crm_backend import CrmSimulatedBackend
+        _crm_backend_instance = CrmSimulatedBackend()
+        logger.info("CRM backend resolved: Simulated (内部闭环)")
+    return _crm_backend_instance
+
+
+def _resolve_memory_engine():
+    """解析记忆引擎（单例，根据环境变量决定是否启用）
+
+    Returns:
+        VikingMemoryEngine 实例
+
+    Raises:
+        RuntimeError: 初始化失败时抛出异常，禁止降级
+    """
+    global _memory_engine_instance, _memory_engine_resolved
+    if _memory_engine_resolved:
+        return _memory_engine_instance
+
+    _memory_engine_resolved = True
+
+    if os.environ.get("DISABLE_MEMORY", "").strip() in ("1", "true", "yes"):
+        logger.info("Memory engine disabled (DISABLE_MEMORY=1)")
+        _memory_engine_instance = None
+        return None
+
+    from src.memory.viking_engine import VikingMemoryEngine
+    from langchain_openai import ChatOpenAI
+
+    _model_name = os.environ.get("AGENT_MODEL", "deepseek-v4-flash")
+    _api_key = os.environ.get("AGENT_API_KEY") or os.environ.get("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
+    _api_base = os.environ.get("AGENT_API_BASE", "https://tokenhub.tencentmaas.com/v1")
+
+    aux_llm = ChatOpenAI(
+        model=_model_name, api_key=_api_key, base_url=_api_base, max_tokens=2048,
+    )
+
+    _memory_engine_instance = VikingMemoryEngine(
+        vdb_url=os.environ.get("TENCENT_VDB_URL", "http://10.60.2.17"),
+        vdb_key=os.environ.get("TENCENT_VDB_KEY", "bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck"),
+        vdb_username=os.environ.get("TENCENT_VDB_USERNAME", "root"),
+        database_name=os.environ.get("TENCENT_VDB_DATABASE", "viking_memory"),
+        collection_name=os.environ.get("TENCENT_VDB_COLLECTION", "agent_memories"),
+        llm=aux_llm,
+        agent_rules_threshold=5,
+    )
+    logger.info("Memory engine resolved: VikingMemoryEngine")
+
+    return _memory_engine_instance
 
 
 class QuerySchemaTool(Tool):
@@ -15,8 +80,14 @@ class QuerySchemaTool(Tool):
     典型场景：Agent 查询到数据后，需要理解字段含义、类型、选项值时调用。
     """
 
-    def __init__(self, backend):
+    def __init__(self, backend=None):
         self._backend = backend
+
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "QuerySchemaTool":
+        """自包含初始化 — 自动解析 CRM backend"""
+        backend = _resolve_crm_backend()
+        return cls(backend=backend)
 
     @property
     def name(self): return "query_schema"
@@ -79,8 +150,14 @@ class QuerySchemaTool(Tool):
 class QueryDataTool(Tool):
     """查询业务数据"""
 
-    def __init__(self, backend):
+    def __init__(self, backend=None):
         self._backend = backend
+
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "QueryDataTool":
+        """自包含初始化 — 自动解析 CRM backend"""
+        backend = _resolve_crm_backend()
+        return cls(backend=backend)
 
     @property
     def name(self): return "query_data"
@@ -217,8 +294,14 @@ class QueryDataTool(Tool):
 class ModifyDataTool(Tool):
     """修改业务数据（创建/更新/删除）"""
 
-    def __init__(self, backend):
+    def __init__(self, backend=None):
         self._backend = backend
+
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "ModifyDataTool":
+        """自包含初始化 — 自动解析 CRM backend"""
+        backend = _resolve_crm_backend()
+        return cls(backend=backend)
 
     @property
     def name(self): return "modify_data"
@@ -276,8 +359,14 @@ class ModifyDataTool(Tool):
 class AnalyzeDataTool(Tool):
     """数据聚合分析"""
 
-    def __init__(self, backend):
+    def __init__(self, backend=None):
         self._backend = backend
+
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "AnalyzeDataTool":
+        """自包含初始化 — 自动解析 CRM backend"""
+        backend = _resolve_crm_backend()
+        return cls(backend=backend)
 
     @property
     def name(self): return "analyze_data"
@@ -332,6 +421,11 @@ class AnalyzeDataTool(Tool):
 class AskUserTool(Tool):
     """向用户提问"""
 
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "AskUserTool":
+        """自包含初始化 — 无外部依赖"""
+        return cls()
+
     @property
     def name(self): return "ask_user"
 
@@ -367,6 +461,11 @@ class AskClarificationTool(Tool):
     - approach_choice: 多个匹配结果或多种可行方案需用户选择
     - risk_confirmation: 操作涉及删除、批量修改等不可逆影响
     """
+
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "AskClarificationTool":
+        """自包含初始化 — 无外部依赖"""
+        return cls()
 
     @property
     def name(self): return "ask_clarification"
@@ -445,6 +544,15 @@ class ManageMemoryTool(Tool):
 
     def __init__(self, memory_engine=None):
         self._engine = memory_engine
+
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "ManageMemoryTool":
+        """自包含初始化 — 自动解析 memory engine（必须成功）"""
+        from src.tools.factory import ToolCreateSkipped
+        engine = _resolve_memory_engine()
+        if engine is None:
+            raise ToolCreateSkipped("记忆引擎已通过 DISABLE_MEMORY=1 显式禁用")
+        return cls(memory_engine=engine)
 
     @property
     def name(self): return "manage_memory"
@@ -546,6 +654,15 @@ class MemoryReadTool(Tool):
 
     def __init__(self, memory_engine=None):
         self._engine = memory_engine
+
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row=None) -> "MemoryReadTool":
+        """自包含初始化 — 自动解析 memory engine（必须成功）"""
+        from src.tools.factory import ToolCreateSkipped
+        engine = _resolve_memory_engine()
+        if engine is None:
+            raise ToolCreateSkipped("记忆引擎已通过 DISABLE_MEMORY=1 显式禁用")
+        return cls(memory_engine=engine)
 
     @property
     def name(self): return "memory_read"

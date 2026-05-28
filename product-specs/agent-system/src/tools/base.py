@@ -17,6 +17,28 @@ class Tool(ABC):
     description 和 prompt 可选覆盖。
     """
 
+    # ═══ 工厂方法（ToolFactory 调用） ═══
+
+    @classmethod
+    def create(cls, tenant_id: int = 0, db_row: Any = None) -> "Tool":
+        """工厂方法 — 自包含初始化
+
+        每个 Tool 子类覆盖此方法，自行解析所需依赖（环境变量、后端连接等）。
+        ToolFactory 调用此方法完成实例化，不传入任何业务依赖。
+
+        Args:
+            tenant_id: 当前租户 ID
+            db_row: 数据库 ToolDefinitionRow（可选，供工具读取额外配置）
+
+        Returns:
+            Tool 实例
+
+        Raises:
+            ToolCreateSkipped: 依赖不满足但非致命，工具跳过注册
+            Exception: 初始化失败
+        """
+        return cls()
+
     # ═══ 核心（必须实现） ═══
 
     @property
