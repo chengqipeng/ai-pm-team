@@ -87,8 +87,21 @@ class ManageSkillTool(Tool):
             return ToolResult(content=f"操作失败: {str(e)}", is_error=True)
 
     async def _handle_create(self, input_data: dict) -> ToolResult:
-        """创建技能"""
+        """创建技能
+
+        支持两种调用方式：
+        1. 直接传入 skill_definition（标准方式）
+        2. 从 ask_user resume 值中提取（对话式创建，用户确认后）
+           resume 值格式: {"action": "confirm", "value": {...skill_definition...}}
+        """
         definition = input_data.get("skill_definition")
+
+        # 兼容：从 resume value 中提取定义（用户可能修改过）
+        if not definition and input_data.get("action") == "create":
+            value = input_data.get("value")
+            if isinstance(value, dict) and "api_key" in value:
+                definition = value
+
         if not definition:
             return ToolResult(content="创建技能需要提供 skill_definition", is_error=True)
 

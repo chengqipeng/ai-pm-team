@@ -203,6 +203,26 @@ class TracingMiddleware(AgentMiddleware):
     def get_spans(self, thread_id: str) -> list[dict]:
         return self._spans.get(thread_id, [])
 
+    def update_span(self, thread_id: str, span_type: str, updates: dict) -> bool:
+        """更新已有 span 的字段（按 type 匹配第一个）
+
+        用于异步任务完成后回填结果（如 LLM 标题生成完成后更新 title_generation span）。
+        Returns: True 如果找到并更新，False 如果未找到。
+        """
+        spans = self._spans.get(thread_id, [])
+        for sp in spans:
+            if sp.get("type") == span_type:
+                if "output_data" in updates:
+                    sp["output_data"] = updates["output_data"]
+                if "detail" in updates:
+                    sp["detail"] = updates["detail"]
+                if "metadata" in updates:
+                    sp["metadata"].update(updates["metadata"])
+                if "duration_ms" in updates:
+                    sp["duration_ms"] = updates["duration_ms"]
+                return True
+        return False
+
     def clear(self, thread_id: str) -> None:
         self._spans.pop(thread_id, None)
         self._iter_count.pop(thread_id, None)

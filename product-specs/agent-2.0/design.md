@@ -384,7 +384,7 @@ graph LR
 | 11 | `ClarificationMiddleware` | 始终加载 | wrap_tool_call |
 | 12 | `OutputValidationMiddleware` | 始终加载 | after_model |
 | 13 | `OutputRenderMiddleware` | 始终加载 | after_agent |
-| 14 | `TitleMiddleware` | 始终加载 | after_agent |
+| 14 | `TitleMiddleware` | 始终加载 | before_agent（兜底）+ 入口层驱动 |
 
 ### 5.3 各中间件详解
 
@@ -591,14 +591,25 @@ graph LR
 
 #### 5.3.14 TitleMiddleware — 标题生成
 
-**职责：** 在首轮对话完成后，自动生成对话标题。
+**职责：** 在首轮对话时，同步生成规则标题 + 异步 LLM 优化标题，并通过 SSE 事件实时推送给前端。
 
-**使用钩子：** `after_agent`
+**使用钩子：** `before_agent`（兜底），主流程由 server.py 入口层驱动
 
 **核心逻辑：**
-- 如果 `state.title` 已存在则跳过
-- 取第一条 HumanMessage 的内容，截取前 50 字符作为标题
-- 超过 50 字符追加 `...`
+1. server.py 入口层检测首次对话，同步调用 `_rule_generate()` 生成规则标题（<1ms）
+2. 入口层调用 `start_async_optimize()` 标记已处理 + 启动 LLM 异步优化
+3. LLM 优化完成后通过事件通道（`_notify_title_update`）通知 SSE 流
+4. SSE 流在 done 事件前等待最多 2 秒，若 LLM 标题就绪则推送 `title_update` 事件
+5. 前端收到 `title_update` 事件后实时更新会话标题
+
+**SSE 事件格式：**
+```json
+{"type": "title_update", "title": "LLM优化后的标题", "thread_id": "xxx"}
+```
+
+**降级策略：**
+- LLM 2 秒内未完成 → done 事件携带规则标题，前端可通过 `/api/conversations` 轮询获取最终标题
+- LLM 完全失败 → 保留规则标题
 
 
 ## 6. Skills 系统

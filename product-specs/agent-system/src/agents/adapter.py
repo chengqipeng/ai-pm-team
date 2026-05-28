@@ -254,16 +254,15 @@ class NeoAgentV2Adapter:
             except Exception:
                 pass
             if _is_first:
-                rule_title = TitleMiddleware._rule_generate(user_input)
                 tracing_middleware._add_to_thread(
                     thread_id, "title_generation", "title_generation", 0,
-                    {"title": rule_title, "method": "rule", "phase": "entry"},
+                    {"title": "", "method": "llm", "phase": "entry"},
                     input_data={"trigger": "首次对话", "user_input": user_input[:200]},
-                    output_data={"title": rule_title, "method": "rule", "async_llm_optimize": "后台执行中"},
-                    detail=f"生成会话标题「{rule_title}」（规则）",
+                    output_data={"title": "(LLM 异步生成中)", "method": "llm"},
+                    detail="标题生成（LLM 异步）",
                     status="success",
                 )
-                # 确保 conversation 记录存在（兜底：on_trace_start 可能未创建）
+                # 确保 conversation 记录存在
                 try:
                     from src.store.pg_pool import get_conn
                     import time as _time
@@ -283,13 +282,12 @@ class NeoAgentV2Adapter:
                                  delete_flg, created_at, created_by, updated_at, updated_by)
                                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                             """, (_conv_id, int(DEFAULT_TENANT_ID), 0, thread_id,
-                                  'CRM-Agent', rule_title, '',
+                                  'CRM-Agent', '', '',
                                   'active', 0, 0, _now,
                                   0, _now, 0, _now, 0))
-                            logger.info("[adapter] conversation pre-created: thread=%s title='%s'", thread_id, rule_title)
                 except Exception as _db_e:
                     logger.warning("[adapter] conversation pre-create failed: %s", _db_e)
-                # 启动 LLM 异步优化
+                # 启动 LLM 异步生成标题
                 try:
                     from langchain_openai import ChatOpenAI
                     import os as _os
@@ -302,10 +300,10 @@ class NeoAgentV2Adapter:
                     _title_mw = TitleMiddleware(llm=_aux_llm)
                     _title_mw.start_async_optimize(
                         thread_id, str(DEFAULT_TENANT_ID), "default_user",
-                        user_input, rule_title,
+                        user_input,
                     )
                 except Exception as _e:
-                    logger.warning("[adapter] TitleMiddleware async optimize failed: %s", _e)
+                    logger.warning("[adapter] TitleMiddleware async failed: %s", _e)
 
         # ── 如果是 resume 请求，使用 Command(resume=value) 恢复执行 ──
         if resume:

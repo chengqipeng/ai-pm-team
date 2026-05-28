@@ -299,6 +299,11 @@ async def create_skill(body: CreateSkillBody, tenant_id: int = Query(0)):
 @router.put("/{api_key}")
 async def update_skill(api_key: str, body: UpdateSkillBody, tenant_id: int = Query(0)):
     """编辑 Skill"""
+    # 系统预置技能不允许编辑
+    skill = SkillDAO.get_by_api_key(tenant_id, api_key)
+    if skill and bool(skill.system_flg):
+        raise HTTPException(status_code=403, detail=f"系统预置技能 '{api_key}' 为只读，不允许编辑")
+
     service = get_skill_service()
     req = SkillUpdateRequest(
         name=body.name,
@@ -391,6 +396,11 @@ async def test_skill(api_key: str, body: TestSkillBody, tenant_id: int = Query(0
 @router.delete("/{api_key}")
 async def delete_skill(api_key: str, tenant_id: int = Query(0)):
     """软删除 Skill"""
+    # 系统预置技能不允许删除
+    skill = SkillDAO.get_by_api_key(tenant_id, api_key)
+    if skill and bool(skill.system_flg):
+        raise HTTPException(status_code=403, detail=f"系统预置技能 '{api_key}' 为只读，不允许删除")
+
     service = get_skill_service()
     try:
         service.delete(api_key, tenant_id=tenant_id)
@@ -592,6 +602,10 @@ def _skill_to_detail(skill, definition) -> dict:
     """ai_skill + ai_skill_definition 合并为完整详情"""
     d = _skill_row_to_summary(skill)
     ext = _safe_json_loads(skill.ext_info, {})
+
+    # 系统预置技能为只读（如 create_skill），前端禁止编辑
+    d["readonly"] = bool(skill.system_flg)
+
     if definition:
         d.update({
             "name": definition.name,

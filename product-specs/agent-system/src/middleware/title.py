@@ -60,35 +60,36 @@ def _notify_title_update(thread_id: str, title: str) -> None:
 class TitleMiddleware(AgentMiddleware):
     """会话标题生成 — 入口阶段异步触发，规则同步 + LLM 异步优化
 
-    主流程由 server.py 入口层驱动：
+    主流程由 server.py/adapter.py 入口层驱动：
     1. 入口层调用 _rule_generate() 同步生成规则标题
     2. 入口层调用 start_async_optimize() 启动 LLM 异步优化
-    3. before_agent 作为兜底（入口层已标记 _generated 则跳过）
+    3. before_agent 作为兜底（入口层已标记 _generated_threads 则跳过）
     """
+
+    # 模块级共享：所有实例共用，确保入口层标记后中间件链路中的实例也能感知
+    _generated_threads: set[str] = set()
 
     def __init__(self, llm: Any = None) -> None:
         super().__init__()
         self._llm = llm
-        self._generated: set[str] = set()  # 已生成标题的 thread_id
 
     def start_async_optimize(
-        self, thread_id: str, tenant_id: str, user_id: str, user_input: str, rule_title: str,
+        self, thread_id: str, tenant_id: str, user_id: str, user_input: str,
     ) -> None:
-        """由 server.py 入口层调用 — 标记已处理 + 启动 LLM 异步优化
+        """由入口层调用 — 标记已处理 + 启动 LLM 异步生成标题
 
-        这是 TitleMiddleware 对外暴露的唯一入口方法（除 _rule_generate 外）。
         调用后 before_agent 不会重复触发。
         """
-        self._generated.add(thread_id)
+        TitleMiddleware._generated_threads.add(thread_id)
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(
-                self._async_persist_and_optimize(
-                    thread_id, tenant_id, user_id, user_input, rule_title,
+                self._async_generate_title(
+                    thread_id, tenant_id, user_id, user_input,
                 )
             )
         except RuntimeError:
-            logger.debug("[TitleMiddleware] no running loop, skip async optimize")
+            logger.debug("[TitleMiddleware] no running loop, skip async title generation")
 
     def before_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
         """同步版本 — fallback 用"""
@@ -109,8 +110,16 @@ class TitleMiddleware(AgentMiddleware):
             logger.error("[TitleMiddleware] get_config failed: %s", e)
             return None
 
+        # fallback tenant_id（AG-UI 模式下 configurable 中可能没有 tenant_id）
+        if not tenant_id:
+            try:
+                from src.core.context import DEFAULT_TENANT_ID
+                tenant_id = str(DEFAULT_TENANT_ID)
+            except Exception:
+                pass
+
         # 每个 thread 只生成一次标题
-        if thread_id in self._generated:
+        if thread_id in TitleMiddleware._generated_threads:
             return None
 
         messages = state.get("messages", [])
@@ -119,7 +128,7 @@ class TitleMiddleware(AgentMiddleware):
         # 首次对话判断：只有一条 user 消息
         if len(user_messages) != 1:
             if thread_id:
-                self._generated.add(thread_id)
+                TitleMiddleware._generated_threads.add(thread_id)
             return None
 
         first_human = user_messages[0]
@@ -128,81 +137,93 @@ class TitleMiddleware(AgentMiddleware):
             return None
 
         # 标记为已处理
-        self._generated.add(thread_id)
+        TitleMiddleware._generated_threads.add(thread_id)
 
-        # span 已由 server.py 入口层记录（保证排在第一位），这里不重复记录
+        # span 已由入口层记录，这里不重复记录
 
-        logger.info("[TitleMiddleware] rule title='%s' thread=%s", 
-                    self._rule_generate(content), thread_id)
-
-        # ── 异步：延迟持久化规则标题 + LLM 优化 ──
-        rule_title = self._rule_generate(content)
+        # ── 异步：LLM 生成标题 ──
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(
-                self._async_persist_and_optimize(
-                    thread_id, tenant_id, user_id, content, rule_title,
+                self._async_generate_title(
+                    thread_id, tenant_id, user_id, content,
                 )
             )
         except RuntimeError:
-            logger.debug("[TitleMiddleware] no running loop, skip async persist")
+            logger.debug("[TitleMiddleware] no running loop, skip async title generation")
 
         return None
 
-    async def _async_persist_and_optimize(
+    async def _async_generate_title(
         self, thread_id: str, tenant_id: str, user_id: str,
-        user_input: str, rule_title: str,
+        user_input: str,
     ) -> None:
-        """后台任务：延迟持久化规则标题 + LLM 优化
+        """后台任务：LLM 生成标题 → 持久化 → 通知前端
 
-        延迟等待 TraceWriter 创建 ai_conversation 记录后，再持久化标题。
-        注意：conversation 记录在 on_trace_finish 时才创建（Agent 执行完毕后），
-        所以重试窗口需要覆盖 Agent 的最大执行时间（通常 < 120 秒）。
+        纯 LLM 模式，不使用规则标题。
         """
-        # 先启动 LLM 任务（不等），避免串行等待
-        llm_task = None
-        if self._llm is not None:
-            llm_task = asyncio.create_task(self._llm_generate_safe(user_input))
+        if self._llm is None:
+            logger.warning("[TitleMiddleware] no LLM configured, skip title generation for thread=%s", thread_id)
+            return
 
-        # 延迟等待 TraceWriter 创建 conv 记录
-        # conversation 在 on_trace_start 时提前创建，通常 1-2 秒内可用
-        # 保留重试以应对极端情况（DB 延迟、并发等）
-        persisted = False
-        for delay in (1, 2, 3, 5, 10, 15):
-            await asyncio.sleep(delay)
-            if self._persist_title(thread_id, tenant_id, user_id, rule_title):
-                persisted = True
-                break
+        # 1. LLM 生成标题
+        try:
+            llm_title = await asyncio.wait_for(
+                self._llm_generate_safe(user_input), timeout=15
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[TitleMiddleware] LLM timeout, thread=%s", thread_id)
+            return
 
-        if not persisted:
-            logger.warning("[TitleMiddleware] rule title persist failed after retries, thread=%s (conv not found in ai_conversation for tenant=%s)",
-                           thread_id, tenant_id)
+        if not llm_title:
+            logger.warning("[TitleMiddleware] LLM returned empty title, thread=%s", thread_id)
+            return
 
-        # 等 LLM 结果（最多 15 秒）
-        if llm_task is not None:
-            try:
-                llm_title = await asyncio.wait_for(llm_task, timeout=15)
-                if llm_title and llm_title != rule_title:
-                    # LLM 标题就绪后持久化
-                    # conversation 在 on_trace_start 时已创建，通常第一次就能成功
-                    for delay in (0, 1, 3, 5, 10, 15):
-                        if delay:
-                            await asyncio.sleep(delay)
-                        if self._persist_title(thread_id, tenant_id, user_id, llm_title):
-                            logger.info("[TitleMiddleware] LLM title='%s' replaced rule='%s' thread=%s",
-                                        llm_title, rule_title, thread_id)
-                            # 通知 SSE 流推送 title_update 事件
-                            _notify_title_update(thread_id, llm_title)
-                            break
-                    else:
-                        logger.warning("[TitleMiddleware] LLM title persist failed after retries, thread=%s (conv not found in ai_conversation for tenant=%s)",
-                                       thread_id, tenant_id)
-                        # 即使持久化失败，也通知前端（前端可展示，下次刷新再从 DB 读）
-                        _notify_title_update(thread_id, llm_title)
-            except asyncio.TimeoutError:
-                logger.warning("[TitleMiddleware] LLM timeout, keep rule title='%s'", rule_title)
-            except Exception as e:
-                logger.warning("[TitleMiddleware] LLM optimize failed: %s", e)
+        logger.info("[TitleMiddleware] LLM title='%s' thread=%s", llm_title, thread_id)
+
+        # 更新链路中的 title_generation span（回填 LLM 结果）
+        try:
+            from src.middleware.tracing import tracing_middleware
+            tracing_middleware.update_span(thread_id, "title_generation", {
+                "output_data": {"title": llm_title, "method": "llm"},
+                "detail": f"标题生成「{llm_title}」（LLM）",
+                "metadata": {"title": llm_title, "method": "llm", "phase": "entry"},
+            })
+        except Exception:
+            pass
+
+        # 更新已持久化到 DB 的 span 记录（刷新页面后仍能看到最终标题）
+        try:
+            from src.store.pg_pool import get_conn
+            import json as _json
+            with get_conn() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE ai_trace_span SET output_data=%s, metadata=%s "
+                    "WHERE trace_id IN (SELECT trace_id FROM ai_trace WHERE thread_id=%s ORDER BY created_at DESC LIMIT 1) "
+                    "AND span_type='title_generation'",
+                    (
+                        _json.dumps({"title": llm_title, "method": "llm"}, ensure_ascii=False),
+                        _json.dumps({"title": llm_title, "method": "llm", "phase": "entry", "detail": f"标题生成「{llm_title}」（LLM）"}, ensure_ascii=False),
+                        thread_id,
+                    ))
+        except Exception as e:
+            logger.debug("[TitleMiddleware] DB span update failed: %s", e)
+
+        # 2. 持久化到 DB（重试等待 conversation 记录创建）
+        for delay in (0, 1, 2, 3, 5, 10, 15):
+            if delay:
+                await asyncio.sleep(delay)
+            if self._persist_title(thread_id, tenant_id, user_id, llm_title):
+                logger.info("[TitleMiddleware] title persisted: thread=%s title='%s'", thread_id, llm_title)
+                # 3. 通知前端更新标题
+                _notify_title_update(thread_id, llm_title)
+                return
+
+        logger.warning("[TitleMiddleware] title persist failed after retries, thread=%s tenant=%s title='%s'",
+                       thread_id, tenant_id, llm_title)
+        # 即使持久化失败，也通知前端
+        _notify_title_update(thread_id, llm_title)
 
     async def _llm_generate_safe(self, user_input: str) -> str:
         """安全的 LLM 调用（异常时返回空字符串）"""

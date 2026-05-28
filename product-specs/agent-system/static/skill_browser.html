@@ -835,7 +835,11 @@ function renderSkillList() {
             <button onclick="editSkill('${s.api_key}')" class="text-xs text-blue-600 hover:text-blue-800 font-medium">编辑</button>
             <button onclick="cloneSkill('${s.api_key}')" class="text-xs text-gray-500 hover:text-gray-700">克隆</button>
             <button onclick="deleteSkill('${s.api_key}', '${s.name}')" class="text-xs text-red-500 hover:text-red-700">删除</button>
-            ` : '<span class="text-xs text-gray-400">系统预置</span>'}
+            ` : `
+            <button onclick="viewSkill('${s.api_key}')" class="text-xs text-blue-600 hover:text-blue-800 font-medium">查看</button>
+            <button onclick="cloneSkill('${s.api_key}')" class="text-xs text-gray-500 hover:text-gray-700">克隆</button>
+            <span class="text-xs text-gray-400">系统预置</span>
+            `}
           </div>
         </div>
       </div>
@@ -895,6 +899,7 @@ async function cloneSkill(apiKey) {
 // ── 创建技能 ──
 function openCreate() {
   editingKey = null;
+  setFormReadonly(false);
   document.getElementById('formTitle').textContent = '创建技能';
   document.getElementById('skillForm').reset();
   document.getElementById('f_api_key').disabled = false;
@@ -908,9 +913,79 @@ function openCreate() {
   document.getElementById('formModal').classList.remove('hidden');
 }
 
+// ── 查看技能（只读模式） ──
+async function viewSkill(apiKey) {
+  editingKey = null;
+  document.getElementById('formTitle').textContent = `查看: ${apiKey}`;
+  document.getElementById('testOutputSection').classList.add('hidden');
+  renderCategorySelect();
+  document.getElementById('formModal').classList.remove('hidden');
+
+  try {
+    const res = await fetch(`${SKILL_API}/${apiKey}`);
+    const s = await res.json();
+    document.getElementById('f_api_key').value = s.api_key;
+    document.getElementById('f_api_key').disabled = true;
+    document.getElementById('formTitle').textContent = `查看: ${s.name || apiKey}（${s.api_key}）🔒 只读`;
+    document.getElementById('f_name').value = s.name || '';
+    document.getElementById('f_description').value = s.description || '';
+    document.getElementById('f_when_to_use').value = s.when_to_use || '';
+    document.getElementById('f_category').value = s.category || 'custom';
+    document.getElementById('f_output_mode').value = s.output_mode || 'text';
+    document.getElementById('f_context').value = s.context || 'inline';
+    document.getElementById('f_max_tool_calls').value = s.max_tool_calls || 20;
+    document.getElementById('f_timeout_ms').value = s.timeout_ms || 60000;
+    renderToolOptions(s.allowed_tools || []);
+    loadArguments(s.arguments || [], s.argument_descriptions || {}, s.argument_config || {});
+    document.getElementById('f_prompt').value = s.prompt || '';
+    // 加载资源树
+    loadResourceTree(apiKey);
+    // 显示版本 banner
+    showVersionBanner(s.version || '1.0.0', true, true);
+
+    // 设置所有表单字段为只读
+    setFormReadonly(true);
+  } catch (e) {
+    alert('加载失败: ' + e.message);
+    closeForm();
+  }
+}
+
+// ── 设置表单只读状态 ──
+function setFormReadonly(readonly) {
+  const form = document.getElementById('skillForm');
+  const inputs = form.querySelectorAll('input, textarea, select');
+  inputs.forEach(el => {
+    if (readonly) {
+      el.setAttribute('readonly', true);
+      el.setAttribute('disabled', true);
+      el.style.opacity = '0.7';
+      el.style.cursor = 'not-allowed';
+    } else {
+      el.removeAttribute('readonly');
+      el.removeAttribute('disabled');
+      el.style.opacity = '';
+      el.style.cursor = '';
+    }
+  });
+  // 隐藏保存按钮
+  const saveBtn = form.querySelector('button[type="submit"], button[onclick*="saveSkill"]');
+  if (saveBtn) {
+    saveBtn.style.display = readonly ? 'none' : '';
+  }
+  // 尝试隐藏底部操作栏的保存按钮
+  const saveBtns = document.querySelectorAll('#formModal button');
+  saveBtns.forEach(btn => {
+    if (btn.textContent.trim() === '保存' || btn.textContent.trim().includes('保存')) {
+      btn.style.display = readonly ? 'none' : '';
+    }
+  });
+}
+
 // ── 编辑技能 ──
 async function editSkill(apiKey) {
   editingKey = apiKey;
+  setFormReadonly(false);
   document.getElementById('formTitle').textContent = `编辑: ${apiKey}`;
   document.getElementById('testOutputSection').classList.add('hidden');
   renderCategorySelect();
@@ -945,6 +1020,7 @@ async function editSkill(apiKey) {
 
 function closeForm() {
   document.getElementById('formModal').classList.add('hidden');
+  setFormReadonly(false);
 }
 
 // ── 保存技能 ──
