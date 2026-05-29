@@ -162,7 +162,7 @@
         <div class="arch-diagram">
             <div class="arch-node l0">
                 <strong><code>SKILL.md</code> — 主文件（始终加载）</strong>
-                <div class="desc">~500 行 · 内联 6 大业务域专业分析体系 + 8 步设计流程 + 资源架构决策 + 模式库 + 工具清单 + 硬约束</div>
+                <div class="desc">~890 行 · 内联 6 大业务域专业分析体系 + 8 步设计流程 + 资源架构决策 + 模式库 + 工具清单 + 硬约束</div>
             </div>
             <div class="arch-arrow"></div>
             <div class="arch-label">无法归类 / 跨域 / 非 CRM 标准场景时按需加载</div>
@@ -186,7 +186,7 @@
                         • 8 步设计流程（Step 0 前置检查 → Step 7 确认 → Step 8 创建）<br>
                         • Step 2.5 资源架构决策（references/scripts/knowledge 判断树）<br>
                         • 8 种快速生成模式库<br>
-                        • 完整工具清单（22 个工具 + 选择原则）<br>
+                        • 完整工具清单（21 个工具 + 选择原则）<br>
                         • 数据纪律 + 反幻觉 + 结果核验 + 硬约束
                     </td>
                     <td>始终加载</td>
@@ -219,7 +219,7 @@
                     <div style="position:relative; padding-left:24px;">
                         <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
                         <span style="color:var(--primary); font-weight:600;"><code>SKILL.md</code></span>
-                        <span style="color:var(--gray-500); margin-left:12px; font-size:0.75rem;">主文件 · ~500 行 · 内联 6 域分析体系 + 完整设计流程</span>
+                        <span style="color:var(--gray-500); margin-left:12px; font-size:0.75rem;">主文件 · ~890 行 · 内联 6 域分析体系 + 完整设计流程</span>
                     </div>
                     <div style="position:relative; padding-left:24px;">
                         <span style="position:absolute;left:0;color:var(--gray-400);">└──</span>
@@ -382,7 +382,7 @@
                                     ├── §五 非分析类技能设计指导<br>
                                     ├── §五-B ToB CRM 知识体系（18 方法论 + 20+ 基准）<br>
                                     ├── §六 通用 Prompt 骨架<br>
-                                    ├── §七 工具选择指南（22 工具 + 7 Pipeline）<br>
+                                    ├── §七 工具选择指南（21 工具 + 7 Pipeline）<br>
                                     ├── §八 置信度标注规范<br>
                                     ├── §九 异常处理规范（10 种 + 降级链）<br>
                                     └── §十 端到端完整示例（2 个）
@@ -453,7 +453,11 @@
             <span style="color:var(--gray-400);">→</span>
             <span style="background:var(--danger-light); color:var(--danger); padding:4px 10px; border-radius:4px; font-weight:500;">Step 6 质量自检</span>
             <span style="color:var(--gray-400);">→</span>
-            <span style="background:var(--gray-100); color:var(--gray-700); padding:4px 10px; border-radius:4px; font-weight:500;">Step 7-8 确认+创建</span>
+            <span style="background:var(--gray-100); color:var(--gray-700); padding:4px 10px; border-radius:4px; font-weight:500;">Step 7 确认</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--success-light); color:var(--success); padding:4px 10px; border-radius:4px; font-weight:600;">Step 7.5 沙盒验证</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--gray-100); color:var(--gray-700); padding:4px 10px; border-radius:4px; font-weight:500;">Step 8 创建</span>
         </div>
 
         <h3>关键优势</h3>
@@ -476,6 +480,55 @@
                 <div class="card-desc">Step 2.5 内置完整的资源决策树（references/scripts/knowledge），指导被创建技能的资源规划。</div>
             </div>
         </div>
+
+        <h3>被创建技能的资源架构（Step 2.5 产出）</h3>
+
+        <p>create_skill 创建的技能可以携带<strong>资源文件</strong>（存储在 <code>ai_skill_resource</code> 表中），通过 <code>manage_skill(action="create", skill_definition={..., resources:[...]})</code> 一并创建。资源文件在技能运行时通过 <code>read_skill_resource</code> 工具或沙盒执行加载。</p>
+
+        <table class="tbl">
+            <thead>
+                <tr><th>资源类型</th><th>存储位置</th><th>运行时加载方式</th><th>典型内容</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="badge badge-blue"><code>scripts/</code></span></td>
+                    <td><code>ai_skill_resource</code> 表<br>（version 绑定）</td>
+                    <td><code>terminal</code> + <code>execute_code</code><br>通过 <code>${SKILL_DIR}/scripts/</code> 路径访问</td>
+                    <td>
+                        • <code>main.py</code> — 主入口脚本（必须有）<br>
+                        • <code>requirements.txt</code> — Python 依赖声明（必须有）<br>
+                        • 其他辅助脚本（models.py / utils.py / visualize.py）
+                    </td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-purple"><code>references/</code></span></td>
+                    <td><code>ai_skill_resource</code> 表<br>（version 绑定）</td>
+                    <td><code>read_skill_resource</code> 工具<br>+ <code>ext_info.preload_resources</code> 自动注入</td>
+                    <td>
+                        • <code>_index.md</code> — 知识索引（必须有）<br>
+                        • 方法论文件（meddic-scoring.md / health-score-model.md）<br>
+                        • 评分模型定义（固化的判断标准和权重）
+                    </td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-green"><code>knowledge/</code></span></td>
+                    <td><code>ai_skill_resource</code> 表<br>（version 绑定）</td>
+                    <td><code>read_skill_resource</code> 工具<br>+ <code>ext_info.preload_resources.scene_map</code> 按场景加载</td>
+                    <td>
+                        • <code>_index.md</code> — 知识索引（必须有）<br>
+                        • 行业知识（industries/manufacturing.md / saas.md）<br>
+                        • 竞品情报（competitors/competitor-a.md）<br>
+                        • 行业基准数据（benchmarks/enterprise-sales.md）<br>
+                        • 销售剧本（playbooks/expansion.md）
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p style="font-size: 0.82rem; color: var(--gray-600); margin-top: 12px;">
+            <strong>区分</strong>：<code>knowledge/domains/</code>（上方文件结构中的 7 个域文件）是 <em>create_skill 技能自身</em>的知识库，指导如何设计技能；
+            而此处的 <code>scripts/</code> / <code>references/</code> / <code>knowledge/</code> 是<em>被创建技能</em>携带的资源文件，在技能运行时使用。
+        </p>
 
     </div>
 
@@ -555,7 +608,7 @@
                 <div style="font-size: 0.78rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">📦 附加模块</div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; font-size: 0.84rem; color: var(--gray-700);">
                     <div>§三 快速生成模式库（8 种模式 A-H）</div>
-                    <div>§四 完整工具清单（22 个工具 + 选择原则）</div>
+                    <div>§四 完整工具清单（21 个工具 + 选择原则）</div>
                     <div>§五 硬约束（10 条不可违反的规则）</div>
                     <div>Step 2.5 资源架构决策树</div>
                 </div>
@@ -736,9 +789,9 @@
             <div style="font-weight:700; margin-bottom:8px;">章节结构：</div>
             <div style="padding-left:12px;">
                 <div>├── §一 toB CRM 技能体系（6 大业务域，每域含完整分析体系）</div>
-                <div>├── §二 技能设计流程（Step 0-8，含前置检查 + 资源架构决策）</div>
+                <div>├── §二 技能设计流程（Step 0-8，含前置检查 + 资源架构决策 + 沙盒验证）</div>
                 <div>├── §三 快速生成模式库（8 种模式 A-H）</div>
-                <div>├── §四 可用工具清单（22 个工具 + 选择原则）</div>
+                <div>├── §四 可用工具清单（21 个工具 + 选择原则）</div>
                 <div>└── §五 硬约束（10 条不可违反的规则）</div>
             </div>
         </div>
@@ -767,7 +820,7 @@
                 <div>├── §五 非分析类技能设计指导（导出/报告/自动化）</div>
                 <div style="color:var(--secondary); font-weight:600;">├── §五-B ToB CRM 知识体系（18 方法论 + 20+ 基准 + 18 维度）</div>
                 <div>├── §六 通用 Prompt 骨架</div>
-                <div>├── §七 工具选择指南（22 工具 + 7 Pipeline 模板）</div>
+                <div>├── §七 工具选择指南（21 工具 + 7 Pipeline 模板）</div>
                 <div>├── §八 置信度标注规范</div>
                 <div>├── §九 异常处理规范（10 种 + 降级链）</div>
                 <div>└── §十 端到端完整示例（2 个含 JSON）</div>
@@ -790,7 +843,101 @@
 
 
 <!-- ═══════════════════════════════════════════════════════ -->
-<!-- PAGE 5: 文件树 — 左侧导航 + 右侧原文 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- PAGE 5: 用户场景测试清单 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page">
+
+    <div class="section">
+        <h2>🧪 用户场景测试清单</h2>
+
+        <p style="font-size: 0.85rem; color: var(--gray-600); margin-bottom: 16px;">以下测试用例覆盖 create_skill 的所有执行路径，用于验证各场景下的技能生成质量。</p>
+
+        <h3>一、按技能复杂度分类</h3>
+        <table class="tbl">
+            <thead><tr><th>场景</th><th>用户输入示例</th><th>预期路径</th><th>预期输出特征</th></tr></thead>
+            <tbody>
+                <tr><td><span class="badge badge-green">劝退</span></td><td>"帮我统计本月新增客户数"</td><td>Step 0 → 硬约束#2 劝退</td><td>建议直接用 query_data，不创建技能</td></tr>
+                <tr><td><span class="badge badge-green">简单</span></td><td>"创建一个查看我负责客户列表的技能"</td><td>Step 0 → Step 1 → Step 4</td><td>Prompt 简短，allowed_tools 仅 query_data</td></tr>
+                <tr><td><span class="badge badge-orange">中等</span></td><td>"创建一个商机赢率评估技能"</td><td>Step 0 → Step 1(域2) → Step 3 → Step 4</td><td>MEDDIC 框架注入，3-4 维度深度分析</td></tr>
+                <tr><td><span class="badge badge-orange">复杂</span></td><td>"创建一个客户流失预警技能，需要评分模型"</td><td>Step 0 → Step 1(域5) → Step 2.5(references) → Step 4</td><td>含 references/ 目录 + preload_resources</td></tr>
+                <tr><td><span class="badge badge-purple">高级</span></td><td>"创建一个客户聚类分群技能，需要 K-Means"</td><td>Step 0 → Step 2.5(scripts) → Step 4</td><td>含 scripts/ + requirements.txt + terminal</td></tr>
+            </tbody>
+        </table>
+
+        <h3>二、按资源架构类型（Step 2.5 覆盖）</h3>
+        <table class="tbl">
+            <thead><tr><th>资源类型</th><th>用户输入示例</th><th>预期判断</th><th>预期输出</th></tr></thead>
+            <tbody>
+                <tr><td><strong>纯数据分析</strong></td><td>"创建一个本月商机统计技能"</td><td>无附加资源</td><td>allowed_tools: query_data + analyze_data</td></tr>
+                <tr><td><strong>references/</strong></td><td>"创建一个基于 MEDDIC 评分标准的商机健康度技能"</td><td>需要固化评分标准</td><td>含 references/meddic-scoring.md + preload</td></tr>
+                <tr><td><strong>scripts/</strong></td><td>"创建一个销售收入趋势预测技能，用指数平滑"</td><td>需要复杂计算</td><td>含 scripts/main.py + requirements.txt + terminal + execute_code</td></tr>
+                <tr><td><strong>knowledge/</strong></td><td>"创建一个客户行业分析技能，需要制造业知识"</td><td>需要行业知识</td><td>含 knowledge/industries/ + read_skill_resource</td></tr>
+            </tbody>
+        </table>
+
+        <h3>三、按业务域覆盖（6 域 + 通用）</h3>
+        <table class="tbl">
+            <thead><tr><th>业务域</th><th>用户输入示例</th><th>预期域路由</th><th>预期专业性</th></tr></thead>
+            <tbody>
+                <tr><td>域1 客户</td><td>"帮我创建一个客户 360 画像分析技能"</td><td>域1 内联体系</td><td>五维画像 + 交叉关联 + 判断 + 预测</td></tr>
+                <tr><td>域2 商机</td><td>"创建一个商机推进策略建议技能"</td><td>域2 内联体系</td><td>MEDDIC + 风险信号 + 赢单路径</td></tr>
+                <tr><td>域3 预测</td><td>"创建一个 Pipeline 健康度诊断技能"</td><td>域3 内联体系</td><td>5维健康度 + Forecast三档 + 达成概率</td></tr>
+                <tr><td>域4 行为</td><td>"创建一个销售活动效能分析技能"</td><td>域4 内联体系</td><td>效能5维 + Top Sales对比 + 辅导建议</td></tr>
+                <tr><td>域5 客户成功</td><td>"创建一个客户续约风险预警技能"</td><td>域5 内联体系</td><td>健康度评分 + 流失信号 + 挽回策略</td></tr>
+                <tr><td>域6 团队</td><td>"创建一个团队绩效排名和辅导建议技能"</td><td>域6 内联体系</td><td>绩效矩阵 + 九宫格 + 辅导优先级</td></tr>
+                <tr><td><strong>跨域</strong></td><td>"创建一个客户+商机综合分析技能"</td><td>域1+2 + generic.md</td><td>主域深度 + 跨域关联</td></tr>
+                <tr><td><strong>非标</strong></td><td>"创建一个渠道合作伙伴分析技能"</td><td>generic.md 兜底</td><td>通用四框架 + 维度选择方法论</td></tr>
+                <tr><td><strong>非分析类</strong></td><td>"创建一个自动生成周报的技能"</td><td>generic.md §五</td><td>报告生成类 Prompt 骨架</td></tr>
+            </tbody>
+        </table>
+
+        <h3>四、前置检查场景（Step 0）</h3>
+        <table class="tbl">
+            <thead><tr><th>场景</th><th>用户输入示例</th><th>预期行为</th></tr></thead>
+            <tbody>
+                <tr><td><strong>去重-完全匹配</strong></td><td>"创建商机赢率分析技能"（已有同名）</td><td>告知已存在，建议直接使用或优化</td></tr>
+                <tr><td><strong>去重-高度相似</strong></td><td>"创建商机健康度评估技能"（已有 opp-health）</td><td>展示差异，建议优化而非新建</td></tr>
+                <tr><td><strong>去重-部分重叠</strong></td><td>"创建商机+客户综合分析"（已有单独商机分析）</td><td>询问"扩展现有 or 创建新的？"</td></tr>
+                <tr><td><strong>边界-物理操作</strong></td><td>"创建自动给客户打电话的技能"</td><td>拒绝 + 原因 + 替代建议</td></tr>
+                <tr><td><strong>边界-外部数据</strong></td><td>"创建分析竞品内部财务数据的技能"</td><td>拒绝（可降级 web_search 公开信息）</td></tr>
+                <tr><td><strong>边界-实时监控</strong></td><td>"创建实时监控商机变化并自动提醒的技能"</td><td>拒绝（按需触发，非实时）</td></tr>
+                <tr><td><strong>边界-专业资质</strong></td><td>"创建给出法律合规建议的技能"</td><td>拒绝（可做数据辅助）</td></tr>
+                <tr><td><strong>边界-跨系统</strong></td><td>"创建把 CRM 数据同步到飞书的技能"</td><td>拒绝（只能写入本 CRM）</td></tr>
+            </tbody>
+        </table>
+
+        <h3>五、质量验证场景</h3>
+        <table class="tbl">
+            <thead><tr><th>验证点</th><th>用户输入示例</th><th>预期质量特征</th></tr></thead>
+            <tbody>
+                <tr><td><strong>数据纪律</strong></td><td>"创建客户价值评估技能"</td><td>Prompt 含"数据纪律"段落 + [来源:xxx] 标注</td></tr>
+                <tr><td><strong>结果核验</strong></td><td>"创建 Pipeline 预测技能"</td><td>Prompt 最后一步是自校验</td></tr>
+                <tr><td><strong>纵深>广度</strong></td><td>"创建客户全面分析技能"</td><td>3-4 维度深入，非 10 维度浅尝</td></tr>
+                <tr><td><strong>可行动输出</strong></td><td>"创建商机风险识别技能"</td><td>含具体行动建议（联系谁/做什么/什么时候）</td></tr>
+                <tr><td><strong>方法论引用</strong></td><td>"创建销售绩效分析技能"</td><td>引用行业方法论，非自创框架</td></tr>
+                <tr><td><strong>异常处理</strong></td><td>"创建客户行业分析技能"（无行业字段）</td><td>有数据缺失处理逻辑</td></tr>
+                <tr><td><strong>工具精确</strong></td><td>"创建简单客户列表查询技能"</td><td>allowed_tools 仅 query_data，不多选</td></tr>
+            </tbody>
+        </table>
+
+        <h3>六、边界与特殊场景</h3>
+        <table class="tbl">
+            <thead><tr><th>场景</th><th>用户输入示例</th><th>预期行为</th></tr></thead>
+            <tbody>
+                <tr><td><strong>模糊意图</strong></td><td>"帮我创建一个分析的技能"</td><td>追问：分析什么？给谁用？期望什么输出？</td></tr>
+                <tr><td><strong>多意图</strong></td><td>"创建既能分析客户又能生成报告还能预测收入的技能"</td><td>建议拆分为多个独立技能</td></tr>
+                <tr><td><strong>涉及写操作</strong></td><td>"创建自动更新商机阶段的技能"</td><td>allowed_tools 含 modify_data + ask_user</td></tr>
+                <tr><td><strong>文件导出</strong></td><td>"创建导出客户数据为 CSV 的技能"</td><td>allowed_tools 含 execute_code + cos_upload</td></tr>
+                <tr><td><strong>fork 模式</strong></td><td>"创建需要多轮复杂推理的深度分析技能"</td><td>context: fork，指定子 Agent</td></tr>
+                <tr><td><strong>非 CRM</strong></td><td>"创建分析产品使用数据的技能"</td><td>加载 generic.md，通用四框架</td></tr>
+            </tbody>
+        </table>
+
+    </div>
+</div><!-- end page 5 -->
+
+<!-- PAGE 6: 文件树 — 左侧导航 + 右侧原文 -->
 <!-- ═══════════════════════════════════════════════════════ -->
 <div class="page">
 
@@ -4253,7 +4400,7 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
     }
     </script>
 
-</div><!-- end page 5 -->
+</div><!-- end page 6 -->
 
 </body>
 </html>

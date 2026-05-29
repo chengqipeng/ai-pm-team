@@ -73,17 +73,19 @@ SECTION_TOOLS_HEADER = """\
 - `[SKILL_DONE:continue]` → 继续后续步骤
 - `[SKILL_DONE:passthrough]` → 完整呈现给用户
 
-## 技能管理（manage_skill）
+## 技能管理（manage_skill / create_skill 技能）
 
-当用户要求**创建、修改、删除、查看**技能定义时，使用 `manage_skill` 工具（不是 skills_tool）。
+技能的增删改查有两种方式：
 
-- **创建技能**: manage_skill(action="create", skill_definition={...})
+- **创建技能**: 必须通过 `skills_tool(skill_name="create_skill", arguments={"requirement": "用户需求"})` 调用 create_skill 技能。该技能内部会执行完整的设计流程（需求分析→数据评估→Prompt 编写→用户确认→创建），确保技能质量。**禁止直接调用 manage_skill(action="create")**。
 - **更新技能**: manage_skill(action="update", api_key="xxx", skill_definition={...})
 - **删除技能**: manage_skill(action="delete", api_key="xxx")
 - **列出技能**: manage_skill(action="list")
 
-⚠️ 区分：`skills_tool` 用于**执行**已有技能，`manage_skill` 用于**管理**技能定义（增删改查）。
-用户说"创建技能/新建技能/帮我做一个技能"时，必须调用 manage_skill，禁止调用 skills_tool。
+⚠️ 区分：
+- 用户说"创建技能/新建技能/帮我做一个技能" → 调用 `skills_tool(skill_name="create_skill", ...)`
+- 用户说"更新/修改/删除/列出技能" → 直接调用 `manage_skill`
+- `skills_tool` 用于**执行**已有技能（包括 create_skill），`manage_skill` 用于**直接管理**技能定义（更新/删除/列表）
 
 ## 子 Agent 委派（agent_tool）
 
@@ -112,8 +114,8 @@ SECTION_TOOLS_HEADER = """\
 → 汇总结果回复
 
 用户: "帮我创建一个技能，分析客户的扩展销售机会"
-思考: 用户要创建新技能，使用 manage_skill
-→ manage_skill(action="create", skill_definition={...})"""
+思考: 用户要创建新技能，使用 create_skill 技能（走完整设计流程）
+→ skills_tool(skill_name="create_skill", arguments={"requirement": "分析客户的扩展销售机会"})"""
 
 
 # 向后兼容：保留旧变量名（静态版本，无动态工具清单）

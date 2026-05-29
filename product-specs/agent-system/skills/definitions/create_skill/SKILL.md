@@ -720,9 +720,47 @@ scripts/             → 计算能力（COMPUTE：超出简单聚合的计算）
   "risk_level": "read_only",
   "max_tool_calls": "根据步骤数设置",
   "timeout_ms": "根据复杂度设置",
-  "prompt": "完整的高质量 Prompt"
+  "prompt": "完整的高质量 Prompt",
+  "ext_info": {
+    "script_execution": {
+      "entry": "scripts/main.py",
+      "language": "python",
+      "required_packages": ["pandas>=2.0", "scikit-learn>=1.3"],
+      "auto_install": true,
+      "timeout": 120
+    },
+    "preload_resources": {
+      "always": ["references/_index.md"],
+      "scene_map": {},
+      "max_preload": 4
+    }
+  },
+  "resources": [
+    {
+      "path": "scripts/main.py",
+      "content": "完整的 Python 脚本内容",
+      "content_type": "py",
+      "description": "主入口脚本"
+    },
+    {
+      "path": "scripts/requirements.txt",
+      "content": "pandas>=2.0\nscikit-learn>=1.3\n",
+      "content_type": "txt",
+      "description": "Python 依赖声明"
+    }
+  ]
 }
 ```
+
+**字段说明：**
+- `ext_info`: 仅在需要 scripts 或 preload_resources 时包含（Step 2.5 判断为需要时）
+- `resources`: 仅在需要 scripts/references/knowledge 文件时包含（Step 2.5 判断为需要时）
+- 如果 Step 2.5 判断不需要任何资源文件，则 `ext_info` 和 `resources` 字段可省略
+
+**resources 必须包含的文件（按 Step 2.5 决策结果）：**
+- 需要 scripts → 必须包含 `scripts/main.py`（主入口）+ `scripts/requirements.txt`（依赖声明）
+- 需要 references → 必须包含 `references/_index.md`（索引）+ 具体知识文件
+- 需要 knowledge → 必须包含 `knowledge/_index.md`（索引）+ 具体知识文件
 
 ### Step 6: 质量自检
 
@@ -747,22 +785,106 @@ scripts/             → 计算能力（COMPUTE：超出简单聚合的计算）
 - [ ] 建议是否具体可执行？（"将跟进间隔从7天缩短到3天" vs "加强跟进"）
 - [ ] 异常处理是否完备（数据缺失/矛盾/查询失败/权限不足/超出边界）？
 
-### Step 7: 展示并等待确认
+### Step 7: 展示技能结构定义并等待确认
+
+**在执行任何创建操作之前，必须先将完整的技能结构定义展示给用户确认。**
+
+展示内容必须包含：
+- 技能基本信息（api_key / name / description / when_to_use）
+- 分析体系概览（核心维度 + 分析逻辑摘要）
+- allowed_tools 列表及选择理由
+- 资源架构规划（如有 references/scripts/knowledge 目录）
+- Prompt 核心结构（角色 + 步骤概要 + 输出格式）
 
 ```
 ask_user(
   interrupt_type="skill_confirm",
-  title="确认创建技能",
-  message="请确认以下技能定义",
-  options=[{"id": "skill_definition", "label": "技能名称", "description": "<JSON>"}]
+  title="确认技能结构定义",
+  message="请确认以下技能定义，确认后将进行沙盒验证",
+  options=[{"id": "skill_definition", "label": "技能名称", "description": "<完整 JSON 定义>"}]
 )
+```
+
+**用户响应处理：**
+- 用户确认 → 进入 Step 7.5 沙盒验证
+- 用户取消 → 回复"已取消"
+- 用户修改 → 根据修改意见调整后重新展示
+
+### Step 7.5: 沙盒安装验证（用户确认后执行）
+
+**用户确认技能结构后，在正式创建之前执行沙盒验证，确保技能可正常运行。**
+
+#### 验证项目：
+
+```
+验证清单（按技能类型选择性执行）：
+
+├── 基础验证（所有技能）：
+│   ├── JSON 定义格式校验（字段完整性 + 类型正确性）
+│   ├── api_key 唯一性检查（query_data 查询 ai_skill 表）
+│   ├── allowed_tools 中的工具是否都存在于系统中
+│   └── arguments 与 Prompt 中的 {参数名} 占位符是否匹配
+│
+├── scripts/ 类技能（有 Python 脚本）：
+│   ├── 在沙盒中执行 pip install -r requirements.txt
+│   ├── 验证 main.py 入口文件语法正确（python3 -c "import ast; ast.parse(open('main.py').read())"）
+│   ├── 验证依赖包版本兼容性
+│   └── 如有测试数据，执行一次 dry-run 验证输出格式
+│
+├── references/ 类技能（有知识资源文件）：
+│   ├── 验证 preload_resources 配置中的文件路径是否存在
+│   ├── 验证 scene_map 中的关键词正则是否合法
+│   └── 验证 read_skill_resource 能否正常读取资源文件
+│
+├── knowledge/ 类技能（有行业知识目录）：
+│   ├── 验证 _index.md 索引文件存在且格式正确
+│   ├── 验证 scene_map 引用的文件都存在
+│   └── 验证文件大小不超过单次加载限制
+│
+└── 写操作类技能（含 modify_data）：
+    └── 验证 Prompt 中是否有 ask_user 确认步骤（写前必须确认）
+```
+
+#### 验证执行方式：
+
+```python
+# 基础验证（内存中执行，不需要沙盒）
+validate_json_schema(skill_definition)
+validate_api_key_unique(skill_definition.api_key)
+validate_tools_exist(skill_definition.allowed_tools)
+validate_arguments_match(skill_definition.arguments, skill_definition.prompt)
+
+# scripts 验证（需要沙盒）
+if has_scripts(skill_definition):
+    terminal(command="pip install -r ${SKILL_DIR}/scripts/requirements.txt")
+    terminal(command="python3 -c \"import ast; ast.parse(open('${SKILL_DIR}/scripts/main.py').read())\"")
+
+# references 验证（内存中执行）
+if has_references(skill_definition):
+    for resource in skill_definition.preload_resources.always:
+        read_skill_resource(skill_name=skill_name, resource_name=resource)
+```
+
+#### 验证结果处理：
+
+```
+验证通过 → 告知用户"验证通过，即将创建技能" → 进入 Step 8
+验证失败 → 告知用户具体失败原因 + 修复建议 → 修复后重新验证
+  ├── 依赖安装失败 → 建议更换包版本或移除不兼容的依赖
+  ├── 语法错误 → 展示错误位置，建议修复
+  ├── 文件缺失 → 列出缺失文件，建议补充
+  └── 格式错误 → 展示具体格式问题
 ```
 
 ### Step 8: 执行创建
 
-- 用户确认 → manage_skill(action="create", skill_definition=最终定义)
-- 用户取消 → 回复"已取消"
-- 用户修改 → 使用修改后的版本
+- 验证通过 + 用户确认 → manage_skill(action="create", skill_definition=最终定义)
+  - **最终定义必须包含 Step 5 中的所有字段**，特别是：
+    - `resources`: 如果 Step 2.5 判断需要 scripts/references/knowledge，必须在此字段中包含完整的文件内容
+    - `ext_info`: 如果有 script_execution 或 preload_resources 配置，必须包含
+  - manage_skill 会自动将 resources 中的文件写入 ai_skill_resource 表
+- 创建成功 → 回复"技能已创建成功，api_key: {xxx}"
+- 创建失败 → 展示错误信息，建议修复方案
 
 ---
 
