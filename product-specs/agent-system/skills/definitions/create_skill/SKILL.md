@@ -977,7 +977,7 @@ if has_references(skill_definition):
 | ask_user | 向用户发起确认/选择/输入请求（中断等待响应） | interrupt_type(confirm/select/multi_select/input), title, message, options | 涉及写操作或需要用户补充信息的技能 |
 | ask_clarification | 信息不足或有歧义时中断追问 | question(必填), clarification_type, options | 参数可能不完整的技能 |
 | web_search | 搜索互联网获取实时外部信息 | query(必填), max_results | 需要行业动态/公司信息/竞品新闻的技能 |
-| cos_upload | 上传文件到 COS 对象存储，返回 URL | file_path(必填), bucket, prefix | 需要导出报告/图表文件的技能 |
+| file_upload | 上传文件到 COS 对象存储，返回 URL | file_path(必填), bucket, prefix | 需要导出报告/图表文件的技能 |
 
 ### 工具选择原则
 
@@ -987,7 +987,7 @@ if has_references(skill_definition):
 3. 需要复杂计算 → 加 terminal + execute_code + read_file + write_file
 4. 涉及数据写入 → 加 modify_data + ask_user（必须配对，写前确认）
 5. 需要产品文档 → 加 knowledge_search
-6. 需要导出文件 → 加 cos_upload
+6. 需要导出文件 → 加 file_upload
 
 禁止：
 - 不要把 manage_skill 加到普通技能中（那是 create_skill 专用的）

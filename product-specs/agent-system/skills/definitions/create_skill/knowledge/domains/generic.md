@@ -92,7 +92,7 @@ Step 0-C: 判断相似度：
 ├── 知识检索（产品文档/FAQ/最佳实践）
 ├── 外部信息补充（通过 web_search 获取公开信息）
 ├── 计算与建模（通过 execute_code 执行统计模型）
-└── 文件导出（CSV/报告文件通过 cos_upload 下载）
+└── 文件导出（CSV/报告文件通过 file_upload 下载）
 
 ❌ 不能做的：
 ├── 物理世界操作（打电话/发邮件/寄快递/制造实物）
@@ -192,7 +192,7 @@ Step 0: 边界检查（在 Step 1 意图识别之前）
 
 **工具 Pipeline：**
 ```
-query_data(获取明细) → analyze_data(聚合统计) → analyze_data(分组对比) → [cos_upload(导出)]
+query_data(获取明细) → analyze_data(聚合统计) → analyze_data(分组对比) → [file_upload(导出)]
 ```
 
 **Prompt 构建要求：**
@@ -516,11 +516,11 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
 - 明确筛选条件参数化（{时间范围}、{筛选条件}）
 - 大数据量处理策略：
   - 记录数 <100：直接展示 Markdown 表格
-  - 记录数 100-1000：cos_upload 生成 CSV 下载链接
-  - 记录数 >1000：分页查询 + cos_upload，提示用户"数据量较大，已生成文件"
-- 输出方式选择：直接展示（小量）/ cos_upload 文件下载（大量）
+  - 记录数 100-1000：file_upload 生成 CSV 下载链接
+  - 记录数 >1000：分页查询 + file_upload，提示用户"数据量较大，已生成文件"
+- 输出方式选择：直接展示（小量）/ file_upload 文件下载（大量）
 
-**工具选择：** `query_data` + `cos_upload`（大数据量时）+ `ask_user`（确认导出范围）
+**工具选择：** `query_data` + `file_upload`（大数据量时）+ `ask_user`（确认导出范围）
 
 **Prompt 骨架：**
 ```
@@ -531,7 +531,7 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
 - 先 count 确认数据量
 ## 步骤 3: 格式化输出
 - <100 条：Markdown 表格直接展示
-- ≥100 条：write_file → cos_upload → 返回下载链接
+- ≥100 条：write_file → file_upload → 返回下载链接
 ## 步骤 4: 数据完整性声明
 - "共导出 X 条记录，时间范围：{range}，筛选条件：{filters}"
 ```
@@ -552,7 +552,7 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
   - 💡 建议部分（可行动的下一步）
   - ⚠️ 局限性声明（数据范围/缺失/假设）
 
-**工具选择：** `query_data` + `analyze_data` + `knowledge_search`（模板/历史报告）+ `cos_upload`（长报告）
+**工具选择：** `query_data` + `analyze_data` + `knowledge_search`（模板/历史报告）+ `file_upload`（长报告）
 
 **Prompt 骨架：**
 ```
@@ -972,7 +972,7 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
 | **read_file** | 读取沙盒中的文件 | path, offset, limit | 读取脚本输出/生成报告 | ⭐⭐ |
 | **write_file** | 在沙盒中创建或覆盖文件 | path, content | 写入数据供脚本处理/保存中间结果 | ⭐⭐ |
 | **search_files** | 在沙盒中递归搜索文件内容 | pattern, path, include | 在脚本/配置中查找特定内容 | ⭐ |
-| **cos_upload** | 上传文件到 COS 对象存储 | file_path, bucket, prefix | 需要导出报告/图表/大数据文件的技能 | ⭐⭐ |
+| **file_upload** | 上传文件到 COS 对象存储 | file_path, bucket, prefix | 需要导出报告/图表/大数据文件的技能 | ⭐⭐ |
 | **manage_memory** | 管理 Agent 长期记忆 | action, keyword, memory_ids | 涉及记忆管理的技能 | ⭐ |
 | **memory_read** | 按需读取记忆详情 | memory_id, level | 需要读取历史记忆的技能 | ⭐ |
 | **browse_metamodel** | 浏览元模型层定义 | query_type, metamodel_api_key | 元数据管理/配置类技能 | ⭐ |
@@ -1015,16 +1015,16 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
 │ ⚠️ modify_data 必须与 ask_user 配对，写前必须确认                          │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ Pipeline F: 报告导出                                                     │
-│ query_data → analyze_data → write_file(生成) → cos_upload(上传) → 输出   │
+│ query_data → analyze_data → write_file(生成) → file_upload(上传) → 输出   │
 │ 适用：周报/月报生成、数据导出、文件下载                                     │
-│ allowed_tools: ["query_data", "analyze_data", "write_file", "cos_upload"]│
+│ allowed_tools: ["query_data", "analyze_data", "write_file", "file_upload"]│
 │ 可选追加: "execute_code"（复杂格式处理）                                   │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ Pipeline G: 脚本驱动分析                                                  │
 │ terminal(安装依赖) → write_file(写脚本) → execute_code(执行) → read_file  │
 │ 适用：复杂统计模型、可视化图表、自定义算法                                   │
 │ allowed_tools: ["terminal", "execute_code", "write_file", "read_file",  │
-│                 "query_data", "cos_upload"]                              │
+│                 "query_data", "file_upload"]                              │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1041,7 +1041,7 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
 5. 需要复杂计算/建模 → 追加 execute_code（+ write_file + read_file）
 6. 需要安装依赖/运行脚本 → 追加 terminal
 7. 涉及数据写入 → 追加 modify_data + ask_user（必须配对）
-8. 需要导出文件 → 追加 cos_upload（+ write_file）
+8. 需要导出文件 → 追加 file_upload（+ write_file）
 9. 参数可能不完整 → 追加 ask_clarification
 10. 需要用户决策/确认 → 追加 ask_user
 
@@ -1169,7 +1169,7 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
 **分析过程：**
 - 场景判断：报告生成类，使用 5.2 节指导
 - 受众判断：给销售经理看 → 数据详实 + 团队表现 + 行动项
-- 工具选择：Pipeline F = query_data + analyze_data + write_file + cos_upload
+- 工具选择：Pipeline F = query_data + analyze_data + write_file + file_upload
 - 复杂度：🟡中等
 
 **生成的技能定义：**
@@ -1183,7 +1183,7 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
     "team": "团队范围：'my_team'=我的团队，或具体团队名称",
     "week": "报告周次：'本周'（默认）或具体日期如'2025-05-19'"
   },
-  "allowed_tools": ["query_data", "analyze_data", "write_file", "cos_upload"],
+  "allowed_tools": ["query_data", "analyze_data", "write_file", "file_upload"],
   "risk_level": "read_only",
   "max_tool_calls": 15
 }

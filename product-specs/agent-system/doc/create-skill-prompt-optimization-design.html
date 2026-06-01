@@ -157,18 +157,47 @@
     <div class="section">
         <h2>🏛️ 分层架构</h2>
 
-        <p><strong>核心思路</strong>：采用"主文件内联业务域 + 通用兜底按需加载"的双文件架构 —— <code>SKILL.md</code> 内联 6 大业务域的完整专业分析体系（始终可用），<code>generic.md</code> 提供前置检查、能力边界、通用框架和 ToB CRM 知识体系（按需加载）。</p>
+        <p><strong>核心思路</strong>：采用"主文件（路由 + 流程）+ 平级域知识按需加载"的架构 —— <code>SKILL.md</code> 负责设计流程编排和域路由决策（始终加载），<code>knowledge/domains/</code> 下的 7 个域知识文件（6 个业务域 + 1 个通用兜底）为<strong>平级关系</strong>，按需加载提供深度专业知识。</p>
 
         <div class="arch-diagram">
             <div class="arch-node l0">
                 <strong><code>SKILL.md</code> — 主文件（始终加载）</strong>
-                <div class="desc">~890 行 · 内联 6 大业务域专业分析体系 + 8 步设计流程 + 资源架构决策 + 模式库 + 工具清单 + 硬约束</div>
+                <div class="desc">~890 行 · 域路由摘要 + 8 步设计流程 + 资源架构决策 + 模式库 + 工具清单 + 硬约束</div>
             </div>
             <div class="arch-arrow"></div>
-            <div class="arch-label">无法归类 / 跨域 / 非 CRM 标准场景时按需加载</div>
-            <div class="arch-node l1">
-                <strong><code>knowledge/domains/generic.md</code> — 通用兜底（按需加载）</strong>
-                <div class="desc">~1200 行 · 去重检查 + 能力边界 + 通用四框架 + 跨域指导 + ToB CRM 知识体系 + 异常处理</div>
+            <div class="arch-label">根据域路由结果，按需加载对应的域知识文件</div>
+            <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; width: 100%;">
+                <div class="arch-node l1" style="min-width: auto; padding: 10px 16px; flex: 1; max-width: 160px;">
+                    <strong style="font-size: 0.82rem;">account.md</strong>
+                    <div class="desc">客户分析</div>
+                </div>
+                <div class="arch-node l1" style="min-width: auto; padding: 10px 16px; flex: 1; max-width: 160px;">
+                    <strong style="font-size: 0.82rem;">opportunity.md</strong>
+                    <div class="desc">商机管理</div>
+                </div>
+                <div class="arch-node l1" style="min-width: auto; padding: 10px 16px; flex: 1; max-width: 160px;">
+                    <strong style="font-size: 0.82rem;">forecast.md</strong>
+                    <div class="desc">销售预测</div>
+                </div>
+                <div class="arch-node l1" style="min-width: auto; padding: 10px 16px; flex: 1; max-width: 160px;">
+                    <strong style="font-size: 0.82rem;">activity.md</strong>
+                    <div class="desc">销售行为</div>
+                </div>
+                <div class="arch-node l1" style="min-width: auto; padding: 10px 16px; flex: 1; max-width: 160px;">
+                    <strong style="font-size: 0.82rem;">customer_success.md</strong>
+                    <div class="desc">客户成功</div>
+                </div>
+                <div class="arch-node l1" style="min-width: auto; padding: 10px 16px; flex: 1; max-width: 160px;">
+                    <strong style="font-size: 0.82rem;">team.md</strong>
+                    <div class="desc">团队管理</div>
+                </div>
+                <div class="arch-node l2" style="min-width: auto; padding: 10px 16px; flex: 1; max-width: 160px;">
+                    <strong style="font-size: 0.82rem;">generic.md</strong>
+                    <div class="desc">通用兜底</div>
+                </div>
+            </div>
+            <div style="margin-top: 10px; font-size: 0.75rem; color: var(--gray-500); text-align: center;">
+                ↑ 7 个域知识文件为<strong>平级关系</strong>，均位于 <code>knowledge/domains/</code> 目录下，按需加载
             </div>
         </div>
 
@@ -176,39 +205,54 @@
 
         <table class="tbl">
             <thead>
-                <tr><th>文件</th><th>内容</th><th>加载时机</th><th>解决的问题</th></tr>
+                <tr><th>层级</th><th>文件</th><th>内容</th><th>加载时机</th><th>解决的问题</th></tr>
             </thead>
             <tbody>
                 <tr>
-                    <td><span class="badge badge-blue"><code>SKILL.md</code></span></td>
+                    <td rowspan="1"><span class="badge badge-blue">主控层</span></td>
+                    <td><code>SKILL.md</code></td>
                     <td>
-                        • 6 大业务域完整分析体系（客户/商机/预测/活动/客户成功/团队）<br>
-                        • 8 步设计流程（Step 0 前置检查 → Step 7 确认 → Step 8 创建）<br>
+                        • 6 大业务域的<strong>路由摘要</strong>（精简版，用于快速匹配）<br>
+                        • 8 步设计流程（Step 0 前置检查 → Step 8 创建）<br>
                         • Step 2.5 资源架构决策（references/scripts/knowledge 判断树）<br>
                         • 8 种快速生成模式库<br>
                         • 完整工具清单（21 个工具 + 选择原则）<br>
                         • 数据纪律 + 反幻觉 + 结果核验 + 硬约束
                     </td>
                     <td>始终加载</td>
-                    <td>覆盖 80% 的 CRM 标准场景，提供完整的专业深度指导</td>
+                    <td>流程编排 + 域路由 + 质量保障</td>
                 </tr>
                 <tr>
-                    <td><span class="badge badge-purple"><code>generic.md</code></span></td>
+                    <td rowspan="2"><span class="badge badge-purple">域知识层</span><br><span style="font-size:0.7rem;color:var(--gray-500);">（平级）</span></td>
+                    <td><code>account.md</code><br><code>opportunity.md</code><br><code>forecast.md</code><br><code>activity.md</code><br><code>customer_success.md</code><br><code>team.md</code></td>
                     <td>
-                        • §一 去重检查（Step 0 前置流程）<br>
-                        • §一-B 能力边界（8 类不可承载需求 + 拒绝话术）<br>
-                        • §二 通用分析四框架（描述性/诊断性/预测性/处方性）<br>
-                        • §三 分析维度选择方法论<br>
-                        • §四 跨域组合指导<br>
-                        • §五 非分析类技能设计指导<br>
-                        • §五-B ToB CRM 领域内置知识体系（18 方法论 + 20+ 基准指标）<br>
-                        • §六-十 Prompt 骨架 / 工具选择 / 置信度 / 异常处理 / 完整示例
+                        • 各域的完整专业分析体系<br>
+                        • 业务本质 + 核心方法论 + 深度分析维度<br>
+                        • 行业基准 + Prompt 设计指导
                     </td>
-                    <td>按需加载（跨域/非CRM/通用场景）</td>
-                    <td>兜底保障 — 非标准场景的完整指导 + 专业性注入</td>
+                    <td>按需加载（匹配到对应业务域时）</td>
+                    <td>提供 6 大 CRM 标准场景的深度专业知识</td>
+                </tr>
+                <tr>
+                    <td><code>generic.md</code></td>
+                    <td>
+                        • §一 去重检查 + 能力边界<br>
+                        • §二 通用分析四框架（描述性/诊断性/预测性/处方性）<br>
+                        • §三-四 维度选择方法论 + 跨域组合指导<br>
+                        • §五 非分析类技能设计指导<br>
+                        • §五-B ToB CRM 知识体系（18 方法论 + 20+ 基准）<br>
+                        • §六-十 Prompt 骨架 / 工具选择 / 置信度 / 异常处理
+                    </td>
+                    <td>按需加载（跨域/非标/通用场景）</td>
+                    <td>兜底保障 — 非标准场景 + 跨域组合指导</td>
                 </tr>
             </tbody>
         </table>
+
+        <div class="callout callout-key">
+            <span style="font-size:1.1rem;">⚠️</span>
+            <div><strong>关键澄清</strong>：6 个业务域 md 和 generic.md 是<strong>平级关系</strong>，都位于 <code>knowledge/domains/</code> 目录下。SKILL.md 中内联的是各域的"路由摘要"（精简版，用于快速判断该加载哪个域文件），而非完整的域知识。完整的深度知识存储在各域 md 文件中，按需加载。</div>
+        </div>
 
         <h3>文件结构</h3>
 
@@ -219,7 +263,7 @@
                     <div style="position:relative; padding-left:24px;">
                         <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
                         <span style="color:var(--primary); font-weight:600;"><code>SKILL.md</code></span>
-                        <span style="color:var(--gray-500); margin-left:12px; font-size:0.75rem;">主文件 · ~890 行 · 内联 6 域分析体系 + 完整设计流程</span>
+                        <span style="color:var(--gray-500); margin-left:12px; font-size:0.75rem;">主文件 · ~890 行 · 域路由摘要 + 设计流程 + 模式库 + 硬约束</span>
                     </div>
                     <div style="position:relative; padding-left:24px;">
                         <span style="position:absolute;left:0;color:var(--gray-400);">└──</span>
@@ -394,42 +438,61 @@
             </div>
         </div>
 
-        <h3><code>SKILL.md</code> 内联的 6 大业务域</h3>
+        <h3>域知识文件一览（7 个平级文件）</h3>
 
         <table class="tbl">
             <thead>
-                <tr><th>业务域</th><th>核心方法论</th><th>分析体系</th></tr>
+                <tr><th>文件</th><th>业务域</th><th>核心方法论</th><th>深度知识内容</th><th>加载触发</th></tr>
             </thead>
             <tbody>
                 <tr>
-                    <td><span class="badge badge-blue">域 1</span> 客户分析</td>
+                    <td><span class="badge badge-blue">account.md</span></td>
+                    <td>客户分析</td>
                     <td>客户 360 + LTV</td>
-                    <td>五维画像（基础/业务/组织/关系/价值）+ 5 深度分析维度 + 交叉关联逻辑</td>
+                    <td>五维画像 + ABM 五级分级 + 成熟度判断 + 5 深度分析维度 + 交叉关联</td>
+                    <td>域路由匹配"客户"</td>
                 </tr>
                 <tr>
-                    <td><span class="badge badge-blue">域 2</span> 商机管理</td>
+                    <td><span class="badge badge-blue">opportunity.md</span></td>
+                    <td>商机管理</td>
                     <td>MEDDIC 框架</td>
-                    <td>6 维度完成度评估 + 商机推进策略（阶段转化/竞争态势/风险信号/赢单路径/预测置信度）</td>
+                    <td>6 维度评分 + 推进策略 + 竞争分析 + 赢/丢单归因</td>
+                    <td>域路由匹配"商机"</td>
                 </tr>
                 <tr>
-                    <td><span class="badge badge-blue">域 3</span> 销售预测</td>
+                    <td><span class="badge badge-blue">forecast.md</span></td>
+                    <td>销售预测</td>
                     <td>Pipeline Coverage</td>
-                    <td>5 维健康度模型（覆盖率/形态/流速/质量/时效）+ Forecast 准确度分析</td>
+                    <td>5 维健康度模型 + Forecast 三档 + 达成概率模型</td>
+                    <td>域路由匹配"预测/Pipeline"</td>
                 </tr>
                 <tr>
-                    <td><span class="badge badge-blue">域 4</span> 销售行为</td>
+                    <td><span class="badge badge-blue">activity.md</span></td>
+                    <td>销售行为</td>
                     <td>活动效能模型</td>
-                    <td>量/质/节奏/模式/转化 五维 + 最佳实践提取 + 风险预警 + 辅导建议</td>
+                    <td>量/质/节奏/模式/转化 五维 + Top Sales 模式 + 辅导建议</td>
+                    <td>域路由匹配"活动/行为"</td>
                 </tr>
                 <tr>
-                    <td><span class="badge badge-blue">域 5</span> 客户成功</td>
+                    <td><span class="badge badge-blue">customer_success.md</span></td>
+                    <td>客户成功</td>
                     <td>Health Score</td>
-                    <td>5 维健康度评分（产品使用/关系/商业/支持/价值）+ 续约风险预测 + 挽回策略</td>
+                    <td>5 维健康度评分 + 流失信号体系 + 挽回策略库</td>
+                    <td>域路由匹配"续约/流失"</td>
                 </tr>
                 <tr>
-                    <td><span class="badge badge-blue">域 6</span> 团队管理</td>
+                    <td><span class="badge badge-blue">team.md</span></td>
+                    <td>团队管理</td>
                     <td>绩效矩阵</td>
-                    <td>目标达成/效率指标/能力矩阵/资源分配/辅导优先级</td>
+                    <td>绩效五维 + 九宫格 + 辅导 ROI 算法</td>
+                    <td>域路由匹配"团队/绩效"</td>
+                </tr>
+                <tr style="background: var(--success-light);">
+                    <td><span class="badge badge-green">generic.md</span></td>
+                    <td>通用兜底</td>
+                    <td>四框架 + 知识体系</td>
+                    <td>去重检查 + 能力边界 + 通用四框架 + 跨域指导 + 18 方法论 + 异常处理</td>
+                    <td>无法归类 / 跨域 / 非标场景</td>
                 </tr>
             </tbody>
         </table>
@@ -464,20 +527,20 @@
 
         <div class="card-row">
             <div class="card" style="border-top: 3px solid var(--primary);">
-                <div class="card-title">🎯 内联即用，零延迟</div>
-                <div class="card-desc">6 大业务域分析体系直接内联在 <code>SKILL.md</code> 中，无需额外工具调用加载，LLM 立即可用。</div>
+                <div class="card-title">🎯 轻量主控，按需深入</div>
+                <div class="card-desc"><code>SKILL.md</code> 仅包含路由摘要和流程编排，保持主文件精简。深度知识按需从域文件加载，避免 token 浪费。</div>
             </div>
             <div class="card" style="border-top: 3px solid var(--secondary);">
-                <div class="card-title">📚 专业深度完整</div>
-                <div class="card-desc">每个域含完整分析体系（画像结构 + 深度维度 + Prompt 逻辑要求），从方法论到落地一步到位。</div>
+                <div class="card-title">📚 平级域知识，独立演进</div>
+                <div class="card-desc">7 个域文件平级独立，各自维护各自的专业深度。新增业务域只需添加新文件，不影响其他域。</div>
             </div>
             <div class="card" style="border-top: 3px solid var(--success);">
-                <div class="card-title">🛡️ 双重保障</div>
-                <div class="card-desc"><code>SKILL.md</code> 覆盖标准场景，<code>generic.md</code> 兜底非标场景（跨域/非CRM/新兴业务），无死角。</div>
+                <div class="card-title">🛡️ 无死角覆盖</div>
+                <div class="card-desc">6 个业务域覆盖 CRM 标准场景，<code>generic.md</code> 兜底非标场景（跨域/非CRM/新兴业务），确保任何需求都有对应指导。</div>
             </div>
             <div class="card" style="border-top: 3px solid var(--warning);">
-                <div class="card-title">🔧 资源架构内置</div>
-                <div class="card-desc">Step 2.5 内置完整的资源决策树（references/scripts/knowledge），指导被创建技能的资源规划。</div>
+                <div class="card-title">🔧 灵活组合加载</div>
+                <div class="card-desc">跨域需求可同时加载多个域文件 + generic.md 的跨域组合指导，实现灵活的知识组合。</div>
             </div>
         </div>
 
@@ -544,7 +607,7 @@
 
         <h3>1. <code>SKILL.md</code> — 主文件设计（始终加载）</h3>
 
-        <p><code>SKILL.md</code> 约 500 行，<strong>内联 6 大业务域的完整专业分析体系</strong>，同时包含完整的设计流程和质量保障机制：</p>
+        <p><code>SKILL.md</code> 约 890 行，<strong>包含 6 大业务域的路由摘要和完整的设计流程</strong>，负责流程编排和域路由决策。深度专业知识通过按需加载域文件获取：</p>
 
         <div style="margin: 14px 0; background: #f8fafc; border: 1px solid var(--gray-200); border-radius: 8px; overflow: hidden;">
             <!-- 角色 -->
@@ -554,15 +617,16 @@
             </div>
             <!-- 6 大业务域 -->
             <div style="padding: 14px 20px; border-bottom: 1px solid var(--gray-200);">
-                <div style="font-size: 0.78rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">🏢 内联 6 大业务域（§一）</div>
+                <div style="font-size: 0.78rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">🏢 6 大业务域路由摘要（§一）</div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; font-size: 0.84rem; color: var(--gray-700);">
-                    <div>域 1: 客户分析 — 五维画像 + 深度分析维度</div>
-                    <div>域 2: 商机管理 — MEDDIC 框架 + 推进策略</div>
-                    <div>域 3: 销售预测 — Pipeline 健康度 + Forecast</div>
-                    <div>域 4: 销售行为 — 活动效能模型</div>
-                    <div>域 5: 客户成功 — Health Score + 续约风险</div>
-                    <div>域 6: 团队管理 — 绩效矩阵 + 辅导优先级</div>
+                    <div>域 1: 客户分析 → account.md</div>
+                    <div>域 2: 商机管理 → opportunity.md</div>
+                    <div>域 3: 销售预测 → forecast.md</div>
+                    <div>域 4: 销售行为 → activity.md</div>
+                    <div>域 5: 客户成功 → customer_success.md</div>
+                    <div>域 6: 团队管理 → team.md</div>
                 </div>
+                <div style="font-size: 0.78rem; color: var(--gray-500); margin-top: 6px; font-style: italic;">SKILL.md 中仅包含各域的关键词匹配规则和核心方法论名称，完整分析体系在各域文件中</div>
             </div>
             <!-- 设计流程 -->
             <div style="padding: 14px 20px; border-bottom: 1px solid var(--gray-200);">
@@ -598,9 +662,10 @@
             <div style="padding: 14px 20px; border-bottom: 1px solid var(--gray-200);">
                 <div style="font-size: 0.78rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">🗺️ 域路由规则（Step 1）</div>
                 <div style="font-size: 0.82rem; color: var(--gray-700); line-height: 1.8;">
-                    • 匹配预定义域（域 1-6）→ 使用该域的内联专业分析体系<br>
+                    • 匹配预定义域（域 1-6）→ 加载对应的 <code>knowledge/domains/{域}.md</code> 深度知识<br>
                     • 无法归类 / 跨域 / 非 CRM 标准场景 → 加载 <code>knowledge/domains/generic.md</code><br>
-                    • 跨域需求 → 主域内联体系 + <code>generic.md</code> 跨域组合指导
+                    • 跨域需求 → 加载主域文件 + generic.md 跨域组合指导<br>
+                    <em style="font-size:0.78rem; color:var(--gray-500);">注：SKILL.md 中内联的是各域的路由摘要（精简版），完整深度知识在各域 md 文件中</em>
                 </div>
             </div>
             <!-- 模式库 + 工具 -->
@@ -692,13 +757,13 @@
                 <tr>
                     <td>"创建商机赢率分析技能"</td>
                     <td>Step 0 → Step 1（域 2）→ Step 2 → Step 4</td>
-                    <td><code>SKILL.md</code> 内联域 2（MEDDIC）</td>
-                    <td>MEDDIC 6 维度完整评估 + 推进策略，零额外加载</td>
+                    <td><code>SKILL.md</code> + <code>opportunity.md</code></td>
+                    <td>MEDDIC 6 维度完整评估 + 推进策略</td>
                 </tr>
                 <tr>
                     <td>"创建客户流失预警技能"</td>
                     <td>Step 0 → Step 1（域 5）→ Step 2.5 → Step 4</td>
-                    <td><code>SKILL.md</code> 内联域 5 + references/</td>
+                    <td><code>SKILL.md</code> + <code>customer_success.md</code> + references/</td>
                     <td>健康度评分模型 + 流失信号识别 + 挽回策略</td>
                 </tr>
                 <tr>
@@ -710,31 +775,40 @@
                 <tr>
                     <td>"统计本月新增客户数"</td>
                     <td>Step 0 → <strong>劝退</strong></td>
-                    <td>仅 <code>SKILL.md</code></td>
+                    <td>仅 <code>SKILL.md</code>（无需加载域文件）</td>
                     <td>硬约束 #2：一句 query_data 能解决，不值得建技能</td>
                 </tr>
                 <tr>
                     <td>"客户+商机综合分析"</td>
-                    <td>Step 0 → Step 1（跨域）→ 加载 <code>generic.md</code></td>
-                    <td><code>SKILL.md</code> 内联域 1+2 + <code>generic.md</code>（跨域指导）</td>
+                    <td>Step 0 → Step 1（跨域）→ 加载多域文件</td>
+                    <td><code>SKILL.md</code> + <code>account.md</code> + <code>opportunity.md</code> + <code>generic.md</code>（跨域指导）</td>
                     <td>主域深度 + 跨域组合方法论</td>
                 </tr>
                 <tr>
                     <td>"客户行业前景分析"</td>
                     <td>Step 0 → Step 1（域 1）→ Step 2.5</td>
-                    <td><code>SKILL.md</code> 内联域 1 + knowledge/ + web_search</td>
+                    <td><code>SKILL.md</code> + <code>account.md</code> + knowledge/ + web_search</td>
                     <td>客户画像 + 行业知识 + 实时动态</td>
                 </tr>
             </tbody>
         </table>
 
-        <h3>5. <code>generic.md</code> 加载时机</h3>
+        <h3>5. 域知识文件加载策略</h3>
 
-        <p><code>generic.md</code> 通过 <code>read_skill_resource</code> 按需加载，仅在以下场景触发：</p>
+        <p>7 个域知识文件均通过 <code>read_skill_resource</code> 按需加载，触发条件各不相同：</p>
 
         <div style="margin: 14px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-            <div style="padding: 12px 16px; background: var(--secondary-light); border-radius: 8px;">
-                <div style="font-weight: 600; color: var(--secondary); margin-bottom: 4px; font-size: 0.85rem;">触发加载的场景</div>
+            <div style="padding: 12px 16px; background: var(--primary-light); border-radius: 8px; border-left: 4px solid var(--primary);">
+                <div style="font-weight: 600; color: var(--primary); margin-bottom: 4px; font-size: 0.85rem;">6 个业务域文件加载时机</div>
+                <div style="font-size: 0.8rem; line-height: 1.7; color: var(--gray-700);">
+                    • 用户需求明确属于某个业务域<br>
+                    • SKILL.md 中的路由摘要匹配成功<br>
+                    • 需要该域的深度分析体系指导<br>
+                    <em style="color:var(--gray-500);">例：用户说"创建商机赢率分析" → 加载 opportunity.md</em>
+                </div>
+            </div>
+            <div style="padding: 12px 16px; background: var(--secondary-light); border-radius: 8px; border-left: 4px solid var(--secondary);">
+                <div style="font-weight: 600; color: var(--secondary); margin-bottom: 4px; font-size: 0.85rem;">generic.md 加载时机</div>
                 <div style="font-size: 0.8rem; line-height: 1.7; color: var(--gray-700);">
                     • 用户需求无法归类到 6 大业务域<br>
                     • 跨域组合需求（需要跨域指导）<br>
@@ -743,19 +817,20 @@
                     • 需要专业性注入（知识体系参考）
                 </div>
             </div>
-            <div style="padding: 12px 16px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px;">
-                <div style="font-weight: 600; color: var(--gray-700); margin-bottom: 4px; font-size: 0.85rem;">不需要加载的场景</div>
-                <div style="font-size: 0.8rem; line-height: 1.7; color: var(--gray-600);">
-                    • 明确属于 6 大业务域之一<br>
-                    • <code>SKILL.md</code> 内联体系已足够指导<br>
-                    • 简单技能（被劝退或快速路径）
-                </div>
+        </div>
+
+        <div style="margin: 14px 0; padding: 12px 16px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px;">
+            <div style="font-weight: 600; color: var(--gray-700); margin-bottom: 4px; font-size: 0.85rem;">不需要加载域文件的场景</div>
+            <div style="font-size: 0.8rem; line-height: 1.7; color: var(--gray-600);">
+                • SKILL.md 中的路由摘要已足够指导（简单技能）<br>
+                • 被劝退的需求（Step 0 拒绝）<br>
+                • 快速路径模式（模式库直接匹配）
             </div>
         </div>
 
         <div class="callout callout-info">
             <span style="font-size:1.1rem;">💡</span>
-            <div><strong>实现要点</strong>：6 大业务域的专业分析体系直接内联在 <code>SKILL.md</code> 中，LLM 无需任何工具调用即可使用。仅当遇到非标场景时，通过 <code>read_skill_resource(skill_name="create_skill", resource_name="knowledge/domains/generic.md")</code> 按需加载兜底知识。</div>
+            <div><strong>实现要点</strong>：SKILL.md 中包含各域的路由摘要（关键词 + 核心方法论名称），用于快速判断该加载哪个域文件。当匹配到具体业务域时，通过 <code>read_skill_resource(skill_name="create_skill", resource_name="knowledge/domains/{域}.md")</code> 加载完整深度知识。遇到非标场景时，加载 <code>generic.md</code> 作为兜底。7 个域文件地位平等，加载机制相同。</div>
         </div>
     </div>
 
@@ -788,8 +863,8 @@
         <div style="margin: 14px 0; padding: 16px 20px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px; font-size: 0.82rem; line-height: 2.2; color: var(--gray-700);">
             <div style="font-weight:700; margin-bottom:8px;">章节结构：</div>
             <div style="padding-left:12px;">
-                <div>├── §一 toB CRM 技能体系（6 大业务域，每域含完整分析体系）</div>
-                <div>├── §二 技能设计流程（Step 0-8，含前置检查 + 资源架构决策 + 沙盒验证）</div>
+                <div>├── §一 toB CRM 技能体系（6 大业务域<strong>路由摘要</strong>，含关键词匹配 + 核心方法论名称）</div>
+                <div>├── §二 技能设计流程（Step 0-8，含前置检查 + 域文件加载 + 资源架构决策 + 沙盒验证）</div>
                 <div>├── §三 快速生成模式库（8 种模式 A-H）</div>
                 <div>├── §四 可用工具清单（21 个工具 + 选择原则）</div>
                 <div>└── §五 硬约束（10 条不可违反的规则）</div>
@@ -880,12 +955,12 @@
         <table class="tbl">
             <thead><tr><th>业务域</th><th>用户输入示例</th><th>预期域路由</th><th>预期专业性</th></tr></thead>
             <tbody>
-                <tr><td>域1 客户</td><td>"帮我创建一个客户 360 画像分析技能"</td><td>域1 内联体系</td><td>五维画像 + 交叉关联 + 判断 + 预测</td></tr>
-                <tr><td>域2 商机</td><td>"创建一个商机推进策略建议技能"</td><td>域2 内联体系</td><td>MEDDIC + 风险信号 + 赢单路径</td></tr>
-                <tr><td>域3 预测</td><td>"创建一个 Pipeline 健康度诊断技能"</td><td>域3 内联体系</td><td>5维健康度 + Forecast三档 + 达成概率</td></tr>
-                <tr><td>域4 行为</td><td>"创建一个销售活动效能分析技能"</td><td>域4 内联体系</td><td>效能5维 + Top Sales对比 + 辅导建议</td></tr>
-                <tr><td>域5 客户成功</td><td>"创建一个客户续约风险预警技能"</td><td>域5 内联体系</td><td>健康度评分 + 流失信号 + 挽回策略</td></tr>
-                <tr><td>域6 团队</td><td>"创建一个团队绩效排名和辅导建议技能"</td><td>域6 内联体系</td><td>绩效矩阵 + 九宫格 + 辅导优先级</td></tr>
+                <tr><td>域1 客户</td><td>"帮我创建一个客户 360 画像分析技能"</td><td>加载 account.md</td><td>五维画像 + 交叉关联 + 判断 + 预测</td></tr>
+                <tr><td>域2 商机</td><td>"创建一个商机推进策略建议技能"</td><td>加载 opportunity.md</td><td>MEDDIC + 风险信号 + 赢单路径</td></tr>
+                <tr><td>域3 预测</td><td>"创建一个 Pipeline 健康度诊断技能"</td><td>加载 forecast.md</td><td>5维健康度 + Forecast三档 + 达成概率</td></tr>
+                <tr><td>域4 行为</td><td>"创建一个销售活动效能分析技能"</td><td>加载 activity.md</td><td>效能5维 + Top Sales对比 + 辅导建议</td></tr>
+                <tr><td>域5 客户成功</td><td>"创建一个客户续约风险预警技能"</td><td>加载 customer_success.md</td><td>健康度评分 + 流失信号 + 挽回策略</td></tr>
+                <tr><td>域6 团队</td><td>"创建一个团队绩效排名和辅导建议技能"</td><td>加载 team.md</td><td>绩效矩阵 + 九宫格 + 辅导优先级</td></tr>
                 <tr><td><strong>跨域</strong></td><td>"创建一个客户+商机综合分析技能"</td><td>域1+2 + generic.md</td><td>主域深度 + 跨域关联</td></tr>
                 <tr><td><strong>非标</strong></td><td>"创建一个渠道合作伙伴分析技能"</td><td>generic.md 兜底</td><td>通用四框架 + 维度选择方法论</td></tr>
                 <tr><td><strong>非分析类</strong></td><td>"创建一个自动生成周报的技能"</td><td>generic.md §五</td><td>报告生成类 Prompt 骨架</td></tr>
@@ -928,7 +1003,7 @@
                 <tr><td><strong>模糊意图</strong></td><td>"帮我创建一个分析的技能"</td><td>追问：分析什么？给谁用？期望什么输出？</td></tr>
                 <tr><td><strong>多意图</strong></td><td>"创建既能分析客户又能生成报告还能预测收入的技能"</td><td>建议拆分为多个独立技能</td></tr>
                 <tr><td><strong>涉及写操作</strong></td><td>"创建自动更新商机阶段的技能"</td><td>allowed_tools 含 modify_data + ask_user</td></tr>
-                <tr><td><strong>文件导出</strong></td><td>"创建导出客户数据为 CSV 的技能"</td><td>allowed_tools 含 execute_code + cos_upload</td></tr>
+                <tr><td><strong>文件导出</strong></td><td>"创建导出客户数据为 CSV 的技能"</td><td>allowed_tools 含 execute_code + file_upload</td></tr>
                 <tr><td><strong>fork 模式</strong></td><td>"创建需要多轮复杂推理的深度分析技能"</td><td>context: fork，指定子 Agent</td></tr>
                 <tr><td><strong>非 CRM</strong></td><td>"创建分析产品使用数据的技能"</td><td>加载 generic.md，通用四框架</td></tr>
             </tbody>
@@ -1868,7 +1943,7 @@ ask_user(
 | ask_user | 向用户发起确认/选择/输入请求（中断等待响应） | interrupt_type(confirm/select/multi_select/input), title, message, options | 涉及写操作或需要用户补充信息的技能 |
 | ask_clarification | 信息不足或有歧义时中断追问 | question(必填), clarification_type, options | 参数可能不完整的技能 |
 | web_search | 搜索互联网获取实时外部信息 | query(必填), max_results | 需要行业动态/公司信息/竞品新闻的技能 |
-| cos_upload | 上传文件到 COS 对象存储，返回 URL | file_path(必填), bucket, prefix | 需要导出报告/图表文件的技能 |
+| file_upload | 上传文件到 COS 对象存储，返回 URL | file_path(必填), bucket, prefix | 需要导出报告/图表文件的技能 |
 
 ### 工具选择原则
 
@@ -1878,7 +1953,7 @@ ask_user(
 3. 需要复杂计算 → 加 terminal + execute_code + read_file + write_file
 4. 涉及数据写入 → 加 modify_data + ask_user（必须配对，写前确认）
 5. 需要产品文档 → 加 knowledge_search
-6. 需要导出文件 → 加 cos_upload
+6. 需要导出文件 → 加 file_upload
 
 禁止：
 - 不要把 manage_skill 加到普通技能中（那是 create_skill 专用的）
@@ -3285,7 +3360,7 @@ Step 0-C: 判断相似度：
 ├── 知识检索（产品文档/FAQ/最佳实践）
 ├── 外部信息补充（通过 web_search 获取公开信息）
 ├── 计算与建模（通过 execute_code 执行统计模型）
-└── 文件导出（CSV/报告文件通过 cos_upload 下载）
+└── 文件导出（CSV/报告文件通过 file_upload 下载）
 
 ❌ 不能做的：
 ├── 物理世界操作（打电话/发邮件/寄快递/制造实物）
@@ -3385,7 +3460,7 @@ Step 0: 边界检查（在 Step 1 意图识别之前）
 
 **工具 Pipeline：**
 ```
-query_data(获取明细) → analyze_data(聚合统计) → analyze_data(分组对比) → [cos_upload(导出)]
+query_data(获取明细) → analyze_data(聚合统计) → analyze_data(分组对比) → [file_upload(导出)]
 ```
 
 **Prompt 构建要求：**
@@ -3709,11 +3784,11 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
 - 明确筛选条件参数化（{时间范围}、{筛选条件}）
 - 大数据量处理策略：
   - 记录数 &lt;100：直接展示 Markdown 表格
-  - 记录数 100-1000：cos_upload 生成 CSV 下载链接
-  - 记录数 &gt;1000：分页查询 + cos_upload，提示用户&quot;数据量较大，已生成文件&quot;
-- 输出方式选择：直接展示（小量）/ cos_upload 文件下载（大量）
+  - 记录数 100-1000：file_upload 生成 CSV 下载链接
+  - 记录数 &gt;1000：分页查询 + file_upload，提示用户&quot;数据量较大，已生成文件&quot;
+- 输出方式选择：直接展示（小量）/ file_upload 文件下载（大量）
 
-**工具选择：** `query_data` + `cos_upload`（大数据量时）+ `ask_user`（确认导出范围）
+**工具选择：** `query_data` + `file_upload`（大数据量时）+ `ask_user`（确认导出范围）
 
 **Prompt 骨架：**
 ```
@@ -3724,7 +3799,7 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
 - 先 count 确认数据量
 ## 步骤 3: 格式化输出
 - &lt;100 条：Markdown 表格直接展示
-- ≥100 条：write_file → cos_upload → 返回下载链接
+- ≥100 条：write_file → file_upload → 返回下载链接
 ## 步骤 4: 数据完整性声明
 - &quot;共导出 X 条记录，时间范围：{range}，筛选条件：{filters}&quot;
 ```
@@ -3745,7 +3820,7 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
   - 💡 建议部分（可行动的下一步）
   - ⚠️ 局限性声明（数据范围/缺失/假设）
 
-**工具选择：** `query_data` + `analyze_data` + `knowledge_search`（模板/历史报告）+ `cos_upload`（长报告）
+**工具选择：** `query_data` + `analyze_data` + `knowledge_search`（模板/历史报告）+ `file_upload`（长报告）
 
 **Prompt 骨架：**
 ```
@@ -4165,7 +4240,7 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
 | **read_file** | 读取沙盒中的文件 | path, offset, limit | 读取脚本输出/生成报告 | ⭐⭐ |
 | **write_file** | 在沙盒中创建或覆盖文件 | path, content | 写入数据供脚本处理/保存中间结果 | ⭐⭐ |
 | **search_files** | 在沙盒中递归搜索文件内容 | pattern, path, include | 在脚本/配置中查找特定内容 | ⭐ |
-| **cos_upload** | 上传文件到 COS 对象存储 | file_path, bucket, prefix | 需要导出报告/图表/大数据文件的技能 | ⭐⭐ |
+| **file_upload** | 上传文件到 COS 对象存储 | file_path, bucket, prefix | 需要导出报告/图表/大数据文件的技能 | ⭐⭐ |
 | **manage_memory** | 管理 Agent 长期记忆 | action, keyword, memory_ids | 涉及记忆管理的技能 | ⭐ |
 | **memory_read** | 按需读取记忆详情 | memory_id, level | 需要读取历史记忆的技能 | ⭐ |
 | **browse_metamodel** | 浏览元模型层定义 | query_type, metamodel_api_key | 元数据管理/配置类技能 | ⭐ |
@@ -4208,16 +4283,16 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
 │ ⚠️ modify_data 必须与 ask_user 配对，写前必须确认                          │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ Pipeline F: 报告导出                                                     │
-│ query_data → analyze_data → write_file(生成) → cos_upload(上传) → 输出   │
+│ query_data → analyze_data → write_file(生成) → file_upload(上传) → 输出   │
 │ 适用：周报/月报生成、数据导出、文件下载                                     │
-│ allowed_tools: [&quot;query_data&quot;, &quot;analyze_data&quot;, &quot;write_file&quot;, &quot;cos_upload&quot;]│
+│ allowed_tools: [&quot;query_data&quot;, &quot;analyze_data&quot;, &quot;write_file&quot;, &quot;file_upload&quot;]│
 │ 可选追加: &quot;execute_code&quot;（复杂格式处理）                                   │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ Pipeline G: 脚本驱动分析                                                  │
 │ terminal(安装依赖) → write_file(写脚本) → execute_code(执行) → read_file  │
 │ 适用：复杂统计模型、可视化图表、自定义算法                                   │
 │ allowed_tools: [&quot;terminal&quot;, &quot;execute_code&quot;, &quot;write_file&quot;, &quot;read_file&quot;,  │
-│                 &quot;query_data&quot;, &quot;cos_upload&quot;]                              │
+│                 &quot;query_data&quot;, &quot;file_upload&quot;]                              │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -4234,7 +4309,7 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
 5. 需要复杂计算/建模 → 追加 execute_code（+ write_file + read_file）
 6. 需要安装依赖/运行脚本 → 追加 terminal
 7. 涉及数据写入 → 追加 modify_data + ask_user（必须配对）
-8. 需要导出文件 → 追加 cos_upload（+ write_file）
+8. 需要导出文件 → 追加 file_upload（+ write_file）
 9. 参数可能不完整 → 追加 ask_clarification
 10. 需要用户决策/确认 → 追加 ask_user
 
@@ -4362,7 +4437,7 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
 **分析过程：**
 - 场景判断：报告生成类，使用 5.2 节指导
 - 受众判断：给销售经理看 → 数据详实 + 团队表现 + 行动项
-- 工具选择：Pipeline F = query_data + analyze_data + write_file + cos_upload
+- 工具选择：Pipeline F = query_data + analyze_data + write_file + file_upload
 - 复杂度：🟡中等
 
 **生成的技能定义：**
@@ -4376,7 +4451,7 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
     &quot;team&quot;: &quot;团队范围：&#x27;my_team&#x27;=我的团队，或具体团队名称&quot;,
     &quot;week&quot;: &quot;报告周次：&#x27;本周&#x27;（默认）或具体日期如&#x27;2025-05-19&#x27;&quot;
   },
-  &quot;allowed_tools&quot;: [&quot;query_data&quot;, &quot;analyze_data&quot;, &quot;write_file&quot;, &quot;cos_upload&quot;],
+  &quot;allowed_tools&quot;: [&quot;query_data&quot;, &quot;analyze_data&quot;, &quot;write_file&quot;, &quot;file_upload&quot;],
   &quot;risk_level&quot;: &quot;read_only&quot;,
   &quot;max_tool_calls&quot;: 15
 }
@@ -4401,6 +4476,423 @@ Prompt 中必须明确关联路径，禁止假设关联关系存在。
     </script>
 
 </div><!-- end page 6 -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- PAGE 7: Update Skill 设计逻辑 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page">
+
+    <div class="doc-header" style="background: linear-gradient(135deg, #1e3a5f 0%, #059669 50%, #2563eb 100%);">
+        <h1>Update Skill 更新技能设计逻辑</h1>
+        <div class="subtitle">基于用户反馈的对话式技能安全更新 — 深度对比分析 + 版本化管理</div>
+        <div class="meta">Agent System · Skill Engine · 2025-05-28</div>
+    </div>
+
+    <!-- 概述 -->
+    <div class="section">
+        <h2>🎯 设计定位</h2>
+        <p><strong>核心职责</strong>：根据用户反馈或优化需求，通过对话式流程安全地更新已有技能定义，确保修改后质量 ≥ 修改前。</p>
+
+        <div class="card-row">
+            <div class="card">
+                <div class="card-title">🔑 触发词</div>
+                <div class="card-desc">更新技能 | 修改技能 | 优化技能 | 改进技能 | 调整技能 | 技能不好用 | 技能有问题 | 升级技能</div>
+            </div>
+            <div class="card">
+                <div class="card-title">🛠️ 可用工具（9 个）</div>
+                <div class="card-desc">manage_skill · ask_user · query_schema · query_data · analyze_data · web_search · knowledge_search · list_knowledge_bases · read_skill_resource</div>
+            </div>
+            <div class="card">
+                <div class="card-title">⚡ 与 create_skill 的关系</div>
+                <div class="card-desc">create_skill 从零设计 → update_skill 增量修改。重写场景（E）等同重新设计但保留 api_key 不变。</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 五大场景 -->
+    <div class="section">
+        <h2>📋 五大更新场景</h2>
+
+        <table class="tbl">
+            <thead>
+                <tr><th>场景</th><th>类型</th><th>典型触发</th><th>修改策略</th><th>版本号</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="badge badge-orange">A</span></td>
+                    <td>修复问题<br>(Bug Fix)</td>
+                    <td>工具调用失败 · 输出格式错 · 参数不匹配 · 数据查询逻辑有误</td>
+                    <td>最小化修改，只修出问题的部分，回归验证</td>
+                    <td>修订号+1<br><code>1.0.0→1.0.1</code></td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-blue">B</span></td>
+                    <td>优化提升<br>(Enhancement)</td>
+                    <td>分析深度不够 · 建议太空泛 · 缺数据溯源 · 缺结果核验</td>
+                    <td>对照 create_skill 质量标准补充缺失，增量优化</td>
+                    <td>次版本+1<br><code>1.0.0→1.1.0</code></td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-purple">C</span></td>
+                    <td>功能扩展<br>(Extension)</td>
+                    <td>增加分析维度 · 新增工具调用 · 新增资源文件 · 新参数</td>
+                    <td>1-2维度→扩展；3+维度→建议新建技能</td>
+                    <td>次版本+1<br><code>1.0.0→1.1.0</code></td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-green">D</span></td>
+                    <td>配置调整<br>(Config)</td>
+                    <td>改触发词 · 调超时 · 改分类标签 · 启用/禁用</td>
+                    <td>直接改配置字段，不改 Prompt</td>
+                    <td>修订号+1<br><code>1.0.0→1.0.1</code></td>
+                </tr>
+                <tr style="background: var(--danger-light);">
+                    <td><span class="badge" style="background:#fee2e2;color:#dc2626;">E</span></td>
+                    <td>重构重写<br>(Rewrite)</td>
+                    <td>Prompt 整体不达标 · 分析框架变更 · 业务逻辑根本变化</td>
+                    <td>等同重新设计，参考 create_skill 完整流程，保留 api_key</td>
+                    <td>主版本+1<br><code>1.0.0→2.0.0</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 9步流程 -->
+    <div class="section">
+        <h2>🔄 9 步更新流程</h2>
+
+        <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 0.78rem; margin: 14px 0;">
+            <span style="background:var(--primary-light); color:var(--primary); padding:4px 10px; border-radius:4px; font-weight:600;">Step 1 加载定义</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--primary-light); color:var(--primary); padding:4px 10px; border-radius:4px; font-weight:500;">Step 2 理解意图</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--secondary-light); color:var(--secondary); padding:4px 10px; border-radius:4px; font-weight:500;">Step 3 设计方案</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--success-light); color:var(--success); padding:4px 10px; border-radius:4px; font-weight:500;">Step 4 数据验证</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--warning-light); color:var(--warning); padding:4px 10px; border-radius:4px; font-weight:700;">Step 5 深度对比</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--primary-light); color:var(--primary); padding:4px 10px; border-radius:4px; font-weight:500;">Step 6 质量自检</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--secondary-light); color:var(--secondary); padding:4px 10px; border-radius:4px; font-weight:500;">Step 7 用户确认</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--success-light); color:var(--success); padding:4px 10px; border-radius:4px; font-weight:600;">Step 8 执行更新</span>
+            <span style="color:var(--gray-400);">→</span>
+            <span style="background:var(--gray-100); color:var(--gray-600); padding:4px 10px; border-radius:4px; font-weight:500;">Step 9 验证(可选)</span>
+        </div>
+
+        <div class="card-row">
+            <div class="card" style="border-left: 3px solid var(--primary);">
+                <div class="card-title">Step 1: 加载现有技能定义</div>
+                <div class="card-desc">
+                    ① 确定目标技能（api_key / 名称匹配 / 追问）<br>
+                    ② 系统技能前置拦截（system_flg=1 禁止修改）<br>
+                    ③ manage_skill(list) + query_data 获取完整定义<br>
+                    ④ read_skill_resource 加载资源文件<br>
+                    ⑤ 向用户展示当前概要
+                </div>
+            </div>
+            <div class="card" style="border-left: 3px solid var(--primary);">
+                <div class="card-title">Step 2: 理解更新意图</div>
+                <div class="card-desc">
+                    • 判断场景（A/B/C/D/E）<br>
+                    • 修改范围：Prompt / 配置 / 资源 / 全部<br>
+                    • 影响评估：兼容性 · arguments · tools<br>
+                    • "不好用"无方向 → ask_user 多选追问
+                </div>
+            </div>
+            <div class="card" style="border-left: 3px solid var(--secondary);">
+                <div class="card-title">Step 3: 设计修改方案</div>
+                <div class="card-desc">
+                    • A: 定位根因 → 最小化修复<br>
+                    • B: 对照质量标准补缺（数据纪律/核验/溯源）<br>
+                    • C: 评估扩展 vs 新建（1-2维度扩展，3+新建）<br>
+                    • D: 直接改配置字段<br>
+                    • E: 参考 create_skill 完整流程重写
+                </div>
+            </div>
+            <div class="card" style="border-left: 3px solid var(--success);">
+                <div class="card-title">Step 4: 数据可用性验证</div>
+                <div class="card-desc">
+                    如涉及新增数据查询：<br>
+                    • query_schema(list_entities) 确认对象存在<br>
+                    • query_schema(entity_items) 确认字段存在<br>
+                    • 验证 filters 条件合理性
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 5 核心亮点 -->
+        <h3>Step 5: 深度对比分析（核心步骤）</h3>
+        <div class="callout callout-key">
+            <span style="font-size:1.1rem;">⚠️</span>
+            <div><strong>不是用户说改就改</strong> — 对每处修改进行专业评估，逐点对比当前逻辑 vs 修改后逻辑，给出推荐方案后再执行。</div>
+        </div>
+
+        <table class="tbl">
+            <thead>
+                <tr><th>评估维度</th><th>评估问题</th><th>判断标准</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>专业性</td><td>修改后是否符合 CRM 行业方法论？</td><td>有方法论支撑 &gt; 自创逻辑</td></tr>
+                <tr><td>数据支撑</td><td>修改后的分析是否有数据可查？</td><td>有字段可查 &gt; 需要推测</td></tr>
+                <tr><td>反幻觉</td><td>修改后是否增加了幻觉风险？</td><td>有溯源标注 &gt; 无标注</td></tr>
+                <tr><td>可行动性</td><td>修改后的输出是否更可行动？</td><td>具体建议 &gt; 空泛描述</td></tr>
+                <tr><td>复杂度</td><td>修改后 Prompt 是否过于复杂？</td><td>简洁有效 &gt; 冗长低效</td></tr>
+                <tr><td>鲁棒性</td><td>修改后对数据缺失的容忍度？</td><td>有降级策略 &gt; 无异常处理</td></tr>
+                <tr><td>一致性</td><td>修改后与技能整体风格一致？</td><td>风格统一 &gt; 风格割裂</td></tr>
+            </tbody>
+        </table>
+
+        <p style="margin-top:12px;"><strong>每个修改点输出</strong>：✅ 推荐修改 / ❌ 建议保留 / ⚠️ 有条件采纳 → 汇总整体评分 + 推荐方案（全部采纳 / 部分采纳 / 不修改 / 换实现）</p>
+
+        <div class="card-row">
+            <div class="card" style="border-left: 3px solid var(--primary);">
+                <div class="card-title">Step 6: 质量自检</div>
+                <div class="card-desc">
+                    通用: api_key不变 · 参数占位符匹配 · 工具存在 · prompt完整<br>
+                    A: 问题修复 + 回归检查<br>
+                    B/C: 数据纪律 + 核验 + 溯源 + 可行动<br>
+                    E: 执行 create_skill 完整自检清单
+                </div>
+            </div>
+            <div class="card" style="border-left: 3px solid var(--secondary);">
+                <div class="card-title">Step 7: 展示报告 + 用户确认</div>
+                <div class="card-desc">
+                    展示：逐点对比表 + 评分 + 版本策略<br>
+                    ask_user 选项：采纳推荐 · 全部采纳 · 部分采纳 · 基于旧版本改 · 取消
+                </div>
+            </div>
+            <div class="card" style="border-left: 3px solid var(--success);">
+                <div class="card-title">Step 8: 执行更新（版本化）</div>
+                <div class="card-desc">
+                    ① list_versions 获取当前版本号<br>
+                    ② create_version 创建新版本<br>
+                    <strong>禁止直接修改生效中的版本</strong><br>
+                    版本号: 修订+1(A/D) · 次版本+1(B/C) · 主版本+1(E)
+                </div>
+            </div>
+            <div class="card" style="border-left: 3px solid var(--gray-300);">
+                <div class="card-title">Step 9: 验证 + 回滚</div>
+                <div class="card-desc">
+                    场景 A 建议跑测试用例验证<br>
+                    不满意 → switch_version 回滚<br>
+                    版本管理: list_versions · diff_versions · list_change_logs
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 硬约束 -->
+    <div class="section">
+        <h2>🔒 11 条硬约束</h2>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.84rem;">
+            <div style="padding: 8px 12px; background: var(--danger-light); border-radius: 6px;">① 系统预置技能（system_flg=1）禁止修改</div>
+            <div style="padding: 8px 12px; background: var(--danger-light); border-radius: 6px;">② 必须先加载现有定义才能改</div>
+            <div style="padding: 8px 12px; background: var(--danger-light); border-radius: 6px;">③ 必须用户确认后才执行 update</div>
+            <div style="padding: 8px 12px; background: var(--warning-light); border-radius: 6px;">④ api_key 保持不变</div>
+            <div style="padding: 8px 12px; background: var(--warning-light); border-radius: 6px;">⑤ 最小化修改原则（A/B/D 场景）</div>
+            <div style="padding: 8px 12px; background: var(--warning-light); border-radius: 6px;">⑥ 向后兼容优先（不随意改 arguments）</div>
+            <div style="padding: 8px 12px; background: var(--primary-light); border-radius: 6px;">⑦ 质量不降级（修改后 ≥ 修改前）</div>
+            <div style="padding: 8px 12px; background: var(--primary-light); border-radius: 6px;">⑧ 完整定义输出（非 diff）</div>
+            <div style="padding: 8px 12px; background: var(--primary-light); border-radius: 6px;">⑨ 资源文件同步更新</div>
+            <div style="padding: 8px 12px; background: var(--success-light); border-radius: 6px;">⑩ 禁止静默删除已有功能</div>
+            <div style="padding: 8px 12px; background: var(--success-light); border-radius: 6px;">⑪ 变更可追溯（说明改了什么、为什么改）</div>
+        </div>
+    </div>
+
+    <!-- 提示词核心片段 -->
+    <div class="section">
+        <h2>📝 Prompt 核心结构（SKILL.md 片段）</h2>
+        <p>以下为 update_skill 提示词的关键结构摘要（Markdown 原文）：</p>
+
+        <pre style="background: #1e293b; color: #e2e8f0; border-radius: 8px; padding: 20px 24px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.78rem; line-height: 1.7; overflow-x: auto; margin: 14px 0; white-space: pre-wrap; word-wrap: break-word;"><code>---
+name: update_skill
+description: 基于用户反馈或优化需求，通过对话式流程安全地更新已有技能的定义
+when_to_use: 更新技能|修改技能|优化技能|改进技能|调整技能|技能不好用|技能有问题|升级技能
+context: inline
+allowed-tools:
+  - manage_skill
+  - ask_user
+  - query_schema
+  - query_data
+  - analyze_data
+  - web_search
+  - knowledge_search
+  - list_knowledge_bases
+  - read_skill_resource
+arguments:
+  - requirement
+---
+
+你是一位 toB CRM 领域的技能维护工程师。你的职责是根据用户反馈或优化需求，
+安全、精准地更新已有技能的定义，确保修改后的技能质量不低于修改前。
+
+## 用户需求
+{requirement}
+
+---
+
+## 一、更新场景分类
+
+### 场景 A: 修复问题（Bug Fix）
+- 技能执行报错 / 工具调用失败
+- 输出格式不符合预期
+- 数据查询逻辑有误（错误的 entity_api_key / filters）
+
+### 场景 B: 优化提升（Enhancement）
+- 分析深度不够，需要增加维度
+- 输出不够可行动，需要强化建议部分
+- 缺少数据溯源标注 / 结果核验步骤
+
+### 场景 C: 功能扩展（Feature Extension）
+- 增加新的分析维度 / 工具调用 / 资源文件 / 参数
+
+### 场景 D: 配置调整（Config Tuning）
+- 修改触发关键词（when_to_use）/ 超时 / 分类标签
+
+### 场景 E: 重构重写（Rewrite）
+- Prompt 整体质量不达标，需要重写 / 分析框架更换
+
+---
+
+## 二、更新流程
+
+### Step 1: 加载现有技能定义
+1. 确定目标技能 → manage_skill(action="list") 匹配
+2. 系统级技能检查 → system_flg=1 禁止修改
+3. 获取完整定义 → query_data(entity_api_key="ai_skill", filters={api_key: "xxx"})
+4. 加载资源 → read_skill_resource(skill_name=xxx, resource_name=xxx)
+
+### Step 2: 理解更新意图
+├── 修改范围：仅Prompt？仅配置？Prompt+配置？资源文件？完全重写？
+├── 修改原因：具体问题 / 增强需求 / "不好用"需诊断
+└── 影响评估：向后兼容性 / arguments变更 / tools权限
+
+### Step 3: 设计修改方案（按场景策略）
+- A: 定位根因 → 最小化修复 → 回归验证
+- B: 对照质量标准补缺（数据纪律/核验/溯源/方法论）
+- C: 1-2维度→扩展；3+→建议新建技能
+- D: 直接改配置字段
+- E: 参考 create_skill 完整流程，保留 api_key
+
+### Step 4: 数据可用性验证
+query_schema(query_type="list_entities")       → 确认业务对象存在
+query_schema(query_type="entity_items", ...)   → 确认字段存在
+
+### Step 5: 深度对比分析（核心步骤）
+
+对每一处修改点：
+
+#### 逐点对比结构：
+## 修改点 N: {修改内容概述}
+### 当前逻辑 → 优点 + 缺点 + 适用场景
+### 修改后逻辑 → 优点 + 缺点/风险 + 适用场景
+### 专业判断 → ✅修改 / ❌保留 / ⚠️有条件 + 置信度
+
+#### 7 维评估：
+| 维度     | 判断标准                    |
+|----------|---------------------------|
+| 专业性   | 有方法论支撑 &gt; 自创逻辑       |
+| 数据支撑 | 有字段可查 &gt; 需要推测         |
+| 反幻觉   | 有溯源标注 &gt; 无标注           |
+| 可行动性 | 具体建议 &gt; 空泛描述           |
+| 复杂度   | 简洁有效 &gt; 冗长低效           |
+| 鲁棒性   | 有降级策略 &gt; 无异常处理       |
+| 一致性   | 风格统一 &gt; 风格割裂           |
+
+#### 整体评估输出：
+- 修改合理性评分: X/10
+- 推荐方案: A全部采纳 / B部分采纳 / C不修改 / D换实现方式
+- 版本策略: 修订+1 / 次版本+1 / 主版本+1 / 基于旧版本
+
+### Step 6: 质量自检
+- [ ] api_key 保持不变
+- [ ] arguments 占位符匹配
+- [ ] allowed_tools 存在
+- [ ] prompt 非空且结构完整
+- [ ] （场景B/C）数据纪律 + 结果核验 + 溯源标注
+
+### Step 7: 用户确认
+ask_user(interrupt_type="select", options=[
+  "采纳推荐方案",
+  "全部采纳我的修改",
+  "部分采纳",
+  "基于旧版本修改",
+  "取消，保持现状"
+])
+
+### Step 8: 执行更新
+manage_skill(action="list_versions", api_key="xxx")
+manage_skill(action="create_version", api_key="xxx",
+  version="新版本号", changelog="变更说明",
+  skill_definition={完整修改后定义})
+
+### Step 9: 更新后验证（可选）
+- 场景A建议跑测试用例
+- 不满意 → manage_skill(action="switch_version", version="旧版本")
+
+---
+
+## 三、硬约束
+1. 系统预置技能禁止修改（system_flg=1）
+2. 必须先加载现有定义
+3. 必须用户确认后才执行
+4. api_key 保持不变
+5. 最小化修改原则
+6. 向后兼容优先
+7. 质量不降级
+8. 完整定义输出（非 diff）
+9. 资源文件同步
+10. 禁止静默删除
+11. 变更可追溯
+
+---
+
+## 四、路由规则
+"帮我改改"       → update_skill
+"做一个新的"     → create_skill
+"重做一遍"       → update_skill（场景E）
+"删掉重做"       → delete → create_skill</code></pre>
+    </div>
+
+    <!-- 版本管理 -->
+    <div class="section">
+        <h2>🔄 版本管理机制</h2>
+
+        <div class="card-row">
+            <div class="card">
+                <div class="card-title">版本操作</div>
+                <div class="card-desc">
+                    <code>list_versions</code> → 查看版本历史<br>
+                    <code>create_version</code> → 创建新版本<br>
+                    <code>switch_version</code> → 切换/回滚<br>
+                    <code>diff_versions</code> → 对比差异<br>
+                    <code>list_change_logs</code> → 变更记录
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title">版本号规则（Semver）</div>
+                <div class="card-desc">
+                    <strong>主版本+1</strong>：重构重写 / 不兼容变更<br>
+                    <strong>次版本+1</strong>：新增功能 / 优化提升<br>
+                    <strong>修订号+1</strong>：Bug Fix / 配置微调
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title">安全保障</div>
+                <div class="card-desc">
+                    • 禁止直接修改生效中版本<br>
+                    • 所有修改通过 create_version 提交<br>
+                    • 变更日志自动记录操作时间/版本路径/变更说明<br>
+                    • 随时可 switch_version 回滚
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div><!-- end page 7 -->
 
 </body>
 </html>

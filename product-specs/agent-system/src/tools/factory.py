@@ -83,8 +83,8 @@ class ToolFactory:
         self._tool_class_map["read_skill_resource"] = ReadSkillResourceTool
 
         # COS 文件上传工具
-        from src.tools.cos_upload_tool import CosUploadTool
-        self._tool_class_map["cos_upload"] = CosUploadTool
+        from src.tools.file_upload_tool import FileUploadTool
+        self._tool_class_map["file_upload"] = FileUploadTool
 
         # 百度 AI 搜索
         from src.tools.web_search import WebSearchTool

@@ -546,6 +546,30 @@
   </div>
 </div>
 
+<!-- 变更日志 Modal -->
+<div id="changeLogModal" class="fixed inset-0 z-[100] hidden">
+  <div class="modal-overlay absolute inset-0" onclick="closeChangeLog()"></div>
+  <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[640px] max-h-[80vh] bg-white rounded-xl shadow-2xl z-10 flex flex-col">
+    <div class="flex items-center justify-between px-6 py-4 border-b flex-shrink-0">
+      <div class="flex items-center gap-2">
+        <span class="text-base">📋</span>
+        <h2 id="changeLogTitle" class="text-base font-semibold">变更日志</h2>
+      </div>
+      <button onclick="closeChangeLog()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+    </div>
+    <div id="changeLogBody" class="flex-1 overflow-y-auto p-6">
+      <div class="text-center text-gray-400 py-8">加载中...</div>
+    </div>
+    <div id="changeLogPagination" class="hidden px-6 py-3 border-t flex items-center justify-between text-sm text-gray-500 flex-shrink-0">
+      <span id="changeLogTotal"></span>
+      <div class="flex gap-2">
+        <button id="changeLogPrev" onclick="changeLogPage(-1)" class="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-40" disabled>上一页</button>
+        <button id="changeLogNext" onclick="changeLogPage(1)" class="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-40" disabled>下一页</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ═══════════════════════════════════════════════════════════
 // 全局状态
@@ -833,10 +857,12 @@ function renderSkillList() {
             </label>
             ${!s.system ? `
             <button onclick="editSkill('${s.api_key}')" class="text-xs text-blue-600 hover:text-blue-800 font-medium">编辑</button>
+            <button onclick="openChangeLog('${s.api_key}', '${s.name}')" class="text-xs text-purple-600 hover:text-purple-800 font-medium" title="变更日志">日志</button>
             <button onclick="cloneSkill('${s.api_key}')" class="text-xs text-gray-500 hover:text-gray-700">克隆</button>
             <button onclick="deleteSkill('${s.api_key}', '${s.name}')" class="text-xs text-red-500 hover:text-red-700">删除</button>
             ` : `
             <button onclick="viewSkill('${s.api_key}')" class="text-xs text-blue-600 hover:text-blue-800 font-medium">查看</button>
+            <button onclick="openChangeLog('${s.api_key}', '${s.name}')" class="text-xs text-purple-600 hover:text-purple-800 font-medium" title="变更日志">日志</button>
             <button onclick="cloneSkill('${s.api_key}')" class="text-xs text-gray-500 hover:text-gray-700">克隆</button>
             <span class="text-xs text-gray-400">系统预置</span>
             `}
@@ -3035,6 +3061,110 @@ async function rollbackToVersion(version) {
     editSkill(editingKey);
   } catch (e) {
     alert('回滚失败: ' + e.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 变更日志
+// ═══════════════════════════════════════════════════════════
+let changeLogApiKey = '';
+let changeLogCurrentPage = 1;
+const CHANGE_LOG_PAGE_SIZE = 15;
+
+function openChangeLog(apiKey, name) {
+  changeLogApiKey = apiKey;
+  changeLogCurrentPage = 1;
+  document.getElementById('changeLogTitle').textContent = `${name} — 变更日志`;
+  document.getElementById('changeLogModal').classList.remove('hidden');
+  loadChangeLog();
+}
+
+function closeChangeLog() {
+  document.getElementById('changeLogModal').classList.add('hidden');
+}
+
+function changeLogPage(delta) {
+  changeLogCurrentPage += delta;
+  loadChangeLog();
+}
+
+async function loadChangeLog() {
+  const body = document.getElementById('changeLogBody');
+  body.innerHTML = '<div class="text-center text-gray-400 py-8">加载中...</div>';
+
+  try {
+    const res = await fetch(`${SKILL_API}/${changeLogApiKey}/change-logs?tenant_id=0&page=${changeLogCurrentPage}&page_size=${CHANGE_LOG_PAGE_SIZE}`);
+    if (!res.ok) throw new Error(`请求失败: ${res.statusText}`);
+    const data = await res.json();
+    const items = data.items || [];
+    const total = data.total || 0;
+
+    if (items.length === 0) {
+      body.innerHTML = '<div class="text-center text-gray-400 py-12"><span class="text-2xl block mb-2">📭</span>暂无变更记录</div>';
+      document.getElementById('changeLogPagination').classList.add('hidden');
+      return;
+    }
+
+    // 渲染 Timeline
+    body.innerHTML = items.map(item => {
+      const time = new Date(item.created_at).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+      const actionMap = {
+        create_version: { label: '创建版本', color: 'bg-green-100 text-green-700', icon: '🆕' },
+        switch_version: { label: '切换版本', color: 'bg-orange-100 text-orange-700', icon: '🔄' },
+        delete_version: { label: '删除版本', color: 'bg-red-100 text-red-700', icon: '🗑️' },
+        create: { label: '创建技能', color: 'bg-blue-100 text-blue-700', icon: '✨' },
+        delete: { label: '删除技能', color: 'bg-red-100 text-red-700', icon: '❌' },
+      };
+      const cfg = actionMap[item.action] || { label: item.action, color: 'bg-gray-100 text-gray-700', icon: '📝' };
+      const isRollback = item.rollback;
+      const triggerMap = { chat: '对话触发', api: 'API 调用', auto: '自动优化' };
+      const triggerLabel = triggerMap[item.trigger_source] || item.trigger_source || '';
+
+      // 变更字段
+      let changedFields = '';
+      if (item.change_detail && item.change_detail.changed_fields && item.change_detail.changed_fields.length > 0) {
+        changedFields = `<div class="mt-2 flex flex-wrap gap-1">
+          <span class="text-[10px] text-gray-400">修改字段:</span>
+          ${item.change_detail.changed_fields.map(f => `<span class="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">${f}</span>`).join('')}
+        </div>`;
+      }
+
+      return `
+        <div class="flex gap-3 pb-4 border-b border-gray-100 last:border-0 last:pb-0">
+          <div class="flex flex-col items-center">
+            <span class="text-base">${isRollback ? '⏪' : cfg.icon}</span>
+            <div class="w-px flex-1 bg-gray-200 mt-1"></div>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-[11px] px-1.5 py-0.5 rounded font-medium ${cfg.color}">${cfg.label}</span>
+              ${isRollback ? '<span class="text-[11px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 font-medium">回滚</span>' : ''}
+              ${item.from_version && item.to_version ? `<code class="text-[11px] text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded">v${item.from_version} → v${item.to_version}</code>` : ''}
+              ${triggerLabel ? `<span class="text-[10px] text-gray-400">${triggerLabel}</span>` : ''}
+              <span class="text-[10px] text-gray-400 ml-auto">${time}</span>
+            </div>
+            ${item.changelog ? `<p class="text-sm text-gray-700 mt-1">${item.changelog}</p>` : ''}
+            ${item.change_summary ? `<p class="text-xs text-gray-500 mt-0.5">📋 ${item.change_summary}</p>` : ''}
+            ${changedFields}
+            ${item.analysis_report ? `<div class="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-500">🔍 ${item.analysis_report.slice(0, 200)}${item.analysis_report.length > 200 ? '...' : ''}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // 分页
+    const pagination = document.getElementById('changeLogPagination');
+    const totalPages = Math.ceil(total / CHANGE_LOG_PAGE_SIZE);
+    if (total > CHANGE_LOG_PAGE_SIZE) {
+      pagination.classList.remove('hidden');
+      document.getElementById('changeLogTotal').textContent = `共 ${total} 条，第 ${changeLogCurrentPage}/${totalPages} 页`;
+      document.getElementById('changeLogPrev').disabled = changeLogCurrentPage <= 1;
+      document.getElementById('changeLogNext').disabled = changeLogCurrentPage >= totalPages;
+    } else {
+      pagination.classList.add('hidden');
+    }
+  } catch (e) {
+    body.innerHTML = `<div class="text-center text-red-400 py-8">加载失败: ${e.message}</div>`;
   }
 }
 

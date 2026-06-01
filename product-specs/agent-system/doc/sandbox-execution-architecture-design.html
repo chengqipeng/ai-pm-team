@@ -1262,10 +1262,18 @@ async def get_or_create(thread_id: str) -> SandboxSession:
 <span style="color:#94a3b8;">#   腾讯沙盒 → /opt</span><br>
 <br>
 <span style="color:#67e8f9;">/sandbox/.skills/csv-trend-analysis/</span><br>
-├── <span style="color:#fbbf24;">scripts/</span><br>
+├── <span style="color:#fbbf24;">scripts/</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 可执行脚本（同步自 DB skill_files）</span><br>
 │&nbsp;&nbsp; ├── analyze.py&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 主脚本（chmod +x）</span><br>
 │&nbsp;&nbsp; ├── utils.py&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 辅助模块</span><br>
 │&nbsp;&nbsp; └── requirements.txt&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># Python 依赖声明</span><br>
+├── <span style="color:#fbbf24;">references/</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 参考文档（API 文档、规范、示例等）</span><br>
+│&nbsp;&nbsp; ├── api-docs.md&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 外部 API 接口文档</span><br>
+│&nbsp;&nbsp; └── examples.md&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 使用示例与最佳实践</span><br>
+├── <span style="color:#fbbf24;">knowledge/</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 领域知识（LLM 按需加载，read_skill_resource）</span><br>
+│&nbsp;&nbsp; └── domains/&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 按业务域组织的知识文件</span><br>
+│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ├── account.md&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 客户域知识</span><br>
+│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ├── opportunity.md&nbsp;&nbsp;<span style="color:#94a3b8;"># 商机域知识</span><br>
+│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; └── generic.md&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 通用兜底知识</span><br>
 ├── <span style="color:#fbbf24;">output/</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 脚本输出目录（自动创建）</span><br>
 ├── <span style="color:#4ade80;">.sync_manifest.json</span>&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 同步状态 {path: md5_hash}</span><br>
 └── <span style="color:#4ade80;">.deps_installed</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#94a3b8;"># 依赖安装标记（记录 req.txt 的 hash）</span>
@@ -1302,11 +1310,13 @@ async def get_or_create(thread_id: str) -> SandboxSession:
 <div style="margin-top:0.5rem;background:#0f172a;border-radius:6px;padding:0.7rem 1rem;font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:#e2e8f0;line-height:1.7;">
 <span style="color:#94a3b8;"># /etc/hermes/init_sandbox.sh</span><br>
 pip3 install \<br>
-&nbsp;&nbsp;<span style="color:#67e8f9;">numpy</span> \<br>
-&nbsp;&nbsp;<span style="color:#67e8f9;">pandas</span> \<br>
 &nbsp;&nbsp;<span style="color:#67e8f9;">requests</span> \<br>
 &nbsp;&nbsp;<span style="color:#67e8f9;">aiohttp</span> \<br>
-&nbsp;&nbsp;<span style="color:#67e8f9;">pyyaml</span>
+&nbsp;&nbsp;<span style="color:#67e8f9;">numpy</span> \<br>
+&nbsp;&nbsp;<span style="color:#67e8f9;">pandas</span> \<br>
+&nbsp;&nbsp;<span style="color:#67e8f9;">pyyaml</span> \<br>
+&nbsp;&nbsp;<span style="color:#67e8f9;">httpx</span> \<br>
+&nbsp;&nbsp;<span style="color:#67e8f9;">pydantic</span>
 </div>
 <div style="font-size:0.68rem;color:#1d4ed8;margin-top:0.5rem;">一次安装，持久化到磁盘，所有 Skill 共享。</div>
 </div>
@@ -1318,11 +1328,13 @@ pip3 install \<br>
 <span style="color:#94a3b8;"># Dockerfile (custom template)</span><br>
 FROM code-interpreter-v1<br>
 RUN pip3 install \<br>
-&nbsp;&nbsp;<span style="color:#fbbf24;">numpy</span> \<br>
-&nbsp;&nbsp;<span style="color:#fbbf24;">pandas</span> \<br>
 &nbsp;&nbsp;<span style="color:#fbbf24;">requests</span> \<br>
 &nbsp;&nbsp;<span style="color:#fbbf24;">aiohttp</span> \<br>
-&nbsp;&nbsp;<span style="color:#fbbf24;">pyyaml</span>
+&nbsp;&nbsp;<span style="color:#fbbf24;">numpy</span> \<br>
+&nbsp;&nbsp;<span style="color:#fbbf24;">pandas</span> \<br>
+&nbsp;&nbsp;<span style="color:#fbbf24;">pyyaml</span> \<br>
+&nbsp;&nbsp;<span style="color:#fbbf24;">httpx</span> \<br>
+&nbsp;&nbsp;<span style="color:#fbbf24;">pydantic</span>
 </div>
 <div style="font-size:0.68rem;color:#92400e;margin-top:0.5rem;">Bake 进镜像，容器启动即可用，无运行时安装开销。</div>
 </div>
@@ -1335,16 +1347,18 @@ RUN pip3 install \<br>
 <tr><th>包名</th><th>版本策略</th><th>用途</th></tr>
 </thead>
 <tbody>
-<tr><td><code>numpy</code></td><td>最新稳定版</td><td>数值计算、数组操作</td></tr>
-<tr><td><code>pandas</code></td><td>最新稳定版</td><td>数据分析、CSV/Excel 读写</td></tr>
 <tr><td><code>requests</code></td><td>最新稳定版</td><td>同步 HTTP 请求</td></tr>
 <tr><td><code>aiohttp</code></td><td>最新稳定版</td><td>异步 HTTP 请求（配合 asyncio）</td></tr>
+<tr><td><code>numpy</code></td><td>最新稳定版</td><td>数值计算、数组操作</td></tr>
+<tr><td><code>pandas</code></td><td>最新稳定版</td><td>数据分析、CSV/Excel 读写</td></tr>
 <tr><td><code>pyyaml</code></td><td>最新稳定版</td><td>YAML 解析与生成</td></tr>
+<tr><td><code>httpx</code></td><td>最新稳定版</td><td>现代 HTTP 客户端（同步/异步双模式，支持 HTTP/2）</td></tr>
+<tr><td><code>pydantic</code></td><td>最新稳定版</td><td>数据验证与序列化（类型安全的数据模型）</td></tr>
 </tbody>
 </table>
 
 <blockquote>
-<p><strong>说明：</strong><code>json</code>、<code>xml.etree</code>、<code>csv</code>、<code>urllib</code> 为 Python 3.12 标准库自带，无需额外安装。预装包覆盖了数据处理、HTTP 通信、配置解析三大高频场景，Skill 开发者可直接使用而无需在 <code>requirements.txt</code> 中重复声明。</p>
+<p><strong>说明：</strong><code>json</code>、<code>xml.etree</code>、<code>csv</code>、<code>urllib</code> 为 Python 3.12 标准库自带，无需额外安装。预装包覆盖了数据处理、HTTP 通信、配置解析、数据验证四大高频场景，Skill 开发者可直接使用而无需在 <code>requirements.txt</code> 中重复声明。</p>
 </blockquote>
 
 <hr>

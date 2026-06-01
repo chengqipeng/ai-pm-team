@@ -23,6 +23,9 @@
     - GET    /api/skills/{api_key}/versions/diff         两版本差异对比
     - POST   /api/skills/{api_key}/versions/rollback     回滚到指定版本
 
+    变更日志：
+    - GET    /api/skills/{api_key}/change-logs           变更日志列表（分页）
+
     资源文件管理（knowledge 目录）：
     - GET    /api/skills/{api_key}/resources             获取资源文件树
     - GET    /api/skills/{api_key}/resources/content     读取文件内容
@@ -563,6 +566,85 @@ async def delete_version(api_key: str, version: str, tenant_id: int = Query(0)):
         if e.code == "CANNOT_DELETE_CURRENT":
             status = 409
         raise HTTPException(status_code=status, detail={"message": str(e), "code": e.code})
+
+
+# ═══════════════════════════════════════════════════════════
+# 变更日志
+# ═══════════════════════════════════════════════════════════
+
+@router.get("/{api_key}/change-logs")
+async def list_change_logs(
+    api_key: str,
+    tenant_id: int = Query(0),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    """获取技能的变更日志列表（按时间倒序）
+
+    记录每次版本创建、切换、回滚等操作的详细信息。
+    用于审计追溯和回滚决策参考。
+    """
+    from src.store.pg_pool import get_conn
+
+    offset = (page - 1) * page_size
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+
+        # 总数
+        cur.execute("""
+            SELECT COUNT(*) FROM ai_skill_change_log
+            WHERE skill_api_key = %s AND tenant_id = %s AND delete_flg = 0
+        """, (api_key, tenant_id))
+        total = cur.fetchone()[0]
+
+        # 分页查询
+        cur.execute("""
+            SELECT id, action, from_version, to_version, changelog,
+                   change_summary, change_detail, analysis_report,
+                   trigger_source, thread_id, operator_id,
+                   rollback_flg, rollback_from_log,
+                   created_at
+            FROM ai_skill_change_log
+            WHERE skill_api_key = %s AND tenant_id = %s AND delete_flg = 0
+            ORDER BY created_at DESC
+            LIMIT %s OFFSET %s
+        """, (api_key, tenant_id, page_size, offset))
+        rows = cur.fetchall()
+
+    items = []
+    for row in rows:
+        import json as _json
+        detail = {}
+        try:
+            detail = _json.loads(row[6]) if row[6] else {}
+        except Exception:
+            pass
+
+        items.append({
+            "id": row[0],
+            "action": row[1],
+            "from_version": row[2],
+            "to_version": row[3],
+            "changelog": row[4],
+            "change_summary": row[5],
+            "change_detail": detail,
+            "analysis_report": row[7],
+            "trigger_source": row[8],
+            "thread_id": row[9],
+            "operator_id": row[10],
+            "rollback": bool(row[11]),
+            "rollback_from_log": row[12],
+            "created_at": row[13],
+        })
+
+    return {
+        "skill_api_key": api_key,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": items,
+    }
 
 
 # ═══════════════════════════════════════════════════════════
