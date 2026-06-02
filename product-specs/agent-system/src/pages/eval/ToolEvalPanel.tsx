@@ -61,6 +61,7 @@ interface CaseResult {
   category: string;
   passed: boolean;
   duration_ms: number;
+  input_data: Record<string, any>;
   assertion_results: AssertionResult[];
   tool_output: string | null;
   is_error: boolean | null;
@@ -113,7 +114,6 @@ async function runEval(params: {
   tool_names?: string[];
   method_names?: string[];
   categories?: string[];
-  use_db?: boolean;
 }): Promise<SuiteReport> {
   const resp = await fetch(`${API_BASE}/run`, {
     method: 'POST',
@@ -236,12 +236,23 @@ function CaseResultRow({ result }: { result: CaseResult }) {
 
       {expanded && (
         <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #e8e8e8' }}>
+          {result.input_data && Object.keys(result.input_data).length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>输入参数:</Text>
+              <pre style={{
+                fontSize: 11, margin: '4px 0', padding: 8,
+                background: '#f0f5ff', borderRadius: 4, maxHeight: 120, overflow: 'auto',
+              }}>
+                {JSON.stringify(result.input_data, null, 2)}
+              </pre>
+            </div>
+          )}
           {result.tool_output && (
             <div style={{ marginBottom: 8 }}>
               <Text type="secondary" style={{ fontSize: 11 }}>工具输出:</Text>
               <pre style={{
                 fontSize: 11, margin: '4px 0', padding: 8,
-                background: '#fafafa', borderRadius: 4, maxHeight: 100, overflow: 'auto',
+                background: '#fafafa', borderRadius: 4, maxHeight: 160, overflow: 'auto',
               }}>
                 {result.tool_output}
               </pre>
@@ -350,7 +361,7 @@ export default function ToolEvalPanel() {
     setCurrentReport(null);
     setActiveTab('results');
     try {
-      const params: any = { use_db: true };
+      const params: any = {};
       if (selectedTool) params.tool_names = [selectedTool];
       if (selectedMethod) params.method_names = [selectedMethod];
       if (selectedCategories.length > 0) params.categories = selectedCategories;

@@ -80,6 +80,8 @@ class ToolEvalCase:
     category: str = "normal"
     # 前置操作（如先 create 再 query 验证副作用）
     setup_steps: list[dict] = field(default_factory=list)
+    # 后置清理（用例执行完成后清理初始化数据，保证环境干净）
+    cleanup_steps: list[dict] = field(default_factory=list)
     # 超时 ms
     timeout_ms: int = 10000
 
@@ -92,6 +94,7 @@ class ToolEvalCase:
             "assertions": [a.to_dict() for a in self.assertions],
             "category": self.category,
             "setup_steps": self.setup_steps,
+            "cleanup_steps": self.cleanup_steps,
             "timeout_ms": self.timeout_ms,
         }
 
@@ -141,6 +144,8 @@ class CaseResult:
     description: str = ""
     category: str = ""
     passed: bool = False
+    # 工具输入参数
+    input_data: dict = field(default_factory=dict)
     # 工具原始返回
     tool_result: ToolResult | None = None
     # 断言详情
@@ -158,8 +163,9 @@ class CaseResult:
             "category": self.category,
             "passed": self.passed,
             "duration_ms": round(self.duration_ms, 1),
+            "input_data": self.input_data,
             "assertion_results": [a.to_dict() for a in self.assertion_results],
-            "tool_output": self.tool_result.content[:500] if self.tool_result else None,
+            "tool_output": self.tool_result.content if self.tool_result else None,
             "is_error": self.tool_result.is_error if self.tool_result else None,
             "error": self.error,
         }
@@ -488,6 +494,36 @@ class ToolEvalRunner:
         except Exception as e:
             logger.warning("评测 Registry: 记忆工具注册跳过 (%s)", e)
 
+        # 注册 Web 搜索工具
+        try:
+            from src.tools.web_search import WebSearchTool
+            reg.register(WebSearchTool())
+            logger.info("评测 Registry: web_search 已注册")
+        except Exception as e:
+            logger.warning("评测 Registry: web_search 注册跳过 (%s)", e)
+
+        # 注册知识库工具（knowledge_search, list_knowledge_bases, knowledge_doc_detail）
+        try:
+            from src.tools.knowledge_tools import (
+                KnowledgeSearchAdapterTool,
+                ListKnowledgeBasesTool,
+                KnowledgeDocDetailAdapterTool,
+            )
+            reg.register(KnowledgeSearchAdapterTool())
+            reg.register(ListKnowledgeBasesTool())
+            reg.register(KnowledgeDocDetailAdapterTool())
+            logger.info("评测 Registry: 知识库工具已注册")
+        except Exception as e:
+            logger.warning("评测 Registry: 知识库工具注册跳过 (%s)", e)
+
+        # 注册文件上传工具
+        try:
+            from src.tools.file_upload_tool import FileUploadTool
+            reg.register(FileUploadTool())
+            logger.info("评测 Registry: file_upload 已注册")
+        except Exception as e:
+            logger.warning("评测 Registry: file_upload 注册跳过 (%s)", e)
+
         self._registry = reg
         return reg
 
@@ -537,6 +573,7 @@ class ToolEvalRunner:
             tool_name=case.tool_name,
             description=case.description,
             category=case.category,
+            input_data=case.input_data,
         )
 
         # 重置 Backend
@@ -553,15 +590,24 @@ class ToolEvalRunner:
 
         # 执行 setup_steps（前置操作）
         for step in case.setup_steps:
-            setup_tool_name = step.get("tool_name", case.tool_name)
+            setup_tool_name = step.get("tool_name") or step.get("tool") or case.tool_name
             setup_tool = reg.find_by_name(setup_tool_name)
-            if setup_tool:
-                try:
-                    await setup_tool.call(step.get("input_data", {}), context)
-                except Exception as e:
-                    result.error = f"setup_step 执行失败: {e}"
+            if setup_tool is None:
+                result.error = f"setup_step 工具未注册: {setup_tool_name}"
+                result.passed = False
+                return result
+            try:
+                setup_input = step.get("input_data") or step.get("input") or {}
+                setup_result = await setup_tool.call(setup_input, context)
+                # 检查 setup_step 返回值：如果执行报错则标记失败
+                if setup_result and getattr(setup_result, 'is_error', False):
+                    result.error = f"setup_step 返回错误: [{setup_tool_name}] {setup_result.content}"
                     result.passed = False
                     return result
+            except Exception as e:
+                result.error = f"setup_step 执行失败: {e}"
+                result.passed = False
+                return result
 
         # 执行目标工具
         start = time.monotonic()
@@ -588,7 +634,39 @@ class ToolEvalRunner:
                 all_passed = False
 
         result.passed = all_passed
+
+        # 执行 cleanup_steps（后置清理，保证环境干净）
+        # 策略：如果有显式 cleanup_steps 则执行；否则自动清理 setup_steps 中写入的文件
+        cleanup_steps = case.cleanup_steps
+        if not cleanup_steps and case.setup_steps:
+            # 自动推导清理步骤：删除 setup_steps 中 write_file 写入的文件
+            cleanup_steps = self._derive_cleanup_steps(case.setup_steps)
+
+        for step in cleanup_steps:
+            cleanup_tool_name = step.get("tool_name") or step.get("tool") or "terminal"
+            cleanup_tool = reg.find_by_name(cleanup_tool_name)
+            if cleanup_tool:
+                try:
+                    cleanup_input = step.get("input_data") or step.get("input") or {}
+                    await cleanup_tool.call(cleanup_input, context)
+                except Exception as e:
+                    logger.warning("cleanup_step 执行失败 [%s]: %s", cleanup_tool_name, e)
+
         return result
+
+    def _derive_cleanup_steps(self, setup_steps: list[dict]) -> list[dict]:
+        """从 setup_steps 自动推导清理步骤 — 删除写入的文件"""
+        paths_to_clean = []
+        for step in setup_steps:
+            tool = step.get("tool_name") or step.get("tool") or ""
+            inp = step.get("input_data") or step.get("input") or {}
+            if tool == "write_file" and inp.get("path"):
+                paths_to_clean.append(inp["path"])
+        if not paths_to_clean:
+            return []
+        # 用 terminal 的 rm -f 批量删除
+        rm_cmd = "rm -f " + " ".join(f"'{p}'" for p in paths_to_clean)
+        return [{"tool": "terminal", "input": {"command": rm_cmd}}]
 
     async def _check_side_effect(
         self, reg: ToolRegistry, context: Any, assertion: Assertion
@@ -605,20 +683,53 @@ class ToolEvalRunner:
 
         try:
             verify_result = await verify_tool.call(expected.get("verify_input", {}), context)
-            data = json.loads(verify_result.content)
-            # 按路径取值
-            value = data
-            for key in expected.get("verify_path", "").split("."):
-                if isinstance(value, dict):
-                    value = value.get(key)
-                elif isinstance(value, list) and key.isdigit():
-                    value = value[int(key)]
-            passed = value == expected.get("verify_value")
-            return AssertionResult(
-                passed=passed, assertion=assertion,
-                actual_value=value,
-                message="" if passed else f"副作用验证失败: 期望 {expected.get('verify_value')}，实际 {value}",
-            )
+
+            if verify_result.is_error:
+                return AssertionResult(
+                    passed=False, assertion=assertion,
+                    message=f"副作用验证失败: 验证工具返回错误 — {verify_result.content[:200]}",
+                )
+
+            verify_path = expected.get("verify_path", "")
+            verify_value = expected.get("verify_value")
+
+            # 尝试 JSON 解析；如果内容不是 JSON，使用字符串包含匹配
+            try:
+                data = json.loads(verify_result.content)
+                # 如果 verify_path 非空，按路径取值做精确匹配
+                if verify_path:
+                    value = data
+                    for key in verify_path.split("."):
+                        if not key:
+                            continue
+                        if isinstance(value, dict):
+                            value = value.get(key)
+                        elif isinstance(value, list) and key.isdigit():
+                            value = value[int(key)]
+                    passed = value == verify_value
+                    return AssertionResult(
+                        passed=passed, assertion=assertion,
+                        actual_value=value,
+                        message="" if passed else f"副作用验证失败: 期望 {verify_value}，实际 {value}",
+                    )
+                else:
+                    # verify_path 为空 — 对原始文本做 contains 检查
+                    content = verify_result.content or ""
+                    passed = str(verify_value) in content
+                    return AssertionResult(
+                        passed=passed, assertion=assertion,
+                        actual_value=content[:200] if not passed else verify_value,
+                        message="" if passed else f"副作用验证失败: 文本内容中未找到 '{verify_value}'",
+                    )
+            except (json.JSONDecodeError, ValueError):
+                # 非 JSON 内容（如 read_file 返回原始文本）— 使用字符串包含匹配
+                content = verify_result.content or ""
+                passed = str(verify_value) in content
+                return AssertionResult(
+                    passed=passed, assertion=assertion,
+                    actual_value=content[:200] if not passed else verify_value,
+                    message="" if passed else f"副作用验证失败: 文本内容中未找到 '{verify_value}'",
+                )
         except Exception as e:
             return AssertionResult(passed=False, assertion=assertion, message=f"副作用验证异常: {e}")
 

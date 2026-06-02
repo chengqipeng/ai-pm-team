@@ -37,6 +37,7 @@ class EvalToolCase:
     input_data: dict = field(default_factory=dict)
     assertions: list = field(default_factory=list)
     setup_steps: list = field(default_factory=list)
+    cleanup_steps: list = field(default_factory=list)
     tags: list = field(default_factory=list)
     priority: int = 0
     timeout_ms: int = 10000
@@ -59,6 +60,7 @@ class EvalToolCase:
             "input_data": self.input_data,
             "assertions": self.assertions,
             "setup_steps": self.setup_steps,
+            "cleanup_steps": self.cleanup_steps,
             "tags": self.tags,
             "priority": self.priority,
             "timeout_ms": self.timeout_ms,
@@ -135,14 +137,15 @@ class EvalCaseDAO:
             cur.execute("""
                 INSERT INTO ai_eval_tool_case
                 (suite_id, case_key, tool_name, method_name, description, category,
-                 input_data, assertions, setup_steps, tags, priority, timeout_ms,
+                 input_data, assertions, setup_steps, cleanup_steps, tags, priority, timeout_ms,
                  enabled, generated_by, source_params, status, created_at, updated_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (suite_id, case_key) DO UPDATE SET
                     tool_name=EXCLUDED.tool_name, method_name=EXCLUDED.method_name,
                     description=EXCLUDED.description, category=EXCLUDED.category,
                     input_data=EXCLUDED.input_data, assertions=EXCLUDED.assertions,
-                    setup_steps=EXCLUDED.setup_steps, tags=EXCLUDED.tags,
+                    setup_steps=EXCLUDED.setup_steps, cleanup_steps=EXCLUDED.cleanup_steps,
+                    tags=EXCLUDED.tags,
                     priority=EXCLUDED.priority, timeout_ms=EXCLUDED.timeout_ms,
                     enabled=EXCLUDED.enabled, generated_by=EXCLUDED.generated_by,
                     source_params=EXCLUDED.source_params, status=EXCLUDED.status,
@@ -154,6 +157,7 @@ class EvalCaseDAO:
                 json.dumps(case.input_data, ensure_ascii=False),
                 json.dumps(case.assertions, ensure_ascii=False),
                 json.dumps(case.setup_steps, ensure_ascii=False),
+                json.dumps(case.cleanup_steps, ensure_ascii=False),
                 json.dumps(case.tags, ensure_ascii=False),
                 case.priority, case.timeout_ms,
                 case.enabled, case.generated_by,
@@ -204,7 +208,7 @@ class EvalCaseDAO:
             where = " AND ".join(conditions)
             cur.execute(f"""
                 SELECT id, suite_id, case_key, tool_name, method_name, description,
-                       category, input_data, assertions, setup_steps, tags,
+                       category, input_data, assertions, setup_steps, cleanup_steps, tags,
                        priority, timeout_ms, enabled, generated_by, source_params,
                        status, created_at, updated_at
                 FROM ai_eval_tool_case
@@ -222,11 +226,12 @@ class EvalCaseDAO:
                     input_data=row[7] if isinstance(row[7], dict) else json.loads(row[7] or "{}"),
                     assertions=row[8] if isinstance(row[8], list) else json.loads(row[8] or "[]"),
                     setup_steps=row[9] if isinstance(row[9], list) else json.loads(row[9] or "[]"),
-                    tags=row[10] if isinstance(row[10], list) else json.loads(row[10] or "[]"),
-                    priority=row[11], timeout_ms=row[12], enabled=row[13],
-                    generated_by=row[14],
-                    source_params=row[15] if isinstance(row[15], (dict, type(None))) else json.loads(row[15] or "null"),
-                    status=row[16], created_at=row[17], updated_at=row[18],
+                    cleanup_steps=row[10] if isinstance(row[10], list) else json.loads(row[10] or "[]"),
+                    tags=row[11] if isinstance(row[11], list) else json.loads(row[11] or "[]"),
+                    priority=row[12], timeout_ms=row[13], enabled=row[14],
+                    generated_by=row[15],
+                    source_params=row[16] if isinstance(row[16], (dict, type(None))) else json.loads(row[16] or "null"),
+                    status=row[17], created_at=row[18], updated_at=row[19],
                 ))
             return results
 
@@ -452,23 +457,40 @@ class EvalCaseResultDAO:
         now = int(time.time() * 1000)
         with get_conn() as conn:
             cur = conn.cursor()
+            # 批量查找 case_key -> case DB id 映射
+            case_keys = [r.get("case_key", "") for r in results if r.get("case_key")]
+            case_id_map = {}
+            if case_keys:
+                # 分批查询避免 SQL 太长
+                for i in range(0, len(case_keys), 100):
+                    batch = case_keys[i:i+100]
+                    placeholders = ",".join(["%s"] * len(batch))
+                    cur.execute(f"SELECT id, case_key FROM ai_eval_tool_case WHERE case_key IN ({placeholders})", batch)
+                    for row in cur.fetchall():
+                        case_id_map[row[1]] = row[0]
+
             for r in results:
+                case_key = r.get("case_key", "")
+                case_db_id = case_id_map.get(case_key, 0)
+                if case_db_id == 0:
+                    continue  # 跳过找不到对应用例的结果
                 cur.execute("""
                     INSERT INTO ai_eval_tool_case_result
                     (report_id, case_id, case_key, tool_name, method_name,
-                     category, passed, duration_ms, tool_output, is_error,
+                     category, passed, duration_ms, input_data, tool_output, is_error,
                      assertion_results, error_message, created_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """, (
-                    report_id, r.get("case_id", 0), r.get("case_key", ""),
+                    report_id, case_db_id, case_key,
                     r.get("tool_name", ""), r.get("method_name", ""),
                     r.get("category", ""), r.get("passed", False),
-                    r.get("duration_ms", 0), r.get("tool_output", "")[:5000],
+                    r.get("duration_ms", 0),
+                    json.dumps(r.get("input_data", {}), ensure_ascii=False),
+                    r.get("tool_output", ""),
                     r.get("is_error", False),
                     json.dumps(r.get("assertion_results", []), ensure_ascii=False),
                     r.get("error_message", ""), now,
                 ))
-
     @staticmethod
     def list_by_report(report_id: int) -> list[dict]:
         """查询报告下的用例结果"""
@@ -476,7 +498,7 @@ class EvalCaseResultDAO:
             cur = conn.cursor()
             cur.execute("""
                 SELECT case_key, tool_name, method_name, category,
-                       passed, duration_ms, tool_output, is_error,
+                       passed, duration_ms, input_data, tool_output, is_error,
                        assertion_results, error_message
                 FROM ai_eval_tool_case_result
                 WHERE report_id = %s
@@ -491,9 +513,10 @@ class EvalCaseResultDAO:
                     "category": row[3],
                     "passed": row[4],
                     "duration_ms": float(row[5] or 0),
-                    "tool_output": row[6],
-                    "is_error": row[7],
-                    "assertion_results": row[8] if isinstance(row[8], list) else json.loads(row[8] or "[]"),
-                    "error_message": row[9],
+                    "input_data": row[6] if isinstance(row[6], dict) else json.loads(row[6] or "{}"),
+                    "tool_output": row[7],
+                    "is_error": row[8],
+                    "assertion_results": row[9] if isinstance(row[9], list) else json.loads(row[9] or "[]"),
+                    "error_message": row[10],
                 })
             return results

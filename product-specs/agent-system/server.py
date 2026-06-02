@@ -2430,3 +2430,4 @@ async def memory_delete_user(user_id: str, tenant_id: int = DEFAULT_TENANT_ID):
         return {"success": True, **result}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+

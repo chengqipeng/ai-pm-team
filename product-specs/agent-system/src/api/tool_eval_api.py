@@ -57,8 +57,6 @@ class RunEvalBody(BaseModel):
     categories: list[str] = Field(default_factory=list)      # 按分类: ["normal", "error"]
     case_ids: list[int] = Field(default_factory=list)        # 按用例 ID
     tags: list[str] = Field(default_factory=list)            # 按标签: ["positive"]
-    # 来源
-    use_db: bool = True    # True=从 DB 加载用例, False=使用内存预置
 
 
 class RunSingleBody(BaseModel):
@@ -67,6 +65,7 @@ class RunSingleBody(BaseModel):
     input_data: dict = Field(default_factory=dict)
     assertions: list[AssertionBody] = Field(default_factory=list)
     setup_steps: list[dict] = Field(default_factory=list)
+    cleanup_steps: list[dict] = Field(default_factory=list)
 
 
 class CreateCaseBody(BaseModel):
@@ -78,6 +77,7 @@ class CreateCaseBody(BaseModel):
     assertions: list[AssertionBody] = Field(default_factory=list)
     category: str = "normal"
     setup_steps: list[dict] = Field(default_factory=list)
+    cleanup_steps: list[dict] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     priority: int = 0
 
@@ -145,41 +145,26 @@ async def get_catalog():
       ...
     }
     """
-    try:
-        from src.store.eval_dao import EvalCaseDAO
-        suite_id = _get_suite_id()
-        count_data = EvalCaseDAO.count_by_tool(suite_id)
-        tools_methods = EvalCaseDAO.get_tools_and_methods(suite_id)
+    from src.store.eval_dao import EvalCaseDAO
+    suite_id = _get_suite_id()
+    count_data = EvalCaseDAO.count_by_tool(suite_id)
+    tools_methods = EvalCaseDAO.get_tools_and_methods(suite_id)
 
-        catalog = {}
-        for tool, methods in tools_methods.items():
-            tool_total = 0
-            method_stats = {}
-            for method in methods:
-                if tool in count_data and method in count_data[tool]:
-                    stats = count_data[tool][method]
-                    method_stats[method] = stats
-                    tool_total += stats["total"]
-            catalog[tool] = {
-                "methods": methods,
-                "stats": method_stats,
-                "total": tool_total,
-            }
-        return {"catalog": catalog}
-    except Exception as e:
-        # DB 不可用时，返回基于预置用例的静态目录
-        logger.warning(f"DB 不可用，降级使用预置目录: {e}")
-        from src.eval.case_combination_generator import get_all_combination_specs
-        specs = get_all_combination_specs()
-        catalog = {}
-        for tool_name, method_specs in specs.items():
-            methods = [s.method_name for s in method_specs]
-            catalog[tool_name] = {
-                "methods": methods,
-                "stats": {},
-                "total": 0,
-            }
-        return {"catalog": catalog}
+    catalog = {}
+    for tool, methods in tools_methods.items():
+        tool_total = 0
+        method_stats = {}
+        for method in methods:
+            if tool in count_data and method in count_data[tool]:
+                stats = count_data[tool][method]
+                method_stats[method] = stats
+                tool_total += stats["total"]
+        catalog[tool] = {
+            "methods": methods,
+            "stats": method_stats,
+            "total": tool_total,
+        }
+    return {"catalog": catalog}
 
 
 @router.get("/cases")
@@ -190,34 +175,18 @@ async def list_cases(
     limit: int = 200,
     offset: int = 0,
 ):
-    """查询用例列表 — 支持多维度筛选"""
-    try:
-        from src.store.eval_dao import EvalCaseDAO
-        suite_id = _get_suite_id()
-        cases = EvalCaseDAO.list_by_tool(
-            suite_id, tool_name=tool_name, method_name=method_name,
-            category=category, limit=limit, offset=offset,
-        )
-        return {
-            "items": [c.to_dict() for c in cases],
-            "total": len(cases),
-            "filters": {"tool_name": tool_name, "method_name": method_name, "category": category},
-        }
-    except Exception as e:
-        # DB 不可用时降级到内存预置
-        logger.warning(f"DB 不可用: {e}")
-        from src.eval.tool_eval_presets import build_default_suite
-        suite = build_default_suite()
-        cases = suite.cases
-        if tool_name:
-            cases = [c for c in cases if c.tool_name == tool_name]
-        if category:
-            cases = [c for c in cases if c.category == category]
-        return {
-            "items": [c.to_dict() for c in cases[:limit]],
-            "total": len(cases),
-            "source": "memory_fallback",
-        }
+    """查询用例列表 — 支持多维度筛选，必须从 DB 查询"""
+    from src.store.eval_dao import EvalCaseDAO
+    suite_id = _get_suite_id()
+    cases = EvalCaseDAO.list_by_tool(
+        suite_id, tool_name=tool_name, method_name=method_name,
+        category=category, limit=limit, offset=offset,
+    )
+    return {
+        "items": [c.to_dict() for c in cases],
+        "total": len(cases),
+        "filters": {"tool_name": tool_name, "method_name": method_name, "category": category},
+    }
 
 
 # ═══════════════════════════════════════════════════════════
@@ -241,6 +210,7 @@ async def create_case(body: CreateCaseBody):
         input_data=body.input_data,
         assertions=[a.dict() for a in body.assertions],
         setup_steps=body.setup_steps,
+        cleanup_steps=body.cleanup_steps,
         tags=body.tags,
         priority=body.priority,
         generated_by="manual",
@@ -326,6 +296,7 @@ async def generate_cases(body: GenerateCasesBody):
                 input_data=c.input_data,
                 assertions=[a.to_dict() for a in c.assertions],
                 setup_steps=c.setup_steps,
+                cleanup_steps=c.cleanup_steps if hasattr(c, 'cleanup_steps') else [],
                 tags=[],
                 generated_by="auto_combination",
             )
@@ -369,6 +340,7 @@ async def sync_presets(body: SyncPresetsBody):
             input_data=c.input_data,
             assertions=[a.to_dict() for a in c.assertions],
             setup_steps=c.setup_steps,
+            cleanup_steps=c.cleanup_steps,
             generated_by="preset",
         )
         EvalCaseDAO.insert(db_case)
@@ -393,68 +365,61 @@ async def run_eval(body: RunEvalBody):
     """
     from src.eval.tool_eval_runner import ToolEvalCase, ToolEvalSuite, Assertion, AssertionType, print_report
 
-    # 加载用例
-    if body.use_db:
-        try:
-            from src.store.eval_dao import EvalCaseDAO
-            suite_id = _get_suite_id()
-            if suite_id == 0:
-                raise Exception("DB suite not available")
+    # 加载用例 — 必须从 DB 查询
+    from src.store.eval_dao import EvalCaseDAO
+    suite_id = _get_suite_id()
+    if suite_id == 0:
+        raise HTTPException(status_code=500, detail="DB suite 不可用，请先执行建表迁移")
 
-            # 按筛选条件分别查询
-            all_cases_raw = []
-            if body.tool_names:
-                for tn in body.tool_names:
-                    method_filter = body.method_names[0] if len(body.method_names) == 1 else None
-                    category_filter = body.categories[0] if len(body.categories) == 1 else None
-                    all_cases_raw.extend(
-                        EvalCaseDAO.list_by_tool(
-                            suite_id, tool_name=tn,
-                            method_name=method_filter,
-                            category=category_filter,
-                        )
-                    )
-            else:
-                all_cases_raw = EvalCaseDAO.list_by_tool(suite_id)
-
-            if not all_cases_raw:
-                raise Exception("No cases in DB, fallback to presets")
-
-            # 进一步筛选（多方法/多分类组合）
-            if body.method_names and len(body.method_names) > 1:
-                all_cases_raw = [c for c in all_cases_raw if c.method_name in body.method_names]
-            if body.categories and len(body.categories) > 1:
-                all_cases_raw = [c for c in all_cases_raw if c.category in body.categories]
-            if body.tags:
-                all_cases_raw = [c for c in all_cases_raw if any(t in c.tags for t in body.tags)]
-
-            # 转为 ToolEvalCase
-            cases = []
-            for c in all_cases_raw:
-                assertions = []
-                for a_dict in c.assertions:
-                    assertions.append(Assertion(
-                        type=AssertionType(a_dict["type"]),
-                        target=a_dict.get("target", "content"),
-                        expected=a_dict.get("expected"),
-                        description=a_dict.get("description", ""),
-                    ))
-                cases.append(ToolEvalCase(
-                    id=c.case_key,
-                    tool_name=c.tool_name,
-                    description=c.description,
-                    input_data=c.input_data,
-                    assertions=assertions,
-                    category=c.category,
-                    setup_steps=c.setup_steps,
-                    timeout_ms=c.timeout_ms,
-                ))
-
-        except Exception as e:
-            logger.warning(f"DB 加载失败，降级到内存预置: {e}")
-            cases = _load_preset_cases(body)
+    # 按筛选条件分别查询
+    all_cases_raw = []
+    if body.tool_names:
+        for tn in body.tool_names:
+            method_filter = body.method_names[0] if len(body.method_names) == 1 else None
+            category_filter = body.categories[0] if len(body.categories) == 1 else None
+            all_cases_raw.extend(
+                EvalCaseDAO.list_by_tool(
+                    suite_id, tool_name=tn,
+                    method_name=method_filter,
+                    category=category_filter,
+                )
+            )
     else:
-        cases = _load_preset_cases(body)
+        all_cases_raw = EvalCaseDAO.list_by_tool(suite_id)
+
+    if not all_cases_raw:
+        raise HTTPException(status_code=400, detail="DB 中无用例，请先同步预置用例或自动生成")
+
+    # 进一步筛选（多方法/多分类组合）
+    if body.method_names and len(body.method_names) > 1:
+        all_cases_raw = [c for c in all_cases_raw if c.method_name in body.method_names]
+    if body.categories and len(body.categories) > 1:
+        all_cases_raw = [c for c in all_cases_raw if c.category in body.categories]
+    if body.tags:
+        all_cases_raw = [c for c in all_cases_raw if any(t in c.tags for t in body.tags)]
+
+    # 转为 ToolEvalCase
+    cases = []
+    for c in all_cases_raw:
+        assertions = []
+        for a_dict in c.assertions:
+            assertions.append(Assertion(
+                type=AssertionType(a_dict["type"]),
+                target=a_dict.get("target", "content"),
+                expected=a_dict.get("expected"),
+                description=a_dict.get("description", ""),
+            ))
+        cases.append(ToolEvalCase(
+            id=c.case_key,
+            tool_name=c.tool_name,
+            description=c.description,
+            input_data=c.input_data,
+            assertions=assertions,
+            category=c.category,
+            setup_steps=c.setup_steps,
+            cleanup_steps=c.cleanup_steps,
+            timeout_ms=c.timeout_ms,
+        ))
 
     if not cases:
         raise HTTPException(status_code=400, detail="筛选后无可执行的用例")
@@ -505,7 +470,7 @@ async def run_eval(body: RunEvalBody):
 
     # 尝试持久化报告
     try:
-        from src.store.eval_dao import EvalReportDAO
+        from src.store.eval_dao import EvalReportDAO, EvalCaseResultDAO
         suite_id = _get_suite_id()
         report_key = EvalReportDAO.create_report(
             suite_id=suite_id,
@@ -523,30 +488,194 @@ async def run_eval(body: RunEvalBody):
             by_category=report.by_category, failures=report.failures,
         )
         report_dict["report_id"] = report_key
+
+        # 持久化每条用例的执行结果（含 input_data + tool_output）
+        case_results_for_db = []
+        for r in report.results:
+            case_results_for_db.append({
+                "case_key": r.case_id,
+                "tool_name": r.tool_name,
+                "method_name": "",
+                "category": r.category,
+                "passed": r.passed,
+                "duration_ms": r.duration_ms,
+                "input_data": r.input_data,
+                "tool_output": (r.tool_result.content if r.tool_result else "").replace("\x00", ""),
+                "is_error": r.tool_result.is_error if r.tool_result else False,
+                "assertion_results": [a.to_dict() for a in r.assertion_results],
+                "error_message": (r.error or "").replace("\x00", ""),
+            })
+        # 获取报告 DB id
+        from src.store.pg_pool import get_conn
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM ai_eval_tool_report WHERE report_key = %s", (report_key,))
+            row = cur.fetchone()
+            if row:
+                EvalCaseResultDAO.batch_insert(row[0], case_results_for_db)
     except Exception as e:
         logger.warning(f"报告持久化失败: {e}")
 
     return report_dict
 
 
-def _load_preset_cases(body: RunEvalBody) -> list:
-    """从内存预置加载用例"""
-    from src.eval.tool_eval_presets import build_default_suite
-    suite = build_default_suite()
-    cases = suite.cases
+@router.post("/run-stream")
+async def run_eval_stream(body: RunEvalBody):
+    """流式执行评测 — 通过 SSE 实时推送每条用例执行进度
+
+    事件类型：
+    - start: 开始 {total}
+    - progress: 单条用例完成 {index, total, case_id, passed, ...}
+    - complete: 全部完毕 {report_id, total, passed, failed, pass_rate}
+    """
+    import json as _json
+    from fastapi.responses import StreamingResponse
+    from src.eval.tool_eval_runner import ToolEvalCase, Assertion, AssertionType
+
+    # 加载用例
+    from src.store.eval_dao import EvalCaseDAO
+    suite_id = _get_suite_id()
+    if suite_id == 0:
+        raise HTTPException(status_code=500, detail="DB suite 不可用")
+
+    all_cases_raw = []
     if body.tool_names:
-        cases = [c for c in cases if c.tool_name in body.tool_names]
-    if body.method_names:
-        # method 对应 input_data 中的 query_type 或 action 字段
-        cases = [c for c in cases if (
-            c.input_data.get("query_type") in body.method_names or
-            c.input_data.get("action") in body.method_names
-        )]
-    if body.categories:
-        cases = [c for c in cases if c.category in body.categories]
-    if body.case_ids:
-        cases = [c for c in cases if c.id in [str(i) for i in body.case_ids]]
-    return cases
+        for tn in body.tool_names:
+            method_filter = body.method_names[0] if len(body.method_names) == 1 else None
+            category_filter = body.categories[0] if len(body.categories) == 1 else None
+            all_cases_raw.extend(
+                EvalCaseDAO.list_by_tool(suite_id, tool_name=tn, method_name=method_filter, category=category_filter)
+            )
+    else:
+        all_cases_raw = EvalCaseDAO.list_by_tool(suite_id)
+
+    if not all_cases_raw:
+        raise HTTPException(status_code=400, detail="DB 中无用例")
+
+    if body.method_names and len(body.method_names) > 1:
+        all_cases_raw = [c for c in all_cases_raw if c.method_name in body.method_names]
+    if body.categories and len(body.categories) > 1:
+        all_cases_raw = [c for c in all_cases_raw if c.category in body.categories]
+    if body.tags:
+        all_cases_raw = [c for c in all_cases_raw if any(t in c.tags for t in body.tags)]
+
+    cases = []
+    for c in all_cases_raw:
+        assertions = []
+        for a_dict in c.assertions:
+            assertions.append(Assertion(
+                type=AssertionType(a_dict["type"]),
+                target=a_dict.get("target", "content"),
+                expected=a_dict.get("expected"),
+                description=a_dict.get("description", ""),
+            ))
+        cases.append(ToolEvalCase(
+            id=c.case_key, tool_name=c.tool_name, description=c.description,
+            input_data=c.input_data, assertions=assertions, category=c.category,
+            setup_steps=c.setup_steps, cleanup_steps=c.cleanup_steps, timeout_ms=c.timeout_ms,
+        ))
+
+    if not cases:
+        raise HTTPException(status_code=400, detail="筛选后无可执行的用例")
+
+    total = len(cases)
+
+    async def event_generator():
+        runner = _get_runner()
+        passed_count = 0
+        failed_count = 0
+        results_all = []
+
+        yield f"data: {_json.dumps({'event': 'start', 'total': total}, ensure_ascii=False)}\n\n"
+
+        for idx, case in enumerate(cases):
+            result = await runner.run_case(case)
+            results_all.append(result)
+            if result.passed:
+                passed_count += 1
+            else:
+                failed_count += 1
+
+            progress_data = {
+                "event": "progress",
+                "index": idx + 1,
+                "total": total,
+                "case_id": result.case_id,
+                "tool_name": result.tool_name,
+                "description": result.description,
+                "category": result.category,
+                "passed": result.passed,
+                "duration_ms": round(result.duration_ms, 1),
+                "input_data": result.input_data,
+                "tool_output": result.tool_result.content[:2000] if result.tool_result else None,
+                "is_error": result.tool_result.is_error if result.tool_result else None,
+                "assertion_results": [a.to_dict() for a in result.assertion_results],
+                "error": result.error,
+                "running_passed": passed_count,
+                "running_failed": failed_count,
+            }
+            yield f"data: {_json.dumps(progress_data, ensure_ascii=False)}\n\n"
+
+        # 持久化
+        total_duration = sum(r.duration_ms for r in results_all)
+        pass_rate = passed_count / max(total, 1)
+        report_key = ""
+        try:
+            from src.store.eval_dao import EvalReportDAO, EvalCaseResultDAO
+            report_key = EvalReportDAO.create_report(
+                suite_id=suite_id, filter_tools=body.tool_names,
+                filter_methods=body.method_names, filter_categories=body.categories,
+            )
+            by_tool = {}
+            for r in results_all:
+                if r.tool_name not in by_tool:
+                    by_tool[r.tool_name] = {"total": 0, "passed": 0, "failed": 0}
+                by_tool[r.tool_name]["total"] += 1
+                if r.passed:
+                    by_tool[r.tool_name]["passed"] += 1
+                else:
+                    by_tool[r.tool_name]["failed"] += 1
+            EvalReportDAO.complete_report(
+                report_key=report_key, total=total, passed=passed_count,
+                failed=failed_count, error_count=0, pass_rate=pass_rate,
+                total_duration_ms=total_duration, by_tool=by_tool,
+                by_method={}, by_category={}, failures=[],
+            )
+            case_results_for_db = [{
+                "case_key": r.case_id, "tool_name": r.tool_name, "method_name": "",
+                "category": r.category, "passed": r.passed, "duration_ms": r.duration_ms,
+                "input_data": r.input_data,
+                "tool_output": (r.tool_result.content if r.tool_result else "").replace("\x00", ""),
+                "is_error": r.tool_result.is_error if r.tool_result else False,
+                "assertion_results": [a.to_dict() for a in r.assertion_results],
+                "error_message": (r.error or "").replace("\x00", ""),
+            } for r in results_all]
+            from src.store.pg_pool import get_conn
+            with get_conn() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT id FROM ai_eval_tool_report WHERE report_key = %s", (report_key,))
+                row = cur.fetchone()
+                if row:
+                    EvalCaseResultDAO.batch_insert(row[0], case_results_for_db)
+        except Exception as e:
+            logger.warning(f"流式报告持久化失败: {e}")
+
+        complete_data = {
+            "event": "complete",
+            "report_id": report_key,
+            "total": total,
+            "passed": passed_count,
+            "failed": failed_count,
+            "pass_rate": round(pass_rate, 4),
+            "total_duration_ms": round(total_duration, 1),
+        }
+        yield f"data: {_json.dumps(complete_data, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/run-single")
@@ -561,6 +690,7 @@ async def run_single_case(body: RunSingleBody):
         input_data=body.input_data,
         assertions=[_body_to_assertion(a) for a in body.assertions],
         setup_steps=body.setup_steps,
+        cleanup_steps=body.cleanup_steps,
     )
 
     runner = _get_runner()
@@ -593,17 +723,22 @@ async def list_reports(limit: int = 20):
 
 @router.get("/reports/{report_key}")
 async def get_report(report_key: str):
-    """获取报告详情"""
-    try:
-        from src.store.eval_dao import EvalReportDAO
-        report = EvalReportDAO.get_report(report_key)
-        if not report:
-            raise HTTPException(status_code=404, detail=f"报告 '{report_key}' 不存在")
-        return report
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """获取报告详情（含每条用例的 input/output）"""
+    from src.store.eval_dao import EvalReportDAO, EvalCaseResultDAO
+    report = EvalReportDAO.get_report(report_key)
+    if not report:
+        raise HTTPException(status_code=404, detail=f"报告 '{report_key}' 不存在")
+
+    # 加载用例级执行结果
+    from src.store.pg_pool import get_conn
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM ai_eval_tool_report WHERE report_key = %s", (report_key,))
+        row = cur.fetchone()
+        if row:
+            report["results"] = EvalCaseResultDAO.list_by_report(row[0])
+
+    return report
 
 
 # ═══════════════════════════════════════════════════════════
@@ -612,67 +747,46 @@ async def get_report(report_key: str):
 
 @router.get("/suites")
 async def list_suites():
-    """获取可用评测集列表（兼容旧前端）"""
-    try:
-        from src.store.eval_dao import EvalCaseDAO
-        suite_id = _get_suite_id()
-        tools_methods = EvalCaseDAO.get_tools_and_methods(suite_id)
-        cases_raw = EvalCaseDAO.list_by_tool(suite_id, limit=500)
-        return {
-            "items": [{
-                "id": "suite_default",
-                "name": "Tool 评测 — 默认全量",
-                "description": "覆盖所有内置工具的正常/异常/边界/副作用场景",
-                "total_cases": len(cases_raw),
-                "tools_covered": list(tools_methods.keys()),
-                "methods_covered": tools_methods,
-            }],
-        }
-    except Exception:
-        from src.eval.tool_eval_presets import build_default_suite
-        suite = build_default_suite()
-        return {
-            "items": [{
-                "id": suite.id,
-                "name": suite.name,
-                "description": suite.description,
-                "total_cases": len(suite.cases),
-                "tools_covered": list(set(c.tool_name for c in suite.cases)),
-            }],
-        }
+    """获取可用评测集列表"""
+    from src.store.eval_dao import EvalCaseDAO
+    suite_id = _get_suite_id()
+    tools_methods = EvalCaseDAO.get_tools_and_methods(suite_id)
+    cases_raw = EvalCaseDAO.list_by_tool(suite_id, limit=500)
+    return {
+        "items": [{
+            "id": "suite_default",
+            "name": "Tool 评测 — 默认全量",
+            "description": "覆盖所有内置工具的正常/异常/边界/副作用场景",
+            "total_cases": len(cases_raw),
+            "tools_covered": list(tools_methods.keys()),
+            "methods_covered": tools_methods,
+        }],
+    }
 
 
 @router.get("/suites/{suite_id}")
 async def get_suite(suite_id: str):
-    """获取评测集详情（含所有用例）— 兼容旧前端"""
-    try:
-        from src.store.eval_dao import EvalCaseDAO
-        db_suite_id = _get_suite_id()
-        cases_raw = EvalCaseDAO.list_by_tool(db_suite_id, limit=500)
-        if cases_raw:
-            cases_list = []
-            for c in cases_raw:
-                cases_list.append({
-                    "id": c.case_key,
-                    "tool_name": c.tool_name,
-                    "description": c.description,
-                    "input_data": c.input_data,
-                    "assertions": c.assertions,
-                    "category": c.category,
-                    "setup_steps": c.setup_steps,
-                    "timeout_ms": c.timeout_ms,
-                })
-            return {
-                "id": "suite_default",
-                "name": "Tool 评测 — 默认全量",
-                "description": "覆盖所有内置工具的正常/异常/边界/副作用场景",
-                "cases": cases_list,
-                "total": len(cases_list),
-            }
-    except Exception as e:
-        logger.warning(f"DB 不可用，降级内存预置: {e}")
-
-    # 降级：从内存预置加载
-    from src.eval.tool_eval_presets import build_default_suite
-    suite = build_default_suite()
-    return suite.to_dict()
+    """获取评测集详情（含所有用例）— 必须从 DB 查询"""
+    from src.store.eval_dao import EvalCaseDAO
+    db_suite_id = _get_suite_id()
+    cases_raw = EvalCaseDAO.list_by_tool(db_suite_id, limit=500)
+    cases_list = []
+    for c in cases_raw:
+        cases_list.append({
+            "id": c.case_key,
+            "tool_name": c.tool_name,
+            "description": c.description,
+            "input_data": c.input_data,
+            "assertions": c.assertions,
+            "category": c.category,
+            "setup_steps": c.setup_steps,
+            "cleanup_steps": c.cleanup_steps,
+            "timeout_ms": c.timeout_ms,
+        })
+    return {
+        "id": "suite_default",
+        "name": "Tool 评测 — 默认全量",
+        "description": "覆盖所有内置工具的正常/异常/边界/副作用场景",
+        "cases": cases_list,
+        "total": len(cases_list),
+    }
