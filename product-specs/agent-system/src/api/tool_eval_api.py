@@ -536,6 +536,12 @@ def _load_preset_cases(body: RunEvalBody) -> list:
     cases = suite.cases
     if body.tool_names:
         cases = [c for c in cases if c.tool_name in body.tool_names]
+    if body.method_names:
+        # method 对应 input_data 中的 query_type 或 action 字段
+        cases = [c for c in cases if (
+            c.input_data.get("query_type") in body.method_names or
+            c.input_data.get("action") in body.method_names
+        )]
     if body.categories:
         cases = [c for c in cases if c.category in body.categories]
     if body.case_ids:

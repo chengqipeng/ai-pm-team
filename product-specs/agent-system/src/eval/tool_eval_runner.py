@@ -461,8 +461,62 @@ class ToolEvalRunner:
         metarepo_backend = MetarepoSimulatedBackend()
         register_metarepo_tools(reg, metarepo_backend)
 
+        # 注册沙盒工具（terminal, execute_code, read_file, write_file, search_files）
+        try:
+            from src.tools.sandbox import _get_shared_sandbox_backend
+            sandbox_backend = _get_shared_sandbox_backend()
+            from src.tools.sandbox.terminal_tool import TerminalTool
+            from src.tools.sandbox.code_execution_tool import CodeExecutionTool
+            from src.tools.sandbox.file_tools import ReadFileTool, WriteFileTool, SearchFilesTool
+            reg.register(TerminalTool(sandbox_backend))
+            reg.register(CodeExecutionTool(sandbox_backend))
+            reg.register(ReadFileTool(sandbox_backend))
+            reg.register(WriteFileTool(sandbox_backend))
+            reg.register(SearchFilesTool(sandbox_backend))
+            logger.info("评测 Registry: 沙盒工具已注册")
+        except Exception as e:
+            logger.warning("评测 Registry: 沙盒工具注册跳过 (%s)", e)
+
+        # 注册记忆工具（使用 mock memory engine）
+        try:
+            from src.tools.crm_tools import ManageMemoryTool, MemoryReadTool
+            memory_engine = self._build_mock_memory_engine()
+            if memory_engine:
+                reg.register(ManageMemoryTool(memory_engine))
+                reg.register(MemoryReadTool(memory_engine))
+                logger.info("评测 Registry: 记忆工具已注册")
+        except Exception as e:
+            logger.warning("评测 Registry: 记忆工具注册跳过 (%s)", e)
+
         self._registry = reg
         return reg
+
+    def _build_mock_memory_engine(self):
+        """构建评测用的 Mock 记忆引擎"""
+        try:
+            import os
+            if os.environ.get("DISABLE_MEMORY", "").strip() in ("1", "true", "yes"):
+                return None
+            from src.memory.viking_engine import VikingMemoryEngine
+            from langchain_openai import ChatOpenAI
+            _api_key = os.environ.get("AGENT_API_KEY") or os.environ.get("DEEPSEEK_API_KEY", "")
+            if not _api_key:
+                return None
+            _api_base = os.environ.get("AGENT_API_BASE", "https://tokenhub.tencentmaas.com/v1")
+            aux_llm = ChatOpenAI(
+                model="deepseek-v4-flash", api_key=_api_key, base_url=_api_base, max_tokens=2048,
+            )
+            return VikingMemoryEngine(
+                vdb_url=os.environ.get("TENCENT_VDB_URL", "http://10.60.2.17"),
+                vdb_key=os.environ.get("TENCENT_VDB_KEY", "bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck"),
+                vdb_username=os.environ.get("TENCENT_VDB_USERNAME", "root"),
+                database_name=os.environ.get("TENCENT_VDB_DATABASE", "viking_memory"),
+                collection_name=os.environ.get("TENCENT_VDB_COLLECTION", "agent_memories"),
+                llm=aux_llm,
+            )
+        except Exception as e:
+            logger.warning("Mock memory engine 构建失败: %s", e)
+            return None
 
     def _reset_backend(self):
         """重置 CRM Backend 数据为初始 seed data"""
