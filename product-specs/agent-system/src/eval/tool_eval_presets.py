@@ -1077,8 +1077,9 @@ def build_terminal_cases() -> list[ToolEvalCase]:
 def build_execute_code_cases() -> list[ToolEvalCase]:
     """execute_code 工具评测用例
 
+    仅支持 Python 和 Shell 脚本执行（不支持 Node.js）。
     对齐 read_file 的覆盖深度，覆盖以下维度：
-    - 正常场景：各语言基础执行、语言别名、标准库、数据处理、文件 I/O、多行复杂脚本
+    - 正常场景：Python 基础/标准库/数据处理/文件 I/O/多行复杂脚本/Shell 脚本
     - 错误场景：空代码、不支持语言、语法错误、运行时异常、权限错误
     - 边界场景：超时、大输出、中文/Unicode 输出、无输出代码、退出码、环境变量、内存边界
     - 副作用场景：代码生成文件后其他工具可读取、代码读取其他工具写入的文件
@@ -1279,7 +1280,7 @@ def build_execute_code_cases() -> list[ToolEvalCase]:
         ),
 
         # ══════════════════════════════════════════════════════════════
-        # execute_code — 正常场景：语言别名
+        # execute_code — 正常场景：语言别名与 Python 高级特性
         # ══════════════════════════════════════════════════════════════
 
         ToolEvalCase(
@@ -1296,90 +1297,73 @@ def build_execute_code_cases() -> list[ToolEvalCase]:
         ToolEvalCase(
             id="ec_15",
             tool_name="execute_code",
-            description="语言别名 - js 等价于 javascript",
+            description="Python - 装饰器与闭包",
             category="normal",
-            input_data={"language": "js", "code": "console.log('js alias works')"},
+            input_data={"language": "python", "code": "def timer(func):\n    def wrapper(*args, **kwargs):\n        result = func(*args, **kwargs)\n        return result\n    wrapper.__name__ = func.__name__\n    return wrapper\n\n@timer\ndef greet(name):\n    return f'Hello, {name}'\n\nprint(greet('World'))\nprint(f'func name: {greet.__name__}')"},
             assertions=[
-                Assertion(type=AssertionType.NOT_ERROR, description="js 别名应正常工作"),
-                Assertion(type=AssertionType.CONTAINS, expected="js alias works", description="输出正确"),
+                Assertion(type=AssertionType.NOT_ERROR, description="装饰器不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="Hello, World", description="装饰器调用正确"),
+                Assertion(type=AssertionType.CONTAINS, expected="func name: greet", description="functools 名称保留"),
             ],
         ),
         ToolEvalCase(
             id="ec_16",
             tool_name="execute_code",
-            description="语言别名 - node 等价于 javascript",
+            description="Python - 上下文管理器（with 语句）",
             category="normal",
-            input_data={"language": "node", "code": "const v = process.version;\nconsole.log(`node ${v}`)"},
+            input_data={"language": "python", "code": "from contextlib import contextmanager\n\n@contextmanager\ndef managed_resource(name):\n    print(f'entering: {name}')\n    yield name.upper()\n    print(f'exiting: {name}')\n\nwith managed_resource('test') as r:\n    print(f'inside: {r}')"},
             assertions=[
-                Assertion(type=AssertionType.NOT_ERROR, description="node 别名应正常工作"),
-                Assertion(type=AssertionType.CONTAINS, expected="node v", description="输出 node 版本"),
+                Assertion(type=AssertionType.NOT_ERROR, description="上下文管理器不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="entering: test", description="进入上下文"),
+                Assertion(type=AssertionType.CONTAINS, expected="inside: TEST", description="yield 值正确"),
+                Assertion(type=AssertionType.CONTAINS, expected="exiting: test", description="退出上下文"),
             ],
         ),
-
-        # ══════════════════════════════════════════════════════════════
-        # execute_code — 正常场景：JavaScript
-        # ══════════════════════════════════════════════════════════════
-
         ToolEvalCase(
             id="ec_17",
             tool_name="execute_code",
-            description="JavaScript - console.log 基础输出",
+            description="Python - dataclass 数据类",
             category="normal",
-            input_data={"language": "javascript", "code": "console.log('js works');\nconsole.log(1 + 2);"},
+            input_data={"language": "python", "code": "from dataclasses import dataclass, field\nfrom typing import List\n\n@dataclass\nclass Order:\n    id: str\n    amount: float\n    items: List[str] = field(default_factory=list)\n\n    @property\n    def summary(self):\n        return f'{self.id}: ¥{self.amount:.2f} ({len(self.items)} items)'\n\norder = Order(id='ORD-001', amount=99.9, items=['A', 'B'])\nprint(order.summary)\nprint(order)"},
             assertions=[
-                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
-                Assertion(type=AssertionType.CONTAINS, expected="js works", description="字符串输出"),
-                Assertion(type=AssertionType.CONTAINS, expected="3", description="数学运算"),
+                Assertion(type=AssertionType.NOT_ERROR, description="dataclass 不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="ORD-001: ¥99.90 (2 items)", description="property 输出正确"),
             ],
         ),
         ToolEvalCase(
             id="ec_18",
             tool_name="execute_code",
-            description="JavaScript - 数组高阶函数",
+            description="Python - asyncio 异步编程",
             category="normal",
-            input_data={"language": "javascript", "code": "const arr = [1,2,3,4,5];\nconsole.log(arr.reduce((a,b)=>a+b, 0));\nconsole.log(arr.filter(x=>x%2===0));\nconsole.log(arr.map(x=>x*x));"},
+            input_data={"language": "python", "code": "import asyncio\n\nasync def fetch(name, delay):\n    await asyncio.sleep(delay)\n    return f'{name} done'\n\nasync def main():\n    results = await asyncio.gather(\n        fetch('task1', 0.1),\n        fetch('task2', 0.1),\n        fetch('task3', 0.1),\n    )\n    for r in results:\n        print(r)\n    print(f'total: {len(results)}')\n\nasyncio.run(main())"},
             assertions=[
-                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
-                Assertion(type=AssertionType.CONTAINS, expected="15", description="reduce 求和"),
-                Assertion(type=AssertionType.CONTAINS, expected="2,4", description="filter 偶数"),
+                Assertion(type=AssertionType.NOT_ERROR, description="asyncio 不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="task1 done", description="task1 完成"),
+                Assertion(type=AssertionType.CONTAINS, expected="total: 3", description="3个任务完成"),
             ],
         ),
         ToolEvalCase(
             id="ec_19",
             tool_name="execute_code",
-            description="JavaScript - 对象与 JSON 操作",
+            description="Python - subprocess 调用外部命令",
             category="normal",
-            input_data={"language": "javascript", "code": "const obj = {name: '测试', items: [1,2,3], nested: {key: 'value'}};\nconst json = JSON.stringify(obj);\nconst parsed = JSON.parse(json);\nconsole.log(parsed.name);\nconsole.log(parsed.nested.key);"},
+            input_data={"language": "python", "code": "import subprocess\nresult = subprocess.run(['echo', 'hello from subprocess'], capture_output=True, text=True)\nprint(f'returncode: {result.returncode}')\nprint(f'stdout: {result.stdout.strip()}')"},
             assertions=[
-                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
-                Assertion(type=AssertionType.CONTAINS, expected="测试", description="中文 key 正确"),
-                Assertion(type=AssertionType.CONTAINS, expected="value", description="嵌套 key"),
+                Assertion(type=AssertionType.NOT_ERROR, description="subprocess 不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="returncode: 0", description="退出码为0"),
+                Assertion(type=AssertionType.CONTAINS, expected="hello from subprocess", description="subprocess 输出正确"),
             ],
         ),
         ToolEvalCase(
             id="ec_20",
             tool_name="execute_code",
-            description="JavaScript - async/await 与 Promise",
+            description="Python - 字符串模板与格式化",
             category="normal",
-            input_data={"language": "javascript", "code": "async function fetchData() {\n  return new Promise(resolve => {\n    setTimeout(() => resolve({status: 'done', count: 42}), 100);\n  });\n}\n\n(async () => {\n  const result = await fetchData();\n  console.log(result.status);\n  console.log(result.count);\n})();"},
+            input_data={"language": "python", "code": "from string import Template\nimport textwrap\n\ntpl = Template('Hello $name, you have $count items')\nprint(tpl.substitute(name='张三', count=5))\n\ntable = textwrap.dedent('''\n    | Name   | Score |\n    |--------|-------|\n    | Alice  | 95    |\n    | Bob    | 88    |\n''').strip()\nprint(table)"},
             assertions=[
-                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
-                Assertion(type=AssertionType.CONTAINS, expected="done", description="async 返回 status"),
-                Assertion(type=AssertionType.CONTAINS, expected="42", description="async 返回 count"),
-            ],
-        ),
-        ToolEvalCase(
-            id="ec_21",
-            tool_name="execute_code",
-            description="JavaScript - 文件读写（fs 模块）",
-            category="normal",
-            input_data={"language": "javascript", "code": "const fs = require('fs');\nfs.writeFileSync('/tmp/ec_js_test.txt', 'hello from node');\nconst content = fs.readFileSync('/tmp/ec_js_test.txt', 'utf8');\nconsole.log(content);"},
-            assertions=[
-                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
-                Assertion(type=AssertionType.CONTAINS, expected="hello from node", description="文件读写正确"),
-            ],
-            cleanup_steps=[
-                {"tool": "terminal", "input": {"command": "rm -f /tmp/ec_js_test.txt"}},
+                Assertion(type=AssertionType.NOT_ERROR, description="字符串模板不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="Hello 张三, you have 5 items", description="模板替换正确"),
+                Assertion(type=AssertionType.CONTAINS, expected="Alice", description="表格内容"),
             ],
         ),
 
@@ -1456,12 +1440,13 @@ def build_execute_code_cases() -> list[ToolEvalCase]:
         ToolEvalCase(
             id="ec_27",
             tool_name="execute_code",
-            description="JavaScript - 中文 Unicode 处理",
+            description="Python - 多语言 Unicode 混合处理",
             category="normal",
-            input_data={"language": "javascript", "code": "console.log('你好 JavaScript');\nconsole.log(`字符数: ${'测试'.length}`);"},
+            input_data={"language": "python", "code": "texts = ['English', '中文', '日本語', '한국어', 'العربية']\nfor t in texts:\n    print(f'{t}: len={len(t)}')\nprint(f'总文本数: {len(texts)}')"},
             assertions=[
                 Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
-                Assertion(type=AssertionType.CONTAINS, expected="你好 JavaScript", description="中文输出"),
+                Assertion(type=AssertionType.CONTAINS, expected="中文: len=2", description="中文长度"),
+                Assertion(type=AssertionType.CONTAINS, expected="总文本数: 5", description="总数正确"),
             ],
         ),
 
@@ -1584,6 +1569,26 @@ def build_execute_code_cases() -> list[ToolEvalCase]:
             ],
         ),
         ToolEvalCase(
+            id="ec_43b",
+            tool_name="execute_code",
+            description="错误 - javascript 沙盒未安装 node 运行时",
+            category="error",
+            input_data={"language": "javascript", "code": "console.log('should fail')"},
+            assertions=[
+                Assertion(type=AssertionType.IS_ERROR, description="沙盒无 node 应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ec_43c",
+            tool_name="execute_code",
+            description="错误 - node 沙盒未安装 node 运行时",
+            category="error",
+            input_data={"language": "node", "code": "console.log('should fail')"},
+            assertions=[
+                Assertion(type=AssertionType.IS_ERROR, description="沙盒无 node 应报错"),
+            ],
+        ),
+        ToolEvalCase(
             id="ec_44",
             tool_name="execute_code",
             description="错误 - Python 语法错误（括号不匹配）",
@@ -1663,33 +1668,33 @@ def build_execute_code_cases() -> list[ToolEvalCase]:
         ToolEvalCase(
             id="ec_51",
             tool_name="execute_code",
-            description="错误 - JavaScript 语法错误",
+            description="错误 - Python TypeError（类型不兼容操作）",
             category="error",
-            input_data={"language": "javascript", "code": "function broken( { console.log('missing paren') }"},
+            input_data={"language": "python", "code": "result = 'hello' + 123"},
             assertions=[
-                Assertion(type=AssertionType.IS_ERROR, description="JS 语法错误应报错"),
+                Assertion(type=AssertionType.IS_ERROR, description="类型错误应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="TypeError", description="包含 TypeError"),
             ],
         ),
         ToolEvalCase(
             id="ec_52",
             tool_name="execute_code",
-            description="错误 - JavaScript 运行时异常 TypeError",
+            description="错误 - Python IndexError（数组越界）",
             category="error",
-            input_data={"language": "javascript", "code": "const obj = null;\nconsole.log(obj.property);"},
+            input_data={"language": "python", "code": "lst = [1, 2, 3]\nprint(lst[99])"},
             assertions=[
-                Assertion(type=AssertionType.IS_ERROR, description="TypeError 应报错"),
-                Assertion(type=AssertionType.CONTAINS, expected="TypeError", description="包含 TypeError"),
+                Assertion(type=AssertionType.IS_ERROR, description="IndexError 应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="IndexError", description="包含 IndexError"),
             ],
         ),
         ToolEvalCase(
             id="ec_53",
             tool_name="execute_code",
-            description="错误 - JavaScript throw Error",
+            description="错误 - Python KeyboardInterrupt 模拟（sys.exit 非零）",
             category="error",
-            input_data={"language": "javascript", "code": "throw new Error('custom error from js');"},
+            input_data={"language": "python", "code": "import sys\nsys.exit(2)"},
             assertions=[
-                Assertion(type=AssertionType.IS_ERROR, description="throw 应报错"),
-                Assertion(type=AssertionType.CONTAINS, expected="custom error from js", description="包含错误信息"),
+                Assertion(type=AssertionType.IS_ERROR, description="exit(2) 应标记为错误"),
             ],
         ),
         ToolEvalCase(
@@ -1744,11 +1749,11 @@ def build_execute_code_cases() -> list[ToolEvalCase]:
         ToolEvalCase(
             id="ec_61",
             tool_name="execute_code",
-            description="边界 - 超时代码（JavaScript setTimeout 阻塞）",
+            description="边界 - 超时代码（Python 无限循环）",
             category="boundary",
-            input_data={"language": "javascript", "code": "const start = Date.now();\nwhile(Date.now() - start < 10000) {}\nconsole.log('done');", "timeout": 2},
+            input_data={"language": "python", "code": "while True:\n    pass", "timeout": 2},
             assertions=[
-                Assertion(type=AssertionType.IS_ERROR, description="JS 无限循环应超时报错"),
+                Assertion(type=AssertionType.IS_ERROR, description="Python 无限循环应超时报错"),
                 Assertion(type=AssertionType.CONTAINS, expected="超时", description="包含超时提示"),
             ],
         ),
@@ -5301,6 +5306,181 @@ def build_file_upload_cases() -> list[ToolEvalCase]:
             },
             assertions=[
                 Assertion(type=AssertionType.NOT_ERROR, description="自定义有效期不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="上传成功", description="包含成功提示"),
+            ],
+        ),
+        # ── 补充：file_path 模式正常路径 ──
+        ToolEvalCase(
+            id="fu_09",
+            tool_name="file_upload",
+            description="file_path 模式 - 上传已有本地文件",
+            category="normal",
+            input_data={"file_path": "/tmp/file_upload_test_fixture.txt"},
+            setup_steps=[{"tool": "write_file", "input": {"path": "/tmp/file_upload_test_fixture.txt", "content": "file_upload eval fixture content"}}],
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="上传已有文件不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="上传成功", description="包含成功提示"),
+                Assertion(type=AssertionType.CONTAINS, expected="file_upload_test_fixture.txt", description="结果包含文件名"),
+            ],
+        ),
+        # ── 补充：content 自动推断 file_name — Markdown（# 开头） ──
+        ToolEvalCase(
+            id="fu_10",
+            tool_name="file_upload",
+            description="content 模式 - 不指定 file_name，# 开头自动推断为 .md",
+            category="normal",
+            input_data={
+                "content": "# 自动推断测试\n\n这是 Markdown 内容",
+            },
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected=".md", description="自动推断为 md 扩展名"),
+            ],
+        ),
+        # ── 补充：content 自动推断 file_name — 纯文本 ──
+        ToolEvalCase(
+            id="fu_11",
+            tool_name="file_upload",
+            description="content 模式 - 不指定 file_name，纯文本自动推断为 .txt",
+            category="normal",
+            input_data={
+                "content": "这是一段纯文本，没有特殊开头标记。",
+            },
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected=".txt", description="自动推断为 txt 扩展名"),
+            ],
+        ),
+        # ── 补充：file_path 相对路径解析 ──
+        ToolEvalCase(
+            id="fu_12",
+            tool_name="file_upload",
+            description="file_path 模式 - 相对路径自动解析到项目根目录",
+            category="normal",
+            input_data={"file_path": "README.md"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="相对路径应能正确解析并上传"),
+                Assertion(type=AssertionType.CONTAINS, expected="上传成功", description="包含成功提示"),
+            ],
+        ),
+        # ── 补充：文件超过 100MB 大小限制 ──
+        ToolEvalCase(
+            id="fu_13",
+            tool_name="file_upload",
+            description="文件超过 100MB 限制应报错",
+            category="error",
+            input_data={"file_path": "/tmp/file_upload_oversized.bin"},
+            setup_steps=[{"tool": "terminal", "input": {"command": "dd if=/dev/zero of=/tmp/file_upload_oversized.bin bs=1048576 count=101 2>/dev/null"}}],
+            assertions=[
+                Assertion(type=AssertionType.IS_ERROR, description="超过 100MB 应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="文件过大", description="包含大小限制提示"),
+            ],
+        ),
+        # ── 补充：自定义 object_key ──
+        ToolEvalCase(
+            id="fu_14",
+            tool_name="file_upload",
+            description="content 模式 - 自定义 object_key",
+            category="normal",
+            input_data={
+                "content": "custom key test content",
+                "file_name": "custom_key.txt",
+                "object_key": "eval-test/custom/my_report.txt",
+            },
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="自定义 object_key 不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="上传成功", description="包含成功提示"),
+            ],
+        ),
+        # ── 补充：COS 凭证缺失导致客户端初始化失败 ──
+        # 注意：此用例需在无 COS 凭证的环境中运行才能触发，正常环境下会上传成功
+        ToolEvalCase(
+            id="fu_15",
+            tool_name="file_upload",
+            description="COS 凭证缺失时应返回初始化失败错误（需无凭证环境）",
+            category="error",
+            input_data={
+                "content": "test content for cos failure",
+                "file_name": "cos_fail_test.txt",
+            },
+            assertions=[
+                Assertion(type=AssertionType.IS_ERROR, description="凭证缺失应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="COS", description="错误信息包含 COS 关键字"),
+            ],
+        ),
+        # ── 补充：同时传 file_path 和 content（content 优先） ──
+        ToolEvalCase(
+            id="fu_16",
+            tool_name="file_upload",
+            description="同时传 file_path 和 content 时 content 优先",
+            category="boundary",
+            input_data={
+                "file_path": "/tmp/file_upload_test_fixture.txt",
+                "content": "<html><body>content takes priority</body></html>",
+                "file_name": "priority_test.html",
+            },
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="priority_test.html", description="使用 content 模式的 file_name"),
+            ],
+        ),
+        # ── 补充：content 以 --- 开头（YAML front-matter → 推断为 .md） ──
+        ToolEvalCase(
+            id="fu_17",
+            tool_name="file_upload",
+            description="content 模式 - --- 开头自动推断为 .md（YAML front-matter）",
+            category="boundary",
+            input_data={
+                "content": "---\ntitle: Test\n---\n\n# Hello",
+            },
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected=".md", description="--- 开头推断为 md"),
+            ],
+        ),
+        # ── 补充：expires 为 0 或负数的边界行为 ──
+        ToolEvalCase(
+            id="fu_18",
+            tool_name="file_upload",
+            description="expires 为 0 时的边界行为",
+            category="boundary",
+            input_data={
+                "content": "zero expires test",
+                "file_name": "zero_exp.txt",
+                "expires": 0,
+            },
+            assertions=[
+                # expires=0 可能导致 COS 签名立即过期或报错，不应崩溃
+                Assertion(type=AssertionType.NOT_ERROR, description="expires=0 不应导致程序崩溃"),
+            ],
+        ),
+        # ── 补充：超大 content（接近但不超过限制）验证性能 ──
+        ToolEvalCase(
+            id="fu_19",
+            tool_name="file_upload",
+            description="较大 content 上传（1MB 文本）",
+            category="boundary",
+            input_data={
+                "content": "A" * 1024 * 1024,  # 1MB 纯文本
+                "file_name": "large_content.txt",
+            },
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="1MB 内容应能正常上传"),
+                Assertion(type=AssertionType.CONTAINS, expected="上传成功", description="包含成功提示"),
+            ],
+        ),
+        # ── 补充：file_name 含特殊字符 ──
+        ToolEvalCase(
+            id="fu_20",
+            tool_name="file_upload",
+            description="file_name 含中文和空格",
+            category="boundary",
+            input_data={
+                "content": "特殊文件名测试",
+                "file_name": "测试 报告(v2).txt",
+            },
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="中文/空格文件名不应崩溃"),
                 Assertion(type=AssertionType.CONTAINS, expected="上传成功", description="包含成功提示"),
             ],
         ),
