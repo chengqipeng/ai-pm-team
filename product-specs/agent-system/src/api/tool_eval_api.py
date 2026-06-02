@@ -751,7 +751,7 @@ async def list_suites():
     from src.store.eval_dao import EvalCaseDAO
     suite_id = _get_suite_id()
     tools_methods = EvalCaseDAO.get_tools_and_methods(suite_id)
-    cases_raw = EvalCaseDAO.list_by_tool(suite_id, limit=500)
+    cases_raw = EvalCaseDAO.list_by_tool(suite_id, limit=2000)
     return {
         "items": [{
             "id": "suite_default",
@@ -769,7 +769,7 @@ async def get_suite(suite_id: str):
     """获取评测集详情（含所有用例）— 必须从 DB 查询"""
     from src.store.eval_dao import EvalCaseDAO
     db_suite_id = _get_suite_id()
-    cases_raw = EvalCaseDAO.list_by_tool(db_suite_id, limit=500)
+    cases_raw = EvalCaseDAO.list_by_tool(db_suite_id, limit=2000)
     cases_list = []
     for c in cases_raw:
         cases_list.append({

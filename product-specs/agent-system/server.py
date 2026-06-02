@@ -721,6 +721,16 @@ except ImportError as exc:
 except Exception as exc:
     logger.warning("Tool 评测 API 挂载失败: %s", exc)
 
+# ── 挂载 Memory 评测 API ──
+try:
+    from src.api.memory_eval_api import router as memory_eval_router
+    app.include_router(memory_eval_router)
+    logger.info("已挂载 Memory 评测 API: /api/eval/memory/*")
+except ImportError as exc:
+    logger.warning("Memory 评测 API 未启用: %s", exc)
+except Exception as exc:
+    logger.warning("Memory 评测 API 挂载失败: %s", exc)
+
 
 # ── API 路由 ──
 
@@ -2104,6 +2114,16 @@ async def tool_eval_detail_page(tool_name: str):
         with open(html_path, encoding="utf-8") as f:
             return f.read()
     return "<h1>Tool Eval Detail — 页面未找到</h1>"
+
+
+@app.get("/eval/memory", response_class=HTMLResponse)
+async def memory_eval_page():
+    """Memory 评测页面 — 长期记忆召回率评测"""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "memory_eval.html")
+    if os.path.exists(html_path):
+        with open(html_path, encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Memory Eval — 页面未找到</h1>"
 
 
 # ── 记忆浏览 API ──

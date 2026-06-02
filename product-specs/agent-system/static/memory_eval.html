@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>长期记忆召回率评测</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  .pass { color: #16a34a; }
+  .fail { color: #dc2626; }
+  .warn { color: #d97706; }
+  .progress-bar { transition: width 0.3s ease; }
+  .result-row:hover { background-color: #f9fafb; }
+  pre { white-space: pre-wrap; word-break: break-all; }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<!-- Header -->
+<header class="bg-white border-b sticky top-0 z-50">
+  <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+    <div class="flex items-center gap-4">
+      <a href="/" class="text-sm text-gray-500 hover:text-blue-600">← 返回</a>
+      <h1 class="text-lg font-bold text-gray-800">🧠 长期记忆召回率评测</h1>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="memoryCount" class="text-xs text-gray-500"></span>
+      <span id="caseCount" class="text-xs text-gray-500"></span>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-6 py-6 space-y-6">
+
+  <!-- 控制面板 -->
+  <section class="bg-white rounded-xl border p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-base font-bold">评测控制</h2>
+      <button id="btnRun" onclick="runEval()" class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
+        ▶ 运行评测
+      </button>
+    </div>
+
+    <!-- 筛选 -->
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">评测层</label>
+        <div class="flex flex-wrap gap-2" id="layerFilters">
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" value="retrieval" checked class="layer-cb"> 检索召回
+          </label>
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" value="temporal" checked class="layer-cb"> 时间衰减
+          </label>
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" value="extract" class="layer-cb"> 写入正确性
+          </label>
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" value="context" class="layer-cb"> 上下文匹配
+          </label>
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" value="e2e" class="layer-cb"> 端到端
+          </label>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">查询类型</label>
+        <div class="flex flex-wrap gap-2" id="qtFilters">
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" value="exact_entity" checked class="qt-cb"> 精确实体
+          </label>
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" value="fuzzy_semantic" checked class="qt-cb"> 模糊语义
+          </label>
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" value="time_related" checked class="qt-cb"> 时间相关
+          </label>
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" value="cross_category" checked class="qt-cb"> 跨类别
+          </label>
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" value="update_override" checked class="qt-cb"> 更新覆盖
+          </label>
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" value="conflict_resolve" checked class="qt-cb"> 冲突消解
+          </label>
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" value="long_tail_decay" checked class="qt-cb"> 长尾衰减
+          </label>
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" value="negative" checked class="qt-cb"> 负例
+          </label>
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" value="multi_dimension" checked class="qt-cb"> 多维度
+          </label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 进度条 -->
+  <section id="progressSection" class="hidden bg-white rounded-xl border p-4">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-sm font-medium" id="progressLabel">准备中...</span>
+      <span class="text-xs text-gray-500" id="progressStats"></span>
+    </div>
+    <div class="w-full bg-gray-200 rounded-full h-2">
+      <div id="progressBar" class="bg-blue-600 h-2 rounded-full progress-bar" style="width: 0%"></div>
+    </div>
+  </section>
+
+  <!-- 汇总报告 -->
+  <section id="reportSection" class="hidden bg-white rounded-xl border p-6">
+    <h2 class="text-base font-bold mb-4">📊 评测报告</h2>
+    <div class="grid grid-cols-4 gap-4 mb-6" id="summaryCards"></div>
+
+    <!-- 按层统计 -->
+    <div class="grid grid-cols-2 gap-6">
+      <div>
+        <h3 class="text-sm font-bold mb-2">按评测层</h3>
+        <div id="byLayerTable"></div>
+      </div>
+      <div>
+        <h3 class="text-sm font-bold mb-2">按查询类型</h3>
+        <div id="byQueryTypeTable"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 详细结果 -->
+  <section id="resultsSection" class="hidden bg-white rounded-xl border">
+    <div class="p-4 border-b flex items-center justify-between">
+      <h2 class="text-base font-bold">📋 详细结果</h2>
+      <div class="flex gap-2">
+        <button onclick="filterResults('all')" class="px-3 py-1 text-xs rounded-lg border hover:bg-gray-50">全部</button>
+        <button onclick="filterResults('failed')" class="px-3 py-1 text-xs rounded-lg border hover:bg-red-50 text-red-600">仅失败</button>
+        <button onclick="filterResults('passed')" class="px-3 py-1 text-xs rounded-lg border hover:bg-green-50 text-green-600">仅通过</button>
+      </div>
+    </div>
+    <div class="overflow-auto max-h-[600px]" id="resultsBody"></div>
+  </section>
+
+  <!-- 种子数据 -->
+  <section class="bg-white rounded-xl border p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-base font-bold">💾 种子记忆数据</h2>
+      <button onclick="toggleSeedData()" class="text-xs text-blue-600 hover:underline">展开/收起</button>
+    </div>
+    <div id="seedDataSection" class="hidden overflow-auto max-h-[400px]">
+      <table class="w-full text-xs">
+        <thead class="bg-gray-50 sticky top-0">
+          <tr>
+            <th class="text-left p-2">merge_key</th>
+            <th class="text-left p-2">category</th>
+            <th class="text-left p-2">parent_entity</th>
+            <th class="text-left p-2">abstract</th>
+          </tr>
+        </thead>
+        <tbody id="seedDataBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<script>
+let allResults = [];
+
+// 初始化
+async function init() {
+  try {
+    const res = await fetch('/api/eval/memory/overview');
+    const data = await res.json();
+    document.getElementById('memoryCount').textContent = `${data.total_memories} 条种子记忆`;
+    document.getElementById('caseCount').textContent = `${data.total_cases} 条评测用例`;
+    loadSeedData();
+  } catch (e) {
+    console.error('Init failed:', e);
+  }
+}
+
+async function loadSeedData() {
+  try {
+    const res = await fetch('/api/eval/memory/seed-data');
+    const data = await res.json();
+    const tbody = document.getElementById('seedDataBody');
+    tbody.innerHTML = data.items.map(m => `
+      <tr class="border-t hover:bg-gray-50">
+        <td class="p-2 font-mono text-[10px]">${m.merge_key}</td>
+        <td class="p-2"><span class="px-1.5 py-0.5 rounded text-[10px] bg-blue-50 text-blue-700">${m.category}</span></td>
+        <td class="p-2">${m.parent_entity || '-'}</td>
+        <td class="p-2 text-gray-600">${m.abstract}</td>
+      </tr>
+    `).join('');
+  } catch (e) {}
+}
+
+function toggleSeedData() {
+  document.getElementById('seedDataSection').classList.toggle('hidden');
+}
+
+// 运行评测
+async function runEval() {
+  const btn = document.getElementById('btnRun');
+  btn.disabled = true;
+  btn.textContent = '⏳ 运行中...';
+
+  const layers = [...document.querySelectorAll('.layer-cb:checked')].map(cb => cb.value);
+  const queryTypes = [...document.querySelectorAll('.qt-cb:checked')].map(cb => cb.value);
+
+  document.getElementById('progressSection').classList.remove('hidden');
+  document.getElementById('reportSection').classList.add('hidden');
+  document.getElementById('resultsSection').classList.add('hidden');
+  allResults = [];
+
+  try {
+    const response = await fetch('/api/eval/memory/run-stream', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ layers, query_types: queryTypes }),
+    });
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            handleEvent(data);
+          } catch (e) {}
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Eval failed:', e);
+    alert('评测执行失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ 运行评测';
+  }
+}
+
+function handleEvent(data) {
+  switch (data.event) {
+    case 'start':
+      document.getElementById('progressLabel').textContent = `正在执行 0/${data.total}...`;
+      break;
+
+    case 'progress':
+      allResults.push(data);
+      const pct = (data.index / data.total * 100).toFixed(1);
+      document.getElementById('progressBar').style.width = pct + '%';
+      document.getElementById('progressLabel').textContent = `正在执行 ${data.index}/${data.total}...`;
+      document.getElementById('progressStats').textContent =
+        `✅ ${data.running_passed}  ❌ ${data.running_failed}`;
+      break;
+
+    case 'complete':
+      document.getElementById('progressLabel').textContent = '✅ 评测完成';
+      document.getElementById('progressBar').style.width = '100%';
+      showReport(data);
+      showResults();
+      break;
+  }
+}
+
+function showReport(data) {
+  document.getElementById('reportSection').classList.remove('hidden');
+
+  const passRate = (data.pass_rate * 100).toFixed(1);
+  const passColor = passRate >= 85 ? 'text-green-600' : passRate >= 70 ? 'text-amber-600' : 'text-red-600';
+
+  // 计算聚合指标
+  let totalRecall = 0, totalMrr = 0, top1Hits = 0;
+  allResults.forEach(r => {
+    totalRecall += r.recall_at_k || 0;
+    totalMrr += r.mrr || 0;
+    if (r.top1_hit) top1Hits++;
+  });
+  const n = allResults.length || 1;
+  const avgRecall = (totalRecall / n * 100).toFixed(1);
+  const avgMrr = (totalMrr / n).toFixed(3);
+  const top1Rate = (top1Hits / n * 100).toFixed(1);
+
+  document.getElementById('summaryCards').innerHTML = `
+    <div class="p-4 rounded-lg bg-gray-50 text-center">
+      <div class="text-2xl font-bold ${passColor}">${passRate}%</div>
+      <div class="text-xs text-gray-500 mt-1">通过率</div>
+    </div>
+    <div class="p-4 rounded-lg bg-gray-50 text-center">
+      <div class="text-2xl font-bold text-blue-600">${avgRecall}%</div>
+      <div class="text-xs text-gray-500 mt-1">Recall@5</div>
+    </div>
+    <div class="p-4 rounded-lg bg-gray-50 text-center">
+      <div class="text-2xl font-bold text-purple-600">${avgMrr}</div>
+      <div class="text-xs text-gray-500 mt-1">MRR</div>
+    </div>
+    <div class="p-4 rounded-lg bg-gray-50 text-center">
+      <div class="text-2xl font-bold text-emerald-600">${top1Rate}%</div>
+      <div class="text-xs text-gray-500 mt-1">Top-1 命中率</div>
+    </div>
+  `;
+
+  // 按层统计
+  const byLayer = {};
+  const byQT = {};
+  allResults.forEach(r => {
+    if (!byLayer[r.layer]) byLayer[r.layer] = {total: 0, passed: 0};
+    byLayer[r.layer].total++;
+    if (r.passed) byLayer[r.layer].passed++;
+
+    if (!byQT[r.query_type]) byQT[r.query_type] = {total: 0, passed: 0};
+    byQT[r.query_type].total++;
+    if (r.passed) byQT[r.query_type].passed++;
+  });
+
+  const layerNames = {retrieval:'检索召回', temporal:'时间衰减', extract:'写入正确性', context:'上下文匹配', e2e:'端到端'};
+  const qtNames = {exact_entity:'精确实体', fuzzy_semantic:'模糊语义', time_related:'时间相关',
+    cross_category:'跨类别', update_override:'更新覆盖', conflict_resolve:'冲突消解',
+    long_tail_decay:'长尾衰减', negative:'负例过滤', multi_dimension:'多维度'};
+
+  document.getElementById('byLayerTable').innerHTML = buildStatsTable(byLayer, layerNames);
+  document.getElementById('byQueryTypeTable').innerHTML = buildStatsTable(byQT, qtNames);
+}
+
+function buildStatsTable(stats, nameMap) {
+  let html = '<table class="w-full text-xs"><tbody>';
+  for (const [key, val] of Object.entries(stats)) {
+    const rate = (val.passed / val.total * 100).toFixed(1);
+    const icon = rate >= 85 ? '✅' : rate >= 70 ? '⚠️' : '❌';
+    const barColor = rate >= 85 ? 'bg-green-500' : rate >= 70 ? 'bg-amber-500' : 'bg-red-500';
+    html += `<tr class="border-t">
+      <td class="py-1.5 pr-2">${icon} ${nameMap[key] || key}</td>
+      <td class="py-1.5 pr-2 text-right">${val.passed}/${val.total}</td>
+      <td class="py-1.5 w-20">
+        <div class="w-full bg-gray-200 rounded-full h-1.5">
+          <div class="${barColor} h-1.5 rounded-full" style="width:${rate}%"></div>
+        </div>
+      </td>
+      <td class="py-1.5 pl-2 text-right font-mono">${rate}%</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+function showResults() {
+  document.getElementById('resultsSection').classList.remove('hidden');
+  renderResults(allResults);
+}
+
+function filterResults(mode) {
+  if (mode === 'all') renderResults(allResults);
+  else if (mode === 'failed') renderResults(allResults.filter(r => !r.passed));
+  else renderResults(allResults.filter(r => r.passed));
+}
+
+function renderResults(results) {
+  const html = results.map(r => {
+    const icon = r.passed ? '✅' : '❌';
+    const actualStr = (r.actual || []).map(a => a.abstract || a.merge_key).join(' | ');
+    return `<div class="result-row px-4 py-3 border-b text-xs">
+      <div class="flex items-start gap-2">
+        <span>${icon}</span>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="font-medium">${r.query}</span>
+            <span class="shrink-0 px-1.5 py-0.5 rounded bg-gray-100 text-[10px]">${r.query_type}</span>
+            <span class="shrink-0 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px]">${r.layer}</span>
+          </div>
+          <div class="mt-1 text-gray-500">${r.description}</div>
+          <div class="mt-1 flex gap-4">
+            <span class="text-gray-400">期望: <span class="text-gray-700">${(r.expected||[]).join(', ')}</span></span>
+            <span class="text-gray-400">Recall: <span class="font-mono">${(r.recall_at_k||0).toFixed(2)}</span></span>
+            <span class="text-gray-400">MRR: <span class="font-mono">${(r.mrr||0).toFixed(2)}</span></span>
+          </div>
+          ${actualStr ? `<div class="mt-1 text-gray-400 truncate">实际: ${actualStr}</div>` : ''}
+          ${r.error ? `<div class="mt-1 text-red-500">错误: ${r.error}</div>` : ''}
+        </div>
+        <span class="shrink-0 text-gray-400">${r.duration_ms?.toFixed(1)}ms</span>
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('resultsBody').innerHTML = html || '<div class="p-4 text-center text-gray-500">无结果</div>';
+}
+
+init();
+</script>
+</body>
+</html>

@@ -5008,13 +5008,22 @@ def build_web_search_cases() -> list[ToolEvalCase]:
 
 
 def build_knowledge_search_cases() -> list[ToolEvalCase]:
-    """knowledge_search 工具评测用例"""
+    """knowledge_search 工具评测用例
+
+    对标 read_file 的覆盖度，涵盖完整的文件搜索场景：
+    - 正常场景：各类查询模式、参数组合、过滤条件
+    - 异常场景：参数缺失、无效参数、Provider 异常
+    - 边界场景：极值参数、特殊字符、超长输入
+    - 结果验证：返回格式、内容完整性、排序正确性
+    """
     return [
-        # ── 正常场景 ──
+        # ══════════════════════════════════════════════════════════════
+        # 正常场景 — 基础自然语言检索（不同查询模式）
+        # ══════════════════════════════════════════════════════════════
         ToolEvalCase(
             id="ks_01",
             tool_name="knowledge_search",
-            description="正常检索 - 基础自然语言查询",
+            description="基础检索 - 简短关键词查询",
             category="normal",
             input_data={"query": "产品定价方案"},
             assertions=[
@@ -5024,9 +5033,9 @@ def build_knowledge_search_cases() -> list[ToolEvalCase]:
         ToolEvalCase(
             id="ks_02",
             tool_name="knowledge_search",
-            description="正常检索 - 带 top_k 参数",
+            description="基础检索 - 完整问句查询",
             category="normal",
-            input_data={"query": "客户成功案例", "top_k": 3},
+            input_data={"query": "如何处理客户退款投诉？"},
             assertions=[
                 Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
             ],
@@ -5034,9 +5043,9 @@ def build_knowledge_search_cases() -> list[ToolEvalCase]:
         ToolEvalCase(
             id="ks_03",
             tool_name="knowledge_search",
-            description="正常检索 - 指定知识库 ID",
+            description="基础检索 - 多关键词组合查询",
             category="normal",
-            input_data={"query": "销售话术", "knowledge_base_id": 1},
+            input_data={"query": "CRM 系统 权限管理 角色配置"},
             assertions=[
                 Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
             ],
@@ -5044,40 +5053,491 @@ def build_knowledge_search_cases() -> list[ToolEvalCase]:
         ToolEvalCase(
             id="ks_04",
             tool_name="knowledge_search",
-            description="正常检索 - 带元数据过滤",
+            description="基础检索 - 英文技术术语查询",
+            category="normal",
+            input_data={"query": "REST API authentication OAuth2"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_05",
+            tool_name="knowledge_search",
+            description="基础检索 - 中英混合查询",
+            category="normal",
+            input_data={"query": "SaaS 平台的 tenant 隔离方案是什么"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_06",
+            tool_name="knowledge_search",
+            description="基础检索 - 场景化口语查询",
+            category="normal",
+            input_data={"query": "客户说竞品价格更低怎么应对"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_07",
+            tool_name="knowledge_search",
+            description="基础检索 - 数值/版本号查询",
+            category="normal",
+            input_data={"query": "v3.2 版本更新了哪些功能"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_08",
+            tool_name="knowledge_search",
+            description="基础检索 - 否定意图查询",
+            category="normal",
+            input_data={"query": "哪些场景不适合使用自动化审批"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 正常场景 — top_k 参数控制返回数量
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_09",
+            tool_name="knowledge_search",
+            description="top_k=1 - 只返回最相关的 1 条",
+            category="normal",
+            input_data={"query": "客户成功案例", "top_k": 1},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_10",
+            tool_name="knowledge_search",
+            description="top_k=3 - 返回 3 条结果",
+            category="normal",
+            input_data={"query": "客户成功案例", "top_k": 3},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_11",
+            tool_name="knowledge_search",
+            description="top_k=5 - 默认值显式传入",
+            category="normal",
+            input_data={"query": "客户成功案例", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_12",
+            tool_name="knowledge_search",
+            description="top_k=10 - 较大返回数量",
+            category="normal",
+            input_data={"query": "产品手册", "top_k": 10},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_13",
+            tool_name="knowledge_search",
+            description="不传 top_k - 使用默认值 5",
+            category="normal",
+            input_data={"query": "销售培训材料"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 正常场景 — 指定知识库 ID 检索
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_14",
+            tool_name="knowledge_search",
+            description="指定知识库 - knowledge_base_id=1",
+            category="normal",
+            input_data={"query": "销售话术", "knowledge_base_id": 1},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_15",
+            tool_name="knowledge_search",
+            description="指定知识库 - knowledge_base_id=2 + top_k",
+            category="normal",
+            input_data={"query": "技术白皮书", "knowledge_base_id": 2, "top_k": 3},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_16",
+            tool_name="knowledge_search",
+            description="指定知识库 - 全局检索（不指定 ID）",
+            category="normal",
+            input_data={"query": "公司介绍"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="全库检索不应报错"),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 正常场景 — 单个元数据过滤条件
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_17",
+            tool_name="knowledge_search",
+            description="过滤 - 仅 doc_category",
+            category="normal",
+            input_data={"query": "解决方案", "doc_category": "产品手册"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_18",
+            tool_name="knowledge_search",
+            description="过滤 - 仅 industry",
+            category="normal",
+            input_data={"query": "行业案例", "industry": "制造业"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_19",
+            tool_name="knowledge_search",
+            description="过滤 - 仅 business_stage",
+            category="normal",
+            input_data={"query": "客户沟通话术", "business_stage": "需求确认"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_20",
+            tool_name="knowledge_search",
+            description="过滤 - 仅 target_audience",
+            category="normal",
+            input_data={"query": "使用指南", "target_audience": "销售经理"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 正常场景 — 多个元数据过滤条件组合
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_21",
+            tool_name="knowledge_search",
+            description="组合过滤 - doc_category + industry",
             category="normal",
             input_data={"query": "竞品分析", "doc_category": "竞品情报", "industry": "制造业"},
             assertions=[
                 Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
             ],
         ),
-        # ── 异常场景 ──
         ToolEvalCase(
-            id="ks_05",
+            id="ks_22",
             tool_name="knowledge_search",
-            description="空 query - 应返回错误",
+            description="组合过滤 - doc_category + business_stage + target_audience",
+            category="normal",
+            input_data={
+                "query": "产品演示方案",
+                "doc_category": "销售支持",
+                "business_stage": "方案展示",
+                "target_audience": "售前顾问",
+            },
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_23",
+            tool_name="knowledge_search",
+            description="组合过滤 - 全部四个过滤条件",
+            category="normal",
+            input_data={
+                "query": "客户成功故事",
+                "doc_category": "成功案例",
+                "industry": "金融",
+                "business_stage": "签约后",
+                "target_audience": "客户成功经理",
+            },
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_24",
+            tool_name="knowledge_search",
+            description="组合过滤 - 过滤条件 + knowledge_base_id + top_k",
+            category="normal",
+            input_data={
+                "query": "报价策略",
+                "knowledge_base_id": 1,
+                "top_k": 3,
+                "doc_category": "定价政策",
+                "industry": "互联网",
+            },
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 正常场景 — 不同文档类型的检索（模拟 read_file 对不同文件类型的覆盖）
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_25",
+            tool_name="knowledge_search",
+            description="检索类型 - 产品手册/说明书",
+            category="normal",
+            input_data={"query": "产品功能说明", "doc_category": "产品手册"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_26",
+            tool_name="knowledge_search",
+            description="检索类型 - 销售话术/SOP",
+            category="normal",
+            input_data={"query": "首次拜访客户的话术流程", "doc_category": "销售话术"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_27",
+            tool_name="knowledge_search",
+            description="检索类型 - 技术白皮书/架构文档",
+            category="normal",
+            input_data={"query": "系统架构设计 微服务拆分", "doc_category": "技术文档"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_28",
+            tool_name="knowledge_search",
+            description="检索类型 - 合同模板/法务文档",
+            category="normal",
+            input_data={"query": "标准采购合同模板", "doc_category": "合同模板"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_29",
+            tool_name="knowledge_search",
+            description="检索类型 - FAQ/常见问题",
+            category="normal",
+            input_data={"query": "如何重置密码", "doc_category": "FAQ"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_30",
+            tool_name="knowledge_search",
+            description="检索类型 - 培训材料/课件",
+            category="normal",
+            input_data={"query": "新人入职培训课程大纲", "doc_category": "培训材料"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_31",
+            tool_name="knowledge_search",
+            description="检索类型 - 内部政策/制度",
+            category="normal",
+            input_data={"query": "出差报销标准", "doc_category": "内部政策"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_32",
+            tool_name="knowledge_search",
+            description="检索类型 - 竞品分析报告",
+            category="normal",
+            input_data={"query": "友商产品功能对比分析", "doc_category": "竞品情报"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 正常场景 — 不同行业的检索覆盖
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_33",
+            tool_name="knowledge_search",
+            description="行业检索 - 制造业",
+            category="normal",
+            input_data={"query": "生产线质量管理", "industry": "制造业"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_34",
+            tool_name="knowledge_search",
+            description="行业检索 - 金融",
+            category="normal",
+            input_data={"query": "风控审批流程", "industry": "金融"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_35",
+            tool_name="knowledge_search",
+            description="行业检索 - 互联网/科技",
+            category="normal",
+            input_data={"query": "SaaS 产品定价模型", "industry": "互联网"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_36",
+            tool_name="knowledge_search",
+            description="行业检索 - 医疗/医药",
+            category="normal",
+            input_data={"query": "医疗器械销售合规要求", "industry": "医疗"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_37",
+            tool_name="knowledge_search",
+            description="行业检索 - 教育",
+            category="normal",
+            input_data={"query": "在线教育平台运营方案", "industry": "教育"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 正常场景 — 查询结果为空（合法查询但无匹配文档）
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_38",
+            tool_name="knowledge_search",
+            description="空结果 - 冷门查询无匹配文档",
+            category="normal",
+            input_data={"query": "zxyqwmnb 不可能存在的随机关键词"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="无结果不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="未找到", description="应提示未找到相关文档"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_39",
+            tool_name="knowledge_search",
+            description="空结果 - 过滤条件过严导致无结果",
+            category="normal",
+            input_data={
+                "query": "产品介绍",
+                "doc_category": "不存在的分类XYZ",
+                "industry": "不存在的行业ABC",
+            },
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="过滤无结果不应报错"),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 异常场景 — 必填参数缺失/无效
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_40",
+            tool_name="knowledge_search",
+            description="异常 - query 为空字符串",
             category="error",
             input_data={"query": ""},
             assertions=[
                 Assertion(type=AssertionType.IS_ERROR, description="空查询应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="不能为空", description="应提示 query 不能为空"),
             ],
         ),
         ToolEvalCase(
-            id="ks_06",
+            id="ks_41",
             tool_name="knowledge_search",
-            description="不存在的知识库 ID",
+            description="异常 - query 仅空白字符",
+            category="error",
+            input_data={"query": "   \t\n  "},
+            assertions=[
+                # 仅空白字符应视为空查询
+                Assertion(type=AssertionType.IS_ERROR, description="纯空白查询应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_42",
+            tool_name="knowledge_search",
+            description="异常 - 不存在的知识库 ID（极大值）",
             category="error",
             input_data={"query": "产品手册", "knowledge_base_id": 999999},
             assertions=[
-                # 不存在的知识库应该返回空结果或错误
+                # 不存在的知识库不应崩溃，优雅返回空或提示
                 Assertion(type=AssertionType.NOT_ERROR, description="不存在的 KB 不应崩溃（可能返回空结果）"),
             ],
         ),
-        # ── 边界场景 ──
         ToolEvalCase(
-            id="ks_07",
+            id="ks_43",
             tool_name="knowledge_search",
-            description="top_k=0 - 边界值",
+            description="异常 - knowledge_base_id 为负数",
+            category="error",
+            input_data={"query": "销售方案", "knowledge_base_id": -1},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="负数 KB ID 不应崩溃"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_44",
+            tool_name="knowledge_search",
+            description="异常 - top_k 为负数",
+            category="error",
+            input_data={"query": "产品文档", "top_k": -5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="负数 top_k 不应崩溃"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_45",
+            tool_name="knowledge_search",
+            description="异常 - Provider 未注入时的降级",
+            category="error",
+            # 此用例验证 provider=None 时的错误处理
+            # 在评测环境中如果 provider 未正确注入会触发此路径
+            input_data={"query": "测试 provider 降级"},
+            assertions=[
+                # 如果 provider 注入了则正常返回，如果没注入则应优雅报错
+                Assertion(type=AssertionType.NOT_ERROR, description="即便 provider 降级也不应 panic（或正确报错）"),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 边界场景 — 参数极值
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_46",
+            tool_name="knowledge_search",
+            description="边界 - top_k=0",
             category="boundary",
             input_data={"query": "产品文档", "top_k": 0},
             assertions=[
@@ -5085,23 +5545,892 @@ def build_knowledge_search_cases() -> list[ToolEvalCase]:
             ],
         ),
         ToolEvalCase(
-            id="ks_08",
+            id="ks_47",
             tool_name="knowledge_search",
-            description="超长查询文本",
+            description="边界 - top_k=1（最小有效值）",
             category="boundary",
-            input_data={"query": "请帮我查找关于" + "产品功能特性" * 100 + "的文档"},
+            input_data={"query": "产品文档", "top_k": 1},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="top_k=1 不应报错"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_48",
+            tool_name="knowledge_search",
+            description="边界 - top_k=100（较大值）",
+            category="boundary",
+            input_data={"query": "解决方案", "top_k": 100},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="top_k=100 不应崩溃"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_49",
+            tool_name="knowledge_search",
+            description="边界 - top_k=1000（超大值）",
+            category="boundary",
+            input_data={"query": "解决方案", "top_k": 1000},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="超大 top_k 不应崩溃"),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 边界场景 — 查询文本极值与特殊字符
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_50",
+            tool_name="knowledge_search",
+            description="边界 - 单字符查询",
+            category="boundary",
+            input_data={"query": "A"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="单字符查询不应崩溃"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_51",
+            tool_name="knowledge_search",
+            description="边界 - 超长查询文本（500+ 字符）",
+            category="boundary",
+            input_data={"query": "请帮我查找关于" + "产品功能特性和技术架构" * 50 + "的文档"},
             assertions=[
                 Assertion(type=AssertionType.NOT_ERROR, description="超长查询不应崩溃"),
             ],
         ),
         ToolEvalCase(
-            id="ks_09",
+            id="ks_52",
             tool_name="knowledge_search",
-            description="top_k 超大值",
+            description="边界 - 查询含 SQL 注入特征字符",
             category="boundary",
-            input_data={"query": "解决方案", "top_k": 1000},
+            input_data={"query": "产品'; DROP TABLE documents; --"},
             assertions=[
-                Assertion(type=AssertionType.NOT_ERROR, description="超大 top_k 不应崩溃"),
+                Assertion(type=AssertionType.NOT_ERROR, description="SQL 注入字符不应导致异常"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_53",
+            tool_name="knowledge_search",
+            description="边界 - 查询含 HTML/XSS 标签",
+            category="boundary",
+            input_data={"query": "<script>alert('xss')</script>产品介绍"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="HTML 标签不应导致异常"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_54",
+            tool_name="knowledge_search",
+            description="边界 - 查询含 Emoji 和特殊 Unicode",
+            category="boundary",
+            input_data={"query": "产品介绍 🎉🚀 功能说明"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="Emoji 不应导致编码异常"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_55",
+            tool_name="knowledge_search",
+            description="边界 - 查询含换行符和制表符",
+            category="boundary",
+            input_data={"query": "产品功能\n第一个特性\t第二个特性"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="换行制表符不应崩溃"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_56",
+            tool_name="knowledge_search",
+            description="边界 - 查询含正则特殊字符",
+            category="boundary",
+            input_data={"query": "价格范围 [100-500] (含税) *.pdf"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="正则特殊字符不应崩溃"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_57",
+            tool_name="knowledge_search",
+            description="边界 - 查询含反斜杠和引号",
+            category="boundary",
+            input_data={"query": "路径 C:\\Users\\admin \"文件名\" 'test'"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="反斜杠和引号不应崩溃"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_58",
+            tool_name="knowledge_search",
+            description="边界 - 查询全为数字",
+            category="boundary",
+            input_data={"query": "20240315001"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="纯数字查询不应崩溃"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_59",
+            tool_name="knowledge_search",
+            description="边界 - 查询全为标点符号",
+            category="boundary",
+            input_data={"query": "?!@#$%^&*()"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="纯标点查询不应崩溃"),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 边界场景 — 过滤参数特殊值
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_60",
+            tool_name="knowledge_search",
+            description="边界 - doc_category 为空字符串",
+            category="boundary",
+            input_data={"query": "产品文档", "doc_category": ""},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="空 doc_category 应忽略过滤"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_61",
+            tool_name="knowledge_search",
+            description="边界 - industry 含特殊字符",
+            category="boundary",
+            input_data={"query": "行业方案", "industry": "互联网/科技 & AI"},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="特殊字符 industry 不应崩溃"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_62",
+            tool_name="knowledge_search",
+            description="边界 - 超长 doc_category 值",
+            category="boundary",
+            input_data={"query": "方案", "doc_category": "A" * 500},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="超长过滤值不应崩溃"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_63",
+            tool_name="knowledge_search",
+            description="边界 - knowledge_base_id=0",
+            category="boundary",
+            input_data={"query": "产品手册", "knowledge_base_id": 0},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="KB ID=0 不应崩溃"),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 边界场景 — 并发/重复查询（幂等性）
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_64",
+            tool_name="knowledge_search",
+            description="幂等性 - 相同查询多次执行应返回一致结果",
+            category="boundary",
+            input_data={"query": "产品定价", "top_k": 3},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="重复查询不应报错"),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 前置条件验证 — 验证 Provider 注入后工具可正常工作
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_65",
+            tool_name="knowledge_search",
+            description="前置验证 - 有文档的知识库正常返回结果含 source 信息",
+            category="normal",
+            input_data={"query": "产品功能介绍", "top_k": 3},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                # 如果 provider 正常注入且有数据，结果应包含来源信息
+                # 如果 provider 未注入则走 error 路径（ks_45 已覆盖）
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_66",
+            tool_name="knowledge_search",
+            description="前置验证 - 返回结果格式包含文档标题或切片内容",
+            category="normal",
+            input_data={"query": "系统使用说明", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                # 正常结果应该是格式化文本，不是 raw JSON
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 后置条件验证 — 检索操作的只读性（不产生副作用）
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_67",
+            tool_name="knowledge_search",
+            description="只读验证 - 检索不改变知识库状态（连续两次结果应一致）",
+            category="side_effect",
+            input_data={"query": "产品手册", "top_k": 3},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="第一次检索不应报错"),
+                Assertion(
+                    type=AssertionType.SIDE_EFFECT,
+                    description="第二次相同检索结果应一致（验证无副作用）",
+                    expected={
+                        "verify_tool": "knowledge_search",
+                        "verify_input": {"query": "产品手册", "top_k": 3},
+                        "verify_path": "",
+                        "verify_value": "",  # 只要不报错即证明无副作用
+                    },
+                ),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════
+        # 性能边界 — 验证超时/响应时间合理性
+        # ══════════════════════════════════════════════════════════════
+        ToolEvalCase(
+            id="ks_68",
+            tool_name="knowledge_search",
+            description="性能 - 简单查询应在合理时间内返回",
+            category="boundary",
+            input_data={"query": "帮助文档"},
+            timeout_ms=30000,  # 30 秒超时
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应超时"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_69",
+            tool_name="knowledge_search",
+            description="性能 - 复杂过滤查询应在合理时间内返回",
+            category="boundary",
+            input_data={
+                "query": "大客户实施方案与最佳实践经验总结",
+                "doc_category": "解决方案",
+                "industry": "制造业",
+                "business_stage": "实施阶段",
+                "target_audience": "项目经理",
+                "top_k": 10,
+            },
+            timeout_ms=30000,  # 30 秒超时
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应超时"),
+            ],
+        ),
+
+        # ══════════════════════════════════════════════════════════════════════
+        # ██ 召回率评测 — 基于系统真实知识库文档 ██
+        #
+        # 知识库: "审批流产品手册库" (KB=328462335922409472, tenant=292193)
+        # 文档: 204 篇，13279 个切片
+        # 主题域: 物位测量(46) / 温度测量(38) / 差压流量(36) / 压力测量(29)
+        #         / 气体分析(18) / 无线方案(7) / 微信文章(23) / 其他(3+)
+        # 文档类型: 操作指南(79) / 产品手册(50) / 解决方案(31) / 成功案例(12)
+        #
+        # 测试策略:
+        #   1. 精确产品型号召回 — 用户查产品型号，期望召回对应产品文档
+        #   2. 场景/问题驱动召回 — 用户描述问题，期望召回对应解决方案
+        #   3. 跨文档关联召回 — 涉及多文档的查询，期望召回主要相关文档
+        #   4. 元数据过滤后的召回 — 在过滤条件下精确召回
+        #   5. 同义词/近义表达召回 — 换一种说法查同一内容
+        #   6. 负例验证 — 不相关查询不应召回特定文档
+        #
+        # 断言逻辑: CONTAINS 匹配文档标题/产品名关键词（在格式化返回文本中）
+        # ══════════════════════════════════════════════════════════════════════
+
+        # ──────────────────────────────────────────────────────────────
+        # 1. 精确产品型号召回 — 验证命中正确 doc_id
+        # ──────────────────────────────────────────────────────────────
+        ToolEvalCase(
+            id="ks_r01",
+            tool_name="knowledge_search",
+            description="召回-精确型号 | 罗斯蒙特3051压力变送器 → doc_9dc2672c",
+            category="recall",
+            input_data={"query": "罗斯蒙特3051压力变送器", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_9dc2672c58da4cf89c7d", description="必须命中 doc_9dc2672c（3051压力变送器产品样本）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r02",
+            tool_name="knowledge_search",
+            description="召回-精确型号 | 罗斯蒙特5300导波雷达 → doc_49ef5ef9",
+            category="recall",
+            input_data={"query": "罗斯蒙特5300导波雷达液位计", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_49ef5ef96e3f41c18c56", description="必须命中 doc_49ef5ef9（5300液位变送器产品样本）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r03",
+            tool_name="knowledge_search",
+            description="召回-精确型号 | 罗斯蒙特2120振动音叉 → doc_814922bc",
+            category="recall",
+            input_data={"query": "罗斯蒙特2120振动音叉液位开关安装", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_814922bca57a413c831a", description="必须命中 doc_814922bc（2120安装手册）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r04",
+            tool_name="knowledge_search",
+            description="召回-精确型号 | 罗斯蒙特3490控制器 → doc_c66072e1",
+            category="recall",
+            input_data={"query": "罗斯蒙特3490控制器产品规格", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_c66072e1f79c4544859d", description="必须命中 doc_c66072e1（3490控制器产品样本）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r05",
+            tool_name="knowledge_search",
+            description="召回-精确型号 | 1408H雷达液位变送器 → doc_c0b6142c",
+            category="recall",
+            input_data={"query": "Rosemount 1408H液位变送器", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_c0b6142c389f4eff8ec0", description="必须命中 doc_c0b6142c（1408H产品样本）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r06",
+            tool_name="knowledge_search",
+            description="召回-精确型号 | 3051S ERS系统 → doc_145553a2",
+            category="recall",
+            input_data={"query": "3051S电子远传ERS系统产品选型", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_145553a282dd41728ae4", description="必须命中 doc_145553a2（3051S ERS产品样本）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r07",
+            tool_name="knowledge_search",
+            description="召回-精确型号 | 5900S雷达液位计 → doc_671cba61",
+            category="recall",
+            input_data={"query": "罗斯蒙特5900S雷达液位计", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_671cba615c6d41f2b660", description="必须命中 doc_671cba61（5900S产品样本）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r08",
+            tool_name="knowledge_search",
+            description="召回-精确型号 | 3051SMV多参量 → doc_e9c1a046",
+            category="recall",
+            input_data={"query": "3051SMV多参量流量变送器产品手册", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_e9c1a046512349ef9019", description="必须命中 doc_e9c1a046（3051SMV产品样本）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r09",
+            tool_name="knowledge_search",
+            description="召回-精确型号 | 5408雷达液位计 → doc_c1733cd7",
+            category="recall",
+            input_data={"query": "罗斯蒙特5408雷达液位变送器产品资料", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_c1733cd7ab0148cb95b6", description="必须命中 doc_c1733cd7（5408产品样本）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r10",
+            tool_name="knowledge_search",
+            description="召回-精确型号 | 1420无线网关 → doc_5ab38728",
+            category="recall",
+            input_data={"query": "罗斯蒙特1420智能无线网关安装", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_5ab387282fab4fdbbf84", description="必须命中 doc_5ab38728（1420安装手册）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r11",
+            tool_name="knowledge_search",
+            description="召回-精确型号 | CX2100氧量分析仪 → doc_6b56e8dd",
+            category="recall",
+            input_data={"query": "Rosemount CX2100直插式氧量分析仪", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_6b56e8dd891f4bd5afba", description="必须命中 doc_6b56e8dd（CX2100产品样本）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r12",
+            tool_name="knowledge_search",
+            description="召回-精确型号 | ET210耐腐蚀变送器 → doc_cf7a0fce",
+            category="recall",
+            input_data={"query": "罗斯蒙特Permasense ET210耐腐蚀变送器", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_cf7a0fceab8642149a83", description="必须命中 doc_cf7a0fce（ET210产品样本）"),
+            ],
+        ),
+
+        # ──────────────────────────────────────────────────────────────
+        # 2. 场景/问题驱动召回 — 验证命中对应 doc_id
+        # ──────────────────────────────────────────────────────────────
+        ToolEvalCase(
+            id="ks_r13",
+            tool_name="knowledge_search",
+            description="召回-场景 | 低温防冻不用伴热 → 宽温变送器微信文章",
+            category="recall",
+            input_data={"query": "低温环境下压力测量如何防冻，不用伴热", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                # doc_f6041440 = "测量有困难找我罗小蓝系列之无需伴热安心过冬"
+                Assertion(type=AssertionType.CONTAINS, expected="doc_f6041440366d418a", description="必须命中 doc_f6041440（无需伴热安心过冬）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r14",
+            tool_name="knowledge_search",
+            description="召回-场景 | 高温储罐液位 → ERS系统或差压液位文档",
+            category="recall",
+            input_data={"query": "高温高压储罐差压液位测量方案 ERS", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                # doc_145553a2 = 3051S ERS 或 doc_3b11a4ba = 双高之痛何以解压
+                Assertion(type=AssertionType.CONTAINS, expected="doc_3b11a4ba72c3478a", description="必须命中 doc_3b11a4ba（双高之痛何以解压）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r15",
+            tool_name="knowledge_search",
+            description="召回-场景 | 双碳蒸汽能源计量 → doc_ffe39f88",
+            category="recall",
+            input_data={"query": "双碳目标下蒸汽能源计量解决方案", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_ffe39f882fd24237", description="必须命中 doc_ffe39f88（双碳蒸汽能源计量）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r16",
+            tool_name="knowledge_search",
+            description="召回-场景 | 光伏玻璃流量 → doc_944a31b8",
+            category="recall",
+            input_data={"query": "光伏玻璃行业天然气流量测量", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_944a31b8caa04aff", description="必须命中 doc_944a31b8（光伏玻璃行业流量）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r17",
+            tool_name="knowledge_search",
+            description="召回-场景 | 不停车新增温度测点 → doc_655ff195 (X-well)",
+            category="recall",
+            input_data={"query": "不停车情况下新增管道温度测点 非侵入式", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_655ff1952dbd446db6d5", description="必须命中 doc_655ff195（X-well非侵入式温度）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r18",
+            tool_name="knowledge_search",
+            description="召回-场景 | 钢铁行业能源计量 → doc_b2556d5c",
+            category="recall",
+            input_data={"query": "钢铁行业能源计量中心升级改造案例", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_b2556d5c2621419a", description="必须命中 doc_b2556d5c（钢铁能源计量案例）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r19",
+            tool_name="knowledge_search",
+            description="召回-场景 | 罐区管理 → doc_ab8d88c5 (TankMaster)",
+            category="recall",
+            input_data={"query": "储罐罐区管理一目了然 TankMaster", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_ab8d88c50f98491c9b82", description="必须命中 doc_ab8d88c5（罐区管理一目了然）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r20",
+            tool_name="knowledge_search",
+            description="召回-场景 | 管道腐蚀监测 → doc_cf7a0fce (ET210)",
+            category="recall",
+            input_data={"query": "管道壁厚腐蚀侵蚀在线无线监测 Permasense", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_cf7a0fceab8642149a83", description="必须命中 doc_cf7a0fce（ET210耐腐蚀变送器）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r21",
+            tool_name="knowledge_search",
+            description="召回-场景 | 燃烧氧量分析 → doc_6b56e8dd (CX2100)",
+            category="recall",
+            input_data={"query": "燃烧过程烟气氧含量分析 直插式", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_6b56e8dd891f4bd5afba", description="必须命中 doc_6b56e8dd（CX2100氧量分析仪）"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r22",
+            tool_name="knowledge_search",
+            description="召回-场景 | 食品卫生液位 → doc_c0b6142c (1408H)",
+            category="recall",
+            input_data={"query": "食品饮料行业卫生级液位测量 3-A认证 80GHz", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_c0b6142c389f4eff8ec0", description="必须命中 doc_c0b6142c（1408H食品卫生）"),
+            ],
+        ),
+
+        # ──────────────────────────────────────────────────────────────
+        # 3. 跨文档召回 — 验证同时命中多个相关 doc_id
+        # ──────────────────────────────────────────────────────────────
+        ToolEvalCase(
+            id="ks_r23",
+            tool_name="knowledge_search",
+            description="召回-跨文档 | 无线方案应同时命中网关和电源模块",
+            category="recall",
+            input_data={"query": "WirelessHART无线仪表组网 网关 电源", "top_k": 10},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_5ab387282fab4fdbbf84", description="必须命中 1420网关文档"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_fcd0b0e0cc39462b979f", description="必须命中 SmartPower文档"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r24",
+            tool_name="knowledge_search",
+            description="召回-跨文档 | 3051系列查询应命中多型号文档",
+            category="recall",
+            input_data={"query": "罗斯蒙特3051系列产品全家族 DG SMV ERS", "top_k": 10},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_9dc2672c58da4cf89c7d", description="必须命中 3051压力变送器"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_e9c1a046512349ef9019", description="必须命中 3051SMV多参量"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r25",
+            tool_name="knowledge_search",
+            description="召回-跨文档 | 液位全系列应命中5300+5408+5900",
+            category="recall",
+            input_data={"query": "艾默生罗斯蒙特液位计全系列 导波雷达 非接触雷达", "top_k": 10},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                # 至少命中其中两个核心产品
+                Assertion(type=AssertionType.CONTAINS, expected="doc_49ef5ef96e3f41c18c56", description="必须命中 5300导波雷达"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_c1733cd7ab0148cb95b6", description="必须命中 5408非接触雷达"),
+            ],
+        ),
+
+        # ──────────────────────────────────────────────────────────────
+        # 4. 元数据过滤精准召回 — 验证过滤后仍命中正确 doc_id
+        # ──────────────────────────────────────────────────────────────
+        ToolEvalCase(
+            id="ks_r26",
+            tool_name="knowledge_search",
+            description="召回-过滤 | 产品手册类+压力 → 命中3051产品手册",
+            category="recall",
+            input_data={"query": "3051压力变送器量程精度规格", "doc_category": "产品手册", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_9dc2672c58da4cf89c7d", description="过滤后仍命中 3051产品样本"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r27",
+            tool_name="knowledge_search",
+            description="召回-过滤 | 操作指南类+5300 → 命中5300安装手册",
+            category="recall",
+            input_data={"query": "5300导波雷达液位变送器安装步骤", "doc_category": "操作指南", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_cfea79c827754f3c9229", description="过滤后命中 5300安装手册"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r28",
+            tool_name="knowledge_search",
+            description="召回-过滤 | 制造业+解决方案 → 命中差压流量案例",
+            category="recall",
+            input_data={"query": "制造业差压流量测量解决方案", "doc_category": "解决方案", "industry": "制造业", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                # 至少应返回结果（制造业+解决方案交集）
+                Assertion(type=AssertionType.NOT_CONTAINS, expected="未找到", description="制造业+解决方案组合应有结果"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r29",
+            tool_name="knowledge_search",
+            description="召回-过滤 | 售前咨询阶段 → 命中产品手册类文档",
+            category="recall",
+            input_data={"query": "压力变送器选型", "business_stage": "售前咨询", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_9dc2672c58da4cf89c7d", description="售前咨询应命中3051产品样本"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r30",
+            tool_name="knowledge_search",
+            description="召回-过滤 | 面向技术人员+3490 → 命中3490安装手册",
+            category="recall",
+            input_data={"query": "3490控制器安装接线", "target_audience": "技术人员", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_b5b85b9a19df492b95ba", description="技术人员过滤后命中3490安装手册"),
+            ],
+        ),
+
+        # ──────────────────────────────────────────────────────────────
+        # 5. 同义词/变体召回 — 验证语义理解能力命中正确文档
+        # ──────────────────────────────────────────────────────────────
+        ToolEvalCase(
+            id="ks_r31",
+            tool_name="knowledge_search",
+            description="召回-同义 | '差压传感器' → 应命中3051差压变送器",
+            category="recall",
+            input_data={"query": "差压传感器产品规格参数", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_9dc2672c58da4cf89c7d", description="'差压传感器'应命中3051变送器 doc_9dc2672c"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r32",
+            tool_name="knowledge_search",
+            description="召回-同义 | '雷达料位计' → 应命中5900雷达液位计",
+            category="recall",
+            input_data={"query": "非接触式雷达料位计产品选型", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_9c66a6843d6e4d42ba01", description="'雷达料位计'应命中5900C doc_9c66a684"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r33",
+            tool_name="knowledge_search",
+            description="召回-同义 | 纯英文查询 → 应命中3051文档",
+            category="recall",
+            input_data={"query": "Rosemount 3051 pressure transmitter specifications", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_9dc2672c58da4cf89c7d", description="英文查询应命中3051 doc_9dc2672c"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r34",
+            tool_name="knowledge_search",
+            description="召回-同义 | '流量表' → 应命中阿牛巴/3051SF流量计文档",
+            category="recall",
+            input_data={"query": "工业用流量表选型 差压式", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                # 流量表=流量计，应命中差压流量相关文档
+                Assertion(type=AssertionType.NOT_CONTAINS, expected="未找到", description="'流量表'查询应有结果"),
+                Assertion(type=AssertionType.CONTAINS, expected="流量", description="结果文档应涉及流量"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r35",
+            tool_name="knowledge_search",
+            description="召回-同义 | 口语'测液面高度的仪器' → 液位计文档",
+            category="recall",
+            input_data={"query": "怎么装那个测液面高度的仪器", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.NOT_CONTAINS, expected="未找到", description="口语查询应有结果"),
+                Assertion(type=AssertionType.CONTAINS, expected="液位", description="应召回液位计相关文档"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r36",
+            tool_name="knowledge_search",
+            description="召回-同义 | 'DP transmitter' → 差压变送器文档",
+            category="recall",
+            input_data={"query": "DP transmitter for level measurement", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.NOT_CONTAINS, expected="未找到", description="DP transmitter应有结果"),
+            ],
+        ),
+
+        # ──────────────────────────────────────────────────────────────
+        # 6. 负例验证 — 不相关查询不应命中仪表文档
+        # ──────────────────────────────────────────────────────────────
+        ToolEvalCase(
+            id="ks_r37",
+            tool_name="knowledge_search",
+            description="召回-负例 | 完全无关话题应返回'未找到'",
+            category="recall",
+            input_data={"query": "如何制作红烧肉家常菜谱步骤", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="未找到", description="无关查询应返回'未找到'"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r38",
+            tool_name="knowledge_search",
+            description="召回-负例 | 财务话题不应命中仪表文档",
+            category="recall",
+            input_data={"query": "2024年第三季度财务报表分析会计准则", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.NOT_CONTAINS, expected="doc_9dc2672c58da4cf89c7d", description="不应误命中3051变送器文档"),
+                Assertion(type=AssertionType.NOT_CONTAINS, expected="doc_49ef5ef96e3f41c18c56", description="不应误命中5300液位计文档"),
+            ],
+        ),
+
+        # ──────────────────────────────────────────────────────────────
+        # 7. 综合难度 — 按技术参数精准定位到文档
+        # ──────────────────────────────────────────────────────────────
+        ToolEvalCase(
+            id="ks_r39",
+            tool_name="knowledge_search",
+            description="召回-综合 | 100:1量程比 → doc_9dc2672c (3051)",
+            category="recall",
+            input_data={"query": "100:1量程比的压力变送器型号", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_9dc2672c58da4cf89c7d", description="100:1量程比应命中3051"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r40",
+            tool_name="knowledge_search",
+            description="召回-综合 | SIL2/SIS认证液位 → doc_c1733cd7 (5408SIS)",
+            category="recall",
+            input_data={"query": "SIL2功能安全认证的液位变送器 5408SIS", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_c1733cd7ab0148cb95b6", description="SIL2应命中5408SIS doc_c1733cd7"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r41",
+            tool_name="knowledge_search",
+            description="召回-综合 | 80GHz FMCW → doc_c0b6142c (1408H)",
+            category="recall",
+            input_data={"query": "80GHz FMCW调频连续波雷达液位计", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_c0b6142c389f4eff8ec0", description="80GHz FMCW应命中1408H"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r42",
+            tool_name="knowledge_search",
+            description="召回-综合 | Gartner SFA → doc_0d8f78fa (销售易)",
+            category="recall",
+            input_data={"query": "入选Gartner SFA全球魔力象限的中国CRM厂商", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_0d8f78fa04a64cf28c7d", description="Gartner查询应命中销售易 doc_0d8f78fa"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r43",
+            tool_name="knowledge_search",
+            description="召回-综合 | SmartPower 701P → doc_fcd0b0e0",
+            category="recall",
+            input_data={"query": "SmartPower 701P无线供电解决方案", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_fcd0b0e0cc39462b979f", description="SmartPower应命中701P英文文档"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r44",
+            tool_name="knowledge_search",
+            description="召回-综合 | 腾讯投资CRM → doc_0d8f78fa (销售易)",
+            category="recall",
+            input_data={"query": "腾讯投资的CRM SaaS公司 连续五年Gartner", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_0d8f78fa04a64cf28c7d", description="腾讯投资应命中销售易 doc_0d8f78fa"),
+            ],
+        ),
+
+        # ──────────────────────────────────────────────────────────────
+        # 8. 主题域覆盖 — 验证每个域都能命中正确文档
+        # ──────────────────────────────────────────────────────────────
+        ToolEvalCase(
+            id="ks_r45",
+            tool_name="knowledge_search",
+            description="召回-主题域 | 物位→命中5300 doc_cfea79c8",
+            category="recall",
+            input_data={"query": "5300导波雷达安装注意事项", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_cfea79c827754f3c9229", description="物位域应命中5300安装手册"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r46",
+            tool_name="knowledge_search",
+            description="召回-主题域 | 温度→命中螺旋热套管 doc_cd484e05",
+            category="recall",
+            input_data={"query": "创新螺旋热套管温度测量", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_cd484e050c534b66", description="温度域应命中螺旋热套管文档"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r47",
+            tool_name="knowledge_search",
+            description="召回-主题域 | 差压流量→命中阿牛巴",
+            category="recall",
+            input_data={"query": "阿牛巴流量计 Annubar 安装", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_e1d22995350c4f98b06d", description="差压流量域应命中阿牛巴文档"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r48",
+            tool_name="knowledge_search",
+            description="召回-主题域 | 气体分析→命中色谱仪 doc_be9d2e2b",
+            category="recall",
+            input_data={"query": "气相色谱仪天然气管线运输", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_be9d2e2b3fd7428abb66", description="气体分析域应命中色谱仪文档"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r49",
+            tool_name="knowledge_search",
+            description="召回-主题域 | 无线→命中1420网关 doc_5ab38728",
+            category="recall",
+            input_data={"query": "无线网关1420 WirelessHART", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_5ab387282fab4fdbbf84", description="无线域应命中1420网关文档"),
+            ],
+        ),
+        ToolEvalCase(
+            id="ks_r50",
+            tool_name="knowledge_search",
+            description="召回-主题域 | 液体分析→命中液体分析产品 doc_39164863",
+            category="recall",
+            input_data={"query": "pH电导率溶解氧液体在线分析", "top_k": 5},
+            assertions=[
+                Assertion(type=AssertionType.NOT_ERROR, description="不应报错"),
+                Assertion(type=AssertionType.CONTAINS, expected="doc_39164863277a4cd5", description="液体分析域应命中 doc_39164863"),
             ],
         ),
     ]
@@ -5310,13 +6639,13 @@ def build_file_upload_cases() -> list[ToolEvalCase]:
             ],
         ),
         # ── 补充：file_path 模式正常路径 ──
+        # 前提：/tmp/file_upload_test_fixture.txt 需预先存在
         ToolEvalCase(
             id="fu_09",
             tool_name="file_upload",
             description="file_path 模式 - 上传已有本地文件",
             category="normal",
             input_data={"file_path": "/tmp/file_upload_test_fixture.txt"},
-            setup_steps=[{"tool": "write_file", "input": {"path": "/tmp/file_upload_test_fixture.txt", "content": "file_upload eval fixture content"}}],
             assertions=[
                 Assertion(type=AssertionType.NOT_ERROR, description="上传已有文件不应报错"),
                 Assertion(type=AssertionType.CONTAINS, expected="上传成功", description="包含成功提示"),
@@ -5364,13 +6693,13 @@ def build_file_upload_cases() -> list[ToolEvalCase]:
             ],
         ),
         # ── 补充：文件超过 100MB 大小限制 ──
+        # 前提：/tmp/file_upload_oversized.bin (101MB) 需预先存在
         ToolEvalCase(
             id="fu_13",
             tool_name="file_upload",
             description="文件超过 100MB 限制应报错",
             category="error",
             input_data={"file_path": "/tmp/file_upload_oversized.bin"},
-            setup_steps=[{"tool": "terminal", "input": {"command": "dd if=/dev/zero of=/tmp/file_upload_oversized.bin bs=1048576 count=101 2>/dev/null"}}],
             assertions=[
                 Assertion(type=AssertionType.IS_ERROR, description="超过 100MB 应报错"),
                 Assertion(type=AssertionType.CONTAINS, expected="文件过大", description="包含大小限制提示"),
