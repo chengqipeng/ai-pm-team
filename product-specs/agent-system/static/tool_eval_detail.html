@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tool 评测详情 — DeepAgent</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; background: #f8fafc; }
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 10px; }
+@keyframes fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.animate-fade-in { animation: fade-in 0.25s ease-out; }
+.case-row { transition: all 0.15s; }
+.case-row:hover { background: #f0f9ff; }
+.detail-panel { transition: max-height 0.3s ease, opacity 0.2s ease; overflow: hidden; }
+.detail-panel.collapsed { max-height: 0; opacity: 0; }
+.detail-panel.expanded { max-height: 1200px; opacity: 1; }
+.json-view { font-family: 'JetBrains Mono', 'Fira Code', 'Menlo', monospace; font-size: 11px; line-height: 1.6; }
+.method-tab { transition: all 0.15s; }
+.method-tab:hover { background: #eff6ff; }
+.method-tab.active { background: #dbeafe; color: #1d4ed8; border-color: #3b82f6; }
+.pagination-btn { transition: all 0.15s; }
+.pagination-btn:hover:not(:disabled) { background: #eff6ff; }
+.pagination-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- 顶部导航 -->
+<header class="bg-white/80 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-50">
+  <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a href="/" class="flex items-center gap-2 text-gray-900 no-underline hover:opacity-80 transition-opacity">
+        <div class="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+        <span class="font-bold text-sm">DeepAgent</span>
+      </a>
+      <span class="text-gray-300 mx-1">/</span>
+      <a href="/eval/tools" class="text-sm text-gray-500 hover:text-blue-600 no-underline">Tool 评测</a>
+      <span class="text-gray-300 mx-1">/</span>
+      <span id="toolNameBreadcrumb" class="text-sm font-semibold text-gray-700">—</span>
+    </div>
+    <nav class="flex items-center gap-1">
+      <a href="/" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all no-underline">对话</a>
+      <a href="/eval/tools" class="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg transition-all no-underline">评测</a>
+    </nav>
+  </div>
+</header>
+
+<!-- 主内容 -->
+<div class="max-w-7xl mx-auto px-6 py-6">
+
+  <!-- 工具信息头 -->
+  <div class="flex items-center justify-between mb-6">
+    <div class="flex items-center gap-4">
+      <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
+        <span class="text-white text-xl">🔧</span>
+      </div>
+      <div>
+        <h1 id="toolTitle" class="text-xl font-bold text-gray-900">—</h1>
+        <p id="toolMeta" class="text-xs text-gray-400 mt-0.5">加载中...</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <button onclick="runToolEval()" id="runBtn" class="px-5 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all shadow-sm flex items-center gap-2">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        执行全部
+      </button>
+    </div>
+  </div>
+
+  <!-- 统计卡片（执行后显示） -->
+  <div id="statsBar" class="hidden mb-5 animate-fade-in">
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center gap-8">
+      <div><span class="text-[10px] text-gray-400 block">Pass Rate</span><span id="barRate" class="text-lg font-bold text-green-600">—</span></div>
+      <div><span class="text-[10px] text-gray-400 block">通过</span><span id="barPassed" class="text-lg font-bold text-green-600">—</span></div>
+      <div><span class="text-[10px] text-gray-400 block">失败</span><span id="barFailed" class="text-lg font-bold text-red-500">—</span></div>
+      <div><span class="text-[10px] text-gray-400 block">总数</span><span id="barTotal" class="text-lg font-bold text-gray-800">—</span></div>
+      <div><span class="text-[10px] text-gray-400 block">耗时</span><span id="barDuration" class="text-lg font-bold text-gray-800">—</span></div>
+    </div>
+  </div>
+
+  <!-- 执行进度条（执行中显示） -->
+  <div id="progressBar" class="hidden mb-5 animate-fade-in">
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <div class="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          <span id="progressLabel" class="text-xs font-semibold text-gray-700">执行中...</span>
+        </div>
+        <span id="progressCount" class="text-xs text-gray-400">0 / 0</span>
+      </div>
+      <div class="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+        <div id="progressFill" class="h-full rounded-full transition-all duration-300 ease-out" style="width: 0%; background: linear-gradient(90deg, #3b82f6 0%, #10b981 100%)"></div>
+      </div>
+      <div class="flex items-center justify-between mt-2">
+        <div class="flex items-center gap-3">
+          <span class="text-[10px] text-green-600 font-medium">✓ <span id="progressPassed">0</span></span>
+          <span class="text-[10px] text-red-500 font-medium">✗ <span id="progressFailed">0</span></span>
+        </div>
+        <span id="progressPercent" class="text-[10px] text-gray-400">0%</span>
+      </div>
+      <!-- 当前执行的用例 -->
+      <div id="progressCurrentCase" class="mt-2 text-[10px] text-gray-400 truncate"></div>
+    </div>
+  </div>
+
+  <div class="flex gap-5">
+    <!-- 左侧：方法导航 -->
+    <div class="w-56 shrink-0">
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm sticky top-20">
+        <div class="px-4 py-3 border-b border-gray-50">
+          <div class="text-xs font-bold text-gray-700">方法列表</div>
+        </div>
+        <div id="methodNav" class="p-2 space-y-0.5 max-h-[calc(100vh-12rem)] overflow-auto custom-scrollbar">
+          <!-- 动态 -->
+        </div>
+        <!-- 分类筛选 -->
+        <div class="px-4 py-3 border-t border-gray-50">
+          <div class="text-[10px] text-gray-400 mb-1.5">分类筛选</div>
+          <div class="flex flex-wrap gap-1">
+            <button onclick="filterCategory('')" class="cat-btn text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 hover:bg-blue-100 ring-2 ring-offset-1 ring-blue-400 font-bold">全部</button>
+            <button onclick="filterCategory('normal')" class="cat-btn text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100">正常</button>
+            <button onclick="filterCategory('error')" class="cat-btn text-[10px] px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 hover:bg-orange-100">异常</button>
+            <button onclick="filterCategory('boundary')" class="cat-btn text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 hover:bg-purple-100">边界</button>
+            <button onclick="filterCategory('side_effect')" class="cat-btn text-[10px] px-2 py-0.5 rounded-full bg-cyan-50 text-cyan-600 hover:bg-cyan-100">副作用</button>
+          </div>
+        </div>
+        <!-- 执行结果筛选（执行后显示） -->
+        <div id="resultFilterSection" class="px-4 py-3 border-t border-gray-50 hidden">
+          <div class="text-[10px] text-gray-400 mb-1.5">结果筛选</div>
+          <div class="flex flex-wrap gap-1">
+            <button onclick="filterResult('')" class="result-btn text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 hover:bg-blue-100 ring-2 ring-offset-1 ring-blue-400 font-bold">全部</button>
+            <button onclick="filterResult('passed')" class="result-btn text-[10px] px-2 py-0.5 rounded-full bg-green-50 text-green-600 hover:bg-green-100">✓ 通过</button>
+            <button onclick="filterResult('failed')" class="result-btn text-[10px] px-2 py-0.5 rounded-full bg-red-50 text-red-600 hover:bg-red-100">✗ 失败</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧：用例列表 -->
+    <div class="flex-1 min-w-0">
+      <!-- 当前方法标题 + 执行按钮 -->
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-3">
+          <h2 id="currentMethodTitle" class="text-sm font-bold text-gray-800">全部用例</h2>
+          <span id="currentMethodCount" class="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full"></span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="runCurrentMethod()" class="px-3 py-1.5 text-[10px] font-semibold text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors">▶ 执行当前方法</button>
+        </div>
+      </div>
+
+      <!-- 用例列表 -->
+      <div id="casesList" class="space-y-1.5 mb-4">
+        <!-- 动态 -->
+      </div>
+
+      <!-- 分页 -->
+      <div id="pagination" class="flex items-center justify-between bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3">
+        <div id="pageInfo" class="text-xs text-gray-500"></div>
+        <div class="flex items-center gap-2">
+          <button onclick="goPage(-1)" id="prevBtn" class="pagination-btn px-3 py-1.5 text-xs border border-gray-200 rounded-lg">← 上一页</button>
+          <span id="pageNum" class="text-xs text-gray-600 min-w-[60px] text-center"></span>
+          <button onclick="goPage(1)" id="nextBtn" class="pagination-btn px-3 py-1.5 text-xs border border-gray-200 rounded-lg">下一页 →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api/eval/tools';
+const PAGE_SIZE = 50;
+
+// 状态
+let toolName = '';
+let allCases = [];
+let filteredCases = [];
+let currentMethod = '';  // '' = 全部
+let currentCategory = '';
+let currentResult = '';  // '' = 全部, 'passed', 'failed'
+let currentPage = 1;
+let currentReport = null;
+
+const CATEGORY_LABELS = {
+  normal: { label: '正常', color: 'bg-blue-100 text-blue-700' },
+  error: { label: '异常', color: 'bg-orange-100 text-orange-700' },
+  boundary: { label: '边界', color: 'bg-purple-100 text-purple-700' },
+  side_effect: { label: '副作用', color: 'bg-cyan-100 text-cyan-700' },
+};
+
+// ══════════════════════════════════════════════════
+// 初始化
+// ══════════════════════════════════════════════════
+
+async function init() {
+  // 从 URL 获取工具名
+  const pathParts = window.location.pathname.split('/');
+  toolName = decodeURIComponent(pathParts[pathParts.length - 1]);
+  document.getElementById('toolNameBreadcrumb').textContent = toolName;
+  document.getElementById('toolTitle').textContent = toolName;
+  document.title = `${toolName} — Tool 评测`;
+
+  try {
+    const resp = await fetch(`${API}/suites/suite_default`);
+    if (!resp.ok) throw new Error('加载失败');
+    const suite = await resp.json();
+    allCases = (suite.cases || []).filter(c => c.tool_name === toolName);
+
+    if (allCases.length === 0) {
+      document.getElementById('casesList').innerHTML = `
+        <div class="text-center py-16 text-gray-400">
+          <div class="text-3xl mb-2">📭</div>
+          <div class="text-sm">该工具暂无评测用例</div>
+        </div>`;
+      return;
+    }
+
+    // 方法统计
+    const methods = {};
+    allCases.forEach(c => {
+      const m = c.input_data.query_type || c.input_data.action || '_default';
+      if (!methods[m]) methods[m] = { count: 0, cats: {} };
+      methods[m].count++;
+      methods[m].cats[c.category] = (methods[m].cats[c.category] || 0) + 1;
+    });
+
+    document.getElementById('toolMeta').textContent =
+      `${Object.keys(methods).length} 个方法 · ${allCases.length} 个测试场景`;
+
+    renderMethodNav(methods);
+
+    // 尝试加载最近一次该工具的执行报告
+    await loadLatestReport();
+
+    applyFilter();
+  } catch(e) {
+    document.getElementById('casesList').innerHTML = `
+      <div class="text-center py-16 text-gray-400">
+        <div class="text-3xl mb-2">⚠️</div>
+        <div class="text-sm">加载失败: ${e.message}</div>
+      </div>`;
+  }
+}
+
+async function loadLatestReport() {
+  try {
+    const resp = await fetch(`${API}/reports?limit=10`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const reports = data.items || [];
+    // 找到最近一次包含当前工具的报告
+    const toolReport = reports.find(r => {
+      const tools = r.filter_tools || [];
+      return tools.length === 0 || tools.includes(toolName);
+    });
+    if (!toolReport || !toolReport.report_key) return;
+
+    // 加载报告详情（含 case results）
+    const detailResp = await fetch(`${API}/reports/${toolReport.report_key}`);
+    if (!detailResp.ok) return;
+    const detail = await detailResp.json();
+
+    // 转换为前端 currentReport 格式
+    if (detail.results && detail.results.length > 0) {
+      // 筛选当前工具的结果
+      const toolResults = detail.results.filter(r => r.tool_name === toolName);
+      if (toolResults.length === 0) return;
+
+      currentReport = {
+        report_id: detail.report_key,
+        total: toolResults.length,
+        passed: toolResults.filter(r => r.passed).length,
+        failed: toolResults.filter(r => !r.passed).length,
+        error: 0,
+        pass_rate: toolResults.filter(r => r.passed).length / toolResults.length,
+        total_duration_ms: toolResults.reduce((sum, r) => sum + (r.duration_ms || 0), 0),
+        by_tool: {},
+        by_method: {},
+        by_category: {},
+        results: toolResults.map(r => ({
+          case_id: r.case_key,
+          tool_name: r.tool_name,
+          description: '',
+          category: r.category || '',
+          passed: r.passed,
+          duration_ms: r.duration_ms || 0,
+          input_data: r.input_data || {},
+          tool_output: r.tool_output || null,
+          is_error: r.is_error || false,
+          assertion_results: r.assertion_results || [],
+          error: r.error_message || '',
+        })),
+        failures: [],
+      };
+      renderStats(currentReport);
+    }
+  } catch(e) {
+    console.warn('加载历史报告失败:', e);
+  }
+}
+
+// ══════════════════════════════════════════════════
+// 方法导航
+// ══════════════════════════════════════════════════
+
+function renderMethodNav(methods) {
+  const nav = document.getElementById('methodNav');
+  nav.innerHTML = `
+    <button onclick="selectMethod('')" class="method-tab active w-full text-left px-3 py-2 rounded-lg text-xs font-medium border border-transparent flex items-center justify-between">
+      <span>全部</span>
+      <span class="text-[10px] text-gray-400">${allCases.length}</span>
+    </button>
+  `;
+  Object.entries(methods).sort(([a],[b]) => a.localeCompare(b)).forEach(([name, info]) => {
+    nav.innerHTML += `
+      <button onclick="selectMethod('${name}')" data-method="${name}" class="method-tab w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-gray-600 border border-transparent flex items-center justify-between">
+        <span>${name}</span>
+        <span class="text-[10px] text-gray-400">${info.count}</span>
+      </button>
+    `;
+  });
+}
+
+function selectMethod(method) {
+  currentMethod = method;
+  currentPage = 1;
+  // 更新 tab 样式
+  document.querySelectorAll('.method-tab').forEach(btn => {
+    btn.classList.remove('active');
+    if ((btn.dataset.method || '') === method) btn.classList.add('active');
+    if (method === '' && !btn.dataset.method) btn.classList.add('active');
+  });
+  applyFilter();
+}
+
+function filterCategory(cat) {
+  currentCategory = cat;
+  currentPage = 1;
+  // 更新分类按钮样式
+  document.querySelectorAll('.cat-btn').forEach(btn => {
+    btn.classList.remove('ring-2', 'ring-offset-1', 'ring-blue-400', 'font-bold');
+  });
+  const btns = document.querySelectorAll('.cat-btn');
+  btns.forEach(btn => {
+    const onclick = btn.getAttribute('onclick') || '';
+    if (onclick.includes(`'${cat}'`) || (cat === '' && onclick.includes("''"))) {
+      btn.classList.add('ring-2', 'ring-offset-1', 'ring-blue-400', 'font-bold');
+    }
+  });
+  applyFilter();
+}
+
+function filterResult(result) {
+  currentResult = result;
+  currentPage = 1;
+  // 更新结果按钮样式
+  document.querySelectorAll('.result-btn').forEach(btn => {
+    btn.classList.remove('ring-2', 'ring-offset-1', 'ring-blue-400', 'font-bold');
+  });
+  document.querySelectorAll('.result-btn').forEach(btn => {
+    const onclick = btn.getAttribute('onclick') || '';
+    if (onclick.includes(`'${result}'`) || (result === '' && onclick.includes("''"))) {
+      btn.classList.add('ring-2', 'ring-offset-1', 'ring-blue-400', 'font-bold');
+    }
+  });
+  applyFilter();
+}
+
+// ══════════════════════════════════════════════════
+// 筛选 + 分页
+// ══════════════════════════════════════════════════
+
+function applyFilter() {
+  filteredCases = allCases;
+  if (currentMethod) {
+    filteredCases = filteredCases.filter(c => {
+      const m = c.input_data.query_type || c.input_data.action || '_default';
+      return m === currentMethod;
+    });
+  }
+  if (currentCategory) {
+    filteredCases = filteredCases.filter(c => c.category === currentCategory);
+  }
+  if (currentResult && currentReport && currentReport.results.length > 0) {
+    filteredCases = filteredCases.filter(c => {
+      const r = currentReport.results.find(r => r.case_id === c.id);
+      if (!r) return false;
+      return currentResult === 'passed' ? r.passed : !r.passed;
+    });
+  }
+
+  // 标题
+  document.getElementById('currentMethodTitle').textContent =
+    currentMethod ? currentMethod : '全部用例';
+  document.getElementById('currentMethodCount').textContent =
+    `${filteredCases.length} 条`;
+
+  renderPage();
+}
+
+function renderPage() {
+  const total = filteredCases.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (currentPage > totalPages) currentPage = totalPages;
+
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const end = Math.min(start + PAGE_SIZE, total);
+  const pageCases = filteredCases.slice(start, end);
+
+  // 分页信息
+  document.getElementById('pageInfo').textContent =
+    `显示 ${start + 1}-${end} / 共 ${total} 条`;
+  document.getElementById('pageNum').textContent =
+    `${currentPage} / ${totalPages}`;
+  document.getElementById('prevBtn').disabled = currentPage <= 1;
+  document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+
+  // 渲染用例
+  const container = document.getElementById('casesList');
+  container.innerHTML = '';
+  pageCases.forEach((c, idx) => {
+    const globalIdx = start + idx;
+    container.innerHTML += renderCaseRow(c, globalIdx);
+  });
+}
+
+function goPage(delta) {
+  currentPage += delta;
+  renderPage();
+  window.scrollTo({ top: 200, behavior: 'smooth' });
+}
+
+// ══════════════════════════════════════════════════
+// 渲染单个用例
+// ══════════════════════════════════════════════════
+
+function renderCaseRow(c, idx) {
+  const caseId = `case_${idx}`;
+  const cfg = CATEGORY_LABELS[c.category] || { label: c.category, color: 'bg-gray-100 text-gray-600' };
+  const resultIcon = getCaseResultIcon(c.id);
+  const method = c.input_data.query_type || c.input_data.action || '';
+  const hasResult = currentReport && currentReport.results.find(r => r.case_id === c.id);
+  const detailState = hasResult ? 'expanded' : 'collapsed';
+  const arrowRotate = hasResult ? 'style="transform: rotate(180deg)"' : '';
+
+  return `
+    <div class="case-row bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <!-- 摘要行 -->
+      <div class="px-4 py-3 cursor-pointer flex items-center justify-between" onclick="toggleDetail('${caseId}')">
+        <div class="flex items-center gap-2.5 min-w-0 flex-1">
+          ${resultIcon}
+          <span class="text-[10px] font-mono text-gray-300 w-12 shrink-0">${c.id}</span>
+          <span class="text-xs text-gray-800 truncate font-medium">${escapeHtml(c.description)}</span>
+          <span class="text-[10px] px-2 py-0.5 rounded-full ${cfg.color} shrink-0">${cfg.label}</span>
+          ${method ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-50 text-gray-400 shrink-0">${method}</span>` : ''}
+        </div>
+        <div class="flex items-center gap-3 shrink-0">
+          <span class="text-[10px] text-gray-300">${c.assertions.length} 断言</span>
+          <svg class="w-3.5 h-3.5 text-gray-300 transition-transform" ${arrowRotate} id="${caseId}_arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+      </div>
+
+      <!-- 详情面板 -->
+      <div id="${caseId}" class="detail-panel ${detailState}">
+        <div class="px-4 pb-4 pt-1 border-t border-gray-50">
+          ${c.setup_steps && c.setup_steps.length > 0 ? `
+          <!-- 前置数据初始化 -->
+          <div class="mb-4">
+            <div class="text-[10px] font-bold text-amber-600 uppercase tracking-wider mb-2">⚡ SETUP STEPS（前置数据初始化）</div>
+            <div class="bg-amber-50 rounded-lg p-3 json-view text-amber-900 max-h-40 overflow-auto custom-scrollbar border border-amber-100">
+<pre>${renderJsonHighlight(c.setup_steps)}</pre>
+            </div>
+          </div>
+          ` : ''}
+          <div class="grid grid-cols-2 gap-5">
+            <!-- 输入参数 -->
+            <div>
+              <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">INPUT PARAMETERS</div>
+              <div class="bg-gray-50 rounded-lg p-3 json-view text-gray-700 max-h-64 overflow-auto custom-scrollbar border border-gray-100">
+<pre>${renderJsonHighlight(c.input_data)}</pre>
+              </div>
+            </div>
+            <!-- 断言代码 -->
+            <div>
+              <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">ASSERTIONS</div>
+              <div class="bg-[#1e1e2e] rounded-lg p-3 json-view max-h-64 overflow-auto custom-scrollbar border border-gray-700">
+<pre class="text-gray-100 whitespace-pre-wrap">${renderAssertionsCode(c.assertions)}</pre>
+              </div>
+            </div>
+          </div>
+          ${c.cleanup_steps && c.cleanup_steps.length > 0 ? `
+          <!-- 后置清理 -->
+          <div class="mt-4">
+            <div class="text-[10px] font-bold text-red-500 uppercase tracking-wider mb-2">🧹 CLEANUP STEPS（后置环境清理）</div>
+            <div class="bg-red-50 rounded-lg p-3 json-view text-red-900 max-h-32 overflow-auto custom-scrollbar border border-red-100">
+<pre>${renderJsonHighlight(c.cleanup_steps)}</pre>
+            </div>
+          </div>
+          ` : ''}
+          ${getResultDetail(c.id)}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function toggleDetail(caseId) {
+  const panel = document.getElementById(caseId);
+  const arrow = document.getElementById(caseId + '_arrow');
+  if (!panel) return;
+  if (panel.classList.contains('collapsed')) {
+    panel.classList.remove('collapsed');
+    panel.classList.add('expanded');
+    if (arrow) arrow.style.transform = 'rotate(180deg)';
+  } else {
+    panel.classList.remove('expanded');
+    panel.classList.add('collapsed');
+    if (arrow) arrow.style.transform = 'rotate(0deg)';
+  }
+}
+
+// ══════════════════════════════════════════════════
+// 断言代码渲染
+// ══════════════════════════════════════════════════
+
+function renderAssertionsCode(assertions) {
+  const lines = assertions.map(a => {
+    let code = '';
+    switch(a.type) {
+      case 'not_error':
+        code = `<span class="text-violet-400">assert</span> result.is_error <span class="text-orange-300">==</span> <span class="text-green-400">False</span>`;
+        break;
+      case 'is_error':
+        code = `<span class="text-violet-400">assert</span> result.is_error <span class="text-orange-300">==</span> <span class="text-green-400">True</span>`;
+        break;
+      case 'contains':
+        code = `<span class="text-violet-400">assert</span> <span class="text-yellow-300">"${escapeHtml(String(a.expected))}"</span> <span class="text-orange-300">in</span> result.content`;
+        break;
+      case 'not_contains':
+        code = `<span class="text-violet-400">assert</span> <span class="text-yellow-300">"${escapeHtml(String(a.expected))}"</span> <span class="text-orange-300">not in</span> result.content`;
+        break;
+      case 'equals':
+        code = `<span class="text-violet-400">assert</span> result${a.target !== 'content' ? '.<span class="text-cyan-300">' + a.target + '</span>' : '.content'} <span class="text-orange-300">==</span> <span class="text-green-400">${escapeHtml(JSON.stringify(a.expected))}</span>`;
+        break;
+      case 'json_path':
+        code = `<span class="text-violet-400">assert</span> <span class="text-cyan-300">json_path</span>(result, <span class="text-yellow-300">"${escapeHtml(a.target)}"</span>) <span class="text-orange-300">==</span> <span class="text-green-400">${escapeHtml(JSON.stringify(a.expected))}</span>`;
+        break;
+      case 'regex':
+        code = `<span class="text-violet-400">assert</span> re.<span class="text-cyan-300">search</span>(<span class="text-yellow-300">r"${escapeHtml(String(a.expected))}"</span>, result.content)`;
+        break;
+      case 'type_check':
+        code = `<span class="text-violet-400">assert</span> <span class="text-cyan-300">isinstance</span>(json.loads(result.content), <span class="text-green-400">${a.expected}</span>)`;
+        break;
+      case 'range':
+        if (a.expected && typeof a.expected === 'object') {
+          const min = a.expected.min !== undefined ? a.expected.min : '-inf';
+          const max = a.expected.max !== undefined ? a.expected.max : 'inf';
+          code = `<span class="text-violet-400">assert</span> <span class="text-green-400">${min}</span> <span class="text-orange-300">&lt;=</span> <span class="text-cyan-300">json_path</span>(result, <span class="text-yellow-300">"${escapeHtml(a.target)}"</span>) <span class="text-orange-300">&lt;=</span> <span class="text-green-400">${max}</span>`;
+        } else {
+          code = `<span class="text-violet-400">assert</span> value <span class="text-orange-300">in</span> <span class="text-cyan-300">range</span>(${escapeHtml(JSON.stringify(a.expected))})`;
+        }
+        break;
+      case 'length':
+        if (typeof a.expected === 'number') {
+          code = `<span class="text-violet-400">assert</span> <span class="text-cyan-300">len</span>(<span class="text-cyan-300">json_path</span>(result, <span class="text-yellow-300">"${escapeHtml(a.target)}"</span>)) <span class="text-orange-300">==</span> <span class="text-green-400">${a.expected}</span>`;
+        } else if (a.expected && typeof a.expected === 'object') {
+          const min = a.expected.min !== undefined ? a.expected.min : 0;
+          const max = a.expected.max !== undefined ? a.expected.max : 'inf';
+          code = `<span class="text-violet-400">assert</span> <span class="text-green-400">${min}</span> <span class="text-orange-300">&lt;=</span> <span class="text-cyan-300">len</span>(<span class="text-cyan-300">json_path</span>(result, <span class="text-yellow-300">"${escapeHtml(a.target)}"</span>)) <span class="text-orange-300">&lt;=</span> <span class="text-green-400">${max}</span>`;
+        }
+        break;
+      case 'side_effect':
+        if (a.expected && typeof a.expected === 'object') {
+          code = `<span class="text-gray-500"># 副作用验证: 执行后再查询确认</span>\n`;
+          code += `verify_result <span class="text-orange-300">=</span> <span class="text-violet-400">await</span> <span class="text-cyan-300">${a.expected.verify_tool}</span>(${escapeHtml(JSON.stringify(a.expected.verify_input))})\n`;
+          code += `<span class="text-violet-400">assert</span> <span class="text-cyan-300">json_path</span>(verify_result, <span class="text-yellow-300">"${escapeHtml(a.expected.verify_path)}"</span>) <span class="text-orange-300">==</span> <span class="text-green-400">${escapeHtml(JSON.stringify(a.expected.verify_value))}</span>`;
+        } else {
+          code = `<span class="text-violet-400">assert</span> <span class="text-cyan-300">side_effect_check</span>(result)`;
+        }
+        break;
+      default:
+        code = `<span class="text-violet-400">assert</span> <span class="text-cyan-300">${a.type}</span>(result, ${escapeHtml(JSON.stringify(a.expected))})`;
+    }
+    const comment = a.description ? `  <span class="text-gray-500"># ${escapeHtml(a.description)}</span>` : '';
+    return code + comment;
+  });
+  return lines.join('\n');
+}
+
+// ══════════════════════════════════════════════════
+// JSON 高亮
+// ══════════════════════════════════════════════════
+
+function renderJsonHighlight(data) {
+  const json = JSON.stringify(data, null, 2);
+  return escapeHtml(json)
+    .replace(/"([^"]+)":/g, '<span class="text-purple-700">"$1"</span>:')
+    .replace(/: "([^"]*?)"/g, ': <span class="text-green-700">"$1"</span>')
+    .replace(/: (\d+)/g, ': <span class="text-blue-700">$1</span>')
+    .replace(/: (true|false)/g, ': <span class="text-orange-600">$1</span>')
+    .replace(/: (null)/g, ': <span class="text-gray-400">$1</span>');
+}
+
+// ══════════════════════════════════════════════════
+// 执行评测
+// ══════════════════════════════════════════════════
+
+async function runToolEval() {
+  await executeEval({ tool_names: [toolName] });
+}
+
+async function runCurrentMethod() {
+  const body = { tool_names: [toolName] };
+  if (currentMethod) body.method_names = [currentMethod];
+  if (currentCategory) body.categories = [currentCategory];
+  await executeEval(body);
+}
+
+async function executeEval(body) {
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('runBtn').innerHTML = `
+    <div class="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+    执行中...`;
+
+  // 显示进度条，隐藏统计
+  document.getElementById('progressBar').classList.remove('hidden');
+  document.getElementById('statsBar').classList.add('hidden');
+  currentReport = null;
+
+  try {
+    const resp = await fetch(`${API}/run-stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || '执行失败');
+    }
+
+    // 初始化 currentReport 用于实时收集结果
+    currentReport = {
+      report_id: '',
+      total: 0,
+      passed: 0,
+      failed: 0,
+      error: 0,
+      pass_rate: 0,
+      total_duration_ms: 0,
+      by_tool: {},
+      by_method: {},
+      by_category: {},
+      results: [],
+      failures: [],
+    };
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // 保留不完整的行
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          handleStreamEvent(data);
+        } catch(e) { /* 忽略 parse 错误 */ }
+      }
+    }
+
+    // 处理 buffer 中剩余内容
+    if (buffer.startsWith('data: ')) {
+      try {
+        const data = JSON.parse(buffer.slice(6));
+        handleStreamEvent(data);
+      } catch(e) {}
+    }
+
+  } catch(e) {
+    alert(e.message);
+  } finally {
+    document.getElementById('runBtn').disabled = false;
+    document.getElementById('runBtn').innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      执行全部`;
+    document.getElementById('progressBar').classList.add('hidden');
+  }
+}
+
+function handleStreamEvent(data) {
+  switch (data.event) {
+    case 'start':
+      currentReport.total = data.total;
+      updateProgress(0, data.total, 0, 0, '准备执行...');
+      break;
+
+    case 'progress':
+      // 收集结果
+      currentReport.results.push({
+        case_id: data.case_id,
+        tool_name: data.tool_name,
+        description: data.description,
+        category: data.category,
+        passed: data.passed,
+        duration_ms: data.duration_ms,
+        input_data: data.input_data || {},
+        tool_output: data.tool_output,
+        is_error: data.is_error,
+        assertion_results: data.assertion_results || [],
+        error: data.error || '',
+      });
+
+      // 更新进度条
+      const label = data.passed
+        ? `✓ ${data.description}`
+        : `✗ ${data.description}`;
+      updateProgress(data.index, data.total, data.running_passed, data.running_failed, label);
+
+      // 实时渲染当前页
+      renderPage();
+      break;
+
+    case 'complete':
+      currentReport.report_id = data.report_id;
+      currentReport.passed = data.passed;
+      currentReport.failed = data.failed;
+      currentReport.pass_rate = data.pass_rate;
+      currentReport.total_duration_ms = data.total_duration_ms;
+      renderStats(currentReport);
+      renderPage();
+      break;
+  }
+}
+
+function updateProgress(current, total, passed, failed, label) {
+  const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+  document.getElementById('progressLabel').textContent = `执行中 (${current}/${total})`;
+  document.getElementById('progressCount').textContent = `${current} / ${total}`;
+  document.getElementById('progressFill').style.width = `${percent}%`;
+  document.getElementById('progressPercent').textContent = `${percent}%`;
+  document.getElementById('progressPassed').textContent = passed;
+  document.getElementById('progressFailed').textContent = failed;
+  document.getElementById('progressCurrentCase').textContent = label;
+}
+
+function renderStats(report) {
+  document.getElementById('statsBar').classList.remove('hidden');
+  document.getElementById('resultFilterSection').classList.remove('hidden');
+  const rate = (report.pass_rate * 100).toFixed(1);
+  const color = report.pass_rate >= 0.9 ? 'text-green-600' : report.pass_rate >= 0.7 ? 'text-yellow-600' : 'text-red-500';
+  document.getElementById('barRate').className = `text-lg font-bold ${color}`;
+  document.getElementById('barRate').textContent = rate + '%';
+  document.getElementById('barPassed').textContent = report.passed;
+  document.getElementById('barFailed').textContent = report.failed;
+  document.getElementById('barTotal').textContent = report.total;
+  document.getElementById('barDuration').textContent = report.total_duration_ms.toFixed(0) + 'ms';
+}
+
+function getCaseResultIcon(caseId) {
+  if (!currentReport) return '<span class="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center shrink-0"><span class="w-2 h-2 rounded-full bg-gray-300"></span></span>';
+  const r = currentReport.results.find(r => r.case_id === caseId);
+  if (!r) return '<span class="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center shrink-0"><span class="w-2 h-2 rounded-full bg-gray-300"></span></span>';
+  if (r.passed) return '<span class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center shrink-0"><span class="text-green-600 text-[10px]">✓</span></span>';
+  return '<span class="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0"><span class="text-red-600 text-[10px]">✗</span></span>';
+}
+
+function getResultDetail(caseId) {
+  if (!currentReport) return '';
+  const r = currentReport.results.find(r => r.case_id === caseId);
+  if (!r) return '';
+
+  const failedAssertions = (r.assertion_results || []).filter(a => !a.passed);
+  const passedAssertions = (r.assertion_results || []).filter(a => a.passed);
+  const bgColor = r.passed ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100';
+  const titleColor = r.passed ? 'text-green-600' : 'text-red-600';
+  const statusLabel = r.passed ? '✓ PASS' : '✗ FAIL';
+
+  let html = `
+    <div class="mt-4 ${bgColor} border rounded-lg p-3">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-[10px] font-bold ${titleColor} uppercase">EXECUTION RESULT — ${statusLabel}</div>
+        <div class="text-[10px] text-gray-400">${r.duration_ms ? r.duration_ms.toFixed(0) + 'ms' : ''}</div>
+      </div>
+
+      <!-- 输入参数 -->
+      ${r.input_data && Object.keys(r.input_data).length > 0 ? `
+        <div class="mb-2">
+          <div class="text-[10px] font-semibold text-gray-500 mb-1">📥 输入参数:</div>
+          <pre class="json-view text-[10px] text-gray-800 bg-white/70 rounded p-2 max-h-40 overflow-auto custom-scrollbar border border-gray-100">${renderJsonHighlight(r.input_data)}</pre>
+        </div>
+      ` : ''}
+
+      <!-- 输出结果 -->
+      ${r.tool_output ? `
+        <div class="mb-2">
+          <div class="text-[10px] font-semibold text-gray-500 mb-1">📤 工具输出:</div>
+          <pre class="json-view text-[10px] text-gray-800 bg-white/70 rounded p-2 max-h-48 overflow-auto custom-scrollbar border border-gray-100">${escapeHtml(r.tool_output)}</pre>
+        </div>
+      ` : ''}
+
+      <!-- 断言结果 -->
+      <div>
+        <div class="text-[10px] font-semibold text-gray-500 mb-1">📋 断言结果:</div>
+  `;
+
+  // 通过的断言
+  passedAssertions.forEach(a => {
+    html += `<div class="text-[10px] text-green-700 mt-0.5">✓ <span class="font-medium">${a.type}</span>${a.description ? ': ' + escapeHtml(a.description) : ''}</div>`;
+  });
+
+  // 失败的断言
+  failedAssertions.forEach(a => {
+    html += `<div class="text-[10px] text-red-700 mt-0.5">✗ <span class="font-medium">${a.type}</span>: ${escapeHtml(a.message)}</div>`;
+  });
+
+  html += `</div>`;
+
+  if (r.error) {
+    html += `<div class="text-[10px] text-red-600 mt-2 font-medium border-t border-red-100 pt-2">⚠️ ${escapeHtml(r.error)}</div>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+// ══════════════════════════════════════════════════
+// 工具函数
+// ══════════════════════════════════════════════════
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+init();
+</script>
+</body>
+</html>
