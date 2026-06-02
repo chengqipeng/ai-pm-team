@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tool 评测 — DeepAgent</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; background: #f8fafc; }
+@keyframes fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.animate-fade-in { animation: fade-in 0.3s ease-out; }
+.tool-card { transition: all 0.2s; }
+.tool-card:hover { transform: translateY(-3px); box-shadow: 0 12px 30px -8px rgba(0,0,0,0.12); }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- 顶部导航 -->
+<header class="bg-white/80 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-50">
+  <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a href="/" class="flex items-center gap-2 text-gray-900 no-underline hover:opacity-80 transition-opacity">
+        <div class="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+        <span class="font-bold text-sm">DeepAgent</span>
+      </a>
+      <span class="text-gray-300 mx-1">/</span>
+      <span class="text-sm font-semibold text-gray-700">Tool 评测</span>
+    </div>
+    <nav class="flex items-center gap-1">
+      <a href="/" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all no-underline">对话</a>
+      <a href="/skills" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all no-underline">技能</a>
+      <a href="/trace" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all no-underline">Trace</a>
+      <a href="/eval/tools" class="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg transition-all no-underline">评测</a>
+    </nav>
+  </div>
+</header>
+
+<!-- 主内容 -->
+<div class="max-w-7xl mx-auto px-6 py-8">
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-gray-900">🧪 Tool 评测中心</h1>
+    <p class="text-sm text-gray-500 mt-2">直接调用工具函数验证功能正确性 · 每个工具覆盖多种参数组合的正向/逆向/边界场景</p>
+  </div>
+
+  <!-- 全量执行按钮 -->
+  <div class="flex items-center gap-4 mb-8">
+    <button onclick="runAll()" id="runAllBtn" class="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 transition-all shadow-sm hover:shadow-lg flex items-center gap-2">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      执行全量评测
+    </button>
+    <div id="globalStats" class="hidden flex items-center gap-4 text-sm animate-fade-in">
+      <span id="globalPassRate" class="font-bold"></span>
+      <span class="text-gray-400">|</span>
+      <span id="globalDetail" class="text-gray-600"></span>
+    </div>
+  </div>
+
+  <!-- 工具卡片网格 -->
+  <div id="toolGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+    <!-- 动态填充 -->
+  </div>
+
+  <!-- Loading -->
+  <div id="loadingState" class="hidden text-center py-16">
+    <div class="inline-flex items-center gap-3 px-6 py-3 bg-white rounded-full shadow-sm border border-gray-100">
+      <svg class="animate-spin w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+      </svg>
+      <span class="text-sm font-medium text-gray-600">执行评测中...</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api/eval/tools';
+
+const CATEGORY_COLORS = {
+  normal: 'bg-blue-100 text-blue-700',
+  error: 'bg-orange-100 text-orange-700',
+  boundary: 'bg-purple-100 text-purple-700',
+  side_effect: 'bg-cyan-100 text-cyan-700',
+};
+
+async function init() {
+  try {
+    const resp = await fetch(`${API}/suites/suite_default`);
+    if (!resp.ok) throw new Error('加载失败');
+    const suite = await resp.json();
+    const cases = suite.cases || [];
+    renderToolGrid(cases);
+  } catch(e) {
+    document.getElementById('toolGrid').innerHTML = `
+      <div class="col-span-3 text-center py-16 text-gray-400">
+        <div class="text-4xl mb-3">⚠️</div>
+        <div>加载失败: ${e.message}</div>
+      </div>`;
+  }
+}
+
+function renderToolGrid(cases) {
+  // 按工具分组
+  const byTool = {};
+  cases.forEach(c => {
+    if (!byTool[c.tool_name]) byTool[c.tool_name] = [];
+    byTool[c.tool_name].push(c);
+  });
+
+  const grid = document.getElementById('toolGrid');
+  grid.innerHTML = '';
+
+  Object.entries(byTool).sort(([a],[b]) => a.localeCompare(b)).forEach(([toolName, toolCases]) => {
+    // 按方法分组
+    const methods = {};
+    toolCases.forEach(c => {
+      const method = c.input_data.query_type || c.input_data.action || '_default';
+      if (!methods[method]) methods[method] = [];
+      methods[method].push(c);
+    });
+
+    // 分类统计
+    const catCounts = {};
+    toolCases.forEach(c => { catCounts[c.category] = (catCounts[c.category] || 0) + 1; });
+
+    const methodList = Object.entries(methods).map(([m, mc]) => {
+      const mCats = {};
+      mc.forEach(c => { mCats[c.category] = (mCats[c.category] || 0) + 1; });
+      return { name: m, count: mc.length, cats: mCats };
+    });
+
+    grid.innerHTML += `
+      <a href="/eval/tools/${toolName}" class="tool-card block bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden no-underline text-inherit">
+        <!-- 顶部 -->
+        <div class="p-5 pb-3">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-sm">
+                <span class="text-white text-lg">🔧</span>
+              </div>
+              <div>
+                <div class="text-sm font-bold text-gray-900">${toolName}</div>
+                <div class="text-[11px] text-gray-400">${methodList.length} 个方法 · ${toolCases.length} 个用例</div>
+              </div>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+
+          <!-- 分类标签 -->
+          <div class="flex flex-wrap gap-1.5 mb-3">
+            ${Object.entries(catCounts).map(([cat, count]) => {
+              const color = CATEGORY_COLORS[cat] || 'bg-gray-100 text-gray-600';
+              return `<span class="text-[10px] px-2 py-0.5 rounded-full ${color} font-medium">${cat} ${count}</span>`;
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- 方法列表 -->
+        <div class="border-t border-gray-50 bg-gray-50/50 px-5 py-3">
+          <div class="space-y-1.5">
+            ${methodList.slice(0, 6).map(m => `
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-1.5">
+                  <span class="w-1 h-1 rounded-full bg-gray-300"></span>
+                  <span class="text-[11px] text-gray-600 font-medium">${m.name}</span>
+                </div>
+                <span class="text-[10px] text-gray-400">${m.count} 条</span>
+              </div>
+            `).join('')}
+            ${methodList.length > 6 ? `<div class="text-[10px] text-gray-400 pl-3">... 还有 ${methodList.length - 6} 个方法</div>` : ''}
+          </div>
+        </div>
+      </a>
+    `;
+  });
+}
+
+async function runAll() {
+  document.getElementById('loadingState').classList.remove('hidden');
+  document.getElementById('runAllBtn').disabled = true;
+  try {
+    const resp = await fetch(`${API}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    if (!resp.ok) throw new Error('执行失败');
+    const report = await resp.json();
+
+    document.getElementById('globalStats').classList.remove('hidden');
+    const rate = (report.pass_rate * 100).toFixed(1);
+    const color = report.pass_rate >= 0.9 ? 'text-green-600' : report.pass_rate >= 0.7 ? 'text-yellow-600' : 'text-red-500';
+    document.getElementById('globalPassRate').innerHTML = `<span class="${color}">Pass Rate: ${rate}%</span>`;
+    document.getElementById('globalDetail').textContent = `通过 ${report.passed}/${report.total} · 耗时 ${report.total_duration_ms.toFixed(0)}ms`;
+  } catch(e) {
+    alert(e.message);
+  } finally {
+    document.getElementById('loadingState').classList.add('hidden');
+    document.getElementById('runAllBtn').disabled = false;
+  }
+}
+
+init();
+</script>
+</body>
+</html>

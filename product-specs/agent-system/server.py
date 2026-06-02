@@ -711,6 +711,16 @@ except ImportError as exc:
 except Exception as exc:
     logger.warning("Mock 数据查看 API 挂载失败: %s", exc)
 
+# ── 挂载 Tool 评测 API ──
+try:
+    from src.api.tool_eval_api import router as tool_eval_router
+    app.include_router(tool_eval_router)
+    logger.info("已挂载 Tool 评测 API: /api/eval/tools/*")
+except ImportError as exc:
+    logger.warning("Tool 评测 API 未启用: %s", exc)
+except Exception as exc:
+    logger.warning("Tool 评测 API 挂载失败: %s", exc)
+
 
 # ── API 路由 ──
 
@@ -2074,6 +2084,26 @@ async def mock_data_browser():
         with open(html_path, encoding="utf-8") as f:
             return f.read()
     return "<h1>Mock Data Browser — 页面未找到</h1>"
+
+
+@app.get("/eval/tools", response_class=HTMLResponse)
+async def tool_eval_page():
+    """Tool 评测页面 — 工具功能验证"""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "tool_eval.html")
+    if os.path.exists(html_path):
+        with open(html_path, encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Tool Eval — 页面未找到</h1>"
+
+
+@app.get("/eval/tools/{tool_name}", response_class=HTMLResponse)
+async def tool_eval_detail_page(tool_name: str):
+    """Tool 评测详情页 — 单个工具的全部测试场景"""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "tool_eval_detail.html")
+    if os.path.exists(html_path):
+        with open(html_path, encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Tool Eval Detail — 页面未找到</h1>"
 
 
 # ── 记忆浏览 API ──
