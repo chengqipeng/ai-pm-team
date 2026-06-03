@@ -266,6 +266,10 @@ class SkillRegistry:
     def match_by_intent(self, intent: str, tracker: Any = None) -> SkillDefinition | None:
         """按意图匹配技能 — 关键词粗筛 + 度量加权精排
 
+        支持两种 when_to_use 格式：
+        - 旧格式（竖线分隔关键词）: "创建技能|新建技能|保存为技能" → 子串匹配
+        - 新格式（自然语言描述）: "当用户需要撰写商务邮件时使用" → 跳过规则匹配，由 LLM 自行判断
+
         Args:
             intent: 用户意图文本
             tracker: SkillTracker 实例（可选），用于度量加权
@@ -274,9 +278,13 @@ class SkillRegistry:
         candidates = []
         for skill in self._skills.values():
             if skill.when_to_use:
-                keywords = skill.when_to_use.split("|")
-                if any(kw.strip() in intent for kw in keywords):
-                    candidates.append(skill)
+                # 判断格式：包含 | 且不是自然语言句子 → 旧格式关键词匹配
+                if "|" in skill.when_to_use:
+                    keywords = skill.when_to_use.split("|")
+                    if any(kw.strip() in intent for kw in keywords if kw.strip()):
+                        candidates.append(skill)
+                # 新格式（自然语言）：不做规则匹配，由 LLM 在 system prompt 中自行决定
+                # 此处不参与 match_by_intent 的规则筛选
 
         if not candidates:
             return None

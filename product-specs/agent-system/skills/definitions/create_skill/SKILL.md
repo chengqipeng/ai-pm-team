@@ -164,6 +164,40 @@ Forecast 准确度分析:
 
 ## 二、技能设计流程
 
+### ⚡ Level 路由（首先判断）
+
+在进入具体步骤之前，**首先判断用户需求属于哪个 Level**，然后按对应路径执行：
+
+```
+用户需求
+  │
+  ├── 不需要查询/操作任何数据，纯文本/内容生成？
+  │     YES → Level G（纯生成型）→ 走简化路径
+  │
+  ├── 只需要查询 CRM 数据做统计/展示？
+  │     YES → Level Q（查询型）→ 走标准路径（跳过 Step 2.5）
+  │
+  ├── 需要多维交叉分析 + 行业知识 + 外部数据？
+  │     YES → Level A（深度分析型）→ 走完整路径
+  │
+  ├── 需要 Python 脚本做复杂计算/建模/可视化？
+  │     YES → Level C（计算型）→ 走完整路径
+  │
+  ├── 涉及数据写入/修改？
+  │     YES → Level W（写入型）→ 走完整路径 + 强制 ask_user
+  │
+  └── 重量级独立任务，需要隔离执行？
+        YES → Level F（独立型）→ fork 模式
+```
+
+**路径对照表：**
+
+| Level | 执行步骤 | 说明 |
+|-------|----------|------|
+| **G（纯生成型）** | Step 1 意图识别 → Step 4 Prompt 编写 → Step 5 生成定义 → Step 7 展示确认 | 跳过 Step 0/2/2.5/3/6 中的数据相关检查 |
+| **Q（查询型）** | Step 0 → Step 1 → Step 2 → Step 3 → Step 4 → Step 5 → Step 6 → Step 7 | 标准路径，跳过 Step 2.5 |
+| **A/C/W/F** | Step 0 → Step 1 → Step 2 → Step 2.5 → Step 3 → Step 4 → Step 5 → Step 6 → Step 7 → Step 7.5 → Step 8 | 完整路径 |
+
 ### Step 0: 前置检查（去重 + 能力边界）
 
 **在任何设计工作之前，必须先执行以下检查：**
@@ -710,6 +744,17 @@ scripts/             → 计算能力（COMPUTE：超出简单聚合的计算）
 
 ### Step 5: 生成完整定义
 
+**category 字段必须从以下枚举中选择（禁止自创分类）：**
+
+| api_key | 适用范围 |
+|---------|----------|
+| crm | CRM 业务相关（客户分析、商机管理、联系人、邮件写作等服务于销售/客户团队的技能） |
+| analysis | 数据分析（多维分析、统计报表、趋势洞察） |
+| automation | 自动化操作（批量处理、数据清理、技能管理等通用工具） |
+| knowledge | 知识库（文档检索、RAG） |
+| metarepo | 元数据管理（元模型检查、配置校验） |
+| custom | 自定义（不属于以上任何分类时使用） |
+
 ```json
 {
   "api_key": "snake_case 唯一标识",
@@ -789,17 +834,98 @@ scripts/             → 计算能力（COMPUTE：超出简单聚合的计算）
 - [ ] 建议是否具体可执行？（"将跟进间隔从7天缩短到3天" vs "加强跟进"）
 - [ ] 异常处理是否完备（数据缺失/矛盾/查询失败/权限不足/超出边界）？
 
-### Step 7: 展示技能结构定义并等待确认
+### Step 7: 结构化展示技能设计过程并等待确认
 
-**在执行任何创建操作之前，必须先将完整的技能结构定义展示给用户确认。**
+**在执行任何创建操作之前，必须在对话中以结构化的设计过程展示完整的技能定义，让用户理解设计思路并确认。**
 
-展示内容必须包含：
-- 技能基本信息（api_key / name / description / when_to_use）
-- 分析体系概览（核心维度 + 分析逻辑摘要）
-- allowed_tools 列表及选择理由
-- 资源架构规划（如有 references/scripts/knowledge 目录）
-- Prompt 核心结构（角色 + 步骤概要 + 输出格式）
+**⚠️ 输出格式硬约束：必须严格按照以下模板格式输出，不得省略任何 Step，不得改变 Step 标题。**
 
+---
+
+#### 对话输出模板（严格遵循）
+
+```
+[开头一句话] 判断技能 Level 分类 + 核心设计思路概括。
+
+## Step 1: 需求深挖
+
+**目标：** [一句话说清楚技能要解决什么问题]
+**目标受众：** [谁会使用这个技能]
+**核心能力：** [技能的 3-5 个核心能力点]
+**输入参数：** [列出所有参数及其含义]
+**异常场景：** [参数缺失时的处理策略]
+
+## Step 2: 架构决策
+
+    模式：  [context 值]（[选择理由]）
+    allowed_tools：  [工具列表]（[选择理由]）
+    risk_level：  [read_only/mutating]
+    max_tool_calls：  [数值]
+    timeout_ms：  [数值]
+
+## Step 3 & 4: 生成 Prompt 与完整 JSON 定义
+
+​```json
+{
+  "api_key": "...",
+  "name": "...",
+  "description": "...",
+  "when_to_use": "...",
+  "category": "...",
+  "context": "...",
+  "arguments": {...},
+  "argument_descriptions": {...},
+  "allowed_tools": [...],
+  "risk_level": "...",
+  "max_tool_calls": ...,
+  "timeout_ms": ...,
+  "prompt": "...(完整的高质量 Prompt)..."
+}
+​```
+
+---
+确认创建吗？如需调整请告知。
+```
+
+---
+
+#### Level 分类判断规则
+
+在输出开头，必须先判断技能属于哪个 Level，并以此指导后续设计：
+
+| Level | 特征 | context | allowed_tools | 典型场景 |
+|-------|------|---------|---------------|----------|
+| **Level G（纯生成型）** | 不需要查询数据，纯文本/内容生成 | inline | `[]`（空数组） | 邮件写作、文案生成、报告模板、会议纪要 |
+| **Level Q（查询型）** | 需要查 CRM 数据，只读分析 | inline | `["query_data", "analyze_data"]` | 客户查询、商机统计、Pipeline 分析 |
+| **Level A（深度分析型）** | 多维交叉分析 + 行业知识 | inline | `["query_data", "analyze_data", "web_search", ...]` | 客户 360、赢率评估、流失预警 |
+| **Level C（计算型）** | 需要 Python 脚本进行复杂计算 | inline | `["query_data", "analyze_data", "terminal", "execute_code", ...]` | 趋势预测、客户聚类、可视化报表 |
+| **Level W（写入型）** | 涉及数据修改 | inline | `["query_data", "modify_data", "ask_user"]` | 批量更新、数据清洗 |
+| **Level F（独立型）** | 重量级独立任务 | fork | 视需求 | 安全审计、大规模数据迁移 |
+
+**Level G 特殊规则：**
+- 纯生成型技能无需执行 Step 0 去重检查（没有 query_data 工具无法查询）
+- 无需执行 Step 2 数据可用性评估
+- 无需执行 Step 2.5 资源架构决策
+- 设计重心在 Prompt 质量（角色定义 + 场景分支 + 输出模板）
+- allowed_tools 为空数组 `[]`
+- risk_level 固定为 `read_only`
+
+---
+
+#### 展示风格要求
+
+1. **Step 1 使用加粗 key + 描述值的形式**，不用表格，保持简洁易读
+2. **Step 2 使用缩进代码风格**（key: value 形式），让架构决策一目了然
+3. **Step 3 & 4 合并为一个 Step**，直接输出完整 JSON（含 prompt 字段）
+4. **JSON 中的 prompt 字段**必须是完整可用的 Prompt 内容，不得用"..."占位
+5. **arguments 字段**使用 object 格式（key-value），如 `"arguments": {"purpose": "邮件目的（场景）"}`
+6. **开头判断语**必须明确 Level 分类，格式如："这是一个 Level G（纯生成型）技能——不需要工具调用，核心在于精心设计的 Prompt"
+
+---
+
+#### ask_user 确认调用
+
+展示完毕后调用：
 ```
 ask_user(
   interrupt_type="skill_confirm",
