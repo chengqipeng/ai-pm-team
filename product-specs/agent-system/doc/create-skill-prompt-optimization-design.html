@@ -157,15 +157,20 @@
     <div class="section">
         <h2>🏛️ 分层架构</h2>
 
-        <p><strong>核心思路</strong>：采用"主文件（路由 + 流程）+ 平级域知识按需加载"的架构 —— <code>SKILL.md</code> 负责设计流程编排和域路由决策（始终加载），<code>knowledge/domains/</code> 下的 7 个域知识文件（6 个业务域 + 1 个通用兜底）为<strong>平级关系</strong>，按需加载提供深度专业知识。</p>
+        <p><strong>核心思路</strong>：采用"主文件（路由 + 流程）+ 基础规范 + 领域知识按需加载"的三层架构 —— <code>SKILL.md</code> 负责设计流程编排和域路由决策（始终加载），<code>generic.md</code> 是 <strong>skill 创建的基本要求清单</strong>（始终加载，定义创建任何技能都必须遵循的规范），<code>knowledge/domains/</code> 下的 6 个领域知识文件按需加载提供特定业务域的深度专业知识。</p>
 
         <div class="arch-diagram">
             <div class="arch-node l0">
-                <strong><code>SKILL.md</code> — 主文件（始终加载）</strong>
+                <strong><code>SKILL.md</code> — 主控文件（始终加载）</strong>
                 <div class="desc">~890 行 · 域路由摘要 + 8 步设计流程 + 资源架构决策 + 模式库 + 工具清单 + 硬约束</div>
             </div>
             <div class="arch-arrow"></div>
-            <div class="arch-label">根据域路由结果，按需加载对应的域知识文件</div>
+            <div class="arch-node l2" style="min-width: 520px;">
+                <strong><code>generic.md</code> — 基本要求清单（始终加载）</strong>
+                <div class="desc">~1190 行 · 创建任何 skill 都必须遵循的基础规范：去重检查 + 能力边界 + 通用分析框架 + Prompt 骨架 + 工具选择 + 置信度 + 异常处理</div>
+            </div>
+            <div class="arch-arrow"></div>
+            <div class="arch-label">根据域路由结果，按需加载对应的领域知识文件</div>
             <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; width: 100%;">
                 <div class="arch-node l1" style="min-width: auto; padding: 10px 16px; flex: 1; max-width: 160px;">
                     <strong style="font-size: 0.82rem;">account.md</strong>
@@ -191,13 +196,9 @@
                     <strong style="font-size: 0.82rem;">team.md</strong>
                     <div class="desc">团队管理</div>
                 </div>
-                <div class="arch-node l2" style="min-width: auto; padding: 10px 16px; flex: 1; max-width: 160px;">
-                    <strong style="font-size: 0.82rem;">generic.md</strong>
-                    <div class="desc">通用兜底</div>
-                </div>
             </div>
             <div style="margin-top: 10px; font-size: 0.75rem; color: var(--gray-500); text-align: center;">
-                ↑ 7 个域知识文件为<strong>平级关系</strong>，均位于 <code>knowledge/domains/</code> 目录下，按需加载
+                ↑ 6 个领域知识文件均位于 <code>knowledge/domains/</code> 目录下，按需加载提供特定业务域的深度专业知识
             </div>
         </div>
 
@@ -209,7 +210,7 @@
             </thead>
             <tbody>
                 <tr>
-                    <td rowspan="1"><span class="badge badge-blue">主控层</span></td>
+                    <td><span class="badge badge-blue">主控层</span></td>
                     <td><code>SKILL.md</code></td>
                     <td>
                         • 6 大业务域的<strong>路由摘要</strong>（精简版，用于快速匹配）<br>
@@ -223,17 +224,7 @@
                     <td>流程编排 + 域路由 + 质量保障</td>
                 </tr>
                 <tr>
-                    <td rowspan="2"><span class="badge badge-purple">域知识层</span><br><span style="font-size:0.7rem;color:var(--gray-500);">（平级）</span></td>
-                    <td><code>account.md</code><br><code>opportunity.md</code><br><code>forecast.md</code><br><code>activity.md</code><br><code>customer_success.md</code><br><code>team.md</code></td>
-                    <td>
-                        • 各域的完整专业分析体系<br>
-                        • 业务本质 + 核心方法论 + 深度分析维度<br>
-                        • 行业基准 + Prompt 设计指导
-                    </td>
-                    <td>按需加载（匹配到对应业务域时）</td>
-                    <td>提供 6 大 CRM 标准场景的深度专业知识</td>
-                </tr>
-                <tr>
+                    <td><span class="badge badge-green">基础规范层</span></td>
                     <td><code>generic.md</code></td>
                     <td>
                         • §一 去重检查 + 能力边界<br>
@@ -243,15 +234,26 @@
                         • §五-B ToB CRM 知识体系（18 方法论 + 20+ 基准）<br>
                         • §六-十 Prompt 骨架 / 工具选择 / 置信度 / 异常处理
                     </td>
-                    <td>按需加载（跨域/非标/通用场景）</td>
-                    <td>兜底保障 — 非标准场景 + 跨域组合指导</td>
+                    <td><strong>始终加载</strong></td>
+                    <td>创建任何 skill 都必须遵循的基本要求清单</td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-purple">领域知识层</span></td>
+                    <td><code>account.md</code><br><code>opportunity.md</code><br><code>forecast.md</code><br><code>activity.md</code><br><code>customer_success.md</code><br><code>team.md</code></td>
+                    <td>
+                        • 各域的完整专业分析体系<br>
+                        • 业务本质 + 核心方法论 + 深度分析维度<br>
+                        • 行业基准 + Prompt 设计指导
+                    </td>
+                    <td>按需加载（匹配到对应业务域时）</td>
+                    <td>提供 6 大 CRM 标准场景的领域知识参考</td>
                 </tr>
             </tbody>
         </table>
 
         <div class="callout callout-key">
             <span style="font-size:1.1rem;">⚠️</span>
-            <div><strong>关键澄清</strong>：6 个业务域 md 和 generic.md 是<strong>平级关系</strong>，都位于 <code>knowledge/domains/</code> 目录下。SKILL.md 中内联的是各域的"路由摘要"（精简版，用于快速判断该加载哪个域文件），而非完整的域知识。完整的深度知识存储在各域 md 文件中，按需加载。</div>
+            <div><strong>关键澄清</strong>：<code>generic.md</code> 是 <strong>skill 创建的基本要求清单</strong>，始终加载，定义了创建任何技能都必须遵循的规范（去重检查、能力边界、分析框架、Prompt 骨架、工具选择、异常处理等）。6 个业务域 md（account/opportunity/forecast/activity/customer_success/team）是<strong>领域知识文件</strong>，按需加载——当用户需求涉及对应业务域时，加载对应的领域知识作为设计参考。</div>
         </div>
 
         <h3>文件结构</h3>
@@ -263,7 +265,7 @@
                     <div style="position:relative; padding-left:24px;">
                         <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
                         <span style="color:var(--primary); font-weight:600;"><code>SKILL.md</code></span>
-                        <span style="color:var(--gray-500); margin-left:12px; font-size:0.75rem;">主文件 · ~890 行 · 域路由摘要 + 设计流程 + 模式库 + 硬约束</span>
+                        <span style="color:var(--gray-500); margin-left:12px; font-size:0.75rem;">主控文件 · ~890 行 · 域路由摘要 + 设计流程 + 模式库 + 硬约束</span>
                     </div>
                     <div style="position:relative; padding-left:24px;">
                         <span style="position:absolute;left:0;color:var(--gray-400);">└──</span>
@@ -273,13 +275,33 @@
                         <div style="position:relative; padding-left:24px;">
                             <span style="position:absolute;left:0;color:var(--gray-400);">└──</span>
                             <span style="font-weight:600; color:var(--secondary);">domains/</span>
-                            <span style="color:var(--gray-500); margin-left:12px; font-size:0.75rem;">7 个域知识文件</span>
+                            <span style="color:var(--gray-500); margin-left:12px; font-size:0.75rem;">基本要求清单 + 6 个领域知识文件</span>
                         </div>
                         <div style="padding-left:48px;">
+                            <details style="margin: 4px 0;" open>
+                                <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--success); font-weight:700;">
+                                    <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
+                                    generic.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">基本要求清单 · ~1190 行 · 始终加载 · 创建任何 skill 的基础规范</span>
+                                </summary>
+                                <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--success); margin-left: 12px;">
+                                    ├── §一 适用场景与去重检查（Step 0 最先执行）<br>
+                                    ├── §一-B 能力边界（8 类拒绝 + 灰色地带）<br>
+                                    ├── §二 通用分析四框架（描述/诊断/预测/处方）<br>
+                                    ├── §三 分析维度选择方法论<br>
+                                    ├── §四 跨域组合指导<br>
+                                    ├── §五 非分析类技能设计指导<br>
+                                    ├── §五-B ToB CRM 知识体系（18 方法论 + 20+ 基准）<br>
+                                    ├── §六 通用 Prompt 骨架<br>
+                                    ├── §七 工具选择指南（21 工具 + 7 Pipeline）<br>
+                                    ├── §八 置信度标注规范<br>
+                                    ├── §九 异常处理规范（10 种 + 降级链）<br>
+                                    └── §十 端到端完整示例（2 个）
+                                </div>
+                            </details>
                             <details style="margin: 4px 0;">
                                 <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--primary); font-weight:500;">
                                     <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
-                                    account.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">客户分析 · ABM五级分级 + 五维画像 + 成熟度判断</span>
+                                    account.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">领域知识 · 客户分析 · ABM五级分级 + 五维画像 + 成熟度判断</span>
                                 </summary>
                                 <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--gray-200); margin-left: 12px;">
                                     ├── 一、业务本质与分析目标（3 核心问题）<br>
@@ -305,7 +327,7 @@
                             <details style="margin: 4px 0;">
                                 <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--primary); font-weight:500;">
                                     <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
-                                    opportunity.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">商机管理 · MEDDIC 六维评分 + 推进策略 + 竞争分析</span>
+                                    opportunity.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">领域知识 · 商机管理 · MEDDIC 六维评分 + 推进策略 + 竞争分析</span>
                                 </summary>
                                 <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--gray-200); margin-left: 12px;">
                                     ├── 一、业务本质与分析目标<br>
@@ -328,7 +350,7 @@
                             <details style="margin: 4px 0;">
                                 <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--primary); font-weight:500;">
                                     <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
-                                    forecast.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">销售预测 · Pipeline 五维健康度 + Forecast 三档 + 达成概率</span>
+                                    forecast.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">领域知识 · 销售预测 · Pipeline 五维健康度 + Forecast 三档 + 达成概率</span>
                                 </summary>
                                 <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--gray-200); margin-left: 12px;">
                                     ├── 一、业务本质与分析目标<br>
@@ -350,7 +372,7 @@
                             <details style="margin: 4px 0;">
                                 <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--primary); font-weight:500;">
                                     <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
-                                    activity.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">销售行为 · 效能五维模型 + Top Sales 模式 + 辅导建议</span>
+                                    activity.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">领域知识 · 销售行为 · 效能五维模型 + Top Sales 模式 + 辅导建议</span>
                                 </summary>
                                 <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--gray-200); margin-left: 12px;">
                                     ├── 一、业务本质与分析目标<br>
@@ -370,7 +392,7 @@
                             <details style="margin: 4px 0;">
                                 <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--primary); font-weight:500;">
                                     <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
-                                    customer_success.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">客户成功 · 健康度五维评分 + 流失信号 + 挽回策略库</span>
+                                    customer_success.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">领域知识 · 客户成功 · 健康度五维评分 + 流失信号 + 挽回策略库</span>
                                 </summary>
                                 <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--gray-200); margin-left: 12px;">
                                     ├── 一、业务本质与分析目标<br>
@@ -391,8 +413,8 @@
                             </details>
                             <details style="margin: 4px 0;">
                                 <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--primary); font-weight:500;">
-                                    <span style="position:absolute;left:0;color:var(--gray-400);">├──</span>
-                                    team.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">团队管理 · 绩效五维 + 九宫格 + 辅导 ROI 算法</span>
+                                    <span style="position:absolute;left:0;color:var(--gray-400);">└──</span>
+                                    team.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">领域知识 · 团队管理 · 绩效五维 + 九宫格 + 辅导 ROI 算法</span>
                                 </summary>
                                 <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--gray-200); margin-left: 12px;">
                                     ├── 一、业务本质与分析目标<br>
@@ -412,87 +434,60 @@
                                     └── 七、Prompt 设计指导（6 条）
                                 </div>
                             </details>
-                            <details style="margin: 4px 0;">
-                                <summary style="cursor:pointer; position:relative; padding-left:24px; color:var(--warning); font-weight:600;">
-                                    <span style="position:absolute;left:0;color:var(--gray-400);">└──</span>
-                                    generic.md <span style="color:var(--gray-500); font-weight:400; margin-left:8px; font-size:0.75rem;">通用兜底 · ~1190 行 · 前置检查 + 四框架 + 知识体系</span>
-                                </summary>
-                                <div style="padding: 8px 12px 8px 36px; font-size: 0.74rem; color: var(--gray-600); line-height: 1.8; border-left: 2px solid var(--gray-200); margin-left: 12px;">
-                                    ├── §一 适用场景与去重检查（Step 0）<br>
-                                    ├── §一-B 能力边界（8 类拒绝 + 灰色地带）<br>
-                                    ├── §二 通用分析四框架（描述/诊断/预测/处方）<br>
-                                    ├── §三 分析维度选择方法论<br>
-                                    ├── §四 跨域组合指导<br>
-                                    ├── §五 非分析类技能设计指导<br>
-                                    ├── §五-B ToB CRM 知识体系（18 方法论 + 20+ 基准）<br>
-                                    ├── §六 通用 Prompt 骨架<br>
-                                    ├── §七 工具选择指南（21 工具 + 7 Pipeline）<br>
-                                    ├── §八 置信度标注规范<br>
-                                    ├── §九 异常处理规范（10 种 + 降级链）<br>
-                                    └── §十 端到端完整示例（2 个）
-                                </div>
-                            </details>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <h3>域知识文件一览（7 个平级文件）</h3>
+        <h3>知识文件一览</h3>
 
         <table class="tbl">
             <thead>
-                <tr><th>文件</th><th>业务域</th><th>核心方法论</th><th>深度知识内容</th><th>加载触发</th></tr>
+                <tr><th>文件</th><th>性质</th><th>核心内容</th><th>加载时机</th></tr>
             </thead>
             <tbody>
+                <tr style="background: var(--success-light);">
+                    <td><span class="badge badge-green">generic.md</span></td>
+                    <td><strong>基本要求清单</strong></td>
+                    <td>去重检查 + 能力边界 + 通用分析四框架 + 维度选择方法论 + Prompt 骨架 + 工具选择 + 置信度 + 异常处理 + 18 方法论 + 20+ 基准</td>
+                    <td><strong>始终加载</strong> — 创建任何 skill 都需遵循</td>
+                </tr>
                 <tr>
                     <td><span class="badge badge-blue">account.md</span></td>
-                    <td>客户分析</td>
-                    <td>客户 360 + LTV</td>
+                    <td>领域知识</td>
                     <td>五维画像 + ABM 五级分级 + 成熟度判断 + 5 深度分析维度 + 交叉关联</td>
-                    <td>域路由匹配"客户"</td>
+                    <td>按需 — 用户需求涉及"客户"时加载</td>
                 </tr>
                 <tr>
                     <td><span class="badge badge-blue">opportunity.md</span></td>
-                    <td>商机管理</td>
-                    <td>MEDDIC 框架</td>
-                    <td>6 维度评分 + 推进策略 + 竞争分析 + 赢/丢单归因</td>
-                    <td>域路由匹配"商机"</td>
+                    <td>领域知识</td>
+                    <td>MEDDIC 6 维度评分 + 推进策略 + 竞争分析 + 赢/丢单归因</td>
+                    <td>按需 — 用户需求涉及"商机"时加载</td>
                 </tr>
                 <tr>
                     <td><span class="badge badge-blue">forecast.md</span></td>
-                    <td>销售预测</td>
-                    <td>Pipeline Coverage</td>
-                    <td>5 维健康度模型 + Forecast 三档 + 达成概率模型</td>
-                    <td>域路由匹配"预测/Pipeline"</td>
+                    <td>领域知识</td>
+                    <td>Pipeline 5 维健康度模型 + Forecast 三档 + 达成概率模型</td>
+                    <td>按需 — 用户需求涉及"预测/Pipeline"时加载</td>
                 </tr>
                 <tr>
                     <td><span class="badge badge-blue">activity.md</span></td>
-                    <td>销售行为</td>
-                    <td>活动效能模型</td>
+                    <td>领域知识</td>
                     <td>量/质/节奏/模式/转化 五维 + Top Sales 模式 + 辅导建议</td>
-                    <td>域路由匹配"活动/行为"</td>
+                    <td>按需 — 用户需求涉及"活动/行为"时加载</td>
                 </tr>
                 <tr>
                     <td><span class="badge badge-blue">customer_success.md</span></td>
-                    <td>客户成功</td>
-                    <td>Health Score</td>
+                    <td>领域知识</td>
                     <td>5 维健康度评分 + 流失信号体系 + 挽回策略库</td>
-                    <td>域路由匹配"续约/流失"</td>
+                    <td>按需 — 用户需求涉及"续约/流失"时加载</td>
                 </tr>
                 <tr>
                     <td><span class="badge badge-blue">team.md</span></td>
-                    <td>团队管理</td>
-                    <td>绩效矩阵</td>
+                    <td>领域知识</td>
                     <td>绩效五维 + 九宫格 + 辅导 ROI 算法</td>
-                    <td>域路由匹配"团队/绩效"</td>
-                </tr>
-                <tr style="background: var(--success-light);">
-                    <td><span class="badge badge-green">generic.md</span></td>
-                    <td>通用兜底</td>
-                    <td>四框架 + 知识体系</td>
-                    <td>去重检查 + 能力边界 + 通用四框架 + 跨域指导 + 18 方法论 + 异常处理</td>
-                    <td>无法归类 / 跨域 / 非标场景</td>
+                    <td>按需 — 用户需求涉及"团队/绩效"时加载</td>
                 </tr>
             </tbody>
         </table>
@@ -527,20 +522,20 @@
 
         <div class="card-row">
             <div class="card" style="border-top: 3px solid var(--primary);">
-                <div class="card-title">🎯 轻量主控，按需深入</div>
-                <div class="card-desc"><code>SKILL.md</code> 仅包含路由摘要和流程编排，保持主文件精简。深度知识按需从域文件加载，避免 token 浪费。</div>
+                <div class="card-title">🎯 三层分离，职责清晰</div>
+                <div class="card-desc"><code>SKILL.md</code> 负责流程编排，<code>generic.md</code> 定义基本要求清单，领域 md 提供深度业务知识。各层独立维护，互不干扰。</div>
             </div>
             <div class="card" style="border-top: 3px solid var(--secondary);">
-                <div class="card-title">📚 平级域知识，独立演进</div>
-                <div class="card-desc">7 个域文件平级独立，各自维护各自的专业深度。新增业务域只需添加新文件，不影响其他域。</div>
+                <div class="card-title">📚 基础规范统一保障</div>
+                <div class="card-desc"><code>generic.md</code> 作为基本要求清单始终加载，确保创建任何技能都遵循统一的质量标准（去重、能力边界、Prompt 骨架、异常处理等）。</div>
             </div>
             <div class="card" style="border-top: 3px solid var(--success);">
-                <div class="card-title">🛡️ 无死角覆盖</div>
-                <div class="card-desc">6 个业务域覆盖 CRM 标准场景，<code>generic.md</code> 兜底非标场景（跨域/非CRM/新兴业务），确保任何需求都有对应指导。</div>
+                <div class="card-title">🛡️ 领域知识按需注入</div>
+                <div class="card-desc">6 个领域知识文件独立维护各自的深度专业体系。用户需求涉及"客户"就加载 <code>account.md</code>，涉及"商机"就加载 <code>opportunity.md</code>，精准匹配。</div>
             </div>
             <div class="card" style="border-top: 3px solid var(--warning);">
                 <div class="card-title">🔧 灵活组合加载</div>
-                <div class="card-desc">跨域需求可同时加载多个域文件 + generic.md 的跨域组合指导，实现灵活的知识组合。</div>
+                <div class="card-desc">跨域需求可同时加载多个领域知识文件（如 account.md + opportunity.md），配合 generic.md 的跨域组合指导，实现灵活的知识组合。</div>
             </div>
         </div>
 
@@ -662,10 +657,10 @@
             <div style="padding: 14px 20px; border-bottom: 1px solid var(--gray-200);">
                 <div style="font-size: 0.78rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">🗺️ 域路由规则（Step 1）</div>
                 <div style="font-size: 0.82rem; color: var(--gray-700); line-height: 1.8;">
-                    • 匹配预定义域（域 1-6）→ 加载对应的 <code>knowledge/domains/{域}.md</code> 深度知识<br>
-                    • 无法归类 / 跨域 / 非 CRM 标准场景 → 加载 <code>knowledge/domains/generic.md</code><br>
-                    • 跨域需求 → 加载主域文件 + generic.md 跨域组合指导<br>
-                    <em style="font-size:0.78rem; color:var(--gray-500);">注：SKILL.md 中内联的是各域的路由摘要（精简版），完整深度知识在各域 md 文件中</em>
+                    • <code>generic.md</code> 始终加载 — 作为创建任何 skill 的基本要求清单<br>
+                    • 匹配预定义域（域 1-6）→ 额外加载对应的 <code>knowledge/domains/{域}.md</code> 领域知识<br>
+                    • 跨域需求 → 加载多个领域知识文件，参考 generic.md 中的跨域组合指导<br>
+                    <em style="font-size:0.78rem; color:var(--gray-500);">注：generic.md 是基础规范（始终有），领域 md 是专业知识参考（按需加载）</em>
                 </div>
             </div>
             <!-- 模式库 + 工具 -->
@@ -757,80 +752,81 @@
                 <tr>
                     <td>"创建商机赢率分析技能"</td>
                     <td>Step 0 → Step 1（域 2）→ Step 2 → Step 4</td>
-                    <td><code>SKILL.md</code> + <code>opportunity.md</code></td>
-                    <td>MEDDIC 6 维度完整评估 + 推进策略</td>
+                    <td><code>SKILL.md</code> + <code>generic.md</code> + <code>opportunity.md</code></td>
+                    <td>基本规范 + MEDDIC 6 维度完整评估 + 推进策略</td>
                 </tr>
                 <tr>
                     <td>"创建客户流失预警技能"</td>
                     <td>Step 0 → Step 1（域 5）→ Step 2.5 → Step 4</td>
-                    <td><code>SKILL.md</code> + <code>customer_success.md</code> + references/</td>
-                    <td>健康度评分模型 + 流失信号识别 + 挽回策略</td>
+                    <td><code>SKILL.md</code> + <code>generic.md</code> + <code>customer_success.md</code> + references/</td>
+                    <td>基本规范 + 健康度评分模型 + 流失信号识别 + 挽回策略</td>
                 </tr>
                 <tr>
                     <td>"创建周报生成技能"</td>
-                    <td>Step 0 → Step 1（非标）→ 加载 <code>generic.md</code></td>
-                    <td><code>SKILL.md</code> + <strong><code>generic.md</code></strong>（非分析类指导）</td>
-                    <td>通用"报告生成类"指导 + Prompt 骨架</td>
+                    <td>Step 0 → Step 1（非分析类）→ Step 4</td>
+                    <td><code>SKILL.md</code> + <code>generic.md</code>（§五 非分析类指导）</td>
+                    <td>基本规范中的"报告生成类"设计指导 + Prompt 骨架</td>
                 </tr>
                 <tr>
                     <td>"统计本月新增客户数"</td>
                     <td>Step 0 → <strong>劝退</strong></td>
-                    <td>仅 <code>SKILL.md</code>（无需加载域文件）</td>
+                    <td><code>SKILL.md</code> + <code>generic.md</code>（仅用到 §一 能力边界）</td>
                     <td>硬约束 #2：一句 query_data 能解决，不值得建技能</td>
                 </tr>
                 <tr>
                     <td>"客户+商机综合分析"</td>
                     <td>Step 0 → Step 1（跨域）→ 加载多域文件</td>
-                    <td><code>SKILL.md</code> + <code>account.md</code> + <code>opportunity.md</code> + <code>generic.md</code>（跨域指导）</td>
-                    <td>主域深度 + 跨域组合方法论</td>
+                    <td><code>SKILL.md</code> + <code>generic.md</code>（§四 跨域指导）+ <code>account.md</code> + <code>opportunity.md</code></td>
+                    <td>基本规范 + 跨域组合方法论 + 两域深度知识</td>
                 </tr>
                 <tr>
                     <td>"客户行业前景分析"</td>
                     <td>Step 0 → Step 1（域 1）→ Step 2.5</td>
-                    <td><code>SKILL.md</code> + <code>account.md</code> + knowledge/ + web_search</td>
-                    <td>客户画像 + 行业知识 + 实时动态</td>
+                    <td><code>SKILL.md</code> + <code>generic.md</code> + <code>account.md</code> + knowledge/ + web_search</td>
+                    <td>基本规范 + 客户画像知识 + 行业知识 + 实时动态</td>
                 </tr>
             </tbody>
         </table>
 
-        <h3>5. 域知识文件加载策略</h3>
+        <h3>5. 知识文件加载策略</h3>
 
-        <p>7 个域知识文件均通过 <code>read_skill_resource</code> 按需加载，触发条件各不相同：</p>
+        <p><code>generic.md</code> 始终加载作为基本要求清单；6 个领域知识文件通过 <code>read_skill_resource</code> 按需加载：</p>
 
         <div style="margin: 14px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-            <div style="padding: 12px 16px; background: var(--primary-light); border-radius: 8px; border-left: 4px solid var(--primary);">
-                <div style="font-weight: 600; color: var(--primary); margin-bottom: 4px; font-size: 0.85rem;">6 个业务域文件加载时机</div>
+            <div style="padding: 12px 16px; background: var(--success-light); border-radius: 8px; border-left: 4px solid var(--success);">
+                <div style="font-weight: 600; color: var(--success); margin-bottom: 4px; font-size: 0.85rem;">generic.md — 始终加载</div>
                 <div style="font-size: 0.8rem; line-height: 1.7; color: var(--gray-700);">
-                    • 用户需求明确属于某个业务域<br>
-                    • SKILL.md 中的路由摘要匹配成功<br>
-                    • 需要该域的深度分析体系指导<br>
-                    <em style="color:var(--gray-500);">例：用户说"创建商机赢率分析" → 加载 opportunity.md</em>
+                    • 创建任何 skill 都必须遵循的基础规范<br>
+                    • 包含：去重检查、能力边界、通用分析框架、<br>
+                    　维度选择方法论、Prompt 骨架、工具选择、<br>
+                    　置信度标注、异常处理、端到端示例<br>
+                    <em style="color:var(--gray-500);">性质：skill 创建的基本要求清单</em>
                 </div>
             </div>
-            <div style="padding: 12px 16px; background: var(--secondary-light); border-radius: 8px; border-left: 4px solid var(--secondary);">
-                <div style="font-weight: 600; color: var(--secondary); margin-bottom: 4px; font-size: 0.85rem;">generic.md 加载时机</div>
+            <div style="padding: 12px 16px; background: var(--primary-light); border-radius: 8px; border-left: 4px solid var(--primary);">
+                <div style="font-weight: 600; color: var(--primary); margin-bottom: 4px; font-size: 0.85rem;">6 个领域知识文件 — 按需加载</div>
                 <div style="font-size: 0.8rem; line-height: 1.7; color: var(--gray-700);">
-                    • 用户需求无法归类到 6 大业务域<br>
-                    • 跨域组合需求（需要跨域指导）<br>
-                    • 非分析类技能（导出/报告/自动化）<br>
-                    • 非 CRM 标准场景<br>
-                    • 需要专业性注入（知识体系参考）
+                    • 用户需求涉及某个业务域时加载对应文件<br>
+                    • SKILL.md 中的路由摘要匹配成功后触发<br>
+                    • 提供该域的深度分析体系和业务知识参考<br>
+                    <em style="color:var(--gray-500);">例：用户说"创建商机赢率分析" → 加载 opportunity.md</em>
                 </div>
             </div>
         </div>
 
         <div style="margin: 14px 0; padding: 12px 16px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px;">
-            <div style="font-weight: 600; color: var(--gray-700); margin-bottom: 4px; font-size: 0.85rem;">不需要加载域文件的场景</div>
+            <div style="font-weight: 600; color: var(--gray-700); margin-bottom: 4px; font-size: 0.85rem;">不需要加载领域知识文件的场景</div>
             <div style="font-size: 0.8rem; line-height: 1.7; color: var(--gray-600);">
-                • SKILL.md 中的路由摘要已足够指导（简单技能）<br>
+                • 用户需求不涉及特定业务域（非分析类/通用类技能）<br>
                 • 被劝退的需求（Step 0 拒绝）<br>
-                • 快速路径模式（模式库直接匹配）
+                • 快速路径模式（模式库直接匹配）<br>
+                <em>注：即使不加载领域知识文件，generic.md 仍始终加载提供基础规范</em>
             </div>
         </div>
 
         <div class="callout callout-info">
             <span style="font-size:1.1rem;">💡</span>
-            <div><strong>实现要点</strong>：SKILL.md 中包含各域的路由摘要（关键词 + 核心方法论名称），用于快速判断该加载哪个域文件。当匹配到具体业务域时，通过 <code>read_skill_resource(skill_name="create_skill", resource_name="knowledge/domains/{域}.md")</code> 加载完整深度知识。遇到非标场景时，加载 <code>generic.md</code> 作为兜底。7 个域文件地位平等，加载机制相同。</div>
+            <div><strong>实现要点</strong>：<code>generic.md</code> 始终加载，定义创建 skill 的基本要求。SKILL.md 中包含各域的路由摘要（关键词 + 核心方法论名称），当匹配到具体业务域时，通过 <code>read_skill_resource(skill_name="create_skill", resource_name="knowledge/domains/{域}.md")</code> 加载对应的领域知识文件作为设计参考。</div>
         </div>
     </div>
 
@@ -880,9 +876,9 @@
 <div class="page">
 
     <div class="section">
-        <h2>🛡️ <code>generic.md</code> 完整设计</h2>
+        <h2>🛡️ <code>generic.md</code> 完整设计 — Skill 创建基本要求清单</h2>
 
-        <p><code>generic.md</code> 的完整 Markdown 原文请在最后一页的文件树中点击查看。此处展示核心结构概览：</p>
+        <p><code>generic.md</code> 是 <strong>创建任何 skill 都必须遵循的基本要求清单</strong>，始终加载。它定义了技能创建流程中的通用规范、质量标准和方法论基线。完整 Markdown 原文请在最后一页的文件树中点击查看。此处展示核心结构概览：</p>
 
         <div style="margin: 14px 0; padding: 16px 20px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px; font-size: 0.82rem; line-height: 2.2; color: var(--gray-700);">
             <div style="font-weight:700; margin-bottom:8px;">章节结构（~1190 行）：</div>
@@ -961,9 +957,9 @@
                 <tr><td>域4 行为</td><td>"创建一个销售活动效能分析技能"</td><td>加载 activity.md</td><td>效能5维 + Top Sales对比 + 辅导建议</td></tr>
                 <tr><td>域5 客户成功</td><td>"创建一个客户续约风险预警技能"</td><td>加载 customer_success.md</td><td>健康度评分 + 流失信号 + 挽回策略</td></tr>
                 <tr><td>域6 团队</td><td>"创建一个团队绩效排名和辅导建议技能"</td><td>加载 team.md</td><td>绩效矩阵 + 九宫格 + 辅导优先级</td></tr>
-                <tr><td><strong>跨域</strong></td><td>"创建一个客户+商机综合分析技能"</td><td>域1+2 + generic.md</td><td>主域深度 + 跨域关联</td></tr>
-                <tr><td><strong>非标</strong></td><td>"创建一个渠道合作伙伴分析技能"</td><td>generic.md 兜底</td><td>通用四框架 + 维度选择方法论</td></tr>
-                <tr><td><strong>非分析类</strong></td><td>"创建一个自动生成周报的技能"</td><td>generic.md §五</td><td>报告生成类 Prompt 骨架</td></tr>
+                <tr><td><strong>跨域</strong></td><td>"创建一个客户+商机综合分析技能"</td><td>generic.md（始终）+ account.md + opportunity.md</td><td>基本规范 + 跨域组合指导 + 两域深度知识</td></tr>
+                <tr><td><strong>非标</strong></td><td>"创建一个渠道合作伙伴分析技能"</td><td>generic.md（始终）· 无匹配领域知识</td><td>基本规范中的通用四框架 + 维度选择方法论</td></tr>
+                <tr><td><strong>非分析类</strong></td><td>"创建一个自动生成周报的技能"</td><td>generic.md（始终）§五</td><td>基本规范中的报告生成类 Prompt 骨架</td></tr>
             </tbody>
         </table>
 
@@ -1005,7 +1001,7 @@
                 <tr><td><strong>涉及写操作</strong></td><td>"创建自动更新商机阶段的技能"</td><td>allowed_tools 含 modify_data + ask_user</td></tr>
                 <tr><td><strong>文件导出</strong></td><td>"创建导出客户数据为 CSV 的技能"</td><td>allowed_tools 含 execute_code + file_upload</td></tr>
                 <tr><td><strong>fork 模式</strong></td><td>"创建需要多轮复杂推理的深度分析技能"</td><td>context: fork，指定子 Agent</td></tr>
-                <tr><td><strong>非 CRM</strong></td><td>"创建分析产品使用数据的技能"</td><td>加载 generic.md，通用四框架</td></tr>
+                <tr><td><strong>非 CRM</strong></td><td>"创建分析产品使用数据的技能"</td><td>generic.md 基本规范中的通用四框架指导（无匹配领域知识）</td></tr>
             </tbody>
         </table>
 
@@ -1049,6 +1045,10 @@
                 </div>
 
                 <!-- Domain files (indented under domains/) -->
+                <div class="tree-item" onclick="showFile('knowledge_domains_generic_md')" style="padding: 5px 12px 5px 76px; cursor: pointer; border-radius: 4px; font-size: 0.8rem;" onmouseover="this.style.background='var(--success-light)'" onmouseout="this.style.background=''">
+                    <span style="color:var(--gray-400); font-size:0.7rem; margin-right:4px;">├──</span>
+                    <span style="margin-right: 5px;">📋</span><span style="font-weight:700; color:var(--success);">generic.md</span><span style="font-size:0.65rem; color:var(--gray-500); margin-left:6px;">基本要求清单</span>
+                </div>
                 <div class="tree-item" onclick="showFile('knowledge_domains_account_md')" style="padding: 5px 12px 5px 76px; cursor: pointer; border-radius: 4px; font-size: 0.8rem;" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
                     <span style="color:var(--gray-400); font-size:0.7rem; margin-right:4px;">├──</span>
                     <span style="margin-right: 5px;">📄</span><span style="font-weight:500; color:var(--secondary);">account.md</span>
@@ -1070,12 +1070,8 @@
                     <span style="margin-right: 5px;">📄</span><span style="font-weight:500; color:var(--secondary);">customer_success.md</span>
                 </div>
                 <div class="tree-item" onclick="showFile('knowledge_domains_team_md')" style="padding: 5px 12px 5px 76px; cursor: pointer; border-radius: 4px; font-size: 0.8rem;" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
-                    <span style="color:var(--gray-400); font-size:0.7rem; margin-right:4px;">├──</span>
-                    <span style="margin-right: 5px;">📄</span><span style="font-weight:500; color:var(--secondary);">team.md</span>
-                </div>
-                <div class="tree-item" onclick="showFile('knowledge_domains_generic_md')" style="padding: 5px 12px 5px 76px; cursor: pointer; border-radius: 4px; font-size: 0.8rem;" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
                     <span style="color:var(--gray-400); font-size:0.7rem; margin-right:4px;">└──</span>
-                    <span style="margin-right: 5px;">📄</span><span style="font-weight:700; color:var(--warning);">generic.md</span>
+                    <span style="margin-right: 5px;">📄</span><span style="font-weight:500; color:var(--secondary);">team.md</span>
                 </div>
             </div>
 
@@ -1297,9 +1293,9 @@ Forecast 准确度分析:
 - 期望的输出是什么（评分/报告/建议/预警/排名）？
 
 **域路由规则：**
-- 匹配预定义域（域 1-6）→ 使用该域的专业分析体系
-- 无法归类 / 跨域组合 / 非 CRM 标准场景 → 加载 `knowledge/domains/generic.md` 作为兜底指导
-- 跨域需求 → 加载主域文件 + generic.md 的跨域组合指导
+- `generic.md` 始终加载 — 作为创建 skill 的基本要求清单
+- 匹配预定义域（域 1-6）→ 额外加载对应的领域知识文件
+- 跨域需求 → 加载多个领域知识文件，参考 generic.md 中的跨域组合指导
 
 如果无法确定，追问：
 - &quot;这个技能主要给谁用？销售还是销售经理？&quot;

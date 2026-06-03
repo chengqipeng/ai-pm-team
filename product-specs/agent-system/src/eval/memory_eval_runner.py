@@ -46,6 +46,20 @@ class QueryType(str, Enum):
     LONG_TAIL_DECAY = "long_tail_decay"  # 长尾衰减验证
     NEGATIVE = "negative"                # 负例验证
     MULTI_DIMENSION = "multi_dimension"  # 多维度综合
+    # ── 四维度记忆提取评测类型 ──
+    EXTRACT_PROFILE = "extract_profile"              # Profile 提取正例
+    EXTRACT_PREFERENCES = "extract_preferences"      # Preferences 提取正例
+    EXTRACT_AGENT_RULES = "extract_agent_rules"      # Agent Rules 提取正例
+    EXTRACT_ENTITIES = "extract_entities"            # Entities 提取正例
+    EXTRACT_NONE = "extract_none"                    # 不提取（负例）
+    EXTRACT_MIXED = "extract_mixed"                  # 混合意图（多维度同时提取）
+    EXTRACT_BOUNDARY = "extract_boundary"            # 边界对抗（模糊归属）
+    # ── 记忆反思验证类型 ──
+    REFLECT_USER_FEEDBACK = "reflect_user_feedback"  # 用户反馈反思
+    REFLECT_CONFLICT = "reflect_conflict"            # 冲突检测反思
+    REFLECT_SESSION_END = "reflect_session_end"      # 会话结束反思
+    REFLECT_FAILURE = "reflect_failure"              # 失败驱动反思
+    REFLECT_GLOBAL = "reflect_global"                # 全局定期反思
 
 
 @dataclass
@@ -54,7 +68,7 @@ class MemoryEvalCase:
     id: str
     layer: EvalLayer
     query_type: QueryType
-    query: str                          # 检索查询
+    query: str                          # 检索查询 / 提取类用例中为用户发言
     description: str = ""
     expected_memories: list[str] = field(default_factory=list)  # 期望命中的记忆 merge_key 或关键词
     expected_category: str = ""         # 期望类别
@@ -63,6 +77,12 @@ class MemoryEvalCase:
     assertion_mode: str = "any"         # any=任一命中即可, all=全部命中, ordered=按顺序
     negative: bool = False              # 负例（不应召回）
     metadata: dict[str, Any] = field(default_factory=dict)
+    # ── 四维度提取评测字段 ──
+    expected_dimensions: list[str] = field(default_factory=list)  # 期望提取的维度: profile/preferences/agent_rules/entities
+    existing_memory: dict[str, Any] = field(default_factory=dict)  # 反思用例：已有记忆
+    expected_action: str = ""           # 反思用例期望动作: update_old/archive_old/keep_both/discard_new
+    conflict_type: str = ""             # 冲突类型: contradiction/evolution
+    test_focus: str = ""                # 测试重点描述
 
 
 @dataclass
@@ -82,6 +102,11 @@ class MemoryEvalResult:
     top1_hit: bool = False
     duration_ms: float = 0.0
     error: str = ""
+    # ── 串行执行状态 ──
+    memory_changes: list[dict] = field(default_factory=list)  # 本次执行造成的记忆变更
+    memory_snapshot_count: int = 0   # 执行后记忆库总条数
+    extracted_dimensions: list[str] = field(default_factory=list)  # 实际提取的维度
+    output_detail: dict = field(default_factory=dict)  # 完整输出详情（LLM提取结果/反思结果）
 
     def to_dict(self) -> dict:
         return {
@@ -99,6 +124,10 @@ class MemoryEvalResult:
             "top1_hit": self.top1_hit,
             "duration_ms": round(self.duration_ms, 1),
             "error": self.error,
+            "memory_changes": self.memory_changes,
+            "memory_snapshot_count": self.memory_snapshot_count,
+            "extracted_dimensions": self.extracted_dimensions,
+            "output_detail": self.output_detail,
         }
 
 
@@ -378,23 +407,78 @@ class InMemoryEvalEngine:
 
         # 按分数降序排列
         scored.sort(key=lambda x: -x[0])
+
+        # 精确实体过滤：当查询包含明确的实体名（在记忆库 merge_key 中存在）时，
+        # 只返回内容中确实包含该实体名的结果，避免误召回无关记忆。
+        # 对于模糊/泛化查询（不含明确实体名），不做过滤。
+        parent_set = {mem.get("parent_entity", "").lower()
+                      for mem in self._memories if mem.get("parent_entity")}
+        entity_names = set()
+        for mem in self._memories:
+            mk = mem.get("merge_key", "")
+            # 提取实体名片段：如 "华为_张伟_风格" → ["张伟"]
+            parts = mk.split("_")
+            for p in parts:
+                if len(p) >= 2 and p not in parent_set:
+                    entity_names.add(p.lower())
+
+        # 查询中命中了哪些已知实体名
+        matched_entities = [kw for kw in keywords if kw in entity_names]
+
+        if matched_entities:
+            # 有明确实体名 → 只返回包含该实体名的记忆
+            filtered = []
+            for score, mem in scored:
+                abstract = (mem.get("abstract") or "").lower()
+                merge_key = (mem.get("merge_key") or "").lower()
+                content = (mem.get("content") or "").lower()
+                searchable = abstract + " " + merge_key + " " + content
+                if any(ent in searchable for ent in matched_entities):
+                    filtered.append(mem)
+                if len(filtered) >= top_k:
+                    break
+            return filtered
+
+        # 无明确实体名 → 正常返回 Top-K
         return [item[1] for item in scored[:top_k]]
 
     def _extract_keywords(self, text: str) -> list[str]:
-        """简单分词 — 提取有检索价值的关键词"""
+        """简单分词 — 提取有检索价值的关键词
+
+        策略：中文按 2-3 字 n-gram 切分 + 完整匹配；英文/数字按词切分。
+        """
         import re
-        # 中文词（2字以上）
-        cn_words = re.findall(r'[\u4e00-\u9fff]{2,}', text)
+        # 连续中文段
+        cn_segments = re.findall(r'[\u4e00-\u9fff]+', text)
         # 英文词
         en_words = re.findall(r'[a-zA-Z]+', text)
         # 数字
         numbers = re.findall(r'\d+', text)
 
+        # 中文 n-gram 切分（2字和3字窗口）
+        cn_words = []
+        for seg in cn_segments:
+            if len(seg) <= 4:
+                cn_words.append(seg)
+            else:
+                # 2-gram
+                for i in range(len(seg) - 1):
+                    cn_words.append(seg[i:i+2])
+                # 3-gram
+                for i in range(len(seg) - 2):
+                    cn_words.append(seg[i:i+3])
+                # 4-gram（用于匹配较长实体名）
+                for i in range(len(seg) - 3):
+                    cn_words.append(seg[i:i+4])
+
         all_words = cn_words + en_words + numbers
         # 过滤停用词
         stopwords = {"什么", "怎么", "哪个", "哪些", "有没有", "是否", "需要",
-                     "帮我", "请问", "一下", "可以", "能否", "还是", "以及"}
-        return [w.lower() for w in all_words if w not in stopwords and len(w) >= 2]
+                     "帮我", "请问", "一下", "可以", "能否", "还是", "以及",
+                     "这个", "那个", "就是", "不是", "的是", "们的", "了吗",
+                     "什么时", "么时候", "时候签", "候签约", "怎么样",
+                     "要做", "做几", "几轮"}
+        return list(set(w.lower() for w in all_words if w not in stopwords and len(w) >= 2))
 
     def clear(self):
         self._memories = []
@@ -404,6 +488,249 @@ class InMemoryEvalEngine:
     def memory_count(self) -> int:
         return len(self._memories)
 
+    def snapshot(self) -> list[dict]:
+        """返回当前记忆库的完整快照"""
+        return [m.copy() for m in self._memories]
+
+    def get_recent_changes(self, n: int = 5) -> list[dict]:
+        """获取最近 n 条写入日志"""
+        return self._write_log[-n:]
+
+    def extract_from_utterance(self, utterance: str, case: "MemoryEvalCase") -> dict:
+        """模拟 LLM 提取记忆 — 基于用例定义进行确定性模拟
+
+        串行评测中，提取类用例执行时：
+        1. 根据 expected_dimensions 确定该提取哪些维度
+        2. 写入对应记忆到引擎
+        3. 反思类用例会修改已有记忆
+
+        返回: {"action": "extract"|"update"|"archive"|"none",
+               "dimensions": [...],
+               "memories_written": [...],
+               "memories_modified": [...]}
+
+        注意：这是 mock 实现，真正的 LLM 提取使用 extract_from_utterance_llm()
+        """
+        result = {
+            "action": "none",
+            "dimensions": [],
+            "memories_written": [],
+            "memories_modified": [],
+        }
+
+        # 不提取的用例 — 不改变状态
+        if case.negative and case.layer == EvalLayer.EXTRACT:
+            result["action"] = "none"
+            return result
+
+        # 提取类用例 — 写入新记忆
+        if case.expected_dimensions and case.layer == EvalLayer.EXTRACT:
+            qt = case.query_type.value
+            if qt.startswith("extract_"):
+                result["action"] = "extract"
+                result["dimensions"] = case.expected_dimensions
+                for dim in case.expected_dimensions:
+                    mem = {
+                        "merge_key": f"{case.id}_{dim}",
+                        "category": dim,
+                        "parent_entity": "",
+                        "abstract": f"[{dim}] {utterance[:80]}",
+                        "content": utterance,
+                        "source_case_id": case.id,
+                    }
+                    self.add_memory(mem)
+                    result["memories_written"].append(mem)
+
+            elif qt.startswith("reflect_"):
+                # 反思类用例 — 修改已有记忆
+                if case.expected_action == "update_old" and case.existing_memory:
+                    result["action"] = "update"
+                    # 模拟更新：找到相关旧记忆并修改
+                    old_content = case.existing_memory.get("content", "")
+                    for i, m in enumerate(self._memories):
+                        if old_content and old_content in (m.get("content", "") + m.get("abstract", "")):
+                            updated = m.copy()
+                            updated["abstract"] = f"[已更新] {utterance[:60]}"
+                            updated["content"] = utterance
+                            self._memories[i] = updated
+                            self._write_log.append({"action": "update", "memory": updated})
+                            result["memories_modified"].append(updated)
+                            break
+                    else:
+                        # 未找到匹配旧记忆，新增
+                        mem = {
+                            "merge_key": f"{case.id}_reflect",
+                            "category": case.expected_dimensions[0] if case.expected_dimensions else "entities",
+                            "parent_entity": "",
+                            "abstract": f"[反思更新] {utterance[:60]}",
+                            "content": utterance,
+                            "source_case_id": case.id,
+                        }
+                        self.add_memory(mem)
+                        result["memories_written"].append(mem)
+
+                elif case.expected_action == "archive_old" and case.existing_memory:
+                    result["action"] = "archive"
+                    old_content = case.existing_memory.get("content", "")
+                    for i, m in enumerate(self._memories):
+                        if old_content and old_content in (m.get("content", "") + m.get("abstract", "")):
+                            archived = self._memories.pop(i)
+                            self._write_log.append({"action": "archive", "memory": archived})
+                            result["memories_modified"].append({"archived": archived})
+                            break
+
+                elif case.expected_action == "keep_both":
+                    result["action"] = "keep_both"
+                    mem = {
+                        "merge_key": f"{case.id}_branch",
+                        "category": case.expected_dimensions[0] if case.expected_dimensions else "agent_rules",
+                        "parent_entity": "",
+                        "abstract": f"[条件分支] {utterance[:60]}",
+                        "content": utterance,
+                        "source_case_id": case.id,
+                    }
+                    self.add_memory(mem)
+                    result["memories_written"].append(mem)
+
+                result["dimensions"] = case.expected_dimensions
+
+        return result
+
+    async def extract_from_utterance_llm(self, utterance: str) -> dict:
+        """真实 LLM 四路并行提取 — 调用 MemoryExtractor
+
+        返回: {"action": "extract"|"none",
+               "dimensions": [...],
+               "memories_written": [...],
+               "raw_items": [...ExtractionItem...]}
+        """
+        result = {
+            "action": "none",
+            "dimensions": [],
+            "memories_written": [],
+            "memories_modified": [],
+            "raw_items": [],
+            "errors": [],
+            "duration_ms": 0.0,
+        }
+
+        if not utterance or not utterance.strip():
+            return result
+
+        try:
+            from src.memory.extraction import MemoryExtractor
+
+            # 获取 LLM（延迟初始化）
+            llm = self._get_llm()
+            if not llm:
+                result["errors"].append("LLM 未配置")
+                return result
+
+            # 构造 StateProvider（使用当前引擎中的记忆作为已有状态）
+            state_provider = _EvalStateProvider(self)
+
+            extractor = MemoryExtractor(llm=llm, state_provider=state_provider)
+
+            # 构造 messages（模拟用户单条发言）
+            messages = [{"role": "user", "content": utterance}]
+
+            extraction = await extractor.extract_all(
+                messages=messages,
+                tenant_id="eval_tenant",
+                user_id="eval_user",
+                thread_id="eval_thread",
+                output_language="zh",
+            )
+
+            result["duration_ms"] = extraction.duration_ms
+            result["errors"] = extraction.errors
+
+            if extraction.items:
+                result["action"] = "extract"
+                dims = set()
+                for item in extraction.items:
+                    dims.add(item.dimension)
+                    mem = {
+                        "merge_key": item.merge_key or f"llm_{item.dimension}_{len(self._memories)}",
+                        "category": item.dimension,
+                        "parent_entity": item.parent_entity or "",
+                        "abstract": item.abstract or item.overview or "",
+                        "content": item.content or utterance,
+                    }
+                    self.add_memory(mem)
+                    result["memories_written"].append(mem)
+                    result["raw_items"].append({
+                        "dimension": item.dimension,
+                        "slug": item.slug,
+                        "abstract": item.abstract,
+                        "content": item.content,
+                        "merge_key": item.merge_key,
+                    })
+                result["dimensions"] = list(dims)
+            else:
+                result["action"] = "none"
+
+        except Exception as e:
+            result["errors"].append(str(e))
+            logger.error("LLM extraction failed: %s", e, exc_info=True)
+
+        return result
+
+    def _get_llm(self):
+        """获取 LLM 实例（延迟创建，单例）"""
+        if not hasattr(self, '_llm_instance'):
+            import os
+            try:
+                from langchain_openai import ChatOpenAI
+                api_key = (os.environ.get("AGENT_API_KEY")
+                           or os.environ.get("DEEPSEEK_API_KEY", ""))
+                api_base = os.environ.get("AGENT_API_BASE", "https://tokenhub.tencentmaas.com/v1")
+                if not api_key:
+                    self._llm_instance = None
+                else:
+                    self._llm_instance = ChatOpenAI(
+                        model=os.environ.get("AGENT_MODEL", "deepseek-v4-flash"),
+                        api_key=api_key,
+                        base_url=api_base,
+                        max_tokens=2048,
+                        temperature=0,
+                    )
+            except ImportError:
+                self._llm_instance = None
+        return self._llm_instance
+
+
+# ═══════════════════════════════════════════════════════════
+# 评测用 StateProvider（供 MemoryExtractor 查询已有状态）
+# ═══════════════════════════════════════════════════════════
+
+class _EvalStateProvider:
+    """评测用 StateProvider — 从 InMemoryEvalEngine 的当前记忆中提取已有状态"""
+
+    def __init__(self, engine: InMemoryEvalEngine):
+        self._engine = engine
+
+    async def get_profile(self, tenant_id: str, user_id: str) -> str:
+        """返回当前记忆库中的 profile 类记忆摘要"""
+        profiles = [m for m in self._engine._memories if m.get("category") == "profile"]
+        if not profiles:
+            return ""
+        return "\n".join(m.get("abstract", "") for m in profiles[:5])
+
+    async def get_agent_rules(self, tenant_id: str, user_id: str) -> str:
+        """返回当前记忆库中的 agent_rules 类记忆摘要"""
+        rules = [m for m in self._engine._memories if m.get("category") == "agent_rules"]
+        if not rules:
+            return ""
+        return "\n".join(m.get("abstract", "") for m in rules[:10])
+
+    async def get_entity_index(self, tenant_id: str, user_id: str) -> str:
+        """返回当前记忆库中的 entities 类记忆目录"""
+        entities = [m for m in self._engine._memories if m.get("category") == "entities"]
+        if not entities:
+            return ""
+        return "\n".join(f"- {m.get('merge_key', '')}: {m.get('abstract', '')}" for m in entities[:20])
+
 
 # ═══════════════════════════════════════════════════════════
 # 评测执行器
@@ -412,8 +739,9 @@ class InMemoryEvalEngine:
 class MemoryEvalRunner:
     """记忆召回率评测执行器"""
 
-    def __init__(self, engine: InMemoryEvalEngine | None = None):
+    def __init__(self, engine: InMemoryEvalEngine | None = None, use_llm: bool = False):
         self._engine = engine or InMemoryEvalEngine()
+        self._use_llm = use_llm
 
     def setup(self, seed_data: list[dict] | None = None):
         """初始化评测环境"""
@@ -489,49 +817,84 @@ class MemoryEvalRunner:
         return report
 
     async def _run_single(self, case: MemoryEvalCase) -> MemoryEvalResult:
-        """执行单条用例"""
+        """串行执行单条用例 — 会改变记忆库状态
+
+        执行流程：
+        1. 提取类(extract)用例 → 调用真实 LLM 提取（或 fallback 到 mock）→ 验证维度正确性
+        2. 检索类(retrieval/temporal)用例 → 在当前记忆库状态上检索 → 验证召回正确性
+        3. 每条用例执行后记录记忆库快照信息
+        """
         start = time.time()
         try:
-            # 执行检索
-            results = self._engine.retrieve(
-                query=case.query,
-                top_k=case.top_k,
-                category=case.expected_category or None,
-                parent_entity=None,  # 不传 parent_entity，让引擎自己判断
-            )
+            is_extract_layer = (case.layer == EvalLayer.EXTRACT)
 
-            duration = (time.time() - start) * 1000
+            if is_extract_layer:
+                # ── 提取/反思类用例：调用 LLM 提取记忆 ──
+                if self._use_llm:
+                    extract_result = await self._engine.extract_from_utterance_llm(case.query)
+                else:
+                    extract_result = self._engine.extract_from_utterance(case.query, case)
+                duration = (time.time() - start) * 1000
 
-            # 提取实际结果摘要
-            actual = []
-            for r in results:
-                actual.append({
-                    "merge_key": r.get("merge_key", ""),
-                    "abstract": r.get("abstract", ""),
-                    "category": r.get("category", ""),
-                    "parent_entity": r.get("parent_entity", ""),
-                })
+                # 验证：提取的维度是否匹配期望
+                extracted_dims = extract_result.get("dimensions", [])
+                passed = self._evaluate_extract(case, extract_result)
 
-            # 计算指标
-            recall_at_k, precision_at_k, mrr, top1_hit, passed = self._evaluate(
-                case, results
-            )
+                return MemoryEvalResult(
+                    case_id=case.id,
+                    query_type=case.query_type.value,
+                    layer=case.layer.value,
+                    passed=passed,
+                    query=case.query,
+                    description=case.description,
+                    expected=case.expected_dimensions or case.expected_memories,
+                    actual=extract_result.get("memories_written", []) + extract_result.get("memories_modified", []),
+                    duration_ms=duration,
+                    memory_changes=self._engine.get_recent_changes(3),
+                    memory_snapshot_count=self._engine.memory_count,
+                    extracted_dimensions=extracted_dims,
+                    output_detail=extract_result,
+                )
+            else:
+                # ── 检索类用例：在当前累积状态上检索 ──
+                results = self._engine.retrieve(
+                    query=case.query,
+                    top_k=case.top_k,
+                    category=case.expected_category or None,
+                    parent_entity=None,
+                )
+                duration = (time.time() - start) * 1000
 
-            return MemoryEvalResult(
-                case_id=case.id,
-                query_type=case.query_type.value,
-                layer=case.layer.value,
-                passed=passed,
-                query=case.query,
-                description=case.description,
-                expected=case.expected_memories,
-                actual=actual,
-                recall_at_k=recall_at_k,
-                precision_at_k=precision_at_k,
-                mrr=mrr,
-                top1_hit=top1_hit,
-                duration_ms=duration,
-            )
+                actual = []
+                for r in results:
+                    actual.append({
+                        "merge_key": r.get("merge_key", ""),
+                        "abstract": r.get("abstract", ""),
+                        "category": r.get("category", ""),
+                        "parent_entity": r.get("parent_entity", ""),
+                    })
+
+                recall_at_k, precision_at_k, mrr, top1_hit, passed = self._evaluate(
+                    case, results
+                )
+
+                return MemoryEvalResult(
+                    case_id=case.id,
+                    query_type=case.query_type.value,
+                    layer=case.layer.value,
+                    passed=passed,
+                    query=case.query,
+                    description=case.description,
+                    expected=case.expected_memories,
+                    actual=actual,
+                    recall_at_k=recall_at_k,
+                    precision_at_k=precision_at_k,
+                    mrr=mrr,
+                    top1_hit=top1_hit,
+                    duration_ms=duration,
+                    memory_snapshot_count=self._engine.memory_count,
+                    output_detail={"retrieval_count": len(results)},
+                )
         except Exception as e:
             duration = (time.time() - start) * 1000
             return MemoryEvalResult(
@@ -541,10 +904,46 @@ class MemoryEvalRunner:
                 passed=False,
                 query=case.query,
                 description=case.description,
-                expected=case.expected_memories,
+                expected=case.expected_dimensions or case.expected_memories,
                 duration_ms=duration,
                 error=str(e),
+                memory_snapshot_count=self._engine.memory_count,
             )
+
+    def _evaluate_extract(self, case: MemoryEvalCase, extract_result: dict) -> bool:
+        """评估提取类用例的正确性
+
+        判定逻辑：
+        - 正例(expected_dimensions非空): 提取的维度是否包含期望维度
+        - 负例(negative=True): 不应有任何提取动作
+        - 反思类: 执行动作是否与 expected_action 匹配
+        """
+        if case.negative:
+            # 负例：不应提取任何内容
+            action = extract_result.get("action", "none")
+            return action == "none"
+
+        # 提取正例：验证维度匹配
+        extracted_dims = set(extract_result.get("dimensions", []))
+        expected_dims = set(case.expected_dimensions) if case.expected_dimensions else set()
+
+        if not expected_dims:
+            return True  # 没有期望定义，通过
+
+        # 反思类：验证动作类型
+        if case.expected_action:
+            actual_action = extract_result.get("action", "none")
+            # update_old / archive / keep_both 都算正确映射
+            action_map = {"update_old": "update", "archive_old": "archive", "keep_both": "keep_both"}
+            expected_mapped = action_map.get(case.expected_action, case.expected_action)
+            if actual_action != expected_mapped:
+                return False
+
+        # 维度匹配：期望维度 ⊆ 实际维度
+        if case.assertion_mode == "all":
+            return expected_dims <= extracted_dims
+        else:
+            return len(expected_dims & extracted_dims) > 0
 
     def _evaluate(self, case: MemoryEvalCase, results: list[dict]) -> tuple:
         """评估检索结果
@@ -642,6 +1041,18 @@ def print_memory_eval_report(report: MemoryEvalReport):
         "long_tail_decay": "长尾衰减",
         "negative": "负例过滤",
         "multi_dimension": "多维度",
+        "extract_profile": "提取Profile",
+        "extract_preferences": "提取Preferences",
+        "extract_agent_rules": "提取AgentRules",
+        "extract_entities": "提取Entities",
+        "extract_none": "不提取",
+        "extract_mixed": "混合意图",
+        "extract_boundary": "边界对抗",
+        "reflect_user_feedback": "用户反馈反思",
+        "reflect_conflict": "冲突检测反思",
+        "reflect_session_end": "会话结束反思",
+        "reflect_failure": "失败驱动反思",
+        "reflect_global": "全局反思",
     }
     for qt, stats in report.by_query_type.items():
         name = type_names.get(qt, qt)

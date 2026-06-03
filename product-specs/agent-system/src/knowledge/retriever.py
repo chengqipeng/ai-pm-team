@@ -17,15 +17,18 @@
       │
       ├── Phase 3: 合并去重（全局 ∪ 定向，按 score 降序）
       │
+      ├── Step 3.6: 语义硬门槛过滤（cosine similarity < MIN_COSINE_THRESHOLD 的切片直接丢弃）
+      │
       ├── Step 4: Hydrate + Parent-Child 上下文扩展
       │
       ├── Step 5: 三维度归一化加权
       │     切片→文档聚合（docScore = seg[0] + Σ seg[i] × 0.2^i）
-      │     finalScore = α·normA + β·normB + γ·normC
-      │       α (0.7): 切片 RRF 聚合分 → 理论锚点归一化 [0, 1]
+      │     finalScore = α·normA + β·normB + γ_effective·normC
+      │       α (0.7): 切片 RRF 聚合分 → 百分位数归一化 [0, 1]
       │       β (0.1): 路B融合排名 RRF × METADATA_WEIGHT → [0, 1]
-      │       γ (0.2): quality + recency + hit → [0, 1]（来自 VDB 文档属性）
-      │     映射: finalScore = rawScore × (1 - threshold) + threshold
+      │       γ_effective (0.2 × attenuation): quality + recency + hit → [0, 1]
+      │         当 normA < GAMMA_ATTENUATION_THRESHOLD 时，γ 权重线性衰减至 0
+      │     rawScore 直接与 threshold 比较（不再做线性映射）
       │
       ├── Step 6: threshold 过滤 + 排序 → top_k
       │
@@ -72,10 +75,21 @@ QUERY_REWRITE_PROMPT = """你是一个专业的检索查询优化器。请根据
 4. 去除噪音：去掉"请问"、"帮我"、"我想知道"等无检索价值的词
 5. 保持核心意图：不要改变用户的原始查询意图
 
+## ⚠️ 短查询/通用词约束（非常重要）
+当用户输入非常短（1-3个词）且没有对话历史上下文时：
+- **不要过度脑补和扩展**。短查询可能只是用户的试探性搜索。
+- 改写应保持简洁，最多添加 1-2 个直接同义词，不要凭空发散。
+- 如果原始查询已经足够明确（如产品名、型号），保持原文不改写。
+- 对于英文通用词（如 "table"、"data"、"system"、"config"），保持原文不改写，在 keywords 中原样返回。
+- 错误示例："table" → "设备参数表格技术规格数据表"（❌ 过度扩展）
+- 正确示例："table" → "table"（✅ 保持原样，因为无法确定用户意图）
+- 正确示例："3051参数" → "罗斯蒙特3051压力变送器技术参数"（✅ 有明确产品上下文的扩展）
+
 ## 关键词提取规则
 1. 提取 3-8 个核心关键词，按重要性排序
 2. 包含：产品名称、型号、技术术语、核心概念
 3. 排除：停用词、语气词、连接词
+4. 对于短查询（1-2个词），keywords 只返回原始查询词本身
 
 ## 对话历史
 {conversation_history}
@@ -96,6 +110,8 @@ QUERY_REWRITE_PROMPT = """你是一个专业的检索查询优化器。请根据
 - 用户问"3051参数" → {{"rewritten_query": "罗斯蒙特3051压力变送器技术参数规格", "keywords": ["罗斯蒙特", "3051", "压力变送器", "参数", "规格"], "intent": "查询3051压力变送器的技术参数", "expansion_terms": ["技术规格", "性能指标", "量程"]}}
 - 用户问"怎么安装" + 历史提到3051 → {{"rewritten_query": "罗斯蒙特3051压力变送器安装方法步骤", "keywords": ["3051", "安装", "方法", "步骤"], "intent": "查询3051的安装方法", "expansion_terms": ["安装指南", "接线", "调试"]}}
 - 用户问"价格多少" → {{"rewritten_query": "产品价格报价", "keywords": ["价格", "报价"], "intent": "查询产品价格", "expansion_terms": ["选型", "订购"]}}
+- 用户问"table" → {{"rewritten_query": "table", "keywords": ["table"], "intent": "查询table相关内容", "expansion_terms": []}}
+- 用户问"data" → {{"rewritten_query": "data", "keywords": ["data"], "intent": "查询data相关内容", "expansion_terms": []}}
 """
 
 
@@ -169,6 +185,26 @@ class KnowledgeRetriever:
     # threshold 默认值
     _DEFAULT_THRESHOLD = 0.3
 
+    # ── [已移除] 语义硬门槛不再使用默认值 ──
+    # 接口层会传递前端用户设定的阈值，由 RRF 最终 threshold 统一控制
+    # 仅当调用方显式传递 min_cosine_score 时才做 VDB 原始分过滤
+    _DEFAULT_MIN_COSINE_THRESHOLD = 0.0
+
+    # ── [优化] 切片搜索 dense/sparse 权重（提升语义匹配，降低 BM25 伪匹配） ──
+    _CHUNK_DENSE_WEIGHT = 0.5
+    _CHUNK_SPARSE_WEIGHT = 0.5
+
+    # ── [优化] 短查询/低区分度查询的 dense/sparse 权重覆盖 ──
+    # 当查询被判定为低区分度（通用高频词）时，大幅提升 dense 权重以抑制 BM25 伪匹配
+    _LOW_DISCRIMINABILITY_DENSE_WEIGHT = 0.85
+    _LOW_DISCRIMINABILITY_SPARSE_WEIGHT = 0.15
+    # 查询区分度阈值：低于此值时切换为 dense 主导
+    _DISCRIMINABILITY_THRESHOLD = 0.35
+
+    # ── [优化] γ 维度衰减门槛：当 normA < 此值时，γ 权重线性衰减至 0 ──
+    # 避免语义不相关的文档靠 quality/recency/hit 属性"白嫖"高分
+    _GAMMA_ATTENUATION_THRESHOLD = 0.3
+
     # 切片回查字段（VDB 直接返回，不再回 PG）
     _CHUNK_OUTPUT_FIELDS = [
         "id", "doc_id", "chunk_index", "content", "section_title",
@@ -200,6 +236,7 @@ class KnowledgeRetriever:
         filters: dict | None = None,
         top_k: int = 5,
         threshold: float | None = None,
+        min_cosine_score: float | None = None,
         enable_self_query: bool = True,
         conversation_history: list | None = None,
         user_id: str = "",
@@ -209,6 +246,8 @@ class KnowledgeRetriever:
         """完整检索流水线（全 VDB）
 
         threshold 优先级：调用方显式 > KB.min_score > _DEFAULT_THRESHOLD
+        min_cosine_score：仅当调用方显式传递时生效，不再有默认值。
+            控制 VDB hybrid_search 返回结果的原始分数下限，低于此值直接丢弃。
         """
         t0 = time.time()
         timings: dict[str, int] = {}
@@ -227,6 +266,25 @@ class KnowledgeRetriever:
             except Exception as exc:
                 logger.warning("Query rewrite failed: %s", exc)
             timings["rewrite_ms"] = int((time.time() - ts) * 1000)
+        elif self._llm and not conversation_history:
+            # [优化] 无对话历史时的短查询保护：
+            # 单词/极短查询不走 LLM 改写（避免过度扩展），直接用本地关键词
+            query_tokens = self._tokenize(query)
+            if len(query_tokens) <= 2 and len(query.strip()) <= 10:
+                logger.info(
+                    "Short query without history — skipping LLM rewrite: '%s'",
+                    query,
+                )
+                extracted_keywords = self._local_keywords(query)
+            else:
+                ts = time.time()
+                try:
+                    rw = await self._rewrite_query(query, conversation_history)
+                    rewritten_query = rw.get("rewritten_query", query)
+                    extracted_keywords = rw.get("keywords", [])
+                except Exception as exc:
+                    logger.warning("Query rewrite failed: %s", exc)
+                timings["rewrite_ms"] = int((time.time() - ts) * 1000)
 
         # Step 2: Self-Querying
         semantic_query = rewritten_query
@@ -255,9 +313,27 @@ class KnowledgeRetriever:
         except Exception as exc:
             logger.warning("Embedding failed: %s", exc)
 
+        # [优化] 查询区分度评估 — 动态调整 dense/sparse 权重
+        # 对于短查询/通用词（如 "table"、"data"），BM25 会泛滥匹配
+        # → 大幅提升 dense 权重，让语义相似度主导召回排序
+        query_discriminability = self._assess_query_discriminability(semantic_query)
+        if query_discriminability < self._DISCRIMINABILITY_THRESHOLD:
+            chunk_dense_weight = self._LOW_DISCRIMINABILITY_DENSE_WEIGHT
+            chunk_sparse_weight = self._LOW_DISCRIMINABILITY_SPARSE_WEIGHT
+            logger.info(
+                "Low discriminability query (%.2f < %.2f): switching to dense-dominant "
+                "(dense=%.2f, sparse=%.2f) for query='%s'",
+                query_discriminability, self._DISCRIMINABILITY_THRESHOLD,
+                chunk_dense_weight, chunk_sparse_weight, semantic_query[:50],
+            )
+        else:
+            chunk_dense_weight = self._CHUNK_DENSE_WEIGHT
+            chunk_sparse_weight = self._CHUNK_SPARSE_WEIGHT
+
         chunk_results_global, doc_meta_hybrid = await asyncio.gather(
             self._recall_chunks(
                 tenant_id, query_vec, semantic_query, global_chunk_filter, chunk_limit,
+                dense_weight=chunk_dense_weight, sparse_weight=chunk_sparse_weight,
             ),
             self._recall_doc_metadata_hybrid(
                 tenant_id, query_vec, semantic_query, doc_filter, doc_limit,
@@ -324,6 +400,7 @@ class KnowledgeRetriever:
             try:
                 chunk_results_targeted = await self._recall_chunks(
                     tenant_id, query_vec, semantic_query, targeted_filter, targeted_limit,
+                    dense_weight=chunk_dense_weight, sparse_weight=chunk_sparse_weight,
                 )
             except Exception as exc:
                 logger.warning("Phase2 targeted recall failed: %s", exc)
@@ -336,6 +413,26 @@ class KnowledgeRetriever:
 
         # Phase 3: 合并去重（全局 ∪ 定向），按 score 降序
         chunk_results = self._merge_chunk_results(chunk_results_global, chunk_results_targeted)
+
+        # Step 3.6: [优化] 语义硬门槛 — 仅当调用方显式传递 min_cosine_score 时生效
+        # VDB 返回的 score 是 WeightedRerank 融合后的 cosine-like 分数 ∈ [0, 1]
+        # 不再有默认值，前端传递的 threshold 作为最终阈值统一控制
+        effective_min_cosine = (
+            min_cosine_score if min_cosine_score is not None
+            else 0.0
+        )
+        if chunk_results and effective_min_cosine > 0:
+            before_count = len(chunk_results)
+            chunk_results = [
+                r for r in chunk_results
+                if float(r.get("score", 0)) >= effective_min_cosine
+            ]
+            filtered_count = before_count - len(chunk_results)
+            if filtered_count > 0:
+                logger.debug(
+                    "Cosine threshold filter: removed %d/%d chunks (threshold=%.2f)",
+                    filtered_count, before_count, effective_min_cosine,
+                )
 
         # 安全机制：如果合并后仍为空且有 filter，去掉过滤重试文档元数据
         if not chunk_results and effective_filters and query_vec:
@@ -384,12 +481,24 @@ class KnowledgeRetriever:
 
         # Step 5: 三维度归一化加权（γ 属性从 VDB 文档元数据集合读）
         doc_cache = await self._load_doc_meta_cache(chunks, tenant_id)
+
+        # [优化] 低区分度查询动态提高 threshold — 避免大量伪匹配全部通过
+        scoring_threshold = effective_threshold
+        if query_discriminability < self._DISCRIMINABILITY_THRESHOLD:
+            # 低区分度查询：至少要求 0.45 的 raw score 才通过
+            scoring_threshold = max(effective_threshold, 0.45)
+            if scoring_threshold > effective_threshold:
+                logger.info(
+                    "Low discriminability: raising threshold %.2f → %.2f for query='%s'",
+                    effective_threshold, scoring_threshold, semantic_query[:50],
+                )
+
         chunks = self._score_and_rank(
             chunks=chunks,
             summary_rank=summary_doc_ids,
             meta_text_rank=meta_bm25_doc_ids,
             doc_cache=doc_cache,
-            threshold=effective_threshold,
+            threshold=scoring_threshold,
             top_k=top_k,
         )
 
@@ -427,6 +536,7 @@ class KnowledgeRetriever:
     async def _recall_chunks(
         self, tenant_id: int, query_vec: list[float], query_text: str,
         filter_expr: str, top_k: int,
+        dense_weight: float | None = None, sparse_weight: float | None = None,
     ) -> list[dict]:
         """A 路：VDB 切片 hybrid_search（dense + sparse）"""
         if not query_vec:
@@ -438,6 +548,8 @@ class KnowledgeRetriever:
             query_text=query_text,
             extra_filter=filter_expr,
             top_k=top_k,
+            dense_weight=dense_weight if dense_weight is not None else self._CHUNK_DENSE_WEIGHT,
+            sparse_weight=sparse_weight if sparse_weight is not None else self._CHUNK_SPARSE_WEIGHT,
             output_fields=self._CHUNK_OUTPUT_FIELDS,
         )
 
@@ -470,28 +582,28 @@ class KnowledgeRetriever:
         threshold: float,
         top_k: int,
     ) -> list[KnowledgeChunk]:
-        """三维度归一化加权排序（对齐 data-process normalizeAndMerge）
+        """三维度归一化加权排序（优化版）
 
-        与 data-process 的对齐点：
-        1. RRF 归一化使用理论锚点（theoreticalMax/Min），而非实际 min-max
-        2. finalScore = rawScore * (1 - threshold) + threshold 映射到 [threshold, 1]
-        3. 元数据/属性归一化方式一致
+        优化点（相比原 data-process 对齐版）：
+        1. 维度 A 改用实际分数分布归一化（min-max on actual scores），避免理论锚点
+           导致中间排名虚高
+        2. 去掉 finalScore = rawScore × (1-threshold) + threshold 映射，
+           rawScore 直接与 threshold 比较，保留真实区分度
+        3. γ 维度增加衰减机制：当 normA（语义相关性）低于门槛时，
+           γ 权重线性衰减至 0，防止无关文档靠属性加分
         """
         if not chunks:
             return chunks
 
-        # ── 1. 切片 A 路 RRF 贡献（对齐 computeSegmentRrf） ──
+        # ── 1. 切片 A 路 RRF 贡献 ──
         # VDB hybrid_search 返回的 score 已经是融合分，按 score 降序排名
         chunks_sorted = sorted(chunks, key=lambda c: c.score, reverse=True)
         chunk_rrf: dict[str, float] = {}
         for rank, c in enumerate(chunks_sorted):
             if c.chunk_id:
-                # 对齐 data-process: 向量路 1/(EMBEDDING_K + rank + 1)
-                # VDB hybrid_search 已融合 dense+sparse，视为等价于
-                # data-process 中 embedding + ES 两路 RRF 的合并结果
                 chunk_rrf[c.chunk_id] = 1.0 / (self._K_CHUNK + rank + 1)
 
-        # ── 2. 按 doc_id 分组聚合（几何衰减，对齐 aggregateToDocLevel） ──
+        # ── 2. 按 doc_id 分组聚合（几何衰减） ──
         doc_chunks: dict[str, list[tuple[KnowledgeChunk, float]]] = {}
         for c in chunks:
             did = c.document_id
@@ -508,23 +620,38 @@ class KnowledgeRetriever:
                 agg += items[i][1] * math.pow(self._CHUNK_DECAY, i)
             doc_rrf[did] = agg
 
-        # ── 3. 维度 A 归一化：理论锚点归一化 → [0, 1]（对齐 data-process） ──
-        # 理论最大 RRF = 排名第 1 时的单切片得分 = 1/(K+1)
-        # 理论最小 RRF = 排名最后时的得分 ≈ 1/(K + chunk_limit + 1)
-        chunk_limit = len(chunks_sorted)
-        theoretical_max_rrf = 1.0 / (self._K_CHUNK + 1)
-        theoretical_min_rrf = 1.0 / (self._K_CHUNK + chunk_limit + 1)
-        rrf_range = theoretical_max_rrf - theoretical_min_rrf
-
+        # ── 3. [优化] 维度 A 归一化：relative_rank × VDB_score² ──
+        # 结合相对排名信号和绝对语义相似度：
+        # - relative_rank: min-max 归一化保留排序信息
+        # - VDB_score²: 文档最高切片的 VDB score 的平方作为天花板
+        #   → 高相关(0.9²=0.81) 几乎无损
+        #   → 低相关(0.38²=0.14) 被大幅压制
+        # 解决纯 min-max 无法区分"真相关排名第一"和"全是噪音排名第一"的问题
         doc_norm_a: dict[str, float] = {}
-        for did, score in doc_rrf.items():
-            if rrf_range > 0:
-                norm = (score - theoretical_min_rrf) / rrf_range
-                doc_norm_a[did] = max(0.0, min(1.0, norm))
-            else:
-                doc_norm_a[did] = 0.5
+        if doc_rrf:
+            # 每个文档的最高切片 VDB score（绝对语义相似度）
+            doc_max_vdb: dict[str, float] = {}
+            for did, items in doc_chunks.items():
+                doc_max_vdb[did] = max(c.score for c, _ in items)
 
-        # ── 4. 维度 B：元数据加权（对齐 computeMetadataBoost） ──
+            # 单文档退化保护：只有一个文档时直接用 VDB score
+            if len(doc_rrf) == 1:
+                did = list(doc_rrf.keys())[0]
+                doc_norm_a[did] = doc_max_vdb.get(did, 0.5)
+            else:
+                actual_scores = list(doc_rrf.values())
+                actual_max = max(actual_scores)
+                actual_min = min(actual_scores)
+                score_range = actual_max - actual_min
+                for did, score in doc_rrf.items():
+                    if score_range > 0:
+                        relative_rank = (score - actual_min) / score_range
+                    else:
+                        relative_rank = 0.5
+                    max_vdb = doc_max_vdb.get(did, 0.0)
+                    doc_norm_a[did] = relative_rank * (max_vdb ** 2)
+
+        # ── 4. 维度 B：元数据加权 ──
         doc_norm_b: dict[str, float] = {}
         doc_ids_all = set(doc_chunks.keys())
         for did in doc_ids_all:
@@ -545,7 +672,7 @@ class KnowledgeRetriever:
                 if self._MAX_METADATA_BOOST > 0 else 0.0
             )
 
-        # ── 5. 维度 C：文档属性（对齐 computeAttributeBoost） ──
+        # ── 5. 维度 C：文档属性 ──
         now_ms = int(time.time() * 1000)
         doc_norm_c: dict[str, float] = {}
         for did in doc_ids_all:
@@ -575,17 +702,26 @@ class KnowledgeRetriever:
             )
             doc_norm_c[did] = min(attribute_boost / self._MAX_ATTR_BOOST, 1.0)
 
-        # ── 6. 三维度加权合并 + 映射到 [threshold, 1]（对齐 data-process） ──
+        # ── 6. [优化] 三维度加权合并（γ 衰减 + 去掉分数映射） ──
         for c in chunks:
             did = c.document_id or ""
             na = doc_norm_a.get(did, 0.0)
             nb = doc_norm_b.get(did, 0.0)
             nc = doc_norm_c.get(did, 0.0)
-            # rawScore ∈ [0, 1]
-            raw_score = self._ALPHA * na + self._BETA * nb + self._GAMMA * nc
-            # 映射到 [threshold, 1.0]，与 data-process 对齐
-            final_score = raw_score * (1.0 - threshold) + threshold
-            c.score = round(final_score, 4)
+
+            # [优化] γ 衰减：当语义相关性（normA）低于门槛时，
+            # 线性衰减 γ 权重至 0，防止无关文档靠属性加分
+            gamma_effective = self._GAMMA
+            if na < self._GAMMA_ATTENUATION_THRESHOLD:
+                # na=0 → gamma=0; na=threshold → gamma=_GAMMA
+                gamma_effective = self._GAMMA * (na / self._GAMMA_ATTENUATION_THRESHOLD)
+
+            # 重新分配衰减掉的 γ 权重给 α（保持总权重为 1）
+            alpha_effective = self._ALPHA + (self._GAMMA - gamma_effective)
+
+            # rawScore ∈ [0, 1]，直接作为最终分数
+            raw_score = alpha_effective * na + self._BETA * nb + gamma_effective * nc
+            c.score = round(raw_score, 4)
 
         # ── 7. threshold 过滤 + 排序 + top_k ──
         if threshold > 0:
@@ -696,6 +832,66 @@ class KnowledgeRetriever:
         except Exception:
             # jieba 不可用时用简单分词
             return self._tokenize(text)[:8]
+
+    def _assess_query_discriminability(self, query: str) -> float:
+        """评估查询的区分度 — 高频通用词返回低值，专有名词/长查询返回高值。
+
+        用于动态调整 dense/sparse 权重：
+          - 低区分度 (< DISCRIMINABILITY_THRESHOLD): 切换 dense 主导，抑制 BM25 伪匹配
+          - 高区分度: 保持正常 dense/sparse 平衡
+
+        评估策略：
+          1. 极短查询（1个token且≤6字符）→ 默认低区分度
+          2. 纯英文单词 → 大概率是通用词（table/data/config），低区分度
+          3. 多 token 组合 → 区分度随 token 数递增
+          4. 包含数字/型号 → 高区分度（如 "3051"、"248HT"）
+
+        返回: [0.0, 1.0]，值越低说明查询越"通用/高频"
+        """
+        query = query.strip()
+        if not query:
+            return 0.0
+
+        # 含数字/型号模式 → 高区分度（产品型号）
+        if re.search(r'\d{2,}', query):
+            return 0.8
+
+        # 分词
+        try:
+            import jieba
+            tokens = [t for t in jieba.lcut(query) if len(t.strip()) > 0]
+        except Exception:
+            tokens = query.split()
+
+        if not tokens:
+            return 0.3
+
+        # 单 token 查询
+        if len(tokens) == 1:
+            word = tokens[0]
+            # 纯英文单词 → 大概率是通用词
+            if re.match(r'^[a-zA-Z]+$', word):
+                # 短英文词（table/data/system/config）→ 极低区分度
+                if len(word) <= 8:
+                    return 0.1
+                # 长英文词（如品牌名 rosemount）可能有区分度
+                return 0.4
+            # 单个中文词且很短（如"表格""数据""系统"）
+            if len(word) <= 2:
+                return 0.2
+            # 中文 3-4 字词（如"压力变送器"）有一定区分度
+            return 0.5
+
+        # 2个 token
+        if len(tokens) == 2:
+            # 检查是否全是常见短词
+            short_count = sum(1 for t in tokens if len(t) <= 2)
+            if short_count == len(tokens):
+                return 0.3
+            return 0.5
+
+        # 3+ token → 区分度较高
+        return min(1.0, 0.4 + len(tokens) * 0.1)
 
     async def _self_query(
         self, query: str, tenant_id: int, kb_id: int | None,

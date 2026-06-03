@@ -34,7 +34,7 @@ def _build_chunk_index(dimension: int):
             metric_type=MetricType.COSINE,
             params=HNSWParams(m=16, efconstruction=200),
         ),
-        SparseIndex(name="sparse_vector"),   # BM25 on content
+        SparseIndex(name="sparse_vector"),   # BM25 on content_clean
         # 租户隔离（🔑 所有查询必须携带）
         FilterIndex(name="tenant_id",         field_type=FieldType.String, index_type=IndexType.FILTER),
         FilterIndex(name="knowledge_base_id", field_type=FieldType.String, index_type=IndexType.FILTER),
@@ -220,7 +220,12 @@ class KnowledgeVectorStore:
         """批量写入切片向量。
 
         records 每条必须含 id / vector / tenant_id / knowledge_base_id / doc_id / content。
-        自动对 content 生成 BM25 sparse_vector。
+        字段说明：
+          - content: 原始切片文本（保留格式，用于展示给用户）
+          - content_clean: 清洗后的纯净文本（去除噪声字符，用于 BM25 sparse 检索）
+          - vector: embedding 向量（基于 content_clean 生成）
+
+        BM25 sparse_vector 优先使用 content_clean 生成，fallback 到 content。
         """
         if not records:
             return 0
@@ -232,11 +237,12 @@ class KnowledgeVectorStore:
 
         self._ensure_collections()
 
-        # 为每条记录生成 BM25 稀疏向量（基于 content 全文，优先级高于 abstract）
+        # 为每条记录生成 BM25 稀疏向量
+        # 优先使用 content_clean（清洗后文本），fallback 到 content
         bm25 = self._get_bm25()
         if bm25:
             for rec in records:
-                text = rec.get("content") or rec.get("abstract") or ""
+                text = rec.get("content_clean") or rec.get("content") or rec.get("abstract") or ""
                 if text and "sparse_vector" not in rec:
                     try:
                         sparse = bm25.encode_texts([text[:4000]])
@@ -416,12 +422,13 @@ class KnowledgeVectorStore:
         query_text: str = "",
         extra_filter: str = "",
         top_k: int = 20,
-        dense_weight: float = 0.3,
-        sparse_weight: float = 0.7,
+        dense_weight: float = 0.5,
+        sparse_weight: float = 0.5,
         output_fields: list[str] | None = None,
     ) -> list[dict]:
         """切片混合检索：dense + sparse → WeightedRerank。
 
+        默认 dense=0.5 / sparse=0.5（平衡语义与关键词匹配）。
         返回时默认带回 content / section_title / doc_id / chunk_index / 属性字段，
         调用方不再需要回 PG。
         """

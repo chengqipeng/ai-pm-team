@@ -1493,13 +1493,17 @@ class DocumentIngestionPipeline:
             logger.info("Phase4 skip: doc=%s 无 chunks 可索引", doc_id)
             return 0
 
-        # 1. chunk 向量化
+        # 1. chunk 向量化（使用清洗后文本，避免噪声影响向量质量）
+        from .text_cleaner import clean_text_for_retrieval
+
         logger.info(
             "Phase4 embedding chunks: doc=%s count=%d avg_len=%d",
             doc_id, len(chunks),
             sum(len(c.content) for c in chunks) // len(chunks),
         )
-        texts_for_embed = [c.content[:2000] for c in chunks]
+        # 清洗文本用于 embedding（去除 LaTeX、图片路径、hash 等噪声）
+        texts_cleaned = [clean_text_for_retrieval(c.content) for c in chunks]
+        texts_for_embed = [t[:2000] for t in texts_cleaned]
         try:
             vectors = await self._embed_many(texts_for_embed)
         except Exception as exc:
@@ -1519,7 +1523,7 @@ class DocumentIngestionPipeline:
         chunk_records: list[dict] = []
         synced_ids: list[str] = []
         empty_count = 0
-        for c, vec in zip(chunks, vectors):
+        for c, vec, cleaned in zip(chunks, vectors, texts_cleaned):
             if not vec:
                 empty_count += 1
                 continue
@@ -1538,8 +1542,10 @@ class DocumentIngestionPipeline:
                 "product_service": c.product_service,
                 "status": "active",
                 "date_published": c.date_published,
-                # 🆕 全文内容 — VDB 直接返回，不再回 PG 拉
+                # 原始内容 — 用于展示给用户（保留格式、公式、图片引用等）
                 "content": c.content[:8000],
+                # 清洗后内容 — 用于 BM25 sparse 检索（去除噪声字符）
+                "content_clean": cleaned[:8000],
                 "section_title": c.section_title,
                 "chunk_index": c.chunk_index,
             })

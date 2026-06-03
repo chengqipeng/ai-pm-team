@@ -19,8 +19,9 @@ from .memory_eval_runner import MemoryEvalCase, EvalLayer, QueryType
 
 
 def build_all_cases() -> list[MemoryEvalCase]:
-    """构建完整评测用例集"""
+    """构建完整评测用例集（检索召回 200 + 四维度提取 250 = 450 条）"""
     cases = []
+    # ── 检索召回评测（200 条）──
     cases.extend(_exact_entity_cases())
     cases.extend(_fuzzy_semantic_cases())
     cases.extend(_time_related_cases())
@@ -30,6 +31,9 @@ def build_all_cases() -> list[MemoryEvalCase]:
     cases.extend(_long_tail_decay_cases())
     cases.extend(_negative_cases())
     cases.extend(_multi_dimension_cases())
+    # ── 四维度记忆提取评测（250 条）──
+    from .memory_extract_eval_cases import build_extract_cases
+    cases.extend(build_extract_cases())
     return cases
 
 

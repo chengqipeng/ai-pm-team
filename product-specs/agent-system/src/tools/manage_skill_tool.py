@@ -166,21 +166,42 @@ class ManageSkillTool(Tool):
             if validation_error:
                 return ToolResult(content=validation_error, is_error=True)
 
-        # 校验 arguments 占位符（系统变量除外，脚本执行模式放宽）
-        arguments = definition.get("arguments", [])
+        # 兼容 arguments 的两种格式：
+        # - list: ["purpose", "recipient"] — 标准格式
+        # - dict: {"purpose": "描述", "recipient": "描述"} — LLM 偶尔生成的格式
+        raw_arguments = definition.get("arguments", [])
+        if isinstance(raw_arguments, dict):
+            # dict 格式：拆分为 arguments (list) + argument_descriptions (dict)
+            arguments = list(raw_arguments.keys())
+            # 合并到 argument_descriptions（不覆盖已有的）
+            existing_descs = definition.get("argument_descriptions", {})
+            merged_descs = {**raw_arguments, **existing_descs}
+            definition["arguments"] = arguments
+            definition["argument_descriptions"] = merged_descs
+            logger.info("arguments 从 dict 格式自动转换为 list: %s", arguments)
+        elif isinstance(raw_arguments, list):
+            arguments = raw_arguments
+        else:
+            arguments = []
+            definition["arguments"] = arguments
+
+        # 校验 arguments 占位符（系统变量除外，脚本执行模式放宽，纯生成型放宽）
         prompt = definition.get("prompt", "")
         _SYSTEM_VARS = {"SKILL_DIR", "SKILL_NAME"}
         has_skill_dir = "${SKILL_DIR}" in prompt
-        for arg in arguments:
-            if arg in _SYSTEM_VARS:
-                continue
-            if has_skill_dir:
-                continue
-            if f"{{{arg}}}" not in prompt:
-                return ToolResult(
-                    content=f"参数 '{arg}' 在 prompt 中未找到对应的 {{{arg}}} 占位符",
-                    is_error=True,
-                )
+        # 纯生成型技能（无工具调用或仅 ask_user）对占位符校验完全跳过
+        is_generation_skill = not allowed_tools or set(allowed_tools) <= {"ask_user"}
+        if not is_generation_skill:
+            for arg in arguments:
+                if arg in _SYSTEM_VARS:
+                    continue
+                if has_skill_dir:
+                    continue
+                if f"{{{arg}}}" not in prompt:
+                    return ToolResult(
+                        content=f"参数 '{arg}' 在 prompt 中未找到对应的 {{{arg}}} 占位符",
+                        is_error=True,
+                    )
 
         # 调用 SkillService 创建
         from src.skills.service import SkillService, SkillCreateRequest, SkillServiceError

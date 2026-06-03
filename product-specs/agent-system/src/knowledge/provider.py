@@ -104,6 +104,7 @@ class KnowledgeProvider(Protocol):
         filters: dict | None = None,
         top_k: int = 5,
         threshold: float | None = None,
+        min_cosine_score: float | None = None,
         enable_self_query: bool = True,
         conversation_history: list | None = None,
         user_id: str = "",
@@ -114,6 +115,9 @@ class KnowledgeProvider(Protocol):
 
         threshold 优先级：调用方显式 > KB.min_score > 默认值 (0.3)。
         传 0 可关闭过滤；传 None 按优先级自动解析。
+
+        min_cosine_score：VDB hybrid_search 原始分数下限。
+        仅当显式传递时生效，不传则不做预过滤，由 threshold 统一控制。
         """
         ...
 

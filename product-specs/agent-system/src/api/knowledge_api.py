@@ -646,7 +646,7 @@ async def delete_document(
 class BatchDeleteRequest(BaseModel):
     """批量删除文档请求体"""
     tenant_id: int = Field(..., gt=0)
-    doc_ids: list[str] = Field(..., min_length=1, max_length=100, description="要删除的文档 ID 列表，最多 100 个")
+    doc_ids: list[str] = Field(..., min_length=1, max_length=500, description="要删除的文档 ID 列表，最多 500 个")
 
 
 @router.post("/documents/batch-delete")

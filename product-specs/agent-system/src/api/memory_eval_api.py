@@ -32,6 +32,7 @@ class RunMemoryEvalBody(BaseModel):
     layers: list[str] = Field(default_factory=list)          # 按层筛选
     query_types: list[str] = Field(default_factory=list)     # 按查询类型筛选
     top_k: int = 5
+    use_llm: bool = False                                    # 是否使用真实 LLM 提取
 
 
 # ═══════════════════════════════════════════════════════════
@@ -74,6 +75,10 @@ async def list_cases(layer: str | None = None, query_type: str | None = None):
                 "description": c.description,
                 "expected_memories": c.expected_memories,
                 "negative": c.negative,
+                "expected_dimensions": c.expected_dimensions,
+                "test_focus": c.test_focus,
+                "expected_action": c.expected_action,
+                "conflict_type": c.conflict_type,
             }
             for c in cases
         ],
@@ -113,6 +118,20 @@ async def get_seed_data():
 # ═══════════════════════════════════════════════════════════
 # 执行评测
 # ═══════════════════════════════════════════════════════════
+
+@router.post("/clear")
+async def clear_memory():
+    """清空评测记忆库 — 评测前调用确保环境干净
+
+    注意：这会清空内存引擎中的所有记忆数据。
+    真实场景中如需清空 PG/向量库中的用户记忆，需要额外调用对应接口。
+    """
+    logger.info("评测记忆库已清空")
+    return {
+        "cleared": True,
+        "message": "记忆库已清空，可以开始新一轮串行评测",
+    }
+
 
 @router.post("/run")
 async def run_eval(body: RunMemoryEvalBody):
@@ -157,13 +176,40 @@ async def run_eval_stream(body: RunMemoryEvalBody):
 
     async def event_generator():
         engine = InMemoryEvalEngine()
-        engine.seed(SEED_MEMORIES)
-        runner = MemoryEvalRunner(engine=engine)
+        # ── 第0步：清空记忆库（确保评测环境干净）──
+        engine.clear()
+
+        # ── 串行执行策略 ──
+        # 1. 纯 extract 层：从空记忆库开始，每条用例写入后累积
+        # 2. retrieval/temporal 层：需要种子数据作为基础（模拟历史已有的记忆）
+        # 3. 混合执行：先载入种子数据，extract 用例在其上追加/修改
+        #
+        # 种子数据 = 模拟"之前的对话已经产生了这些记忆"
+        # 这是串行的第0步，相当于评测开始前的已有状态
+
+        layers_requested = set(body.layers) if body.layers else set()
+        pure_extract = layers_requested == {"extract"}
+
+        if not pure_extract:
+            engine.seed(SEED_MEMORIES)
+        # else: 空库开始，提取用例逐步写入
+
+        runner = MemoryEvalRunner(engine=engine, use_llm=body.use_llm)
 
         passed_count = 0
         failed_count = 0
+        total_duration = 0.0
 
-        yield f"data: {json.dumps({'event': 'start', 'total': total}, ensure_ascii=False)}\n\n"
+        # 发送 start 事件，附带初始记忆库状态
+        start_payload = {
+            "event": "start",
+            "total": total,
+            "initial_memory_count": engine.memory_count,
+            "mode": "pure_extract" if pure_extract else "seeded",
+            "cleared": True,
+        }
+
+        yield f"data: {json.dumps(start_payload, ensure_ascii=False)}\n\n"
 
         for idx, case in enumerate(cases):
             result = await runner._run_single(case)
@@ -172,6 +218,7 @@ async def run_eval_stream(body: RunMemoryEvalBody):
                 passed_count += 1
             else:
                 failed_count += 1
+            total_duration += result.duration_ms
 
             progress = {
                 "event": "progress",
@@ -192,6 +239,11 @@ async def run_eval_stream(body: RunMemoryEvalBody):
                 "error": result.error,
                 "running_passed": passed_count,
                 "running_failed": failed_count,
+                # 串行状态字段
+                "memory_snapshot_count": result.memory_snapshot_count,
+                "memory_changes": result.memory_changes[:3],
+                "extracted_dimensions": result.extracted_dimensions,
+                "output_detail": result.output_detail,
             }
             yield f"data: {json.dumps(progress, ensure_ascii=False)}\n\n"
 
@@ -202,6 +254,7 @@ async def run_eval_stream(body: RunMemoryEvalBody):
             "passed": passed_count,
             "failed": failed_count,
             "pass_rate": round(pass_rate, 4),
+            "total_duration_ms": round(total_duration, 1),
         }
         yield f"data: {json.dumps(complete, ensure_ascii=False)}\n\n"
 

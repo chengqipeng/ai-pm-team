@@ -49,7 +49,8 @@ class SearchDebugRequest(BaseModel):
     knowledge_base_id: int = Field(..., gt=0)
     query: str = Field(..., min_length=1, max_length=2000, description="用户问题")
     top_k: int = Field(default=5, ge=1, le=50)
-    threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    threshold: float | None = Field(default=None, ge=0.0, le=1.0, description="最终排序分阈值（RRF 三维度加权后）")
+    min_cosine_score: float | None = Field(default=None, ge=0.0, le=1.0, description="VDB 原始分数下限（仅显式传递时生效，不传则不做预过滤，由 threshold 统一控制）")
     enable_self_query: bool = Field(default=True, description="是否启用 Self-Querying")
     enable_rerank: bool = Field(default=True, description="是否启用重排序")
     conversation_history: list[dict] | None = Field(default=None, description="对话历史（用于查询改写）")
@@ -79,6 +80,7 @@ class ChunkHit(BaseModel):
     doc_id: str
     document_title: str = ""
     content: str
+    content_clean: str = ""
     section_title: str = ""
     chunk_type: str = "Text"
     chunk_index: int = 0
@@ -469,8 +471,8 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
             "semantic_query": semantic_query,
             "filter": global_chunk_filter,
             "chunk_limit": chunk_limit,
-            "dense_weight": 0.3,
-            "sparse_weight": 0.7,
+            "dense_weight": retriever._CHUNK_DENSE_WEIGHT,
+            "sparse_weight": retriever._CHUNK_SPARSE_WEIGHT,
             "执行方式": "与路B并行 (asyncio.gather)",
             "设计意图": "全局不带元数据 filter，确保语义相关切片不会因打标不准而被漏掉",
         },
@@ -692,6 +694,49 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
     # Phase 3: 合并去重（全局 ∪ 定向）
     chunk_results = retriever._merge_chunk_results(chunk_results_global, chunk_results_targeted)
 
+    # [对齐 retriever.py] 语义硬门槛 — 仅当调用方显式传递 min_cosine_score 时生效
+    # 不再有默认值，前端传递的 threshold 作为最终阈值统一控制
+    cosine_threshold = (
+        req.min_cosine_score if req.min_cosine_score is not None
+        else 0.0
+    )
+    cosine_filtered_count = 0
+    if chunk_results and cosine_threshold > 0:
+        before_count = len(chunk_results)
+        chunk_results = [
+            r for r in chunk_results
+            if float(r.get("score", 0)) >= cosine_threshold
+        ]
+        cosine_filtered_count = before_count - len(chunk_results)
+
+    if cosine_filtered_count > 0:
+        nodes.append(PipelineNode(
+            step=5,
+            name="语义硬门槛过滤 (cosine threshold)",
+            name_en="cosine_threshold_filter",
+            status="success",
+            duration_ms=0,
+            input_data={
+                "threshold": cosine_threshold,
+                "before_count": cosine_filtered_count + len(chunk_results),
+                "说明": (
+                    "VDB hybrid_search 返回的融合分低于此门槛的切片直接丢弃。"
+                    "消除高维向量固有相似度 (~0.3) + BM25 hash 碰撞产生的伪匹配。"
+                    "对于随机/无意义查询，此步骤会过滤掉全部结果。"
+                ),
+            },
+            output_data={
+                "filtered_out": cosine_filtered_count,
+                "remaining": len(chunk_results),
+            },
+            detail=(
+                f"cosine threshold={cosine_threshold}: "
+                f"过滤 {cosine_filtered_count} 条切片 "
+                f"(VDB score < {cosine_threshold})，"
+                f"剩余 {len(chunk_results)} 条"
+            ),
+        ))
+
     # 安全机制：如果有过滤条件但召回为 0，去掉过滤重试
     filter_fallback_used = False
     if not chunk_results and extracted_filters and query_vec:
@@ -755,7 +800,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                 vdb_diagnosis += f"VDB chunk query error: {e2}; "
 
             try:
-                from src.store.knowledge_dao import KnowledgeChunkDAO, KnowledgeDocumentDAO
+                from src.store.knowledge_dao import KnowledgeChunkDAO
                 docs = KnowledgeDocumentDAO.list_by_kb(
                     req.tenant_id, req.knowledge_base_id, limit=10, offset=0,
                 )
@@ -837,13 +882,17 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
 
     # 构建命中分片列表（含原始分数）
     chunk_hits: list[ChunkHit] = []
+    # 实时清洗 content → content_clean（不依赖 VDB 存储，兼容旧数据）
+    from src.knowledge.text_cleaner import clean_text_for_retrieval
     for c in chunks:
         title = c.document_title or pg_doc_titles.get(c.document_id, "")
+        cleaned = clean_text_for_retrieval(c.content)
         chunk_hits.append(ChunkHit(
             chunk_id=c.chunk_id,
             doc_id=c.document_id,
             document_title=title,
             content=c.content[:500],  # 截断避免响应过大
+            content_clean=cleaned[:500],
             section_title=c.section_title,
             chunk_type=c.chunk_type,
             chunk_index=c.chunk_index,
@@ -898,19 +947,34 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                 agg += items[i][1] * math.pow(retriever._CHUNK_DECAY, i)
             doc_rrf[did] = agg
 
-        # 维度 A 归一化（理论锚点，对齐 data-process）
-        chunk_limit = len(chunks_sorted) if chunks_sorted else 30
-        theoretical_max_rrf = 1.0 / (retriever._K_CHUNK + 1)
-        theoretical_min_rrf = 1.0 / (retriever._K_CHUNK + chunk_limit + 1)
-        rrf_range = theoretical_max_rrf - theoretical_min_rrf
-
+        # 维度 A 归一化（对齐 retriever.py: relative_rank × VDB_score²）
         doc_norm_a: dict[str, float] = {}
-        for did, score in doc_rrf.items():
-            if rrf_range > 0:
-                norm = (score - theoretical_min_rrf) / rrf_range
-                doc_norm_a[did] = max(0.0, min(1.0, norm))
+        actual_max = 0.0
+        actual_min = 0.0
+        if doc_rrf:
+            # 每个文档的最高切片 VDB score
+            doc_max_vdb: dict[str, float] = {}
+            for did, items in doc_chunks.items():
+                doc_max_vdb[did] = max(c.score for c, _ in items)
+
+            # 单文档退化保护
+            if len(doc_rrf) == 1:
+                did = list(doc_rrf.keys())[0]
+                doc_norm_a[did] = doc_max_vdb.get(did, 0.5)
+                actual_max = doc_rrf[did]
+                actual_min = doc_rrf[did]
             else:
-                doc_norm_a[did] = 0.5
+                actual_scores = list(doc_rrf.values())
+                actual_max = max(actual_scores)
+                actual_min = min(actual_scores)
+                score_range = actual_max - actual_min
+                for did, score in doc_rrf.items():
+                    if score_range > 0:
+                        relative_rank = (score - actual_min) / score_range
+                    else:
+                        relative_rank = 0.5
+                    max_vdb = doc_max_vdb.get(did, 0.0)
+                    doc_norm_a[did] = relative_rank * (max_vdb ** 2)
 
         # 维度 B
         doc_norm_b: dict[str, float] = {}
@@ -983,19 +1047,33 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
             na = doc_norm_a.get(did, 0.0)
             nb = doc_norm_b.get(did, 0.0)
             nc = doc_norm_c.get(did, 0.0)
-            raw_score = retriever._ALPHA * na + retriever._BETA * nb + retriever._GAMMA * nc
-            final = round(raw_score * (1.0 - effective_threshold) + effective_threshold, 4)
+
+            # [对齐 retriever.py] γ 衰减：当语义相关性（normA）低于门槛时，
+            # 线性衰减 γ 权重至 0，防止无关文档靠属性加分
+            gamma_effective = retriever._GAMMA
+            if na < retriever._GAMMA_ATTENUATION_THRESHOLD:
+                gamma_effective = retriever._GAMMA * (na / retriever._GAMMA_ATTENUATION_THRESHOLD)
+            alpha_effective = retriever._ALPHA + (retriever._GAMMA - gamma_effective)
+
+            raw_score = alpha_effective * na + retriever._BETA * nb + gamma_effective * nc
+            # [对齐 retriever.py] 不再做分数映射，rawScore 直接作为 finalScore
+            final = round(raw_score, 4)
 
             # 构建 α 维度详细说明
             chunk_count_for_doc = len(doc_chunks[did])
             alpha_raw = doc_rrf.get(did, 0)
+            max_vdb_for_doc = doc_max_vdb.get(did, 0.0)
             alpha_detail_text = (
-                f"切片RRF聚合分={alpha_raw:.6f} → 归一化normA={na:.4f}\n"
+                f"切片RRF聚合分={alpha_raw:.6f} → normA={na:.4f}\n"
                 f"  命中{chunk_count_for_doc}个切片, "
                 f"聚合方式: seg[0]"
                 + (f" + Σseg[i]×0.2^i (衰减聚合)" if chunk_count_for_doc > 1 else "")
-                + f"\n  理论锚点: max={theoretical_max_rrf:.6f}, min={theoretical_min_rrf:.6f}"
-                + f"\n  加权贡献: α({retriever._ALPHA}) × {na:.4f} = {retriever._ALPHA * na:.4f}"
+                + f"\n  归一化公式: normA = relative_rank × VDB_score²"
+                + f"\n  文档最高VDB score={max_vdb_for_doc:.4f}, VDB²={max_vdb_for_doc**2:.4f}"
+                + f"\n  RRF min-max: actual_max={actual_max:.6f}, actual_min={actual_min:.6f}"
+                + f"\n  γ衰减: gamma_effective={gamma_effective:.4f}"
+                + (f" (normA={na:.4f} < 门槛{retriever._GAMMA_ATTENUATION_THRESHOLD} → γ线性衰减)" if na < retriever._GAMMA_ATTENUATION_THRESHOLD else "")
+                + f"\n  加权贡献: α_eff({alpha_effective:.2f}) × {na:.4f} = {alpha_effective * na:.4f}"
             )
 
             # 构建 β 维度详细说明
@@ -1071,8 +1149,13 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
             na = doc_norm_a.get(did, 0.0)
             nb = doc_norm_b.get(did, 0.0)
             nc = doc_norm_c.get(did, 0.0)
-            raw_score = retriever._ALPHA * na + retriever._BETA * nb + retriever._GAMMA * nc
-            ch.final_score = round(raw_score * (1.0 - effective_threshold) + effective_threshold, 4)
+            # [对齐 retriever.py] γ 衰减 + 无分数映射
+            gamma_eff = retriever._GAMMA
+            if na < retriever._GAMMA_ATTENUATION_THRESHOLD:
+                gamma_eff = retriever._GAMMA * (na / retriever._GAMMA_ATTENUATION_THRESHOLD)
+            alpha_eff = retriever._ALPHA + (retriever._GAMMA - gamma_eff)
+            raw_score = alpha_eff * na + retriever._BETA * nb + gamma_eff * nc
+            ch.final_score = round(raw_score, 4)
 
         # 过滤 + 排序
         chunk_hits = [ch for ch in chunk_hits if ch.final_score >= effective_threshold]
@@ -1087,18 +1170,19 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
     rrf_detail_lines = [
         f"═══ 三维度归一化加权排序 ═══",
         f"",
-        f"公式: finalScore = α·normA + β·normB + γ·normC",
-        f"映射: mappedScore = rawScore × (1 - threshold) + threshold → [{effective_threshold}, 1.0]",
+        f"公式: finalScore = α_eff·normA + β·normB + γ_eff·normC",
+        f"γ衰减: 当 normA < {retriever._GAMMA_ATTENUATION_THRESHOLD} 时，γ 权重线性衰减至 0，α 吸收衰减部分",
+        f"无分数映射: rawScore 直接作为 finalScore，直接与 threshold 比较",
         f"",
-        f"── α 维度：切片相关性 (权重={retriever._ALPHA}) ──",
-        f"  数据来源: 路A 切片hybrid_search返回的融合分(dense 30% + BM25 70%)",
+        f"── α 维度：切片相关性 (基础权重={retriever._ALPHA}) ──",
+        f"  数据来源: 路A 切片hybrid_search返回的融合分(dense + BM25)",
         f"  计算步骤:",
         f"    1. 切片按score降序排名 → RRF贡献 = 1/(K_CHUNK + rank + 1), K_CHUNK={retriever._K_CHUNK}",
         f"    2. 同文档多切片几何衰减聚合: docScore = seg[0] + Σ seg[i] × {retriever._CHUNK_DECAY}^i",
-        f"    3. 理论锚点归一化: normA = (docScore - theoreticalMin) / (theoreticalMax - theoreticalMin)",
-        f"       theoreticalMax = 1/(K+1) = {1.0/(retriever._K_CHUNK+1):.6f} (排名第1)",
-        f"       theoreticalMin = 1/(K+N+1), N=召回切片数",
-        f"  含义: 衡量文档中切片与查询的语义+关键词相关程度，多切片命中会提升文档得分",
+        f"    3. relative_rank = (docScore - actualMin) / (actualMax - actualMin)",
+        f"    4. normA = relative_rank × VDB_score² (文档最高切片的 VDB score 的平方)",
+        f"       VDB_score² 作为绝对相似度天花板：高相关(0.9²=0.81)几乎无损，噪音(0.38²=0.14)被大幅压制",
+        f"  含义: 结合相对排名信号和绝对语义相似度，避免全是噪音时 Top-1 虚高",
         f"",
         f"── β 维度：文档元数据 (权重={retriever._BETA}) ──",
         f"  数据来源: 路B 文档元数据hybrid_search的排名位置",
@@ -1110,18 +1194,19 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         f"    4. normB = boost / MAX_METADATA_BOOST({retriever._MAX_METADATA_BOOST:.6f})",
         f"  含义: 衡量文档整体（标题/摘要/关键词）与查询的匹配度，补充切片级检索的文档级信号",
         f"",
-        f"── γ 维度：文档属性 (权重={retriever._GAMMA}) ──",
+        f"── γ 维度：文档属性 (基础权重={retriever._GAMMA}, 可衰减) ──",
         f"  数据来源: VDB kb_doc_metadata集合中的文档属性字段",
+        f"  衰减规则: 当 normA < {retriever._GAMMA_ATTENUATION_THRESHOLD} 时，γ_eff = γ × (normA / {retriever._GAMMA_ATTENUATION_THRESHOLD})",
         f"  子维度:",
         f"    • 质量分 (quality_weight={retriever._QUALITY_WEIGHT}): LLM评估的文档质量 [0,1]",
         f"    • 时效性 (recency_weight={retriever._RECENCY_WEIGHT}): 半衰期={retriever._RECENCY_HALFLIFE_MS/86400000:.0f}天的指数衰减",
         f"    • 热度 (hit_weight={retriever._HIT_WEIGHT}): log10(hit_count+1)/log10(1000) 对数归一化",
         f"  计算: normC = (quality×{retriever._QUALITY_WEIGHT} + recency×{retriever._RECENCY_WEIGHT} + hit×{retriever._HIT_WEIGHT}) / MAX_ATTR_BOOST({retriever._MAX_ATTR_BOOST})",
-        f"  含义: 高质量、近期更新、频繁被检索命中的文档获得额外加分",
+        f"  含义: 高质量、近期更新、频繁被检索命中的文档获得额外加分（但语义不相关时此维度被衰减）",
         f"",
         f"── 阈值过滤 ──",
         f"  threshold={effective_threshold} (来源: {'调用方显式指定' if req.threshold is not None else '知识库配置 / 系统默认'})",
-        f"  mappedScore < threshold 的文档被过滤",
+        f"  finalScore < threshold 的文档被过滤",
         f"  通过阈值: {len(chunk_hits)}条 / 总评分: {len(rrf_details)}个文档",
     ]
     rrf_detail_text = "\n".join(rrf_detail_lines)
@@ -1134,15 +1219,16 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
         duration_ms=rrf_ms,
         input_data={
             "公式说明": {
-                "总公式": "finalScore = α·normA + β·normB + γ·normC",
-                "分数映射": f"mappedScore = rawScore × (1 - {effective_threshold}) + {effective_threshold} → [{effective_threshold}, 1.0]",
+                "总公式": "finalScore = α_eff·normA + β·normB + γ_eff·normC",
+                "γ衰减": f"当 normA < {retriever._GAMMA_ATTENUATION_THRESHOLD} 时，γ_eff = γ × (normA/{retriever._GAMMA_ATTENUATION_THRESHOLD})，α_eff = α + (γ - γ_eff)",
+                "分数说明": "rawScore 直接作为 finalScore（无映射），直接与 threshold 比较",
             },
             "α_切片相关性": {
-                "权重": retriever._ALPHA,
-                "数据来源": "路A 切片hybrid_search (dense 30% + BM25 70%)",
+                "基础权重": retriever._ALPHA,
+                "数据来源": "路A 切片hybrid_search (dense + BM25)",
                 "RRF_K值": retriever._K_CHUNK,
                 "多切片衰减系数": retriever._CHUNK_DECAY,
-                "归一化方式": "理论锚点归一化 (theoreticalMax=1/(K+1), theoreticalMin=1/(K+N+1))",
+                "归一化方式": "normA = relative_rank × VDB_score² (相对排名 × 绝对相似度平方)",
                 "聚合方式": "同文档多切片几何衰减: docScore = seg[0] + Σ seg[i] × 0.2^i",
             },
             "β_文档元数据": {
@@ -1155,7 +1241,8 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
                 "计算": "boost = (1/(K_SUMMARY+rank+1) + 1/(K_META_TEXT+rank+1)) × METADATA_WEIGHT",
             },
             "γ_文档属性": {
-                "权重": retriever._GAMMA,
+                "基础权重": retriever._GAMMA,
+                "衰减门槛": retriever._GAMMA_ATTENUATION_THRESHOLD,
                 "数据来源": "VDB kb_doc_metadata 集合属性字段",
                 "子维度": {
                     "quality_score": f"LLM评估的文档质量 [0,1], 子权重={retriever._QUALITY_WEIGHT}",
@@ -1167,7 +1254,7 @@ async def search_with_debug(req: SearchDebugRequest, request: Request):
             "阈值配置": {
                 "threshold": effective_threshold,
                 "来源": "调用方显式指定" if req.threshold is not None else "知识库min_score配置 / 系统默认0.3",
-                "作用": f"mappedScore < {effective_threshold} 的文档被过滤掉",
+                "作用": f"finalScore < {effective_threshold} 的文档被过滤掉",
             },
         },
         output_data={
