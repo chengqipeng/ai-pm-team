@@ -632,7 +632,8 @@ class InMemoryEvalEngine:
             extractor = MemoryExtractor(llm=llm, state_provider=state_provider)
 
             # 构造 messages（模拟用户单条发言）
-            messages = [{"role": "user", "content": utterance}]
+            from langchain_core.messages import HumanMessage
+            messages = [HumanMessage(content=utterance)]
 
             extraction = await extractor.extract_all(
                 messages=messages,

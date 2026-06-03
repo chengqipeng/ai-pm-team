@@ -378,6 +378,14 @@ class AGUIConverter:
 
         content = getattr(chunk, "content", "")
 
+        # 1.5 DeepSeek DSML 格式兜底：模型将 tool_call 输出到 content 字段而非 tool_calls
+        # 当检测到 DSML 标记时，跳过文本输出（由 LangGraph 的 on_tool_start/end 处理实际执行）
+        if content and ("\uff5cDSML\uff5c" in content or "<｜DSML｜" in content or "DSML｜" in content):
+            # DSML 内容不作为文本输出——这些是模型生成的原始 tool_call 标记
+            # LangChain/LangGraph 会在更高层级解析完整的 tool_call 并触发 on_tool_start
+            logger.debug("[AGUIConverter] DSML content in stream, skipping text emit: %s", content[:80])
+            return
+
         # 2. thinking-model: content 是 list（ anthropic / qwen3 等）
         if isinstance(content, list):
             for block in content:
@@ -463,6 +471,19 @@ class AGUIConverter:
 
     async def _emit_text(self, content: str) -> AsyncGenerator[m.AGUIEvent, None]:
         if not content:
+            return
+
+        # ── 过滤 DeepSeek 模型原始 tool_call 标记（DSML 格式）──
+        # 当 LangChain 未能正确将 tool_call 解析为 tool_call_chunks 时，
+        # DeepSeek 模型的原始标记（如 <｜DSML｜tool_calls>、<｜DSML｜invoke>、<｜DSML｜parameter>）
+        # 会作为文本 content 泄露到此处。这些标记不应展示给用户。
+        # 检测全角竖线 (\uff5c) 和半角替代形式
+        if "\uff5cDSML\uff5c" in content or "<｜DSML｜" in content or "DSML｜" in content:
+            logger.warning("[AGUIConverter] DSML tag leaked as text, suppressing: %s", content[:120])
+            return
+        # 也捕获结尾残留的 DSML 参数闭合标记
+        if content.strip().startswith("</") and "\uff5c" in content:
+            logger.warning("[AGUIConverter] DSML closing tag leaked, suppressing: %s", content[:80])
             return
 
         # ── 剥离知识引用标记（处理流式 chunk 跨越 [KB_REF: ...] 的情况）──
