@@ -62,8 +62,8 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
       </div>
     </div>
     <div class="flex items-center gap-3">
-      <label class="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-        <input type="checkbox" id="useLLM" class="rounded"> 使用真实 LLM 提取
+      <label class="flex items-center gap-2 text-xs text-gray-600">
+        <span class="px-2 py-0.5 bg-green-50 text-green-700 rounded text-[10px] font-medium">LLM 提取</span>
       </label>
       <button onclick="runEval()" id="runBtn" class="px-5 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all shadow-sm flex items-center gap-2">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -563,7 +563,7 @@ async function runEval() {
     await fetch(`${API}/clear`, { method: 'POST' });
 
     // 第1步：串行执行评测
-    const useLLM = document.getElementById('useLLM').checked;
+    const useLLM = true;
     const response = await fetch(`${API}/run-stream`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},

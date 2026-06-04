@@ -17,6 +17,7 @@ import {
 import {
   PlusOutlined, EditOutlined, CopyOutlined, DeleteOutlined,
   SearchOutlined, HistoryOutlined, LockOutlined, EyeOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons';
 import SkillChangeLogView from './SkillChangeLogView';
 import SkillDetailView from './SkillDetailView';
@@ -149,6 +150,29 @@ export default function SkillList({ onEdit, onCreate }: SkillListProps) {
     setChangeLogModal({ open: true, apiKey, name });
   };
 
+  // 打包下载
+  const handleExport = async (apiKey: string) => {
+    try {
+      const resp = await fetch(`/api/skills/${apiKey}/export?tenant_id=0`);
+      if (!resp.ok) throw new Error('导出失败');
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      // 从 Content-Disposition 中提取文件名，兜底使用 apiKey
+      const disposition = resp.headers.get('Content-Disposition');
+      const match = disposition?.match(/filename="?(.+?)"?$/);
+      a.download = match?.[1] || `${apiKey}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      message.success('下载成功');
+    } catch {
+      message.error('导出失败');
+    }
+  };
+
   if (error) return <Alert type="error" message={error} />;
 
   return (
@@ -272,6 +296,14 @@ export default function SkillList({ onEdit, onCreate }: SkillListProps) {
                         size="small"
                         icon={<CopyOutlined />}
                         onClick={() => handleClone(skill.api_key)}
+                      />
+                    </Tooltip>
+
+                    <Tooltip title="下载 ZIP">
+                      <Button
+                        size="small"
+                        icon={<DownloadOutlined />}
+                        onClick={() => handleExport(skill.api_key)}
                       />
                     </Tooltip>
 

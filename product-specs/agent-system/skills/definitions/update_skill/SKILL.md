@@ -189,10 +189,13 @@ ask_user(
    - 新增 3+ 个维度或完全不同的分析方向 → 建议创建新技能
    - 新增工具 → 确认工具在系统中存在（query_data 验证 ai_tool_definition）
 
-3. 资源文件扩展：
-   - 新增 references → 规划文件路径 + 内容 + 更新 preload_resources
-   - 新增 knowledge → 规划文件路径 + 内容 + 更新 scene_map
-   - 新增 scripts → 规划入口 + 依赖 + 更新 script_execution
+3. 资源文件扩展（强制分离规则）：
+   - 新增 references → 规划文件路径 + 完整 .md 文件内容 + 更新 preload_resources
+   - 新增 knowledge → 规划文件路径 + 完整 .md 文件内容 + 更新 scene_map
+   - 新增 scripts → 规划入口 main.py（仅限 Python）+ requirements.txt + 更新 script_execution
+   - ⚠️ 新增代码禁止直接写入 Prompt → 必须创建独立的 scripts/ 文件
+   - ⚠️ 新增评分标准禁止内嵌 Prompt → 必须创建独立的 references/ 文件
+   - ⚠️ 所有脚本代码强制使用 Python 语言，禁止其他语言
 ```
 
 #### 场景 D（配置调整）的修改策略：
@@ -404,6 +407,13 @@ query_schema(query_type="entity_items", entity_api_key="xxx")  → 确认字段�
 - [ ] 每个分析维度是否有完整的"数据→指标→基准→判断→行动"链路？
 - [ ] 输出模板中是否要求 [来源:xxx] 标注？
 - [ ] 建议是否具体可执行？
+- [ ] **资源分离合规性（强制规则）：**
+  - [ ] Prompt 中是否有超过 5 行的代码块？→ 必须提取到 scripts/ 文件
+  - [ ] scripts/ 中的代码是否全部为 Python？→ 禁止其他语言
+  - [ ] Prompt 中是否有超过 20 行的评分标准？→ 必须提取到 references/ 文件
+  - [ ] Prompt 中是否有超过 10 行的行业知识？→ 必须提取到 knowledge/ 文件
+  - [ ] resources 字段是否包含所有独立文件的完整内容？
+  - [ ] resources 中的文件引用路径是否与 Prompt 中的引用一致？
 
 #### 场景 E（重写）额外检查：
 - [ ] 完整执行 create_skill 的质量自检清单（Step 6 全部项目）
@@ -639,6 +649,14 @@ manage_skill(
 2. 修改内容
 3. 在 skill_definition.resources 中包含修改后的完整文件
 4. manage_skill(action="update") 会自动更新 ai_skill_resource 表
+
+⚠️ 资源文件分离强制规则（与 create_skill 一致）：
+- scripts/ 中的代码必须且只能使用 Python 语言
+- 新增计算逻辑时必须创建/更新 scripts/main.py + scripts/requirements.txt
+- 新增评分标准/方法论时必须创建/更新 references/ 目录下的 .md 文件
+- 新增行业知识时必须创建/更新 knowledge/ 目录下的 .md 文件
+- 禁止将代码/标准/知识直接内嵌到 Prompt 中
+- resources 中的 content 必须是完整可执行的文件内容
 ```
 
 ### 3.3 降级处理
@@ -696,6 +714,12 @@ manage_skill(
 9. **资源文件同步** — 如果修改了 Prompt 中引用的资源路径，必须同步更新资源文件
 10. **禁止静默删除** — 不能在用户不知情的情况下删除现有的分析维度或功能
 11. **变更可追溯** — 每次更新都要在回复中说明改了什么、为什么改
+12. **资源文件分离强制规则** — 与 create_skill 保持一致：
+    - 计算代码必须在独立的 `scripts/main.py` 中（仅限 Python），禁止内嵌 Prompt
+    - 评分标准/方法论超过 20 行时必须在独立的 `references/*.md` 中
+    - 行业知识超过 10 行时必须在独立的 `knowledge/*.md` 中
+    - 更新涉及新增代码时，必须更新 resources 字段包含完整文件内容
+    - 更新涉及新增评分标准/知识时，必须更新 resources 字段包含完整文件内容
 
 ---
 

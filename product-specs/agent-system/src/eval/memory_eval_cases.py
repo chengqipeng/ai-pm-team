@@ -48,13 +48,21 @@ def _auto_fill_expected_category(cases: list[MemoryEvalCase]) -> None:
     逻辑：expected_memories 中的关键词匹配种子数据的 merge_key，
     取匹配到的种子记忆的 category 作为 expected_category。
     仅对未设置 expected_category 的检索类用例生效。
+
+    跳过条件：
+    - 跨类别用例（cross_category）— 本身就是验证跨维度召回
+    - 多维度用例（multi_dimension）— 期望召回多个不同维度
+    - 期望记忆对应多个不同 category — 无法用单一值描述
     """
-    from .memory_eval_runner import SEED_MEMORIES, EvalLayer
+    from .memory_eval_runner import SEED_MEMORIES, EvalLayer, QueryType
 
     # 建立 merge_key → category 索引
     seed_cat_index: dict[str, str] = {}
     for m in SEED_MEMORIES:
         seed_cat_index[m["merge_key"]] = m.get("category", "")
+
+    # 跳过跨维度类型
+    skip_types = {QueryType.CROSS_CATEGORY, QueryType.MULTI_DIMENSION}
 
     for case in cases:
         # 只处理检索类、且未设置 expected_category 的用例
@@ -64,15 +72,23 @@ def _auto_fill_expected_category(cases: list[MemoryEvalCase]) -> None:
             continue
         if not case.expected_memories:
             continue
+        if case.query_type in skip_types:
+            continue
 
-        # 匹配第一个命中的种子记忆的 category
+        # 匹配所有命中种子记忆的 category
+        matched_cats = set()
+        first_cat = ""
         for kw in case.expected_memories:
             for mk, cat in seed_cat_index.items():
                 if kw.lower() in mk.lower():
-                    case.expected_category = cat
+                    matched_cats.add(cat)
+                    if not first_cat:
+                        first_cat = cat
                     break
-            if case.expected_category:
-                break
+
+        # 只有当所有期望记忆属于同一个 category 时才填充
+        if len(matched_cats) == 1:
+            case.expected_category = first_cat
 
 
 # ═══════════════════════════════════════════════════════════

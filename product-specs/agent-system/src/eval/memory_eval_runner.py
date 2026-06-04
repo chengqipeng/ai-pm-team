@@ -189,22 +189,22 @@ SEED_MEMORIES = [
     {"merge_key": "华为_李娜_风格", "category": "entities", "parent_entity": "华为",
      "abstract": "华为/李娜: 采购经理，做事谨慎，注重合规流程",
      "content": "华为的李娜是采购经理，做事非常谨慎，每个决策都要反复确认，特别注重合规流程和供应商资质。"},
-    {"merge_key": "华为_ERP项目", "category": "events", "parent_entity": "华为",
+    {"merge_key": "华为_ERP项目", "category": "entities", "parent_entity": "华为",
      "abstract": "华为/ERP项目: 张伟支持但李娜担心预算，存在内部分歧",
      "content": "华为科技ERP项目中张伟和李娜意见不太一致，张伟想上ERP，但李娜觉得预算不够，建议分别沟通。"},
-    {"merge_key": "华为_采购流程", "category": "patterns", "parent_entity": "华为",
+    {"merge_key": "华为_采购流程", "category": "entities", "parent_entity": "华为",
      "abstract": "华为/采购流程: 需过IT部门评估+采购委员会审批，周期3-4周",
      "content": "华为的采购流程需要先过IT部门技术评估，再经过采购委员会审批，整个周期大约3-4周。"},
-    {"merge_key": "华为_报价策略", "category": "patterns", "parent_entity": "华为",
+    {"merge_key": "华为_报价策略", "category": "entities", "parent_entity": "华为",
      "abstract": "华为/报价: 先报标准价预留谈判空间，张伟喜欢直接了当",
      "content": "给华为报价要注意先报标准价格预留谈判空间，张伟喜欢直接了当，不要绕弯子。"},
-    {"merge_key": "华为_预算收紧", "category": "events", "parent_entity": "华为",
+    {"merge_key": "华为_预算收紧", "category": "entities", "parent_entity": "华为",
      "abstract": "华为/预算: 今年预算收紧，需强调ROI才能推动",
      "content": "华为今年整体预算收紧，任何采购都需要明确的ROI分析，建议准备详细的投入产出测算。"},
-    {"merge_key": "华为_安全审计", "category": "events", "parent_entity": "华为",
+    {"merge_key": "华为_安全审计", "category": "entities", "parent_entity": "华为",
      "abstract": "华为/安全审计项目: 即将closing，本周可能签约",
      "content": "华为安全审计项目已经走完所有流程，即将closing，预计本周就能签约。"},
-    {"merge_key": "华为_CRM部署", "category": "events", "parent_entity": "华为",
+    {"merge_key": "华为_CRM部署", "category": "entities", "parent_entity": "华为",
      "abstract": "华为/CRM部署: 李娜负责，需满足数据安全合规要求",
      "content": "华为CRM部署项目由李娜负责跟进，她特别强调要满足数据安全和合规要求。"},
 
@@ -212,22 +212,22 @@ SEED_MEMORIES = [
     {"merge_key": "腾讯_王强_风格", "category": "entities", "parent_entity": "腾讯",
      "abstract": "腾讯/王强: CTO，技术导向，偏好live demo而非PPT",
      "content": "腾讯的王强是CTO，技术导向明显，开会时更喜欢看live demo而不是PPT，决策快。"},
-    {"merge_key": "腾讯_数据中台", "category": "events", "parent_entity": "腾讯",
+    {"merge_key": "腾讯_数据中台", "category": "entities", "parent_entity": "腾讯",
      "abstract": "腾讯/数据中台: 在评估我们和用友，POC效果好（3倍快）",
      "content": "腾讯数据中台项目正在评估我们和用友两家，我们的POC执行效率是用友的3倍，王强表示满意。"},
-    {"merge_key": "腾讯_POC结果", "category": "events", "parent_entity": "腾讯",
+    {"merge_key": "腾讯_POC结果", "category": "entities", "parent_entity": "腾讯",
      "abstract": "腾讯/POC: 性能是用友的3倍，王强表扬了团队效率",
      "content": "腾讯POC测试结果很好，我们的性能是用友的3倍，王强在会上表扬了我们团队的效率。"},
-    {"merge_key": "腾讯_时间窗口", "category": "events", "parent_entity": "腾讯",
+    {"merge_key": "腾讯_时间窗口", "category": "entities", "parent_entity": "腾讯",
      "abstract": "腾讯/时间窗口: 下月组织架构调整，王强本月没时间跟进",
      "content": "腾讯下个月有组织架构调整，王强表示本月没时间跟进我们的项目，建议下月再联系。"},
-    {"merge_key": "腾讯_报价策略", "category": "patterns", "parent_entity": "腾讯",
+    {"merge_key": "腾讯_报价策略", "category": "entities", "parent_entity": "腾讯",
      "abstract": "腾讯/报价: 对价格敏感，需突出性价比，VP审批",
      "content": "腾讯对价格比较敏感，报价时需要突出性价比，最终需要VP审批。"},
     {"merge_key": "腾讯_赵经理", "category": "entities", "parent_entity": "腾讯",
      "abstract": "腾讯/赵经理: 采购部门，执行层面对接人",
      "content": "腾讯的赵经理在采购部门，是执行层面的对接人，负责合同流程和付款安排。"},
-    {"merge_key": "腾讯_AI平台", "category": "events", "parent_entity": "腾讯",
+    {"merge_key": "腾讯_AI平台", "category": "entities", "parent_entity": "腾讯",
      "abstract": "腾讯/AI平台项目: 预算1200万，王强直接负责",
      "content": "腾讯AI平台项目预算1200万，由王强直接负责推动，技术评审已通过。"},
 
@@ -235,19 +235,19 @@ SEED_MEMORIES = [
     {"merge_key": "招行_陈刚_风格", "category": "entities", "parent_entity": "招行",
      "abstract": "招行/陈刚: 信息安全部总监，最关注安全合规",
      "content": "招行的陈刚是信息安全部总监，最关注的是安全合规问题，任何方案必须满足等保三级和SOC2。"},
-    {"merge_key": "招行_风控平台", "category": "events", "parent_entity": "招行",
+    {"merge_key": "招行_风控平台", "category": "entities", "parent_entity": "招行",
      "abstract": "招行/风控平台: 方案已确认，预计两周内启动正式流程",
      "content": "招行风控平台项目方案已经确认，预计两周内启动正式采购流程。"},
-    {"merge_key": "招行_合规要求", "category": "patterns", "parent_entity": "招行",
+    {"merge_key": "招行_合规要求", "category": "entities", "parent_entity": "招行",
      "abstract": "招行/合规: 需等保三级+SOC2认证，数据不出境",
      "content": "招行的合规要求包括：等保三级认证、SOC2 Type II报告、数据不出境、定期安全审计。"},
     {"merge_key": "招行_刘总", "category": "entities", "parent_entity": "招行",
      "abstract": "招行/刘总: VP级，负责最终审批，看重长期战略价值",
      "content": "招行的刘总是VP级别，负责大额采购的最终审批，看重供应商的长期战略价值而非短期价格。"},
-    {"merge_key": "招行_数据迁移", "category": "events", "parent_entity": "招行",
+    {"merge_key": "招行_数据迁移", "category": "entities", "parent_entity": "招行",
      "abstract": "招行/数据迁移: 历史数据量大，需专项迁移方案",
      "content": "招行有大量历史数据需要迁移，历史数据格式不统一，需要制定专项数据迁移方案。"},
-    {"merge_key": "招行_培训要求", "category": "patterns", "parent_entity": "招行",
+    {"merge_key": "招行_培训要求", "category": "entities", "parent_entity": "招行",
      "abstract": "招行/培训: 要求3轮培训（管理层+技术+业务），每轮20人",
      "content": "招行要求上线前做3轮培训，分别面向管理层、技术人员和业务人员，每轮约20人参加。"},
 
@@ -255,19 +255,19 @@ SEED_MEMORIES = [
     {"merge_key": "比亚迪_赵敏_偏好", "category": "entities", "parent_entity": "比亚迪",
      "abstract": "比亚迪/赵敏: 喜欢非正式场合沟通，爱打羽毛球",
      "content": "比亚迪的赵敏喜欢在非正式场合沟通，爱好打羽毛球，约饭或运动时谈事效果更好。"},
-    {"merge_key": "比亚迪_MES预算", "category": "events", "parent_entity": "比亚迪",
+    {"merge_key": "比亚迪_MES预算", "category": "entities", "parent_entity": "比亚迪",
      "abstract": "比亚迪/MES项目: 预算被砍20%，需重新论证ROI",
      "content": "比亚迪MES项目预算被砍了20%，赵敏说需要重新论证ROI才能继续推进。"},
-    {"merge_key": "比亚迪_决策链", "category": "patterns", "parent_entity": "比亚迪",
+    {"merge_key": "比亚迪_决策链", "category": "entities", "parent_entity": "比亚迪",
      "abstract": "比亚迪/决策: 技术线和采购线并行，最终赵敏拍板",
      "content": "比亚迪的决策链比较长，技术线评估和采购线流程并行进行，最终由赵敏统一拍板。"},
-    {"merge_key": "比亚迪_工厂部署", "category": "events", "parent_entity": "比亚迪",
+    {"merge_key": "比亚迪_工厂部署", "category": "entities", "parent_entity": "比亚迪",
      "abstract": "比亚迪/部署: 需深圳和长沙两地部署，网络条件差异大",
      "content": "比亚迪要求在深圳总部和长沙工厂两地部署，两地网络条件差异较大，需要考虑离线能力。"},
-    {"merge_key": "比亚迪_竞品SAP", "category": "events", "parent_entity": "比亚迪",
+    {"merge_key": "比亚迪_竞品SAP", "category": "entities", "parent_entity": "比亚迪",
      "abstract": "比亚迪/竞品: 之前用过SAP体验不好，偏好国产化方案",
      "content": "比亚迪之前用过SAP，体验不太好，现在明确偏好国产化方案，这是我们的优势。"},
-    {"merge_key": "比亚迪_时间表", "category": "events", "parent_entity": "比亚迪",
+    {"merge_key": "比亚迪_时间表", "category": "entities", "parent_entity": "比亚迪",
      "abstract": "比亚迪/时间: 希望Q3完成选型，Q4启动实施",
      "content": "比亚迪希望在Q3完成供应商选型，Q4正式启动实施，时间比较紧张。"},
 
@@ -275,16 +275,16 @@ SEED_MEMORIES = [
     {"merge_key": "小米_林总_风格", "category": "entities", "parent_entity": "小米",
      "abstract": "小米/林总: 互联网思维，追求快速迭代，不喜欢传统方案",
      "content": "小米的林总有典型的互联网思维，追求快速迭代和敏捷开发，不喜欢传统的瀑布式项目方案。"},
-    {"merge_key": "小米_IoT平台", "category": "events", "parent_entity": "小米",
+    {"merge_key": "小米_IoT平台", "category": "entities", "parent_entity": "小米",
      "abstract": "小米/IoT平台: 正在方案设计阶段，林总亲自关注",
      "content": "小米IoT平台项目正在方案设计阶段，林总亲自关注，要求两周内出概念设计。"},
-    {"merge_key": "小米_技术栈", "category": "patterns", "parent_entity": "小米",
+    {"merge_key": "小米_技术栈", "category": "entities", "parent_entity": "小米",
      "abstract": "小米/技术: 偏好微服务架构+API优先，要求开放性强",
      "content": "小米技术团队偏好微服务架构和API优先的设计理念，要求系统开放性强，能灵活对接内部系统。"},
-    {"merge_key": "小米_预算充足", "category": "events", "parent_entity": "小米",
+    {"merge_key": "小米_预算充足", "category": "entities", "parent_entity": "小米",
      "abstract": "小米/预算: 预算充足，关键是快速响应和技术能力",
      "content": "小米预算比较充足，不是主要卡点，关键是能否快速响应需求和展现技术能力。"},
-    {"merge_key": "小米_智能工厂", "category": "events", "parent_entity": "小米",
+    {"merge_key": "小米_智能工厂", "category": "entities", "parent_entity": "小米",
      "abstract": "小米/智能工厂: 林总直接推动，年度重点项目",
      "content": "小米智能工厂是林总直接推动的年度重点项目，预算优先级最高。"},
 
@@ -292,42 +292,42 @@ SEED_MEMORIES = [
     {"merge_key": "字节_孙丽_风格", "category": "entities", "parent_entity": "字节",
      "abstract": "字节/孙丽: 雷厉风行，邮件必须当天回复，决策极快",
      "content": "字节的孙丽做事雷厉风行，发的邮件必须当天回复，她的决策速度非常快，但也要求供应商同样高效。"},
-    {"merge_key": "字节_广告平台", "category": "events", "parent_entity": "字节",
+    {"merge_key": "字节_广告平台", "category": "entities", "parent_entity": "字节",
      "abstract": "字节/广告平台: 竞争对手是Salesforce，金额3000万",
      "content": "字节广告平台项目我们和Salesforce竞争，项目金额约3000万，孙丽在评估中。"},
-    {"merge_key": "字节_技术要求", "category": "patterns", "parent_entity": "字节",
+    {"merge_key": "字节_技术要求", "category": "entities", "parent_entity": "字节",
      "abstract": "字节/技术: 要求支持10万级并发，低延迟响应",
      "content": "字节对技术要求很高，系统必须支持10万级并发访问，接口响应延迟要在100ms以内。"},
-    {"merge_key": "字节_合同法务", "category": "patterns", "parent_entity": "字节",
+    {"merge_key": "字节_合同法务", "category": "entities", "parent_entity": "字节",
      "abstract": "字节/合同: 法务审核严格，合同条款细致",
      "content": "字节的法务审核非常严格，合同条款要求细致，建议提前准备好各类合规材料。"},
-    {"merge_key": "字节_试用要求", "category": "events", "parent_entity": "字节",
+    {"merge_key": "字节_试用要求", "category": "entities", "parent_entity": "字节",
      "abstract": "字节/试用: 要求先免费试用1个月再签合同",
      "content": "字节要求先免费试用1个月，观察实际效果后再决定是否签正式合同。"},
 
     # ── 通用经验 ──
-    {"merge_key": "通用_金融方案", "category": "patterns", "parent_entity": "",
+    {"merge_key": "通用_金融方案", "category": "entities", "parent_entity": "",
      "abstract": "金融行业方案: 重点安全合规+数据不出境+资质认证",
      "content": "做金融客户方案要重点突出安全合规能力、数据不出境保证、以及各类安全资质认证。"},
-    {"merge_key": "通用_互联网方案", "category": "patterns", "parent_entity": "",
+    {"merge_key": "通用_互联网方案", "category": "entities", "parent_entity": "",
      "abstract": "互联网行业方案: 重点性能+可扩展性+快速迭代能力",
      "content": "互联网客户最关注系统性能、可扩展性和快速迭代能力，方案中要突出这些优势。"},
-    {"merge_key": "通用_制造业方案", "category": "patterns", "parent_entity": "",
+    {"merge_key": "通用_制造业方案", "category": "entities", "parent_entity": "",
      "abstract": "制造业方案: 重点工厂部署+离线能力+多地协同",
      "content": "制造业客户关注工厂环境部署、离线运行能力和多地协同，要考虑网络条件差的场景。"},
-    {"merge_key": "通用_报价策略", "category": "patterns", "parent_entity": "",
+    {"merge_key": "通用_报价策略", "category": "entities", "parent_entity": "",
      "abstract": "报价通用策略: 先了解预算范围，阶梯报价，预留谈判空间",
      "content": "报价通用策略：先了解客户预算范围，采用阶梯式报价方案，预留适当谈判空间。"},
-    {"merge_key": "通用_竞品应对", "category": "patterns", "parent_entity": "",
+    {"merge_key": "通用_竞品应对", "category": "entities", "parent_entity": "",
      "abstract": "竞品应对策略: 差异化定位，不贬低对手，突出自身优势",
      "content": "遇到竞品时坚持差异化定位策略，不要贬低对手，而是突出自身独特优势和客户成功案例。"},
-    {"merge_key": "通用_大客户跟进", "category": "patterns", "parent_entity": "",
+    {"merge_key": "通用_大客户跟进", "category": "entities", "parent_entity": "",
      "abstract": "大客户跟进节奏: 每周至少一次有效触达，节假日前重点关注",
      "content": "大客户跟进保持每周至少一次有效触达，节假日前要重点关注进展，避免被遗忘。"},
-    {"merge_key": "通用_POC流程", "category": "patterns", "parent_entity": "",
+    {"merge_key": "通用_POC流程", "category": "entities", "parent_entity": "",
      "abstract": "POC标准流程: 需求确认→环境准备→数据导入→演示评估",
      "content": "POC标准流程包括：需求确认、环境准备、样本数据导入、功能演示和效果评估。"},
-    {"merge_key": "通用_合同谈判", "category": "patterns", "parent_entity": "",
+    {"merge_key": "通用_合同谈判", "category": "entities", "parent_entity": "",
      "abstract": "合同谈判要点: 关注付款条件、SLA条款、违约责任",
      "content": "合同谈判重点关注付款条件（分期比例）、SLA服务等级条款和违约责任界定。"},
 
@@ -421,9 +421,10 @@ class InMemoryEvalEngine:
         for mem in self._memories:
             mk = mem.get("merge_key", "")
             # 提取实体名片段：如 "华为_张伟_风格" → ["张伟"]
+            # 只取 2-3 字的短名作为实体名（人名、简称），排除长词（如"合规要求"、"报价策略"）
             parts = mk.split("_")
             for p in parts:
-                if len(p) >= 2 and p not in parent_set:
+                if 2 <= len(p) <= 3 and p.lower() not in parent_set:
                     entity_names.add(p.lower())
 
         # 查询中命中了哪些已知实体名
@@ -701,7 +702,7 @@ class InMemoryEvalEngine:
             try:
                 from langchain_openai import ChatOpenAI
                 api_key = (os.environ.get("AGENT_API_KEY")
-                           or os.environ.get("DEEPSEEK_API_KEY", ""))
+                           or os.environ.get("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw"))
                 api_base = os.environ.get("AGENT_API_BASE", "https://tokenhub.tencentmaas.com/v1")
                 if not api_key:
                     self._llm_instance = None
@@ -757,8 +758,9 @@ class _EvalStateProvider:
 class MemoryEvalRunner:
     """记忆召回率评测执行器"""
 
-    def __init__(self, engine: InMemoryEvalEngine | None = None, use_llm: bool = False):
-        self._engine = engine or InMemoryEvalEngine()
+    def __init__(self, engine=None, use_llm: bool = True):
+        from src.eval.viking_eval_engine import VikingEvalEngine
+        self._engine = engine or VikingEvalEngine()
         self._use_llm = use_llm
 
     def setup(self, seed_data: list[dict] | None = None):
@@ -848,10 +850,7 @@ class MemoryEvalRunner:
 
             if is_extract_layer:
                 # ── 提取/反思类用例：调用 LLM 提取记忆 ──
-                if self._use_llm:
-                    extract_result = await self._engine.extract_from_utterance_llm(case.query)
-                else:
-                    extract_result = self._engine.extract_from_utterance(case.query, case)
+                extract_result = await self._engine.extract_from_utterance_llm(case.query)
                 duration = (time.time() - start) * 1000
 
                 # 验证：提取的维度是否匹配期望
@@ -1026,7 +1025,7 @@ class MemoryEvalRunner:
         # ── 维度断言：召回的 Top-1 记忆 category 必须匹配 expected_category ──
         if passed and case.expected_category and first_hit_category:
             if first_hit_category != case.expected_category:
-                passed = False  # 关键词命中了但维度不对，判定为失败
+                passed = False  # 维度不匹配，判定为失败
 
         return recall_at_k, precision_at_k, mrr, top1_hit, passed
 

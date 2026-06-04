@@ -15,6 +15,7 @@
     - POST   /api/skills/{api_key}/clone   克隆
     - POST   /api/skills/{api_key}/test    测试执行
     - DELETE /api/skills/{api_key}      软删除
+    - GET    /api/skills/{api_key}/export  打包下载为 zip
 
     版本管理：
     - GET    /api/skills/{api_key}/versions              版本列表
@@ -37,11 +38,14 @@
 """
 from __future__ import annotations
 
+import io
 import json
 import logging
+import zipfile
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.skills.service import SkillService, SkillCreateRequest, SkillUpdateRequest, SkillServiceError
@@ -411,6 +415,84 @@ async def delete_skill(api_key: str, tenant_id: int = Query(0)):
     except SkillServiceError as e:
         status = 404 if e.code == "NOT_FOUND" else 400
         raise HTTPException(status_code=status, detail={"message": str(e), "code": e.code})
+
+
+# ═══════════════════════════════════════════════════════════
+# 打包下载（Export as ZIP）
+# ═══════════════════════════════════════════════════════════
+
+@router.get("/{api_key}/export")
+async def export_skill_zip(api_key: str, tenant_id: int = Query(0)):
+    """将 Skill 定义及其资源文件打包为 zip 下载
+
+    zip 结构:
+        {api_key}/
+        ├── SKILL.json          # 技能完整定义（元数据 + prompt + 配置）
+        ├── SKILL.md            # Prompt 原文（方便阅读）
+        ├── scripts/            # Python 脚本（如有）
+        │   ├── main.py
+        │   └── requirements.txt
+        ├── references/         # 方法论/评分标准（如有）
+        │   ├── _index.md
+        │   └── ...
+        └── knowledge/          # 行业知识（如有）
+            ├── _index.md
+            └── industries/
+                └── ...
+    """
+    from src.store.pg_pool import get_conn
+
+    # 1. 获取 Skill 主记录 + 当前版本定义
+    skill = SkillDAO.get_by_api_key(tenant_id, api_key)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{api_key}' not found")
+
+    definition = SkillDefinitionDAO.get_by_version(tenant_id, api_key, skill.current_version)
+    detail = _skill_to_detail(skill, definition)
+
+    # 移除前端不需要的内部字段
+    for key in ("readonly", "ext_info"):
+        detail.pop(key, None)
+
+    # 2. 获取资源文件列表（当前版本）
+    version = skill.current_version or "1.0.0"
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT path, content, content_type
+            FROM ai_skill_resource
+            WHERE skill_api_key = %s AND tenant_id = %s AND version = %s
+                  AND node_type = 'file' AND delete_flg = 0 AND enabled_flg = 1
+            ORDER BY path
+        """, (api_key, tenant_id, version))
+        resource_rows = cur.fetchall()
+
+    # 3. 生成 zip 文件到内存
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # SKILL.json — 完整定义（含 prompt）
+        skill_json = json.dumps(detail, ensure_ascii=False, indent=2)
+        zf.writestr(f"{api_key}/SKILL.json", skill_json)
+
+        # SKILL.md — Prompt 原文方便阅读
+        prompt_text = detail.get("prompt", "")
+        if prompt_text:
+            zf.writestr(f"{api_key}/SKILL.md", prompt_text)
+
+        # 资源文件 — 保持原始目录结构（scripts/ / references/ / knowledge/）
+        for path, content, content_type in resource_rows:
+            # path 已经是相对路径（如 "scripts/main.py", "references/meddic-scoring.md"）
+            file_path = f"{api_key}/{path}"
+            zf.writestr(file_path, content or "")
+
+    buf.seek(0)
+
+    filename = f"{api_key}_v{skill.current_version}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ═══════════════════════════════════════════════════════════

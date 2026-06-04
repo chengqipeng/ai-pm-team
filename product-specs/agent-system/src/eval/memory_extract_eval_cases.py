@@ -549,11 +549,12 @@ def _agent_rules_cases() -> list[MemoryEvalCase]:
             test_focus="无主语格式指令",
         ),
         MemoryEvalCase(
-            id="ext_rules_21", layer=EvalLayer.EXTRACT, query_type=QueryType.EXTRACT_AGENT_RULES,
+            id="ext_rules_21", layer=EvalLayer.EXTRACT, query_type=QueryType.EXTRACT_NONE,
             query="你就像我的私人助理一样",
-            description="Agent Rules正例 — 比喻式角色定义",
-            expected_dimensions=["agent_rules"],
-            test_focus="比喻式角色定义",
+            description="不提取 — 比喻/感叹，非持久行为约束",
+            expected_dimensions=[],
+            negative=True,
+            test_focus="比喻式评价不应提取",
         ),
         MemoryEvalCase(
             id="ext_rules_22", layer=EvalLayer.EXTRACT, query_type=QueryType.EXTRACT_AGENT_RULES,

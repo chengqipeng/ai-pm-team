@@ -367,6 +367,10 @@ references/
 
 #### scripts（Python 脚本）— 何时需要
 
+**⚠️ 语言约束：scripts/ 目录下的所有代码文件必须且只能使用 Python 语言。禁止 JavaScript/Shell/Ruby/Go 等其他语言。**
+
+**⚠️ 分离约束：Python 代码必须生成为独立的 .py 文件存储在 resources 字段中，禁止将代码内嵌到 Prompt 的 execute_code(code="...") 中。**
+
 **需要 scripts 的场景：**
 
 | 场景 | 需要的脚本 | 原因 |
@@ -769,7 +773,7 @@ scripts/             → 计算能力（COMPUTE：超出简单聚合的计算）
   "risk_level": "read_only",
   "max_tool_calls": "根据步骤数设置",
   "timeout_ms": "根据复杂度设置",
-  "prompt": "完整的高质量 Prompt",
+  "prompt": "完整的高质量 Prompt（禁止内嵌代码/评分标准/行业知识全文，仅描述调用步骤）",
   "ext_info": {
     "script_execution": {
       "entry": "scripts/main.py",
@@ -787,7 +791,7 @@ scripts/             → 计算能力（COMPUTE：超出简单聚合的计算）
   "resources": [
     {
       "path": "scripts/main.py",
-      "content": "完整的 Python 脚本内容",
+      "content": "#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n完整的 Python 脚本内容（必须是可执行的完整代码）",
       "content_type": "py",
       "description": "主入口脚本"
     },
@@ -796,20 +800,48 @@ scripts/             → 计算能力（COMPUTE：超出简单聚合的计算）
       "content": "pandas>=2.0\nscikit-learn>=1.3\n",
       "content_type": "txt",
       "description": "Python 依赖声明"
+    },
+    {
+      "path": "references/_index.md",
+      "content": "# 引用资源索引\n\n| 文件 | 用途 |\n|---|---|\n| meddic-scoring.md | MEDDIC 评分标准 |\n",
+      "content_type": "md",
+      "description": "引用资源索引"
+    },
+    {
+      "path": "references/meddic-scoring.md",
+      "content": "# MEDDIC 评分标准\n\n完整的评分标准内容...",
+      "content_type": "md",
+      "description": "MEDDIC 各维度评分标准与权重"
     }
   ]
 }
 ```
 
+**⚠️ 资源文件分离强制规则（参见第六章详细说明）：**
+
+| 内容类型 | 存放位置 | Prompt 中如何引用 | 编程语言约束 |
+|----------|----------|-------------------|-------------|
+| 计算/处理代码 | `scripts/main.py` + `scripts/requirements.txt` | `terminal`/`execute_code` 调用脚本路径 | **仅限 Python** |
+| 评分标准/方法论/权重模型 | `references/{name}.md` | `read_skill_resource` 加载 | N/A |
+| 行业知识/竞品情报/基准数据 | `knowledge/{dir}/{name}.md` | `read_skill_resource` 加载 | N/A |
+
 **字段说明：**
 - `ext_info`: 仅在需要 scripts 或 preload_resources 时包含（Step 2.5 判断为需要时）
-- `resources`: 仅在需要 scripts/references/knowledge 文件时包含（Step 2.5 判断为需要时）
+- `resources`: **当 Step 2.5 判断需要 scripts/references/knowledge 时，此字段为必填**，且必须包含完整的文件内容（不是占位符）
 - 如果 Step 2.5 判断不需要任何资源文件，则 `ext_info` 和 `resources` 字段可省略
+- **resources 中的 content 字段必须是完整可执行/可阅读的文件内容**，禁止使用 "..." 或 "TODO" 占位
 
 **resources 必须包含的文件（按 Step 2.5 决策结果）：**
-- 需要 scripts → 必须包含 `scripts/main.py`（主入口）+ `scripts/requirements.txt`（依赖声明）
-- 需要 references → 必须包含 `references/_index.md`（索引）+ 具体知识文件
-- 需要 knowledge → 必须包含 `knowledge/_index.md`（索引）+ 具体知识文件
+- 需要 scripts → 必须包含 `scripts/main.py`（完整 Python 代码）+ `scripts/requirements.txt`（依赖声明）
+- 需要 references → 必须包含 `references/_index.md`（索引）+ 具体 `.md` 知识文件（完整内容）
+- 需要 knowledge → 必须包含 `knowledge/_index.md`（索引）+ 具体 `.md` 知识文件（完整内容）
+
+**禁止的做法：**
+- ❌ 把 Python 代码写在 prompt 字段的 execute_code(code="...50行代码...") 中
+- ❌ 把评分标准表格完整内嵌在 prompt 字段中（超过 20 行时必须分离）
+- ❌ 把行业知识描述完整内嵌在 prompt 字段中（超过 10 行时必须分离）
+- ❌ resources 中使用非 Python 语言的脚本文件
+- ❌ resources 中的 content 使用占位符而非完整内容
 
 ### Step 6: 质量自检
 
@@ -833,6 +865,16 @@ scripts/             → 计算能力（COMPUTE：超出简单聚合的计算）
 - [ ] 是否有纵深（3-4 个维度深入）而非广度（10 个维度浅尝）？
 - [ ] 建议是否具体可执行？（"将跟进间隔从7天缩短到3天" vs "加强跟进"）
 - [ ] 异常处理是否完备（数据缺失/矛盾/查询失败/权限不足/超出边界）？
+
+**资源文件分离检查（第六章强制规则）：**
+- [ ] **Prompt 中是否有超过 5 行的 Python 代码块？** → 有则必须提取到 `scripts/main.py`
+- [ ] **scripts/ 中的代码是否全部为 Python？** → 禁止其他编程语言
+- [ ] **Prompt 中是否有超过 20 行的评分标准/方法论定义？** → 有则必须提取到 `references/` 文件
+- [ ] **Prompt 中是否有超过 10 行的行业知识描述？** → 有则必须提取到 `knowledge/` 文件
+- [ ] **resources 字段是否包含所有需要的独立文件？** → 每个文件必须有完整的 path/content/content_type/description
+- [ ] **resources 中的 content 是否为完整可执行内容？** → 禁止占位符或 "..." 省略
+- [ ] **Prompt 中的资源引用路径是否与 resources 中的 path 完全一致？**
+- [ ] **ext_info 配置是否与实际 resources 文件匹配？**
 
 ### Step 7: 结构化展示技能设计过程并等待确认
 
@@ -953,23 +995,38 @@ ask_user(
 │   ├── JSON 定义格式校验（字段完整性 + 类型正确性）
 │   ├── api_key 唯一性检查（query_data 查询 ai_skill 表）
 │   ├── allowed_tools 中的工具是否都存在于系统中
-│   └── arguments 与 Prompt 中的 {参数名} 占位符是否匹配
+│   ├── arguments 与 Prompt 中的 {参数名} 占位符是否匹配
+│   └── 资源分离合规性检查（见下方详细规则）
+│
+├── 资源分离合规性检查（所有非 Level G 技能）：
+│   ├── Prompt 中是否存在超过 5 行的代码块？→ 违规，必须提取到 scripts/
+│   ├── Prompt 中是否存在超过 20 行的评分标准/规则定义？→ 违规，必须提取到 references/
+│   ├── Prompt 中是否存在超过 10 行的行业知识内容？→ 违规，必须提取到 knowledge/
+│   ├── 如有 scripts/ → resources 字段中是否包含完整的 .py 文件和 requirements.txt？
+│   ├── 如有 references/ → resources 字段中是否包含 _index.md 和具体 .md 文件？
+│   ├── 如有 knowledge/ → resources 字段中是否包含 _index.md 和具体 .md 文件？
+│   ├── resources 中所有 scripts/ 文件的 content_type 是否为 "py" 或 "txt"？（强制 Python）
+│   └── resources 中 content 字段是否为完整内容（非占位符/非省略号）？
 │
 ├── scripts/ 类技能（有 Python 脚本）：
-│   ├── 在沙盒中执行 pip install -r requirements.txt
-│   ├── 验证 main.py 入口文件语法正确（python3 -c "import ast; ast.parse(open('main.py').read())"）
-│   ├── 验证依赖包版本兼容性
-│   └── 如有测试数据，执行一次 dry-run 验证输出格式
+│   ├── resources 中是否包含 scripts/main.py 和 scripts/requirements.txt
+│   ├── scripts/main.py 内容是否为合法 Python 语法（python3 -c "import ast; ast.parse(...)"）
+│   ├── scripts/requirements.txt 中的包是否都是合法的 PyPI 包名
+│   ├── 在沙盒中执行 pip install -r requirements.txt 验证依赖可安装
+│   ├── ext_info.script_execution.language 是否为 "python"
+│   └── ext_info.script_execution.entry 是否指向 resources 中存在的文件
 │
 ├── references/ 类技能（有知识资源文件）：
-│   ├── 验证 preload_resources 配置中的文件路径是否存在
-│   ├── 验证 scene_map 中的关键词正则是否合法
-│   └── 验证 read_skill_resource 能否正常读取资源文件
+│   ├── resources 中是否包含 references/_index.md
+│   ├── Prompt 中 read_skill_resource 引用的路径是否都在 resources 中存在
+│   ├── ext_info.preload_resources 配置中的文件路径是否在 resources 中存在
+│   └── scene_map 中的关键词正则是否合法
 │
 ├── knowledge/ 类技能（有行业知识目录）：
-│   ├── 验证 _index.md 索引文件存在且格式正确
-│   ├── 验证 scene_map 引用的文件都存在
-│   └── 验证文件大小不超过单次加载限制
+│   ├── resources 中是否包含 knowledge/_index.md
+│   ├── Prompt 中 read_skill_resource 引用的路径是否都在 resources 中存在
+│   ├── ext_info.preload_resources 中引用的文件是否都在 resources 中存在
+│   └── 文件大小不超过单次加载限制
 │
 └── 写操作类技能（含 modify_data）：
     └── 验证 Prompt 中是否有 ask_user 确认步骤（写前必须确认）
@@ -1139,3 +1196,171 @@ if has_references(skill_definition):
 8. **禁止生成可能产生幻觉的 Prompt** — 如果某个分析维度在 CRM 中无数据支撑，不要设计该维度，或明确标注需要 web_search 补充
 9. api_key 必须 snake_case，prompt 中 {参数名} 必须与 arguments 一致
 10. allowed_tools 只选实际需要的
+
+---
+
+## 六、资源文件分离硬约束（MANDATORY）
+
+**核心原则：除 Prompt 文本以外的所有结构化内容，必须生成为独立资源文件，禁止内嵌到 Prompt/SKILL.md 中。**
+
+### 6.1 脚本代码分离（scripts/）
+
+**⚠️ 强制规则：**
+1. **所有计算/处理代码必须生成为独立的 Python 文件**，存放在 `scripts/` 目录下
+2. **编程语言强制为 Python** — 禁止使用 JavaScript/Shell/Ruby/Go 等其他语言编写 scripts/ 中的文件
+3. **Prompt 中禁止内嵌完整代码** — Prompt 中只描述"调用脚本"的步骤（terminal/execute_code 命令），不包含脚本实现
+4. **必须包含 requirements.txt** — 声明所有第三方依赖及版本约束
+5. **必须包含 main.py 主入口** — 作为脚本执行的统一入口
+
+**Prompt 中引用脚本的正确方式：**
+```markdown
+## 步骤 N: 执行计算
+terminal(command="pip install -r ${SKILL_DIR}/scripts/requirements.txt")
+terminal(command="python3 ${SKILL_DIR}/scripts/main.py --input /tmp/data.json --output /tmp/result.json")
+read_file(path="/tmp/result.json")
+```
+
+**Prompt 中的错误方式（禁止）：**
+```markdown
+## 步骤 N: 执行计算
+execute_code(language="python", code="
+import pandas as pd
+import numpy as np
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+... 50行代码 ...
+")
+```
+
+**resources 字段中必须包含的文件：**
+```json
+{
+  "resources": [
+    {
+      "path": "scripts/main.py",
+      "content": "#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n\"\"\"技能主入口脚本\"\"\"\nimport argparse\nimport json\n...(完整 Python 代码)...",
+      "content_type": "py",
+      "description": "主入口脚本：{功能描述}"
+    },
+    {
+      "path": "scripts/requirements.txt",
+      "content": "pandas>=2.0\nnumpy>=1.24\n...",
+      "content_type": "txt",
+      "description": "Python 依赖声明"
+    }
+  ]
+}
+```
+
+**脚本代码规范：**
+- 主入口 `main.py` 必须使用 `argparse` 接收命令行参数（`--input`/`--output`）
+- 输入输出统一使用 JSON 格式（方便 Prompt 中 read_file 读取结果）
+- 代码必须包含错误处理（try/except）和日志输出
+- 如果逻辑复杂可拆分为多个 .py 文件（如 `scripts/models.py`、`scripts/utils.py`），但 main.py 为统一入口
+
+### 6.2 知识参考文件分离（references/）
+
+**⚠️ 强制规则：**
+1. **评分标准、方法论定义、权重模型等固化内容必须独立为 .md 文件**，存放在 `references/` 目录下
+2. **Prompt 中只引用文件路径**，不内嵌评分标准全文
+3. **必须包含 `references/_index.md`** — 索引文件，列出所有引用文件及用途
+
+**需要分离到 references/ 的内容：**
+- 评分标准（如 MEDDIC 各维度的评分规则和权重）
+- 方法论定义（如 Health Score 的维度和计算公式）
+- 阈值和基准值（如行业基准 KPI）
+- 分级模型定义（如客户 A/B/C/D 分级规则）
+- 任何超过 20 行的结构化标准/规则
+
+**Prompt 中引用 references 的正确方式：**
+```markdown
+## 步骤 N: 加载评分标准
+read_skill_resource(skill_name="${SKILL_NAME}", resource_name="references/meddic-scoring.md")
+→ 获取 MEDDIC 各维度的评分标准和权重定义
+
+## 步骤 N+1: 按标准评分
+基于加载的评分标准，对各维度进行打分...
+```
+
+**Prompt 中的错误方式（禁止）：**
+```markdown
+## 步骤 N: MEDDIC 评分
+评分标准如下：
+| 维度 | 权重 | 0-20分条件 | 21-50分条件 | 51-80分条件 | 81-100分条件 |
+| Metrics | 15% | 未识别痛点 | 有描述未量化 | 量化但未确认ROI | 量化+ROI+客户认可 |
+... (把整个评分矩阵写在 Prompt 里)
+```
+
+**resources 字段示例：**
+```json
+{
+  "resources": [
+    {
+      "path": "references/_index.md",
+      "content": "# 引用资源索引\n\n| 文件 | 用途 |\n|---|---|\n| meddic-scoring.md | MEDDIC 六维度评分标准与权重 |\n",
+      "content_type": "md",
+      "description": "引用资源索引"
+    },
+    {
+      "path": "references/meddic-scoring.md",
+      "content": "# MEDDIC 评分标准\n\n## 权重分配\n- Metrics: 15%\n- Economic Buyer: 20%\n...(完整评分标准内容)...",
+      "content_type": "md",
+      "description": "MEDDIC 各维度评分标准与权重定义"
+    }
+  ]
+}
+```
+
+### 6.3 行业知识文件分离（knowledge/）
+
+**⚠️ 强制规则：**
+1. **行业特征、市场数据、竞品情报等领域知识必须独立为 .md 文件**，存放在 `knowledge/` 目录下
+2. **必须包含 `knowledge/_index.md`** — 知识索引文件
+3. **Prompt 中通过 `read_skill_resource` 按需加载**，不内嵌知识内容
+
+**Prompt 中引用 knowledge 的正确方式：**
+```markdown
+## 步骤 N: 加载行业知识
+read_skill_resource(skill_name="${SKILL_NAME}", resource_name="knowledge/industries/manufacturing.md")
+→ 获取制造业行业特征、KSF、数字化阶段等深度知识
+```
+
+**resources 字段示例：**
+```json
+{
+  "resources": [
+    {
+      "path": "knowledge/_index.md",
+      "content": "# 知识索引\n\n## 行业知识\n- industries/manufacturing.md — 制造业特征与数字化阶段\n",
+      "content_type": "md",
+      "description": "知识资源索引"
+    },
+    {
+      "path": "knowledge/industries/manufacturing.md",
+      "content": "# 制造业行业知识\n\n## 产业链结构\n...(完整行业知识)...",
+      "content_type": "md",
+      "description": "制造业行业特征、KSF、数字化阶段"
+    }
+  ]
+}
+```
+
+### 6.4 场景对照表（判断何时必须分离）
+
+| 用户需求关键词 | 必须分离的资源类型 | 必须包含的文件 | Prompt 中的引用工具 |
+|---|---|---|---|
+| "评分标准/MEDDIC/权重/评估模型" | references/ | `references/_index.md` + `references/{model}.md` | `read_skill_resource` |
+| "预测/回归/聚类/指数平滑/统计建模" | scripts/ | `scripts/main.py` + `scripts/requirements.txt` | `terminal` + `execute_code` |
+| "可视化/图表/报表生成" | scripts/ | `scripts/main.py` + `scripts/requirements.txt` | `terminal` + `execute_code` |
+| "行业知识/行业分析/行业特征" | knowledge/ | `knowledge/_index.md` + `knowledge/industries/{行业}.md` | `read_skill_resource` |
+| "竞品/竞争分析" | knowledge/ | `knowledge/_index.md` + `knowledge/competitors/{竞品}.md` | `read_skill_resource` |
+| "最佳实践/Playbook" | knowledge/ | `knowledge/_index.md` + `knowledge/playbooks/{场景}.md` | `read_skill_resource` |
+
+### 6.5 自检清单补充（在 Step 6 质量自检中追加）
+
+- [ ] **脚本代码是否独立为 scripts/ 文件？** — Prompt 中禁止出现超过 5 行的 Python 代码块
+- [ ] **脚本是否为纯 Python？** — 禁止 JavaScript/Shell 等其他语言
+- [ ] **评分标准/方法论是否独立为 references/ 文件？** — Prompt 中禁止内嵌超过 20 行的评分矩阵
+- [ ] **行业知识是否独立为 knowledge/ 文件？** — Prompt 中禁止内嵌超过 10 行的行业描述
+- [ ] **resources 字段是否包含所有需要的文件？** — 每个文件必须有 path/content/content_type/description
+- [ ] **Prompt 中的文件引用路径是否与 resources 中的 path 一致？**
+- [ ] **ext_info 中的 script_execution/preload_resources 配置是否与 resources 匹配？**

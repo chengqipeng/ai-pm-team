@@ -35,7 +35,7 @@ class RunMemoryEvalBody(BaseModel):
     layers: list[str] = Field(default_factory=list)          # 按层筛选
     query_types: list[str] = Field(default_factory=list)     # 按查询类型筛选
     top_k: int = 5
-    use_llm: bool = False                                    # 是否使用真实 LLM 提取
+    use_llm: bool = True                                     # 始终使用真实 LLM 提取
 
 
 # ═══════════════════════════════════════════════════════════
@@ -439,8 +439,9 @@ async def run_eval(body: RunMemoryEvalBody):
 async def run_eval_stream(body: RunMemoryEvalBody):
     """流式执行记忆评测 — SSE 实时推送 + 结果持久化 DB"""
     from src.eval.memory_eval_runner import (
-        EvalLayer, QueryType, MemoryEvalRunner, InMemoryEvalEngine, SEED_MEMORIES
+        EvalLayer, QueryType, MemoryEvalRunner, SEED_MEMORIES
     )
+    from src.eval.viking_eval_engine import VikingEvalEngine
     from src.store.memory_eval_dao import (
         MemoryEvalCaseDAO, MemoryEvalCaseResultDAO, MemoryEvalReportDAO,
     )
@@ -479,7 +480,7 @@ async def run_eval_stream(body: RunMemoryEvalBody):
     case_id_map = MemoryEvalCaseDAO.get_case_id_map(suite_id)
 
     async def event_generator():
-        engine = InMemoryEvalEngine()
+        engine = VikingEvalEngine()
         engine.clear()
 
         layers_requested = set(body.layers) if body.layers else set()
@@ -488,7 +489,7 @@ async def run_eval_stream(body: RunMemoryEvalBody):
         if not pure_extract:
             engine.seed(SEED_MEMORIES)
 
-        runner = MemoryEvalRunner(engine=engine, use_llm=body.use_llm)
+        runner = MemoryEvalRunner(engine=engine, use_llm=True)
 
         passed_count = 0
         failed_count = 0

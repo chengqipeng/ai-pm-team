@@ -207,6 +207,95 @@ class ManageSkillTool(Tool):
         from src.skills.service import SkillService, SkillCreateRequest, SkillServiceError
         from src.api.skill_api import get_skill_service
 
+        # ═══ 资源文件分离校验 ═══
+        # 如果 prompt 引用了 ${SKILL_DIR}/scripts/ 或 read_skill_resource，
+        # 则 resources 字段必须包含对应的文件
+        resources = definition.get("resources", [])
+        resource_paths = {r.get("path", "") for r in resources}
+
+        # 校验 scripts 引用
+        if "${SKILL_DIR}/scripts/" in prompt or "scripts/main.py" in prompt:
+            has_scripts = any(p.startswith("scripts/") for p in resource_paths)
+            if not has_scripts:
+                return ToolResult(
+                    content=(
+                        "❌ Prompt 中引用了 ${SKILL_DIR}/scripts/ 脚本，"
+                        "但 skill_definition.resources 中未包含 scripts/ 文件。\n"
+                        "请在 resources 字段中添加 scripts/main.py 和 scripts/requirements.txt，"
+                        "且代码必须为完整可执行的 Python 脚本。"
+                    ),
+                    is_error=True,
+                )
+            # 校验 main.py 必须存在
+            if "scripts/main.py" not in resource_paths:
+                return ToolResult(
+                    content=(
+                        "❌ resources 中缺少 scripts/main.py 主入口文件。\n"
+                        "scripts/ 目录必须包含 main.py 作为统一执行入口。"
+                    ),
+                    is_error=True,
+                )
+            # 校验 requirements.txt 必须存在
+            if "scripts/requirements.txt" not in resource_paths:
+                return ToolResult(
+                    content=(
+                        "❌ resources 中缺少 scripts/requirements.txt 依赖声明。\n"
+                        "scripts/ 目录必须包含 requirements.txt 声明 Python 依赖。"
+                    ),
+                    is_error=True,
+                )
+            # 校验脚本内容非空
+            for r in resources:
+                if r.get("path", "").startswith("scripts/") and r.get("path", "").endswith(".py"):
+                    content = r.get("content", "").strip()
+                    if not content or len(content) < 20:
+                        return ToolResult(
+                            content=(
+                                f"❌ resources 中 {r['path']} 的 content 为空或过短。\n"
+                                f"脚本文件必须包含完整的可执行 Python 代码，不能使用占位符。"
+                            ),
+                            is_error=True,
+                        )
+
+        # 校验 references 引用
+        if "read_skill_resource" in prompt and "references/" in prompt:
+            has_references = any(p.startswith("references/") for p in resource_paths)
+            if not has_references:
+                return ToolResult(
+                    content=(
+                        "❌ Prompt 中通过 read_skill_resource 引用了 references/ 文件，"
+                        "但 skill_definition.resources 中未包含 references/ 文件。\n"
+                        "请在 resources 字段中添加对应的 references/*.md 文件。"
+                    ),
+                    is_error=True,
+                )
+
+        # 校验 knowledge 引用
+        if "read_skill_resource" in prompt and "knowledge/" in prompt:
+            has_knowledge = any(p.startswith("knowledge/") for p in resource_paths)
+            if not has_knowledge:
+                return ToolResult(
+                    content=(
+                        "❌ Prompt 中通过 read_skill_resource 引用了 knowledge/ 文件，"
+                        "但 skill_definition.resources 中未包含 knowledge/ 文件。\n"
+                        "请在 resources 字段中添加对应的 knowledge/*.md 文件。"
+                    ),
+                    is_error=True,
+                )
+
+        # 校验脚本语言必须为 Python（禁止其他语言）
+        for r in resources:
+            path = r.get("path", "")
+            if path.startswith("scripts/") and not path.endswith((".py", ".txt", ".md", ".json", ".csv")):
+                return ToolResult(
+                    content=(
+                        f"❌ scripts/ 目录下发现非 Python 文件: {path}\n"
+                        f"scripts/ 目录仅允许 .py（Python 代码）、.txt（依赖声明）、"
+                        f".md/.json/.csv（配置/数据文件）。禁止使用其他编程语言。"
+                    ),
+                    is_error=True,
+                )
+
         service = get_skill_service()
         req = SkillCreateRequest(
             api_key=definition["api_key"],
@@ -413,8 +502,83 @@ class ManageSkillTool(Tool):
                 self._save_ext_info(api_key, ext_info)
                 change_fields.append("ext_info")
 
-            # 更新资源文件
+            # ═══ 资源文件分离校验（与 _handle_create 相同逻辑）═══
             resources = definition.get("resources", [])
+            resource_paths = {r.get("path", "") for r in resources}
+            new_prompt = definition.get("prompt", "")
+
+            if new_prompt:
+                # 校验 scripts 引用
+                if ("${SKILL_DIR}/scripts/" in new_prompt or "scripts/main.py" in new_prompt):
+                    has_scripts = any(p.startswith("scripts/") for p in resource_paths)
+                    if not has_scripts:
+                        # 检查是否已有旧版本的 scripts 资源
+                        from src.store.pg_pool import get_conn as _get_conn
+                        with _get_conn() as _conn:
+                            _cur = _conn.cursor()
+                            _cur.execute("""
+                                SELECT COUNT(*) FROM ai_skill_resource
+                                WHERE skill_api_key = %s AND path LIKE 'scripts/%%'
+                                      AND tenant_id = 0 AND delete_flg = 0
+                            """, (api_key,))
+                            existing_scripts = _cur.fetchone()[0]
+                        if not existing_scripts:
+                            return ToolResult(
+                                content=(
+                                    "❌ Prompt 中引用了 ${SKILL_DIR}/scripts/ 脚本，"
+                                    "但 resources 中未包含 scripts/ 文件，且该技能历史版本中也无 scripts。\n"
+                                    "请在 skill_definition.resources 中添加 scripts/main.py 和 scripts/requirements.txt。"
+                                ),
+                                is_error=True,
+                            )
+
+                # 校验 references 引用
+                if "read_skill_resource" in new_prompt and "references/" in new_prompt:
+                    has_references = any(p.startswith("references/") for p in resource_paths)
+                    if not has_references:
+                        from src.store.pg_pool import get_conn as _get_conn
+                        with _get_conn() as _conn:
+                            _cur = _conn.cursor()
+                            _cur.execute("""
+                                SELECT COUNT(*) FROM ai_skill_resource
+                                WHERE skill_api_key = %s AND path LIKE 'references/%%'
+                                      AND tenant_id = 0 AND delete_flg = 0
+                            """, (api_key,))
+                            existing_refs = _cur.fetchone()[0]
+                        if not existing_refs:
+                            return ToolResult(
+                                content=(
+                                    "❌ Prompt 中引用了 references/ 文件，"
+                                    "但 resources 中未包含，且历史版本中也无 references。\n"
+                                    "请在 skill_definition.resources 中添加对应的 references/*.md 文件。"
+                                ),
+                                is_error=True,
+                            )
+
+                # 校验 knowledge 引用
+                if "read_skill_resource" in new_prompt and "knowledge/" in new_prompt:
+                    has_knowledge = any(p.startswith("knowledge/") for p in resource_paths)
+                    if not has_knowledge:
+                        from src.store.pg_pool import get_conn as _get_conn
+                        with _get_conn() as _conn:
+                            _cur = _conn.cursor()
+                            _cur.execute("""
+                                SELECT COUNT(*) FROM ai_skill_resource
+                                WHERE skill_api_key = %s AND path LIKE 'knowledge/%%'
+                                      AND tenant_id = 0 AND delete_flg = 0
+                            """, (api_key,))
+                            existing_knowledge = _cur.fetchone()[0]
+                        if not existing_knowledge:
+                            return ToolResult(
+                                content=(
+                                    "❌ Prompt 中引用了 knowledge/ 文件，"
+                                    "但 resources 中未包含，且历史版本中也无 knowledge。\n"
+                                    "请在 skill_definition.resources 中添加对应的 knowledge/*.md 文件。"
+                                ),
+                                is_error=True,
+                            )
+
+            # 更新资源文件
             resource_errors = []
             if resources:
                 resource_errors = self._create_resources(api_key, resources)
