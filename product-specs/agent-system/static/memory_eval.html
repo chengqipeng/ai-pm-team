@@ -136,10 +136,29 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', s
     </div>
   </div>
 
-  <!-- 用例列表 -->
-  <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+  <!-- 视图切换 Tab -->
+  <div class="flex items-center gap-1 mb-4">
+    <button onclick="switchView('cases')" id="viewTabCases" class="px-4 py-2 text-xs font-semibold rounded-lg bg-blue-50 text-blue-600 border border-blue-200 transition-all">用例列表</button>
+    <button onclick="switchView('reports')" id="viewTabReports" class="px-4 py-2 text-xs font-semibold rounded-lg text-gray-500 border border-gray-200 hover:bg-gray-50 transition-all">历史报告</button>
+  </div>
+
+  <!-- 用例列表视图 -->
+  <div id="viewCases" class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
     <div id="caseListContainer" class="divide-y divide-gray-100 max-h-[700px] overflow-auto custom-scrollbar">
       <div class="p-8 text-center text-gray-400 text-sm">加载中...</div>
+    </div>
+  </div>
+
+  <!-- 历史报告视图 -->
+  <div id="viewReports" class="hidden">
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <div class="p-4 border-b border-gray-100 flex items-center justify-between">
+        <span class="text-sm font-semibold text-gray-700">历史评测报告</span>
+        <button onclick="loadReports()" class="text-xs text-blue-600 hover:underline">刷新</button>
+      </div>
+      <div id="reportsContainer" class="divide-y divide-gray-100 max-h-[700px] overflow-auto">
+        <div class="p-8 text-center text-gray-400 text-sm">点击刷新加载历史报告</div>
+      </div>
     </div>
   </div>
 
@@ -169,18 +188,36 @@ const QT_LABELS = {
 // ── 初始化 ──
 async function init() {
   try {
-    const [overviewRes, casesRes] = await Promise.all([
+    const [overviewRes, casesRes, latestRes] = await Promise.all([
       fetch(`${API}/overview`),
       fetch(`${API}/cases`),
+      fetch(`${API}/reports/latest-results`),
     ]);
     const overview = await overviewRes.json();
     const casesData = await casesRes.json();
+    const latestData = await latestRes.json();
 
     document.getElementById('toolMeta').textContent =
       `${overview.total_cases} 条用例 · ${overview.total_memories} 条种子记忆 · ${Object.keys(overview.by_layer).length} 层 · ${Object.keys(overview.by_query_type).length} 类型`;
 
     allCases = casesData.items;
     buildQTFilter(overview.by_query_type);
+
+    // 恢复最近一次评测结果（从 DB）
+    if (latestData.report && latestData.results) {
+      allResults = latestData.results;
+      showStats({
+        pass_rate: latestData.report.pass_rate,
+        passed: latestData.report.passed,
+        failed: latestData.report.failed,
+        total: latestData.report.total,
+        total_duration_ms: latestData.report.total_duration_ms,
+        avg_recall_at_5: latestData.report.avg_recall_at_5,
+        avg_mrr: latestData.report.avg_mrr,
+        report_key: latestData.report.report_key,
+      });
+    }
+
     renderCaseList();
   } catch (e) {
     console.error('Init failed:', e);
@@ -254,6 +291,7 @@ function renderCaseRow(c) {
 
   // 期望信息
   let expectStr = '';
+  const catLabels = {entities:'人物/实体（entities）', events:'事件（events）', patterns:'策略/模式（patterns）', profile:'用户画像（profile）', preferences:'偏好（preferences）', agent_rules:'Agent规则（agent_rules）'};
   if (c.expected_dimensions && c.expected_dimensions.length > 0) {
     expectStr = c.expected_dimensions.map(d => `<span class="px-1.5 py-0.5 rounded text-[10px] bg-green-50 text-green-700">${d}</span>`).join(' ');
   } else if (c.expected_memories && c.expected_memories.length > 0) {
@@ -261,6 +299,10 @@ function renderCaseRow(c) {
     if (c.expected_memories.length > 3) expectStr += `<span class="text-[10px] text-gray-400">+${c.expected_memories.length - 3}</span>`;
   } else if (c.negative) {
     expectStr = '<span class="px-1.5 py-0.5 rounded text-[10px] bg-red-50 text-red-600">不应提取/召回</span>';
+  }
+  // 追加期望维度标签
+  if (c.expected_category) {
+    expectStr += ` <span class="px-1.5 py-0.5 rounded text-[10px] bg-teal-50 text-teal-700">${catLabels[c.expected_category] || c.expected_category}</span>`;
   }
 
   // 结果指标 + 串行状态
@@ -297,7 +339,7 @@ function renderCaseRow(c) {
       </div>
       <span class="text-[10px] text-gray-300 font-mono shrink-0">${c.id}</span>
     </div>
-    <div id="detail-${c.id}" class="detail-panel collapsed mt-3 ml-8"></div>
+    <div id="detail-${c.id}" class="detail-panel collapsed mt-3 ml-8" onclick="event.stopPropagation()"></div>
   </div>`;
 }
 
@@ -330,6 +372,10 @@ function toggleDetail(caseId) {
   if (c.expected_memories && c.expected_memories.length) {
     html += `<div><span class="text-gray-400">期望记忆:</span> ${c.expected_memories.join(', ')}</div>`;
   }
+  if (c.expected_category) {
+    const catLabels = {entities:'人物/实体（entities）', events:'事件（events）', patterns:'策略/模式（patterns）', profile:'用户画像（profile）', preferences:'偏好（preferences）', agent_rules:'Agent规则（agent_rules）'};
+    html += `<div><span class="text-gray-400">期望维度:</span> <span class="px-1.5 py-0.5 rounded text-[10px] bg-teal-50 text-teal-700 font-medium">${catLabels[c.expected_category] || c.expected_category}</span></div>`;
+  }
   if (c.test_focus) {
     html += `<div><span class="text-gray-400">测试重点:</span> ${c.test_focus}</div>`;
   }
@@ -338,6 +384,25 @@ function toggleDetail(caseId) {
   }
   if (c.conflict_type) {
     html += `<div><span class="text-gray-400">冲突类型:</span> ${c.conflict_type}</div>`;
+  }
+
+  // ── 种子记忆（初始化数据）──
+  if (c.seed_memories && c.seed_memories.length) {
+    html += `<div class="border-t border-gray-200 pt-3 mt-3">
+      <div class="font-medium text-gray-700 mb-2">📦 初始化数据（种子记忆）<span class="text-gray-400 font-normal ml-2">${c.seed_memories.length} 条</span></div>
+      <div class="space-y-2">`;
+    c.seed_memories.forEach(m => {
+      html += `<div class="bg-indigo-50 rounded-lg p-3">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="font-mono text-xs font-bold text-indigo-800">${m.merge_key}</span>
+          <span class="px-1.5 py-0.5 rounded text-[10px] bg-indigo-100 text-indigo-600">${m.category}</span>
+          ${m.parent_entity ? `<span class="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600">${m.parent_entity}</span>` : ''}
+        </div>
+        <div class="text-[11px] text-gray-600 mb-1"><span class="text-gray-400">摘要:</span> ${m.abstract}</div>
+        <div class="text-[11px] text-gray-500"><span class="text-gray-400">内容:</span> ${m.content}</div>
+      </div>`;
+    });
+    html += '</div></div>';
   }
 
   // ── 执行输出结果 ──
@@ -393,14 +458,38 @@ function toggleDetail(caseId) {
           <div><span class="text-gray-400">Recall@K:</span> <span class="font-mono">${(result.recall_at_k||0).toFixed(4)}</span></div>
           <div><span class="text-gray-400">MRR:</span> <span class="font-mono">${(result.mrr||0).toFixed(4)}</span></div>
           <div><span class="text-gray-400">Top-1:</span> ${result.top1_hit ? '✓ 命中' : '✗ 未命中'}</div>
-        </div>
-        <div><span class="text-gray-400">召回结果 Top-${result.actual.length}:</span></div>
+        </div>`;
+
+      // 维度断言判定
+      const catLabelsR = {entities:'人物/实体（entities）', events:'事件（events）', patterns:'策略/模式（patterns）', profile:'用户画像（profile）', preferences:'偏好（preferences）', agent_rules:'Agent规则（agent_rules）'};
+      if (c.expected_category) {
+        const actualCat = (result.actual && result.actual.length) ? (result.actual[0].category || '') : '';
+        const catMatch = actualCat === c.expected_category;
+        const expectLabel = catLabelsR[c.expected_category] || c.expected_category;
+        const actualLabel = catLabelsR[actualCat] || actualCat || '未知';
+        html += `<div class="mb-2 px-2 py-1.5 rounded ${catMatch ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}">
+          <span class="text-[11px] font-medium ${catMatch ? 'text-green-700' : 'text-red-700'}">
+            ${catMatch ? '✅' : '❌'} 维度断言:
+          </span>
+          <span class="text-[11px] text-gray-600 ml-1">期望 <span class="font-medium">${expectLabel}</span></span>
+          <span class="text-[11px] text-gray-400 mx-1">→</span>
+          <span class="text-[11px] ${catMatch ? 'text-green-700' : 'text-red-700'} font-medium">实际 ${actualLabel}</span>
+        </div>`;
+      }
+
+      html += `<div><span class="text-gray-400">召回结果 Top-${result.actual.length}:</span></div>
         <div class="mt-1 space-y-1">`;
       result.actual.forEach((a, i) => {
-        html += `<div class="bg-blue-50 rounded px-2 py-1 text-[11px]">
+        const catColor = a.category === 'entities' ? 'bg-blue-100 text-blue-700' :
+                         a.category === 'events' ? 'bg-amber-100 text-amber-700' :
+                         a.category === 'patterns' ? 'bg-green-100 text-green-700' :
+                         a.category === 'profile' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600';
+        const catLabel = catLabelsR[a.category] || a.category || '?';
+        html += `<div class="bg-blue-50 rounded px-2 py-1.5 text-[11px] flex items-center gap-2">
           <span class="text-gray-400">#${i+1}</span>
-          <span class="font-mono text-blue-800 ml-1">${a.merge_key||''}</span>
-          <span class="text-gray-500 ml-2">${(a.abstract||'').slice(0,50)}</span>
+          <span class="font-mono text-blue-800">${a.merge_key||''}</span>
+          <span class="px-1.5 py-0.5 rounded text-[9px] font-medium ${catColor}">${catLabel}</span>
+          <span class="text-gray-500 truncate">${(a.abstract||'').slice(0,50)}</span>
         </div>`;
       });
       html += '</div></div>';
@@ -414,6 +503,31 @@ function toggleDetail(caseId) {
       result.memory_changes.forEach(ch => {
         const actionIcon = ch.action === 'insert' ? '➕' : ch.action === 'update' ? '✏️' : '🗑️';
         html += `<div class="text-[11px]">${actionIcon} <span class="font-mono">${ch.action}</span>: ${(ch.memory?.merge_key || ch.memory?.abstract || '').slice(0,50)}</div>`;
+      });
+      html += '</div></div>';
+    }
+
+    // 记忆库全量快照
+    if (result.memory_snapshot && result.memory_snapshot.length) {
+      const snapshotId = `snapshot-${c.id}`;
+      html += `<div class="bg-white rounded border p-3 mt-2">
+        <div class="font-medium text-gray-600 mb-1 flex items-center justify-between">
+          <span>🗃️ 当前记忆库快照 (${result.memory_snapshot.length} 条)</span>
+          <button onclick="event.stopPropagation(); toggleSnapshot('${snapshotId}')" class="text-[10px] text-blue-600 hover:underline cursor-pointer">展开/收起</button>
+        </div>
+        <div id="${snapshotId}" class="hidden max-h-[300px] overflow-auto space-y-1 mt-2">`;
+      result.memory_snapshot.forEach((m, i) => {
+        const catColor = m.category === 'entities' ? 'bg-blue-50 text-blue-700' :
+                         m.category === 'events' ? 'bg-amber-50 text-amber-700' :
+                         m.category === 'patterns' ? 'bg-green-50 text-green-700' :
+                         m.category === 'profile' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-700';
+        html += `<div class="rounded px-2 py-1.5 text-[11px] border border-gray-100 hover:bg-gray-50">
+          <span class="text-gray-300 mr-1">#${i+1}</span>
+          <span class="font-mono font-medium text-gray-800">${m.merge_key||''}</span>
+          <span class="px-1 py-0.5 rounded text-[9px] ml-1 ${catColor}">${m.category||''}</span>
+          ${m.parent_entity ? `<span class="text-[9px] text-gray-400 ml-1">[${m.parent_entity}]</span>` : ''}
+          <div class="text-gray-500 mt-0.5 pl-4">${(m.abstract||'').slice(0,80)}</div>
+        </div>`;
       });
       html += '</div></div>';
     }
@@ -502,7 +616,9 @@ function handleEvent(data) {
 
     case 'complete':
       showStats(data);
-      renderCaseList();  // re-render with results
+      // 从 DB 加载完整结果（包含 memory_snapshot），替换 SSE 中的轻量版
+      loadFullResults();
+      break;
       break;
   }
 }
@@ -518,13 +634,200 @@ function showStats(data) {
   document.getElementById('barTotal').textContent = data.total;
   document.getElementById('barDuration').textContent = (data.total_duration_ms / 1000).toFixed(1) + 's';
 
-  // 计算 recall / mrr
-  const results = Object.values(allResults);
-  const n = results.length || 1;
-  const avgRecall = (results.reduce((s, r) => s + (r.recall_at_k || 0), 0) / n * 100).toFixed(1);
-  const avgMrr = (results.reduce((s, r) => s + (r.mrr || 0), 0) / n).toFixed(3);
-  document.getElementById('barRecall').textContent = avgRecall + '%';
-  document.getElementById('barMRR').textContent = avgMrr;
+  // 从 complete 事件中取聚合指标（已由后端计算）
+  if (data.avg_recall_at_5 !== undefined) {
+    document.getElementById('barRecall').textContent = (data.avg_recall_at_5 * 100).toFixed(1) + '%';
+    document.getElementById('barMRR').textContent = data.avg_mrr.toFixed(3);
+  } else {
+    const results = Object.values(allResults);
+    const n = results.length || 1;
+    const avgRecall = (results.reduce((s, r) => s + (r.recall_at_k || 0), 0) / n * 100).toFixed(1);
+    const avgMrr = (results.reduce((s, r) => s + (r.mrr || 0), 0) / n).toFixed(3);
+    document.getElementById('barRecall').textContent = avgRecall + '%';
+    document.getElementById('barMRR').textContent = avgMrr;
+  }
+
+  // 如果有 report_key，显示持久化提示
+  if (data.report_key) {
+    lastReportKey = data.report_key;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 加载完整结果（含 memory_snapshot）
+// ═══════════════════════════════════════════════════════════
+
+function toggleSnapshot(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('hidden');
+}
+
+async function loadFullResults() {
+  try {
+    const res = await fetch(`${API}/reports/latest-results`);
+    const data = await res.json();
+    if (data.report && data.results) {
+      allResults = data.results;
+    }
+  } catch (e) {
+    console.warn('loadFullResults failed:', e);
+  }
+  renderCaseList();
+}
+
+// ═══════════════════════════════════════════════════════════
+// 视图切换
+// ═══════════════════════════════════════════════════════════
+
+let lastReportKey = '';
+
+function switchView(view) {
+  const casesView = document.getElementById('viewCases');
+  const reportsView = document.getElementById('viewReports');
+  const tabCases = document.getElementById('viewTabCases');
+  const tabReports = document.getElementById('viewTabReports');
+
+  if (view === 'cases') {
+    casesView.classList.remove('hidden');
+    reportsView.classList.add('hidden');
+    tabCases.className = 'px-4 py-2 text-xs font-semibold rounded-lg bg-blue-50 text-blue-600 border border-blue-200 transition-all';
+    tabReports.className = 'px-4 py-2 text-xs font-semibold rounded-lg text-gray-500 border border-gray-200 hover:bg-gray-50 transition-all';
+  } else {
+    casesView.classList.add('hidden');
+    reportsView.classList.remove('hidden');
+    tabCases.className = 'px-4 py-2 text-xs font-semibold rounded-lg text-gray-500 border border-gray-200 hover:bg-gray-50 transition-all';
+    tabReports.className = 'px-4 py-2 text-xs font-semibold rounded-lg bg-blue-50 text-blue-600 border border-blue-200 transition-all';
+    loadReports();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 历史报告
+// ═══════════════════════════════════════════════════════════
+
+async function loadReports() {
+  const container = document.getElementById('reportsContainer');
+  container.innerHTML = '<div class="p-8 text-center text-gray-400 text-sm">加载中...</div>';
+
+  try {
+    const res = await fetch(`${API}/reports?limit=30`);
+    const data = await res.json();
+
+    if (!data.items || data.items.length === 0) {
+      container.innerHTML = '<div class="p-8 text-center text-gray-400 text-sm">暂无历史报告</div>';
+      return;
+    }
+
+    let html = '';
+    for (const rpt of data.items) {
+      const passRate = (rpt.pass_rate * 100).toFixed(1);
+      const prColor = passRate >= 85 ? 'text-green-600' : passRate >= 70 ? 'text-amber-600' : 'text-red-600';
+      const statusIcon = rpt.status === 'completed' ? '✅' : rpt.status === 'running' ? '🔄' : '❌';
+      const date = new Date(rpt.created_at).toLocaleString('zh-CN');
+      const duration = rpt.total_duration_ms ? (rpt.total_duration_ms / 1000).toFixed(1) + 's' : '-';
+      const recall = rpt.avg_recall_at_5 ? (rpt.avg_recall_at_5 * 100).toFixed(1) + '%' : '-';
+      const mrr = rpt.avg_mrr ? rpt.avg_mrr.toFixed(3) : '-';
+      const filters = [];
+      if (rpt.filter_layers && rpt.filter_layers.length) filters.push(`层:${rpt.filter_layers.join(',')}`);
+      if (rpt.filter_query_types && rpt.filter_query_types.length) filters.push(`类型:${rpt.filter_query_types.join(',')}`);
+      const filterStr = filters.length ? filters.join(' · ') : '全量';
+
+      html += `<div class="px-5 py-4 hover:bg-gray-50 cursor-pointer transition-all" onclick="viewReport('${rpt.report_key}')">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="text-sm">${statusIcon}</span>
+            <div>
+              <div class="text-xs font-semibold text-gray-800">${date}</div>
+              <div class="text-[10px] text-gray-400 mt-0.5">${filterStr} · ${rpt.use_llm ? 'LLM模式' : 'Mock模式'}</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-6 text-xs">
+            <div class="text-center"><span class="text-[10px] text-gray-400 block">通过率</span><span class="${prColor} font-bold">${passRate}%</span></div>
+            <div class="text-center"><span class="text-[10px] text-gray-400 block">通过/总数</span><span class="font-medium text-gray-700">${rpt.passed}/${rpt.total}</span></div>
+            <div class="text-center"><span class="text-[10px] text-gray-400 block">Recall@5</span><span class="font-medium text-purple-600">${recall}</span></div>
+            <div class="text-center"><span class="text-[10px] text-gray-400 block">MRR</span><span class="font-medium text-indigo-600">${mrr}</span></div>
+            <div class="text-center"><span class="text-[10px] text-gray-400 block">耗时</span><span class="font-medium text-gray-600">${duration}</span></div>
+          </div>
+        </div>
+      </div>`;
+    }
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = `<div class="p-8 text-center text-red-500 text-sm">加载失败: ${e.message}</div>`;
+  }
+}
+
+async function viewReport(reportKey) {
+  const container = document.getElementById('reportsContainer');
+  container.innerHTML = '<div class="p-8 text-center text-gray-400 text-sm">加载报告详情...</div>';
+
+  try {
+    const res = await fetch(`${API}/reports/${reportKey}`);
+    const data = await res.json();
+    const rpt = data.report;
+    const results = data.case_results || [];
+
+    let html = `<div class="p-4">
+      <button onclick="loadReports()" class="text-xs text-blue-600 hover:underline mb-3">← 返回列表</button>
+      <div class="grid grid-cols-6 gap-4 mb-4">
+        <div class="bg-gray-50 rounded-lg p-3 text-center">
+          <div class="text-[10px] text-gray-400">通过率</div>
+          <div class="text-lg font-bold ${rpt.pass_rate >= 0.85 ? 'text-green-600' : rpt.pass_rate >= 0.7 ? 'text-amber-600' : 'text-red-600'}">${(rpt.pass_rate * 100).toFixed(1)}%</div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3 text-center">
+          <div class="text-[10px] text-gray-400">通过/总数</div>
+          <div class="text-lg font-bold text-gray-800">${rpt.passed}/${rpt.total}</div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3 text-center">
+          <div class="text-[10px] text-gray-400">Recall@5</div>
+          <div class="text-lg font-bold text-purple-600">${(rpt.avg_recall_at_5 * 100).toFixed(1)}%</div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3 text-center">
+          <div class="text-[10px] text-gray-400">MRR</div>
+          <div class="text-lg font-bold text-indigo-600">${rpt.avg_mrr.toFixed(3)}</div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3 text-center">
+          <div class="text-[10px] text-gray-400">Top-1 命中</div>
+          <div class="text-lg font-bold text-blue-600">${(rpt.top1_hit_rate * 100).toFixed(1)}%</div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3 text-center">
+          <div class="text-[10px] text-gray-400">耗时</div>
+          <div class="text-lg font-bold text-gray-700">${(rpt.total_duration_ms / 1000).toFixed(1)}s</div>
+        </div>
+      </div>`;
+
+    // 按层统计
+    if (rpt.by_layer && Object.keys(rpt.by_layer).length) {
+      html += '<div class="mb-4"><div class="text-xs font-semibold text-gray-600 mb-2">按评测层</div><div class="flex gap-3 flex-wrap">';
+      for (const [layer, stats] of Object.entries(rpt.by_layer)) {
+        const lr = stats.passed / Math.max(stats.total, 1) * 100;
+        const lc = lr >= 85 ? 'bg-green-50 text-green-700' : lr >= 70 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700';
+        html += `<span class="px-3 py-1.5 rounded-lg text-xs font-medium ${lc}">${LAYER_LABELS[layer]||layer}: ${stats.passed}/${stats.total} (${lr.toFixed(0)}%)</span>`;
+      }
+      html += '</div></div>';
+    }
+
+    // 用例结果列表
+    html += `<div class="text-xs font-semibold text-gray-600 mb-2">用例结果（${results.length} 条）</div>`;
+    html += '<div class="max-h-[400px] overflow-auto divide-y divide-gray-100 border border-gray-100 rounded-lg">';
+    for (const r of results) {
+      const icon = r.passed ? '✅' : '❌';
+      const layerColor = r.layer === 'extract' ? 'bg-purple-50 text-purple-700' :
+                         r.layer === 'retrieval' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700';
+      html += `<div class="px-4 py-2 text-xs flex items-center gap-3">
+        <span>${icon}</span>
+        <span class="px-1.5 py-0.5 rounded text-[10px] ${layerColor}">${LAYER_LABELS[r.layer]||r.layer}</span>
+        <span class="text-gray-700 truncate max-w-[300px]">${r.query || r.description || r.case_key}</span>
+        <span class="text-gray-400 ml-auto">${r.duration_ms.toFixed(0)}ms</span>
+        ${r.layer !== 'extract' ? `<span class="text-purple-500">R:${r.recall_at_k.toFixed(2)}</span>` : ''}
+        ${r.error_message ? `<span class="text-red-400 truncate max-w-[150px]">${r.error_message}</span>` : ''}
+      </div>`;
+    }
+    html += '</div></div>';
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = `<div class="p-8 text-center text-red-500 text-sm">加载报告失败: ${e.message}</div>`;
+  }
 }
 
 init();

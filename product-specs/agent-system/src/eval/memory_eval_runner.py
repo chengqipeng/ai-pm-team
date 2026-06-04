@@ -83,6 +83,8 @@ class MemoryEvalCase:
     expected_action: str = ""           # 反思用例期望动作: update_old/archive_old/keep_both/discard_new
     conflict_type: str = ""             # 冲突类型: contradiction/evolution
     test_focus: str = ""                # 测试重点描述
+    # ── 种子记忆关联（检索用例可追溯到初始化数据）──
+    seed_memory_keys: list[str] = field(default_factory=list)  # 该用例依赖的种子记忆 merge_key 列表
 
 
 @dataclass
@@ -105,6 +107,7 @@ class MemoryEvalResult:
     # ── 串行执行状态 ──
     memory_changes: list[dict] = field(default_factory=list)  # 本次执行造成的记忆变更
     memory_snapshot_count: int = 0   # 执行后记忆库总条数
+    memory_snapshot: list[dict] = field(default_factory=list)  # 执行时记忆库全量快照
     extracted_dimensions: list[str] = field(default_factory=list)  # 实际提取的维度
     output_detail: dict = field(default_factory=dict)  # 完整输出详情（LLM提取结果/反思结果）
 
@@ -126,6 +129,7 @@ class MemoryEvalResult:
             "error": self.error,
             "memory_changes": self.memory_changes,
             "memory_snapshot_count": self.memory_snapshot_count,
+            "memory_snapshot": self.memory_snapshot,
             "extracted_dimensions": self.extracted_dimensions,
             "output_detail": self.output_detail,
         }
@@ -426,18 +430,31 @@ class InMemoryEvalEngine:
         matched_entities = [kw for kw in keywords if kw in entity_names]
 
         if matched_entities:
-            # 有明确实体名 → 只返回包含该实体名的记忆
-            filtered = []
+            # 有明确实体名 → 分两级召回：
+            #   1. merge_key 中包含该实体名的记忆（主体记忆，直接描述该人/实体）
+            #   2. 仅在 content/abstract 中提及的记忆（关联记忆，降权）
+            #
+            # 策略：主体记忆优先；只在主体记忆为空时才补充关联记忆
+            # 原因：用户查"张伟是什么样的人"时，不应该返回"ERP项目中提到了张伟"
+            primary = []    # merge_key 命中 — 主体记忆
+            secondary = []  # 仅 content/abstract 命中 — 关联提及
             for score, mem in scored:
                 abstract = (mem.get("abstract") or "").lower()
                 merge_key = (mem.get("merge_key") or "").lower()
                 content = (mem.get("content") or "").lower()
-                searchable = abstract + " " + merge_key + " " + content
-                if any(ent in searchable for ent in matched_entities):
-                    filtered.append(mem)
-                if len(filtered) >= top_k:
-                    break
-            return filtered
+
+                # 判断是否在 merge_key 中直接包含实体名
+                if any(ent in merge_key for ent in matched_entities):
+                    primary.append(mem)
+                elif any(ent in (abstract + " " + content) for ent in matched_entities):
+                    secondary.append(mem)
+
+            # 主体记忆有内容 → 只返回主体记忆
+            # 主体记忆为空 → 从关联记忆中补充（fallback）
+            if primary:
+                return primary[:top_k]
+            else:
+                return secondary[:top_k]
 
         # 无明确实体名 → 正常返回 Top-K
         return [item[1] for item in scored[:top_k]]
@@ -853,6 +870,7 @@ class MemoryEvalRunner:
                     duration_ms=duration,
                     memory_changes=self._engine.get_recent_changes(3),
                     memory_snapshot_count=self._engine.memory_count,
+                    memory_snapshot=self._engine.snapshot(),
                     extracted_dimensions=extracted_dims,
                     output_detail=extract_result,
                 )
@@ -894,6 +912,7 @@ class MemoryEvalRunner:
                     top1_hit=top1_hit,
                     duration_ms=duration,
                     memory_snapshot_count=self._engine.memory_count,
+                    memory_snapshot=self._engine.snapshot(),
                     output_detail={"retrieval_count": len(results)},
                 )
         except Exception as e:
@@ -949,6 +968,10 @@ class MemoryEvalRunner:
     def _evaluate(self, case: MemoryEvalCase, results: list[dict]) -> tuple:
         """评估检索结果
 
+        断言规则：
+        1. 关键词匹配：召回结果的 merge_key/abstract 包含 expected_memories 中的关键词
+        2. 维度匹配：如果设置了 expected_category，Top-1 命中的记忆 category 必须匹配
+
         Returns: (recall_at_k, precision_at_k, mrr, top1_hit, passed)
         """
         if case.negative:
@@ -967,6 +990,7 @@ class MemoryEvalRunner:
         # 正向评测
         hit_count = 0
         first_hit_rank = 0
+        first_hit_category = ""
         expected_set = set(kw.lower() for kw in case.expected_memories)
 
         for i, r in enumerate(results):
@@ -982,6 +1006,7 @@ class MemoryEvalRunner:
                     hit_count += 1
                     if first_hit_rank == 0:
                         first_hit_rank = i + 1
+                        first_hit_category = r.get("category", "")
                     break
 
         total_expected = len(case.expected_memories)
@@ -997,6 +1022,11 @@ class MemoryEvalRunner:
             passed = hit_count >= total_expected
         else:
             passed = hit_count > 0
+
+        # ── 维度断言：召回的 Top-1 记忆 category 必须匹配 expected_category ──
+        if passed and case.expected_category and first_hit_category:
+            if first_hit_category != case.expected_category:
+                passed = False  # 关键词命中了但维度不对，判定为失败
 
         return recall_at_k, precision_at_k, mrr, top1_hit, passed
 

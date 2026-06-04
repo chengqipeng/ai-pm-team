@@ -34,7 +34,45 @@ def build_all_cases() -> list[MemoryEvalCase]:
     # ── 四维度记忆提取评测（250 条）──
     from .memory_extract_eval_cases import build_extract_cases
     cases.extend(build_extract_cases())
+
+    # ── 自动补全 expected_category ──
+    # 对检索用例，根据 expected_memories 匹配种子数据的 category
+    _auto_fill_expected_category(cases)
+
     return cases
+
+
+def _auto_fill_expected_category(cases: list[MemoryEvalCase]) -> None:
+    """根据种子数据自动填充检索用例的 expected_category
+
+    逻辑：expected_memories 中的关键词匹配种子数据的 merge_key，
+    取匹配到的种子记忆的 category 作为 expected_category。
+    仅对未设置 expected_category 的检索类用例生效。
+    """
+    from .memory_eval_runner import SEED_MEMORIES, EvalLayer
+
+    # 建立 merge_key → category 索引
+    seed_cat_index: dict[str, str] = {}
+    for m in SEED_MEMORIES:
+        seed_cat_index[m["merge_key"]] = m.get("category", "")
+
+    for case in cases:
+        # 只处理检索类、且未设置 expected_category 的用例
+        if case.layer == EvalLayer.EXTRACT:
+            continue
+        if case.expected_category:
+            continue
+        if not case.expected_memories:
+            continue
+
+        # 匹配第一个命中的种子记忆的 category
+        for kw in case.expected_memories:
+            for mk, cat in seed_cat_index.items():
+                if kw.lower() in mk.lower():
+                    case.expected_category = cat
+                    break
+            if case.expected_category:
+                break
 
 
 # ═══════════════════════════════════════════════════════════
