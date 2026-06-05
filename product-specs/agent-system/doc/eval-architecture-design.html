@@ -1,0 +1,1822 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>评测体系架构设计 — DeepAgent</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #0f172a; color: #e2e8f0; overflow-x: hidden; }
+
+.bg-grid {
+  background-image: 
+    linear-gradient(rgba(148, 163, 184, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+.glow-blue { box-shadow: 0 0 30px rgba(59, 130, 246, 0.15), 0 0 60px rgba(59, 130, 246, 0.05); }
+.glow-purple { box-shadow: 0 0 30px rgba(139, 92, 246, 0.15), 0 0 60px rgba(139, 92, 246, 0.05); }
+.glow-green { box-shadow: 0 0 30px rgba(16, 185, 129, 0.15), 0 0 60px rgba(16, 185, 129, 0.05); }
+.glow-amber { box-shadow: 0 0 30px rgba(245, 158, 11, 0.15), 0 0 60px rgba(245, 158, 11, 0.05); }
+
+.arch-card {
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.arch-card:hover {
+  border-color: rgba(148, 163, 184, 0.25);
+  transform: translateY(-2px);
+}
+
+.pulse-dot {
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.3); }
+}
+
+.module-tag {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  backdrop-filter: blur(4px);
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: none; }
+}
+.animate-fade-up {
+  animation: fadeUp 0.6s ease-out forwards;
+  opacity: 0;
+}
+.delay-1 { animation-delay: 0.1s; }
+.delay-2 { animation-delay: 0.2s; }
+.delay-3 { animation-delay: 0.3s; }
+.delay-4 { animation-delay: 0.4s; }
+.delay-5 { animation-delay: 0.5s; }
+.delay-6 { animation-delay: 0.6s; }
+.delay-7 { animation-delay: 0.7s; }
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.2); border-radius: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* 锚点标签样式 */
+.dim-tab {
+  transition: all 0.2s;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.dim-tab:hover { border-color: rgba(148,163,184,0.3); }
+.dim-tab.active { border-color: #3b82f6; color: #60a5fa; }
+</style>
+</head>
+<body class="min-h-screen bg-grid">
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- 顶部导航 -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<header class="fixed top-0 left-0 right-0 z-50 bg-slate-900/80 backdrop-blur-xl border-b border-slate-700/50">
+  <div class="max-w-7xl mx-auto px-8 h-14 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      </div>
+      <span class="font-bold text-sm text-white">DeepAgent</span>
+      <span class="text-slate-500 mx-1">/</span>
+      <span class="text-sm text-slate-400">评测体系设计</span>
+    </div>
+    <nav class="flex items-center gap-1">
+      <a href="#" class="px-3 py-1.5 text-xs font-medium text-blue-400 bg-blue-500/10 rounded-lg border border-blue-500/20">架构总览</a>
+      <a href="#" class="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 rounded-lg">数据模型</a>
+      <a href="#" class="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 rounded-lg">交互流程</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- 主内容区 -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<main class="pt-14">
+
+  <!-- Hero 区域 -->
+  <section class="relative py-16 px-8 overflow-hidden">
+    <div class="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl"></div>
+    <div class="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/5 rounded-full blur-3xl"></div>
+
+    <div class="max-w-7xl mx-auto text-center animate-fade-up">
+      <div class="inline-flex items-center gap-2 px-3 py-1 bg-slate-800/50 border border-slate-700/50 rounded-full mb-6">
+        <div class="w-2 h-2 bg-green-400 rounded-full pulse-dot"></div>
+        <span class="text-xs text-slate-400">Agent Evaluation Framework v2.0</span>
+      </div>
+      <h1 class="text-4xl font-extrabold mb-4">
+        <span class="gradient-text">四维评测体系</span>
+        <span class="text-white"> 架构设计</span>
+      </h1>
+      <p class="text-slate-400 text-sm max-w-2xl mx-auto leading-relaxed">
+        基于 DeepAgent 图状态机编排引擎，构建 Tool · Memory · Agent · E2E 四维度质量保障体系。<br>
+        分层隔离、独立评测、逐级聚合，快速定位 Agent 系统各层级的质量问题。
+      </p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- 四大模块概览卡片 -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <section class="px-8 pb-8">
+    <div class="max-w-7xl mx-auto">
+      <div class="grid grid-cols-4 gap-5">
+        <!-- Tool 评测 — 当前选中 -->
+        <div class="arch-card rounded-2xl p-5 bg-slate-800/40 glow-blue animate-fade-up delay-1 ring-2 ring-blue-500/30">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+              <span class="text-lg">🔧</span>
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-white">Tool 评测</h3>
+              <p class="text-[10px] text-blue-400 mt-0.5">当前查看 ↓</p>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-2">
+              <div class="w-1 h-1 rounded-full bg-blue-400"></div>
+              <span class="text-xs text-slate-300">功能正确性验证</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-1 h-1 rounded-full bg-blue-400"></div>
+              <span class="text-xs text-slate-300">Schema 合规校验</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-1 h-1 rounded-full bg-blue-400"></div>
+              <span class="text-xs text-slate-300">边界 / 异常 / 副作用</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-1 h-1 rounded-full bg-blue-400"></div>
+              <span class="text-xs text-slate-300">参数组合自动生成</span>
+            </div>
+          </div>
+          <div class="mt-4 pt-3 border-t border-slate-700/50">
+            <div class="flex items-center justify-between">
+              <span class="module-tag px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">ISOLATED</span>
+              <span class="text-[10px] text-slate-500">不经过 Agent 推理</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Memory 评测 — 当前选中 -->
+        <div class="arch-card rounded-2xl p-5 bg-slate-800/40 glow-purple animate-fade-up delay-2 ring-2 ring-purple-500/30">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+              <span class="text-lg">🧠</span>
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-white">Memory 评测</h3>
+              <p class="text-[10px] text-purple-400 mt-0.5">当前查看 ↓</p>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-2">
+              <div class="w-1 h-1 rounded-full bg-purple-400"></div>
+              <span class="text-xs text-slate-300">精确 / 语义检索召回</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-1 h-1 rounded-full bg-purple-400"></div>
+              <span class="text-xs text-slate-300">增量学习与冲突消解</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-1 h-1 rounded-full bg-purple-400"></div>
+              <span class="text-xs text-slate-300">四维提取正确性</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-1 h-1 rounded-full bg-purple-400"></div>
+              <span class="text-xs text-slate-300">时间衰减与上下文匹配</span>
+            </div>
+          </div>
+          <div class="mt-4 pt-3 border-t border-slate-700/50">
+            <div class="flex items-center justify-between">
+              <span class="module-tag px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">ISOLATED</span>
+              <span class="text-[10px] text-slate-500">独立 Memory 实例</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Agent 评测 -->
+        <div class="arch-card rounded-2xl p-5 bg-slate-800/40 animate-fade-up delay-3 opacity-60">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+              <span class="text-lg">🤖</span>
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-white">Agent 评测</h3>
+              <p class="text-[10px] text-slate-500 mt-0.5">推理决策验证</p>
+            </div>
+          </div>
+          <div class="space-y-2 text-xs text-slate-500">
+            <p>• 意图识别准确率</p>
+            <p>• 工具选择与参数提取</p>
+            <p>• 多工具编排顺序</p>
+            <p>• 拒绝 / 追问 / 容错</p>
+          </div>
+          <div class="mt-4 pt-3 border-t border-slate-700/50 text-[10px] text-slate-600">待展开</div>
+        </div>
+
+        <!-- 端到端评测 -->
+        <div class="arch-card rounded-2xl p-5 bg-slate-800/40 animate-fade-up delay-4 opacity-60">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+              <span class="text-lg">🎯</span>
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-white">端到端评测</h3>
+              <p class="text-[10px] text-slate-500 mt-0.5">完整业务场景验证</p>
+            </div>
+          </div>
+          <div class="space-y-2 text-xs text-slate-500">
+            <p>• Skill 完整链路验证</p>
+            <p>• 真实 / 半 Mock 环境</p>
+            <p>• 业务结果正确性</p>
+            <p>• LLM Judge 语义评分</p>
+          </div>
+          <div class="mt-4 pt-3 border-t border-slate-700/50 text-[10px] text-slate-600">待展开</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- Tool 评测 — 详细产品设计 -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <section class="px-8 pb-20">
+    <div class="max-w-7xl mx-auto">
+
+      <!-- 标题 -->
+      <div class="flex items-center gap-3 mb-8 animate-fade-up delay-5">
+        <div class="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+          <span class="text-lg">🔧</span>
+        </div>
+        <div>
+          <h2 class="text-xl font-bold text-white">Tool 评测 — 产品设计详案</h2>
+          <p class="text-xs text-slate-400 mt-0.5">直接调用工具函数验证功能正确性，不经过 Agent 推理层，定位工具本身的缺陷</p>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- 1. 核心定位与设计原则 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <div class="arch-card rounded-3xl bg-slate-800/30 p-8 mb-8 animate-fade-up delay-5">
+        <div class="flex items-center gap-2 mb-6">
+          <div class="w-6 h-6 rounded-lg bg-blue-500/10 flex items-center justify-center">
+            <span class="text-xs">📐</span>
+          </div>
+          <h3 class="text-base font-bold text-white">核心定位与设计原则</h3>
+        </div>
+
+        <div class="grid grid-cols-2 gap-8">
+          <!-- 定位 -->
+          <div>
+            <div class="text-[11px] font-bold text-blue-400 uppercase tracking-wider mb-4">定位</div>
+            <div class="bg-slate-900/50 rounded-xl p-5 border border-blue-500/10">
+              <div class="space-y-4">
+                <div class="flex items-start gap-3">
+                  <div class="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <span class="text-[10px] font-bold text-blue-400">1</span>
+                  </div>
+                  <div>
+                    <span class="text-xs font-medium text-white block">单元测试级别</span>
+                    <span class="text-[11px] text-slate-400 mt-1 block">被测对象是单个 Tool 的单个方法，验证其"给定输入 → 返回正确输出"</span>
+                  </div>
+                </div>
+                <div class="flex items-start gap-3">
+                  <div class="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <span class="text-[10px] font-bold text-blue-400">2</span>
+                  </div>
+                  <div>
+                    <span class="text-xs font-medium text-white block">完全隔离</span>
+                    <span class="text-[11px] text-slate-400 mt-1 block">不经过 Agent LLM 推理，直接调用 Tool.call()，排除推理层干扰</span>
+                  </div>
+                </div>
+                <div class="flex items-start gap-3">
+                  <div class="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <span class="text-[10px] font-bold text-blue-400">3</span>
+                  </div>
+                  <div>
+                    <span class="text-xs font-medium text-white block">可重复执行</span>
+                    <span class="text-[11px] text-slate-400 mt-1 block">每次执行前重置 Backend 数据为 seed data，保证用例结果确定性</span>
+                  </div>
+                </div>
+                <div class="flex items-start gap-3">
+                  <div class="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <span class="text-[10px] font-bold text-blue-400">4</span>
+                  </div>
+                  <div>
+                    <span class="text-xs font-medium text-white block">质量门禁</span>
+                    <span class="text-[11px] text-slate-400 mt-1 block">Tool 评测通过是 Agent 评测和端到端评测的前置条件</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 设计原则 -->
+          <div>
+            <div class="text-[11px] font-bold text-blue-400 uppercase tracking-wider mb-4">设计原则</div>
+            <div class="bg-slate-900/50 rounded-xl p-5 border border-blue-500/10">
+              <div class="space-y-4">
+                <div class="flex items-start gap-3">
+                  <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
+                    <span class="text-sm">🎯</span>
+                  </div>
+                  <div>
+                    <span class="text-xs font-medium text-white block">四分类覆盖</span>
+                    <span class="text-[11px] text-slate-400 mt-1 block">每个工具必须覆盖 正常（normal）· 异常（error）· 边界（boundary）· 副作用（side_effect）四类场景</span>
+                  </div>
+                </div>
+                <div class="flex items-start gap-3">
+                  <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
+                    <span class="text-sm">🔄</span>
+                  </div>
+                  <div>
+                    <span class="text-xs font-medium text-white block">参数组合自动生成</span>
+                    <span class="text-[11px] text-slate-400 mt-1 block">根据工具的 input_schema 自动推导 Pairwise / 等价类 / 边界值 组合用例</span>
+                  </div>
+                </div>
+                <div class="flex items-start gap-3">
+                  <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
+                    <span class="text-sm">📊</span>
+                  </div>
+                  <div>
+                    <span class="text-xs font-medium text-white block">多粒度执行</span>
+                    <span class="text-[11px] text-slate-400 mt-1 block">支持按工具 / 方法 / 用例 / 标签四种粒度触发执行</span>
+                  </div>
+                </div>
+                <div class="flex items-start gap-3">
+                  <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
+                    <span class="text-sm">🧹</span>
+                  </div>
+                  <div>
+                    <span class="text-xs font-medium text-white block">自动清理</span>
+                    <span class="text-[11px] text-slate-400 mt-1 block">setup_steps 写入的数据在用例执行后自动推导 cleanup_steps 清理</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- 2. 用例层级模型 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <div class="arch-card rounded-3xl bg-slate-800/30 p-8 mb-8 animate-fade-up delay-6">
+        <div class="flex items-center gap-2 mb-6">
+          <div class="w-6 h-6 rounded-lg bg-blue-500/10 flex items-center justify-center">
+            <span class="text-xs">🗂️</span>
+          </div>
+          <h3 class="text-base font-bold text-white">用例层级模型</h3>
+          <span class="text-[10px] text-slate-500 ml-auto">三级结构：工具分类 → 方法 → 测试用例</span>
+        </div>
+
+        <div class="grid grid-cols-3 gap-6">
+          <!-- Level 1: 工具分类 -->
+          <div class="bg-slate-900/50 rounded-xl p-5 border border-slate-700/30">
+            <div class="flex items-center gap-2 mb-4">
+              <div class="w-7 h-7 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                <span class="text-xs">📂</span>
+              </div>
+              <div>
+                <span class="text-xs font-bold text-white block">Level 1: 工具分类</span>
+                <span class="text-[10px] text-slate-500">Tool Category</span>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2 p-2 bg-slate-800/60 rounded-lg">
+                <div class="w-2 h-2 rounded-full bg-blue-400"></div>
+                <span class="text-[11px] text-slate-300">query_schema</span>
+                <span class="text-[10px] text-slate-600 ml-auto">CRM</span>
+              </div>
+              <div class="flex items-center gap-2 p-2 bg-slate-800/60 rounded-lg">
+                <div class="w-2 h-2 rounded-full bg-blue-400"></div>
+                <span class="text-[11px] text-slate-300">query_data</span>
+                <span class="text-[10px] text-slate-600 ml-auto">CRM</span>
+              </div>
+              <div class="flex items-center gap-2 p-2 bg-slate-800/60 rounded-lg">
+                <div class="w-2 h-2 rounded-full bg-blue-400"></div>
+                <span class="text-[11px] text-slate-300">modify_data</span>
+                <span class="text-[10px] text-slate-600 ml-auto">CRM</span>
+              </div>
+              <div class="flex items-center gap-2 p-2 bg-slate-800/60 rounded-lg">
+                <div class="w-2 h-2 rounded-full bg-blue-400"></div>
+                <span class="text-[11px] text-slate-300">terminal</span>
+                <span class="text-[10px] text-slate-600 ml-auto">Sandbox</span>
+              </div>
+              <div class="flex items-center gap-2 p-2 bg-slate-800/60 rounded-lg">
+                <div class="w-2 h-2 rounded-full bg-blue-400"></div>
+                <span class="text-[11px] text-slate-300">browse_metamodel</span>
+                <span class="text-[10px] text-slate-600 ml-auto">Metarepo</span>
+              </div>
+              <div class="flex items-center gap-2 p-2 bg-slate-800/60 rounded-lg">
+                <div class="w-2 h-2 rounded-full bg-blue-400"></div>
+                <span class="text-[11px] text-slate-300">manage_memory</span>
+                <span class="text-[10px] text-slate-600 ml-auto">Memory</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Level 2: 方法 -->
+          <div class="bg-slate-900/50 rounded-xl p-5 border border-slate-700/30">
+            <div class="flex items-center gap-2 mb-4">
+              <div class="w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center">
+                <span class="text-xs">📋</span>
+              </div>
+              <div>
+                <span class="text-xs font-bold text-white block">Level 2: 方法</span>
+                <span class="text-[10px] text-slate-500">Method（以 query_data 为例）</span>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] text-slate-300">query（列表查询）</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">12 用例</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] text-slate-300">get（按 ID 查询）</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">8 用例</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] text-slate-300">count（计数统计）</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">5 用例</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] text-slate-300">filter（条件过滤）</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">20 用例</span>
+              </div>
+            </div>
+            <div class="mt-3 p-2.5 bg-indigo-500/5 rounded-lg border border-indigo-500/10">
+              <span class="text-[10px] text-slate-400">每个方法维护独立的 input_schema，用于自动生成参数组合</span>
+            </div>
+          </div>
+
+          <!-- Level 3: 测试用例 -->
+          <div class="bg-slate-900/50 rounded-xl p-5 border border-slate-700/30">
+            <div class="flex items-center gap-2 mb-4">
+              <div class="w-7 h-7 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+                <span class="text-xs">📝</span>
+              </div>
+              <div>
+                <span class="text-xs font-bold text-white block">Level 3: 测试用例</span>
+                <span class="text-[10px] text-slate-500">Test Case</span>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="p-2.5 bg-slate-800/60 rounded-lg border-l-2 border-green-500/50">
+                <span class="text-[11px] text-white block">正常：按 owner 过滤查询</span>
+                <span class="text-[10px] text-slate-500">input → assertions → expected</span>
+              </div>
+              <div class="p-2.5 bg-slate-800/60 rounded-lg border-l-2 border-orange-500/50">
+                <span class="text-[11px] text-white block">异常：entity 不存在</span>
+                <span class="text-[10px] text-slate-500">should return is_error=true</span>
+              </div>
+              <div class="p-2.5 bg-slate-800/60 rounded-lg border-l-2 border-purple-500/50">
+                <span class="text-[11px] text-white block">边界：page_size=1（最小值）</span>
+                <span class="text-[10px] text-slate-500">boundary value coverage</span>
+              </div>
+              <div class="p-2.5 bg-slate-800/60 rounded-lg border-l-2 border-cyan-500/50">
+                <span class="text-[11px] text-white block">副作用：create 后 query 可查到</span>
+                <span class="text-[10px] text-slate-500">side_effect verification</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- 3. 断言体系 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <div class="arch-card rounded-3xl bg-slate-800/30 p-8 mb-8 animate-fade-up delay-6">
+        <div class="flex items-center gap-2 mb-6">
+          <div class="w-6 h-6 rounded-lg bg-blue-500/10 flex items-center justify-center">
+            <span class="text-xs">✓</span>
+          </div>
+          <h3 class="text-base font-bold text-white">断言引擎（AssertionEngine）</h3>
+          <span class="text-[10px] text-slate-500 ml-auto">11 种断言类型，覆盖各类验证需求</span>
+        </div>
+
+        <div class="grid grid-cols-4 gap-4">
+          <!-- 基础类 -->
+          <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+            <div class="text-[10px] font-bold text-green-400 uppercase tracking-wider mb-3">基础验证</div>
+            <div class="space-y-2.5">
+              <div class="p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] font-medium text-white block">NOT_ERROR</span>
+                <span class="text-[10px] text-slate-500">返回结果不是错误</span>
+              </div>
+              <div class="p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] font-medium text-white block">IS_ERROR</span>
+                <span class="text-[10px] text-slate-500">期望返回错误</span>
+              </div>
+              <div class="p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] font-medium text-white block">EQUALS</span>
+                <span class="text-[10px] text-slate-500">精确匹配字段值</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 内容类 -->
+          <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+            <div class="text-[10px] font-bold text-blue-400 uppercase tracking-wider mb-3">内容匹配</div>
+            <div class="space-y-2.5">
+              <div class="p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] font-medium text-white block">CONTAINS</span>
+                <span class="text-[10px] text-slate-500">包含子串</span>
+              </div>
+              <div class="p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] font-medium text-white block">NOT_CONTAINS</span>
+                <span class="text-[10px] text-slate-500">不包含子串</span>
+              </div>
+              <div class="p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] font-medium text-white block">REGEX</span>
+                <span class="text-[10px] text-slate-500">正则表达式匹配</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 结构类 -->
+          <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+            <div class="text-[10px] font-bold text-purple-400 uppercase tracking-wider mb-3">结构校验</div>
+            <div class="space-y-2.5">
+              <div class="p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] font-medium text-white block">JSON_PATH</span>
+                <span class="text-[10px] text-slate-500">路径取值断言</span>
+              </div>
+              <div class="p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] font-medium text-white block">TYPE_CHECK</span>
+                <span class="text-[10px] text-slate-500">类型校验 (int/str/list)</span>
+              </div>
+              <div class="p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] font-medium text-white block">LENGTH</span>
+                <span class="text-[10px] text-slate-500">数组/字符串长度</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 高级类 -->
+          <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+            <div class="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-3">高级验证</div>
+            <div class="space-y-2.5">
+              <div class="p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] font-medium text-white block">RANGE</span>
+                <span class="text-[10px] text-slate-500">数值范围 [min, max]</span>
+              </div>
+              <div class="p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] font-medium text-white block">SIDE_EFFECT</span>
+                <span class="text-[10px] text-slate-500">副作用验证（执行后再查）</span>
+              </div>
+            </div>
+            <div class="mt-3 p-2 bg-amber-500/5 rounded-lg border border-amber-500/10">
+              <span class="text-[10px] text-amber-400/80">SIDE_EFFECT：执行目标工具后，再调用 verify_tool 确认数据变更</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- 4. 执行流程 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <div class="arch-card rounded-3xl bg-slate-800/30 p-8 mb-8 animate-fade-up delay-7">
+        <div class="flex items-center gap-2 mb-6">
+          <div class="w-6 h-6 rounded-lg bg-blue-500/10 flex items-center justify-center">
+            <span class="text-xs">▶</span>
+          </div>
+          <h3 class="text-base font-bold text-white">评测执行流程</h3>
+        </div>
+
+        <!-- 主流程 -->
+        <div class="bg-slate-900/50 rounded-2xl border border-slate-700/30 p-6 mb-6">
+          <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-4">单个用例执行链路</div>
+          <div class="flex items-center gap-3">
+            <!-- Step 1 -->
+            <div class="flex-1 bg-slate-800/60 rounded-xl p-3 border border-slate-700/50 text-center">
+              <div class="text-sm mb-1">🔄</div>
+              <span class="text-[11px] font-medium text-white block">重置 Backend</span>
+              <span class="text-[10px] text-slate-500 mt-0.5 block">seed data 恢复</span>
+            </div>
+            <svg width="20" height="20" viewBox="0 0 20 20" class="text-slate-600 shrink-0"><path d="M4 10 L16 10 M12 6 L16 10 L12 14" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+            <!-- Step 2 -->
+            <div class="flex-1 bg-slate-800/60 rounded-xl p-3 border border-slate-700/50 text-center">
+              <div class="text-sm mb-1">⚡</div>
+              <span class="text-[11px] font-medium text-white block">Setup Steps</span>
+              <span class="text-[10px] text-slate-500 mt-0.5 block">前置数据准备</span>
+            </div>
+            <svg width="20" height="20" viewBox="0 0 20 20" class="text-slate-600 shrink-0"><path d="M4 10 L16 10 M12 6 L16 10 L12 14" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+            <!-- Step 3 -->
+            <div class="flex-1 bg-blue-500/10 rounded-xl p-3 border border-blue-500/20 text-center">
+              <div class="text-sm mb-1">🔧</div>
+              <span class="text-[11px] font-bold text-blue-400 block">Tool.call()</span>
+              <span class="text-[10px] text-slate-500 mt-0.5 block">执行目标工具</span>
+            </div>
+            <svg width="20" height="20" viewBox="0 0 20 20" class="text-slate-600 shrink-0"><path d="M4 10 L16 10 M12 6 L16 10 L12 14" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+            <!-- Step 4 -->
+            <div class="flex-1 bg-slate-800/60 rounded-xl p-3 border border-slate-700/50 text-center">
+              <div class="text-sm mb-1">✓</div>
+              <span class="text-[11px] font-medium text-white block">断言验证</span>
+              <span class="text-[10px] text-slate-500 mt-0.5 block">逐条检查结果</span>
+            </div>
+            <svg width="20" height="20" viewBox="0 0 20 20" class="text-slate-600 shrink-0"><path d="M4 10 L16 10 M12 6 L16 10 L12 14" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+            <!-- Step 5 -->
+            <div class="flex-1 bg-slate-800/60 rounded-xl p-3 border border-slate-700/50 text-center">
+              <div class="text-sm mb-1">🧹</div>
+              <span class="text-[11px] font-medium text-white block">Cleanup</span>
+              <span class="text-[10px] text-slate-500 mt-0.5 block">自动推导清理</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 执行粒度 -->
+        <div class="grid grid-cols-4 gap-4">
+          <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30 text-center">
+            <div class="w-8 h-8 mx-auto mb-2 rounded-full bg-blue-500/10 flex items-center justify-center">
+              <span class="text-xs">📂</span>
+            </div>
+            <span class="text-[11px] font-medium text-white block">按工具分类</span>
+            <span class="text-[10px] text-slate-500 mt-1 block">执行某工具下全部用例</span>
+            <span class="text-[10px] text-blue-400 mt-2 block">适用：代码变更后全量回归</span>
+          </div>
+          <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30 text-center">
+            <div class="w-8 h-8 mx-auto mb-2 rounded-full bg-indigo-500/10 flex items-center justify-center">
+              <span class="text-xs">📋</span>
+            </div>
+            <span class="text-[11px] font-medium text-white block">按方法</span>
+            <span class="text-[10px] text-slate-500 mt-1 block">执行某方法下全部用例</span>
+            <span class="text-[10px] text-indigo-400 mt-2 block">适用：方法级修改验证</span>
+          </div>
+          <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30 text-center">
+            <div class="w-8 h-8 mx-auto mb-2 rounded-full bg-cyan-500/10 flex items-center justify-center">
+              <span class="text-xs">📝</span>
+            </div>
+            <span class="text-[11px] font-medium text-white block">按用例</span>
+            <span class="text-[10px] text-slate-500 mt-1 block">执行单条用例</span>
+            <span class="text-[10px] text-cyan-400 mt-2 block">适用：调试定位失败用例</span>
+          </div>
+          <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30 text-center">
+            <div class="w-8 h-8 mx-auto mb-2 rounded-full bg-amber-500/10 flex items-center justify-center">
+              <span class="text-xs">🏷️</span>
+            </div>
+            <span class="text-[11px] font-medium text-white block">按标签</span>
+            <span class="text-[10px] text-slate-500 mt-1 block">跨工具按标签筛选执行</span>
+            <span class="text-[10px] text-amber-400 mt-2 block">适用：smoke / P0 快速验证</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- 5. 参数组合自动生成 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <div class="arch-card rounded-3xl bg-slate-800/30 p-8 mb-8 animate-fade-up delay-7">
+        <div class="flex items-center gap-2 mb-6">
+          <div class="w-6 h-6 rounded-lg bg-blue-500/10 flex items-center justify-center">
+            <span class="text-xs">🤖</span>
+          </div>
+          <h3 class="text-base font-bold text-white">参数组合自动生成</h3>
+          <span class="text-[10px] text-slate-500 ml-auto">根据 input_schema 自动推导用例覆盖</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-6">
+          <!-- 四种策略 -->
+          <div class="space-y-3">
+            <div class="text-[10px] font-bold text-blue-400 uppercase tracking-wider mb-2">生成策略</div>
+            <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">A</span>
+                <span class="text-xs font-medium text-white">正交覆盖（Pairwise）</span>
+              </div>
+              <span class="text-[10px] text-slate-400 block">最少用例覆盖所有参数对的组合，适用于参数 > 3 个且相互独立的方法</span>
+            </div>
+            <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400">B</span>
+                <span class="text-xs font-medium text-white">等价类 + 边界值</span>
+              </div>
+              <span class="text-[10px] text-slate-400 block">每个参数取等价类代表值 + min/max 边界，适用于有明确取值范围的方法</span>
+            </div>
+            <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">C</span>
+                <span class="text-xs font-medium text-white">场景驱动</span>
+              </div>
+              <span class="text-[10px] text-slate-400 block">按业务场景枚举典型用法，适用于参数间有语义耦合的方法</span>
+            </div>
+            <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400">D</span>
+                <span class="text-xs font-medium text-white">全组合（Exhaustive）</span>
+              </div>
+              <span class="text-[10px] text-slate-400 block">穷举所有组合，仅用于参数少（bool ≤ 3 个）的方法</span>
+            </div>
+          </div>
+
+          <!-- 生成规则 -->
+          <div>
+            <div class="text-[10px] font-bold text-blue-400 uppercase tracking-wider mb-2">自动生成内容</div>
+            <div class="bg-slate-900/50 rounded-xl p-5 border border-slate-700/30 space-y-3">
+              <div class="flex items-start gap-3">
+                <div class="w-5 h-5 rounded bg-green-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <span class="text-[10px] text-green-400">+</span>
+                </div>
+                <div>
+                  <span class="text-[11px] font-medium text-white block">正向用例</span>
+                  <span class="text-[10px] text-slate-500 block mt-0.5">最小必填参数 · 全部参数默认值 · Pairwise 组合</span>
+                </div>
+              </div>
+              <div class="flex items-start gap-3">
+                <div class="w-5 h-5 rounded bg-orange-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <span class="text-[10px] text-orange-400">−</span>
+                </div>
+                <div>
+                  <span class="text-[11px] font-medium text-white block">逆向用例</span>
+                  <span class="text-[10px] text-slate-500 block mt-0.5">required 参数缺失 · 类型错误 · 非法枚举值</span>
+                </div>
+              </div>
+              <div class="flex items-start gap-3">
+                <div class="w-5 h-5 rounded bg-purple-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <span class="text-[10px] text-purple-400">⟷</span>
+                </div>
+                <div>
+                  <span class="text-[11px] font-medium text-white block">边界用例</span>
+                  <span class="text-[10px] text-slate-500 block mt-0.5">null · 空字符串 · 超长 · 0 · 负数 · 超大数 · min/max</span>
+                </div>
+              </div>
+            </div>
+            <!-- 用户操作流程 -->
+            <div class="mt-4 bg-blue-500/5 rounded-xl p-4 border border-blue-500/10">
+              <div class="text-[10px] font-bold text-blue-400 mb-2">用户操作路径</div>
+              <div class="space-y-2 text-[10px] text-slate-400">
+                <p>1. 选择工具/方法 → 点击「自动生成参数组合」</p>
+                <p>2. 系统读取 input_schema → 按策略生成用例草稿</p>
+                <p>3. 用户审核/微调 → 确认入库</p>
+                <p>4. 后续工具 schema 变更时可一键重新生成覆盖</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- 6. 前端界面设计 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <div class="arch-card rounded-3xl bg-slate-800/30 p-8 mb-8 animate-fade-up delay-7">
+        <div class="flex items-center gap-2 mb-6">
+          <div class="w-6 h-6 rounded-lg bg-blue-500/10 flex items-center justify-center">
+            <span class="text-xs">🖥️</span>
+          </div>
+          <h3 class="text-base font-bold text-white">界面交互设计</h3>
+        </div>
+
+        <!-- 界面布局示意 -->
+        <div class="bg-slate-900/60 rounded-2xl border border-slate-700/40 overflow-hidden">
+          <!-- 模拟顶栏 -->
+          <div class="bg-slate-800/80 px-4 py-2.5 border-b border-slate-700/50 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold text-white">🔧 Tool 评测</span>
+              <span class="text-[10px] text-slate-500">直接调用工具函数验证功能正确性</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="px-2 py-1 rounded bg-slate-700/50 text-[10px] text-slate-400">同步预置用例</div>
+              <div class="px-2 py-1 rounded bg-blue-500/10 text-[10px] text-blue-400 border border-blue-500/20">自动生成用例</div>
+            </div>
+          </div>
+
+          <div class="flex">
+            <!-- 左侧目录树 -->
+            <div class="w-64 border-r border-slate-700/30 p-4 shrink-0">
+              <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">用例目录</div>
+              <!-- 模拟树结构 -->
+              <div class="space-y-1">
+                <div class="flex items-center gap-2 p-1.5 rounded-lg bg-blue-500/5 border border-blue-500/10">
+                  <span class="text-[10px]">📂</span>
+                  <span class="text-[11px] font-medium text-blue-400">query_schema</span>
+                  <span class="text-[9px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded-full ml-auto">29</span>
+                </div>
+                <div class="pl-4 space-y-0.5">
+                  <div class="flex items-center gap-2 p-1 rounded text-[10px] text-slate-400 hover:bg-slate-800/40">
+                    <span>📋</span> list_entities <span class="ml-auto text-blue-400/60">15</span>
+                  </div>
+                  <div class="flex items-center gap-2 p-1 rounded text-[10px] text-slate-400 hover:bg-slate-800/40">
+                    <span>📋</span> entity_detail <span class="ml-auto text-blue-400/60">8</span>
+                  </div>
+                  <div class="flex items-center gap-2 p-1 rounded text-[10px] text-slate-400 hover:bg-slate-800/40">
+                    <span>📋</span> list_fields <span class="ml-auto text-blue-400/60">6</span>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-800/40">
+                  <span class="text-[10px]">📂</span>
+                  <span class="text-[11px] text-slate-300">query_data</span>
+                  <span class="text-[9px] bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded-full ml-auto">45</span>
+                </div>
+                <div class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-800/40">
+                  <span class="text-[10px]">📂</span>
+                  <span class="text-[11px] text-slate-300">modify_data</span>
+                  <span class="text-[9px] bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded-full ml-auto">30</span>
+                </div>
+                <div class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-800/40">
+                  <span class="text-[10px]">📂</span>
+                  <span class="text-[11px] text-slate-300">terminal</span>
+                  <span class="text-[9px] bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded-full ml-auto">33</span>
+                </div>
+              </div>
+              <!-- 执行区 -->
+              <div class="mt-4 pt-3 border-t border-slate-700/30 space-y-2">
+                <div class="text-[10px] text-slate-500">执行范围: query_schema (全部方法)</div>
+                <div class="flex gap-1 flex-wrap">
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400">normal</span>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400">error</span>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">boundary</span>
+                </div>
+                <div class="w-full py-1.5 bg-blue-600 rounded-lg text-center text-[10px] font-bold text-white">▶ 执行评测</div>
+              </div>
+            </div>
+
+            <!-- 右侧结果区 -->
+            <div class="flex-1 p-4">
+              <!-- 统计栏 -->
+              <div class="grid grid-cols-5 gap-3 mb-4">
+                <div class="bg-slate-800/50 rounded-lg p-2.5 text-center">
+                  <div class="text-[10px] text-slate-500">Pass Rate</div>
+                  <div class="text-sm font-bold text-green-400">93.8%</div>
+                </div>
+                <div class="bg-slate-800/50 rounded-lg p-2.5 text-center">
+                  <div class="text-[10px] text-slate-500">通过</div>
+                  <div class="text-sm font-bold text-green-400">15</div>
+                </div>
+                <div class="bg-slate-800/50 rounded-lg p-2.5 text-center">
+                  <div class="text-[10px] text-slate-500">失败</div>
+                  <div class="text-sm font-bold text-red-400">1</div>
+                </div>
+                <div class="bg-slate-800/50 rounded-lg p-2.5 text-center">
+                  <div class="text-[10px] text-slate-500">总用例</div>
+                  <div class="text-sm font-bold text-white">16</div>
+                </div>
+                <div class="bg-slate-800/50 rounded-lg p-2.5 text-center">
+                  <div class="text-[10px] text-slate-500">耗时</div>
+                  <div class="text-sm font-bold text-white">2.1s</div>
+                </div>
+              </div>
+
+              <!-- 用例列表 -->
+              <div class="space-y-2">
+                <div class="bg-slate-800/40 rounded-lg p-3 border border-green-500/10 flex items-center gap-3">
+                  <div class="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                    <span class="text-[10px] text-green-400">✓</span>
+                  </div>
+                  <div class="flex-1">
+                    <span class="text-[11px] text-white">list_entities - 无参数查询全部实体</span>
+                  </div>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400">normal</span>
+                  <span class="text-[10px] text-slate-500">2ms</span>
+                </div>
+                <div class="bg-slate-800/40 rounded-lg p-3 border border-green-500/10 flex items-center gap-3">
+                  <div class="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                    <span class="text-[10px] text-green-400">✓</span>
+                  </div>
+                  <div class="flex-1">
+                    <span class="text-[11px] text-white">entity - 查看 opportunity 定义</span>
+                  </div>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400">normal</span>
+                  <span class="text-[10px] text-slate-500">3ms</span>
+                </div>
+                <div class="bg-slate-800/40 rounded-lg p-3 border border-red-500/10 flex items-center gap-3">
+                  <div class="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center">
+                    <span class="text-[10px] text-red-400">✗</span>
+                  </div>
+                  <div class="flex-1">
+                    <span class="text-[11px] text-white">不存在的 entity - 应返回错误</span>
+                  </div>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400">error</span>
+                  <span class="text-[10px] text-slate-500">5ms</span>
+                </div>
+                <div class="bg-slate-800/40 rounded-lg p-3 border border-green-500/10 flex items-center gap-3">
+                  <div class="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                    <span class="text-[10px] text-green-400">✓</span>
+                  </div>
+                  <div class="flex-1">
+                    <span class="text-[11px] text-white">entity_pick_options - 查询选项值</span>
+                  </div>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400">normal</span>
+                  <span class="text-[10px] text-slate-500">1ms</span>
+                </div>
+              </div>
+
+              <!-- 失败详情展开 -->
+              <div class="mt-3 bg-red-500/5 rounded-xl p-4 border border-red-500/10">
+                <div class="text-[10px] font-bold text-red-400 mb-2">❌ 失败详情</div>
+                <div class="bg-slate-900/60 rounded-lg p-3">
+                  <div class="text-[11px] text-white mb-1">用例: 不存在的 entity - 应返回错误</div>
+                  <div class="text-[10px] text-slate-500 mb-2">输入: {"query_type": "entity", "entity_api_key": "nonexistent_xyz"}</div>
+                  <div class="text-[10px] text-red-400">✗ 断言失败: 期望 is_error=True，实际 is_error=False</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- Memory 评测 — 详细产品设计 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+
+      <!-- 分隔线 -->
+      <div class="my-16 flex items-center gap-4">
+        <div class="flex-1 h-px bg-gradient-to-r from-transparent via-purple-500/30 to-transparent"></div>
+        <div class="px-4 py-2 bg-purple-500/5 border border-purple-500/20 rounded-full">
+          <span class="text-xs text-purple-400 font-medium">长期记忆评测</span>
+        </div>
+        <div class="flex-1 h-px bg-gradient-to-r from-transparent via-purple-500/30 to-transparent"></div>
+      </div>
+
+      <!-- 标题 -->
+      <div class="flex items-center gap-3 mb-8 animate-fade-up delay-5">
+        <div class="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+          <span class="text-lg">🧠</span>
+        </div>
+        <div>
+          <h2 class="text-xl font-bold text-white">Memory 评测 — 产品设计详案</h2>
+          <p class="text-xs text-slate-400 mt-0.5">验证长期记忆子系统的写入正确性、检索召回率、时间衰减与冲突消解能力</p>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- M1. 核心定位与五层评测体系 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <div class="arch-card rounded-3xl bg-slate-800/30 p-8 mb-8 animate-fade-up delay-5">
+        <div class="flex items-center gap-2 mb-6">
+          <div class="w-6 h-6 rounded-lg bg-purple-500/10 flex items-center justify-center">
+            <span class="text-xs">📐</span>
+          </div>
+          <h3 class="text-base font-bold text-white">核心定位与五层评测体系</h3>
+        </div>
+
+        <div class="grid grid-cols-2 gap-8">
+          <!-- 定位 -->
+          <div>
+            <div class="text-[11px] font-bold text-purple-400 uppercase tracking-wider mb-4">定位</div>
+            <div class="bg-slate-900/50 rounded-xl p-5 border border-purple-500/10">
+              <div class="space-y-4">
+                <div class="flex items-start gap-3">
+                  <div class="w-6 h-6 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <span class="text-[10px] font-bold text-purple-400">1</span>
+                  </div>
+                  <div>
+                    <span class="text-xs font-medium text-white block">记忆子系统独立验证</span>
+                    <span class="text-[11px] text-slate-400 mt-1 block">被测对象是 Memory Engine，包含写入提取、向量检索、冲突消解三大链路</span>
+                  </div>
+                </div>
+                <div class="flex items-start gap-3">
+                  <div class="w-6 h-6 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <span class="text-[10px] font-bold text-purple-400">2</span>
+                  </div>
+                  <div>
+                    <span class="text-xs font-medium text-white block">实例级隔离</span>
+                    <span class="text-[11px] text-slate-400 mt-1 block">使用独立 VDB collection + 独立 tenant，预置种子记忆数据集（40+ 条），不污染生产数据</span>
+                  </div>
+                </div>
+                <div class="flex items-start gap-3">
+                  <div class="w-6 h-6 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <span class="text-[10px] font-bold text-purple-400">3</span>
+                  </div>
+                  <div>
+                    <span class="text-xs font-medium text-white block">串行状态累积</span>
+                    <span class="text-[11px] text-slate-400 mt-1 block">提取类用例按顺序执行，每次提取写入的记忆会影响后续用例的检索结果，模拟真实累积行为</span>
+                  </div>
+                </div>
+                <div class="flex items-start gap-3">
+                  <div class="w-6 h-6 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <span class="text-[10px] font-bold text-purple-400">4</span>
+                  </div>
+                  <div>
+                    <span class="text-xs font-medium text-white block">450 条用例覆盖</span>
+                    <span class="text-[11px] text-slate-400 mt-1 block">200 条检索召回 + 250 条四维度提取 = 450 条完整用例集</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 五层体系 -->
+          <div>
+            <div class="text-[11px] font-bold text-purple-400 uppercase tracking-wider mb-4">五层评测体系</div>
+            <div class="bg-slate-900/50 rounded-xl p-5 border border-purple-500/10 space-y-3">
+              <div class="flex items-center gap-3 p-2.5 bg-slate-800/60 rounded-lg border-l-2 border-purple-400/80">
+                <div class="w-7 h-7 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                  <span class="text-[10px] font-bold text-purple-400">L1</span>
+                </div>
+                <div>
+                  <span class="text-[11px] font-medium text-white block">写入正确性（Extract Accuracy）</span>
+                  <span class="text-[10px] text-slate-500">用户发言 → LLM 提取 → 记忆写入，维度归类是否正确</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-3 p-2.5 bg-slate-800/60 rounded-lg border-l-2 border-purple-400/60">
+                <div class="w-7 h-7 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                  <span class="text-[10px] font-bold text-purple-400">L2</span>
+                </div>
+                <div>
+                  <span class="text-[11px] font-medium text-white block">检索召回率（Retrieval Recall）</span>
+                  <span class="text-[10px] text-slate-500">给定查询 → 返回 Top-K → 计算 Recall@K / MRR / Top1 Hit</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-3 p-2.5 bg-slate-800/60 rounded-lg border-l-2 border-purple-400/40">
+                <div class="w-7 h-7 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                  <span class="text-[10px] font-bold text-purple-400">L3</span>
+                </div>
+                <div>
+                  <span class="text-[11px] font-medium text-white block">时间衰减（Temporal Dynamics）</span>
+                  <span class="text-[10px] text-slate-500">模拟多轮对话后，早期记忆的召回是否合理衰减</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-3 p-2.5 bg-slate-800/60 rounded-lg border-l-2 border-purple-400/30">
+                <div class="w-7 h-7 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                  <span class="text-[10px] font-bold text-purple-400">L4</span>
+                </div>
+                <div>
+                  <span class="text-[11px] font-medium text-white block">上下文匹配度（Context Relevance）</span>
+                  <span class="text-[10px] text-slate-500">召回的记忆与当前对话上下文的相关性排序</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-3 p-2.5 bg-slate-800/60 rounded-lg border-l-2 border-purple-400/20">
+                <div class="w-7 h-7 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                  <span class="text-[10px] font-bold text-purple-400">L5</span>
+                </div>
+                <div>
+                  <span class="text-[11px] font-medium text-white block">端到端效果（E2E Impact）</span>
+                  <span class="text-[10px] text-slate-500">记忆注入后 Agent 回复质量是否实际提升</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- M2. 用例分类与覆盖矩阵 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <div class="arch-card rounded-3xl bg-slate-800/30 p-8 mb-8 animate-fade-up delay-6">
+        <div class="flex items-center gap-2 mb-6">
+          <div class="w-6 h-6 rounded-lg bg-purple-500/10 flex items-center justify-center">
+            <span class="text-xs">🗂️</span>
+          </div>
+          <h3 class="text-base font-bold text-white">用例分类与覆盖矩阵</h3>
+          <span class="text-[10px] text-slate-500 ml-auto">两大板块：检索召回 200 条 + 四维度提取 250 条</span>
+        </div>
+
+        <!-- 两大板块 -->
+        <div class="grid grid-cols-2 gap-6 mb-6">
+          <!-- 检索召回 200 条 -->
+          <div class="bg-slate-900/50 rounded-xl p-5 border border-purple-500/10">
+            <div class="flex items-center gap-2 mb-4">
+              <div class="w-7 h-7 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                <span class="text-xs">🔍</span>
+              </div>
+              <div>
+                <span class="text-xs font-bold text-white block">检索召回评测</span>
+                <span class="text-[10px] text-purple-400">200 条 · 9 种查询类型</span>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] text-slate-300">精确实体召回</span>
+                <span class="text-[10px] text-purple-400 font-medium">40 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] text-slate-300">模糊语义召回</span>
+                <span class="text-[10px] text-purple-400 font-medium">30 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] text-slate-300">时间相关召回</span>
+                <span class="text-[10px] text-purple-400 font-medium">20 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] text-slate-300">跨类别召回</span>
+                <span class="text-[10px] text-purple-400 font-medium">20 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] text-slate-300">更新覆盖验证</span>
+                <span class="text-[10px] text-purple-400 font-medium">20 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] text-slate-300">冲突消解验证</span>
+                <span class="text-[10px] text-purple-400 font-medium">15 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] text-slate-300">长尾衰减验证</span>
+                <span class="text-[10px] text-purple-400 font-medium">15 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] text-slate-300">负例验证（不应召回）</span>
+                <span class="text-[10px] text-purple-400 font-medium">20 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg">
+                <span class="text-[11px] text-slate-300">多维度综合</span>
+                <span class="text-[10px] text-purple-400 font-medium">20 条</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 四维度提取 250 条 -->
+          <div class="bg-slate-900/50 rounded-xl p-5 border border-purple-500/10">
+            <div class="flex items-center gap-2 mb-4">
+              <div class="w-7 h-7 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                <span class="text-xs">✏️</span>
+              </div>
+              <div>
+                <span class="text-xs font-bold text-white block">四维度提取评测</span>
+                <span class="text-[10px] text-purple-400">250 条 · 8 种场景类型</span>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg border-l-2 border-blue-400/50">
+                <span class="text-[11px] text-slate-300">Profile 正例</span>
+                <span class="text-[10px] text-purple-400 font-medium">25 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg border-l-2 border-green-400/50">
+                <span class="text-[11px] text-slate-300">Preferences 正例</span>
+                <span class="text-[10px] text-purple-400 font-medium">25 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg border-l-2 border-amber-400/50">
+                <span class="text-[11px] text-slate-300">Agent Rules 正例</span>
+                <span class="text-[10px] text-purple-400 font-medium">25 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg border-l-2 border-cyan-400/50">
+                <span class="text-[11px] text-slate-300">Entities 正例</span>
+                <span class="text-[10px] text-purple-400 font-medium">25 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg border-l-2 border-slate-500/50">
+                <span class="text-[11px] text-slate-300">不提取场景（负例）</span>
+                <span class="text-[10px] text-purple-400 font-medium">30 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg border-l-2 border-indigo-400/50">
+                <span class="text-[11px] text-slate-300">混合意图（多维度同时）</span>
+                <span class="text-[10px] text-purple-400 font-medium">30 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg border-l-2 border-orange-400/50">
+                <span class="text-[11px] text-slate-300">边界对抗（模糊归属）</span>
+                <span class="text-[10px] text-purple-400 font-medium">40 条</span>
+              </div>
+              <div class="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg border-l-2 border-red-400/50">
+                <span class="text-[11px] text-slate-300">反思验证（冲突/更新）</span>
+                <span class="text-[10px] text-purple-400 font-medium">50 条</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 种子数据说明 -->
+        <div class="bg-purple-500/5 rounded-xl p-5 border border-purple-500/10">
+          <div class="text-[10px] font-bold text-purple-400 mb-3">种子记忆数据集（Seed Memories）</div>
+          <div class="grid grid-cols-4 gap-4">
+            <div class="bg-slate-900/40 rounded-lg p-3">
+              <div class="text-[11px] font-medium text-white mb-1">客户实体</div>
+              <div class="text-[10px] text-slate-400 space-y-0.5">
+                <p>华为（8 条）· 腾讯（7 条）</p>
+                <p>招行（6 条）· 比亚迪（6 条）</p>
+                <p>小米（5 条）· 字节（5 条）</p>
+              </div>
+            </div>
+            <div class="bg-slate-900/40 rounded-lg p-3">
+              <div class="text-[11px] font-medium text-white mb-1">覆盖维度</div>
+              <div class="text-[10px] text-slate-400 space-y-0.5">
+                <p>人物风格 / 项目进展</p>
+                <p>采购流程 / 报价策略</p>
+                <p>预算信息 / 时间窗口</p>
+              </div>
+            </div>
+            <div class="bg-slate-900/40 rounded-lg p-3">
+              <div class="text-[11px] font-medium text-white mb-1">通用经验</div>
+              <div class="text-[10px] text-slate-400 space-y-0.5">
+                <p>行业方案策略（金融/互联网/制造）</p>
+                <p>报价通用策略 / 竞品应对</p>
+                <p>大客户跟进 / POC 流程</p>
+              </div>
+            </div>
+            <div class="bg-slate-900/40 rounded-lg p-3">
+              <div class="text-[11px] font-medium text-white mb-1">用户画像</div>
+              <div class="text-[10px] text-slate-400 space-y-0.5">
+                <p>角色：大客户销售经理</p>
+                <p>擅长：ToB 企业级销售</p>
+                <p>KA：华为/腾讯/招行等</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- M3. 四维度提取模型 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <div class="arch-card rounded-3xl bg-slate-800/30 p-8 mb-8 animate-fade-up delay-6">
+        <div class="flex items-center gap-2 mb-6">
+          <div class="w-6 h-6 rounded-lg bg-purple-500/10 flex items-center justify-center">
+            <span class="text-xs">🎯</span>
+          </div>
+          <h3 class="text-base font-bold text-white">四维度记忆提取模型</h3>
+          <span class="text-[10px] text-slate-500 ml-auto">用户发言 → LLM 四路并行提取 → 分维度写入记忆库</span>
+        </div>
+
+        <div class="grid grid-cols-4 gap-4">
+          <!-- Profile -->
+          <div class="bg-slate-900/50 rounded-xl p-4 border border-blue-500/10">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="w-7 h-7 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                <span class="text-xs">👤</span>
+              </div>
+              <span class="text-[11px] font-bold text-blue-400">Profile</span>
+            </div>
+            <div class="text-[10px] text-slate-400 space-y-1.5">
+              <p class="text-slate-300 font-medium">用户/团队的稳定属性</p>
+              <p>• 身份角色、履历背景</p>
+              <p>• 团队规模、组织结构</p>
+              <p>• 行业领域、负责区域</p>
+              <p>• KPI 目标、公司信息</p>
+            </div>
+            <div class="mt-3 p-2 bg-blue-500/5 rounded-lg">
+              <span class="text-[9px] text-blue-400/80">示例："在这个行业干了十年了，从技术转管理"</span>
+            </div>
+          </div>
+
+          <!-- Preferences -->
+          <div class="bg-slate-900/50 rounded-xl p-4 border border-green-500/10">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="w-7 h-7 rounded-lg bg-green-500/10 flex items-center justify-center">
+                <span class="text-xs">⚙️</span>
+              </div>
+              <span class="text-[11px] font-bold text-green-400">Preferences</span>
+            </div>
+            <div class="text-[10px] text-slate-400 space-y-1.5">
+              <p class="text-slate-300 font-medium">用户的交互偏好</p>
+              <p>• 汇报格式偏好</p>
+              <p>• 沟通风格（简洁/详细）</p>
+              <p>• 时间段偏好</p>
+              <p>• 数据展示方式</p>
+            </div>
+            <div class="mt-3 p-2 bg-green-500/5 rounded-lg">
+              <span class="text-[9px] text-green-400/80">示例："以后回复简短一些，别写那么多废话"</span>
+            </div>
+          </div>
+
+          <!-- Agent Rules -->
+          <div class="bg-slate-900/50 rounded-xl p-4 border border-amber-500/10">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                <span class="text-xs">📏</span>
+              </div>
+              <span class="text-[11px] font-bold text-amber-400">Agent Rules</span>
+            </div>
+            <div class="text-[10px] text-slate-400 space-y-1.5">
+              <p class="text-slate-300 font-medium">用户设定的行为规则</p>
+              <p>• 操作前确认要求</p>
+              <p>• 禁止执行的操作</p>
+              <p>• 条件触发规则</p>
+              <p>• 流程限制约束</p>
+            </div>
+            <div class="mt-3 p-2 bg-amber-500/5 rounded-lg">
+              <span class="text-[9px] text-amber-400/80">示例："金额超过 100 万的报价必须先让我确认"</span>
+            </div>
+          </div>
+
+          <!-- Entities -->
+          <div class="bg-slate-900/50 rounded-xl p-4 border border-cyan-500/10">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="w-7 h-7 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+                <span class="text-xs">🏢</span>
+              </div>
+              <span class="text-[11px] font-bold text-cyan-400">Entities</span>
+            </div>
+            <div class="text-[10px] text-slate-400 space-y-1.5">
+              <p class="text-slate-300 font-medium">业务实体的事实信息</p>
+              <p>• 客户/联系人特征</p>
+              <p>• 项目进展状态</p>
+              <p>• 商业关系与决策链</p>
+              <p>• 报价/预算/时间线</p>
+            </div>
+            <div class="mt-3 p-2 bg-cyan-500/5 rounded-lg">
+              <span class="text-[9px] text-cyan-400/80">示例："华为张伟喜欢看 PPT，决策果断但要数据支撑"</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 提取流程 -->
+        <div class="mt-6 bg-slate-900/40 rounded-xl p-5 border border-slate-700/30">
+          <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">提取评测验证点</div>
+          <div class="grid grid-cols-3 gap-4">
+            <div class="bg-slate-800/60 rounded-lg p-3">
+              <span class="text-[11px] font-medium text-white block mb-1">维度归类正确性</span>
+              <span class="text-[10px] text-slate-500">发言应归入哪个维度（或不提取）</span>
+            </div>
+            <div class="bg-slate-800/60 rounded-lg p-3">
+              <span class="text-[11px] font-medium text-white block mb-1">merge_key 生成质量</span>
+              <span class="text-[10px] text-slate-500">同主题的记忆能否正确合并 upsert</span>
+            </div>
+            <div class="bg-slate-800/60 rounded-lg p-3">
+              <span class="text-[11px] font-medium text-white block mb-1">负例鲁棒性</span>
+              <span class="text-[10px] text-slate-500">闲聊/问候/纯指令不应触发提取</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- M4. 检索评测指标体系 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <div class="arch-card rounded-3xl bg-slate-800/30 p-8 mb-8 animate-fade-up delay-6">
+        <div class="flex items-center gap-2 mb-6">
+          <div class="w-6 h-6 rounded-lg bg-purple-500/10 flex items-center justify-center">
+            <span class="text-xs">📊</span>
+          </div>
+          <h3 class="text-base font-bold text-white">评测指标体系</h3>
+        </div>
+
+        <div class="grid grid-cols-2 gap-6">
+          <!-- 检索指标 -->
+          <div class="bg-slate-900/50 rounded-xl p-5 border border-purple-500/10">
+            <div class="text-[10px] font-bold text-purple-400 uppercase tracking-wider mb-4">检索召回指标</div>
+            <div class="space-y-3">
+              <div class="flex items-start gap-3 p-3 bg-slate-800/60 rounded-lg">
+                <div class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                  <span class="text-[11px] font-bold text-purple-400">R@K</span>
+                </div>
+                <div>
+                  <span class="text-xs font-medium text-white block">Recall@K（召回率）</span>
+                  <span class="text-[10px] text-slate-400 mt-0.5 block">Top-K 结果中命中期望记忆的比例，K=3 和 K=5 双指标</span>
+                </div>
+              </div>
+              <div class="flex items-start gap-3 p-3 bg-slate-800/60 rounded-lg">
+                <div class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                  <span class="text-[11px] font-bold text-purple-400">P@K</span>
+                </div>
+                <div>
+                  <span class="text-xs font-medium text-white block">Precision@K（精确率）</span>
+                  <span class="text-[10px] text-slate-400 mt-0.5 block">Top-K 结果中属于期望结果的比例，衡量噪声</span>
+                </div>
+              </div>
+              <div class="flex items-start gap-3 p-3 bg-slate-800/60 rounded-lg">
+                <div class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                  <span class="text-[11px] font-bold text-purple-400">MRR</span>
+                </div>
+                <div>
+                  <span class="text-xs font-medium text-white block">Mean Reciprocal Rank</span>
+                  <span class="text-[10px] text-slate-400 mt-0.5 block">第一个正确结果出现的位置倒数，衡量排序质量</span>
+                </div>
+              </div>
+              <div class="flex items-start gap-3 p-3 bg-slate-800/60 rounded-lg">
+                <div class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                  <span class="text-[11px] font-bold text-purple-400">T1</span>
+                </div>
+                <div>
+                  <span class="text-xs font-medium text-white block">Top1 Hit Rate</span>
+                  <span class="text-[10px] text-slate-400 mt-0.5 block">第一条结果即为正确的比例，最严格指标</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 提取指标 -->
+          <div class="bg-slate-900/50 rounded-xl p-5 border border-purple-500/10">
+            <div class="text-[10px] font-bold text-purple-400 uppercase tracking-wider mb-4">提取正确性指标</div>
+            <div class="space-y-3">
+              <div class="flex items-start gap-3 p-3 bg-slate-800/60 rounded-lg">
+                <div class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                  <span class="text-[11px] font-bold text-purple-400">DA</span>
+                </div>
+                <div>
+                  <span class="text-xs font-medium text-white block">Dimension Accuracy</span>
+                  <span class="text-[10px] text-slate-400 mt-0.5 block">提取到的维度是否与期望维度一致（正确归类率）</span>
+                </div>
+              </div>
+              <div class="flex items-start gap-3 p-3 bg-slate-800/60 rounded-lg">
+                <div class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                  <span class="text-[11px] font-bold text-purple-400">NR</span>
+                </div>
+                <div>
+                  <span class="text-xs font-medium text-white block">Negative Rejection Rate</span>
+                  <span class="text-[10px] text-slate-400 mt-0.5 block">不应提取的发言正确拒绝的比例（假阳性控制）</span>
+                </div>
+              </div>
+              <div class="flex items-start gap-3 p-3 bg-slate-800/60 rounded-lg">
+                <div class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                  <span class="text-[11px] font-bold text-purple-400">RA</span>
+                </div>
+                <div>
+                  <span class="text-xs font-medium text-white block">Reflect Action Accuracy</span>
+                  <span class="text-[10px] text-slate-400 mt-0.5 block">反思用例中，冲突检测和动作选择的正确率</span>
+                </div>
+              </div>
+              <div class="flex items-start gap-3 p-3 bg-slate-800/60 rounded-lg">
+                <div class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                  <span class="text-[11px] font-bold text-purple-400">SC</span>
+                </div>
+                <div>
+                  <span class="text-xs font-medium text-white block">State Consistency</span>
+                  <span class="text-[10px] text-slate-400 mt-0.5 block">串行执行后记忆库状态（条数/内容）与预期一致性</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 合格线 -->
+        <div class="mt-5 bg-purple-500/5 rounded-xl p-4 border border-purple-500/10">
+          <div class="text-[10px] font-bold text-purple-400 mb-2">质量合格线</div>
+          <div class="grid grid-cols-4 gap-4 text-[10px] text-slate-400">
+            <div class="text-center">
+              <span class="text-sm font-bold text-white block">≥ 0.7</span>
+              <span>avg Recall@5</span>
+            </div>
+            <div class="text-center">
+              <span class="text-sm font-bold text-white block">≥ 0.5</span>
+              <span>avg MRR</span>
+            </div>
+            <div class="text-center">
+              <span class="text-sm font-bold text-white block">≥ 85%</span>
+              <span>Dimension Accuracy</span>
+            </div>
+            <div class="text-center">
+              <span class="text-sm font-bold text-white block">≥ 90%</span>
+              <span>Negative Rejection</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- M5. 反思与冲突消解 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <div class="arch-card rounded-3xl bg-slate-800/30 p-8 mb-8 animate-fade-up delay-7">
+        <div class="flex items-center gap-2 mb-6">
+          <div class="w-6 h-6 rounded-lg bg-purple-500/10 flex items-center justify-center">
+            <span class="text-xs">🔄</span>
+          </div>
+          <h3 class="text-base font-bold text-white">反思与冲突消解机制</h3>
+          <span class="text-[10px] text-slate-500 ml-auto">新信息与旧记忆矛盾时的处理策略</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-6">
+          <!-- 冲突类型 -->
+          <div>
+            <div class="text-[10px] font-bold text-purple-400 uppercase tracking-wider mb-3">冲突触发场景</div>
+            <div class="space-y-3">
+              <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+                <div class="flex items-center gap-2 mb-2">
+                  <div class="w-5 h-5 rounded bg-red-500/20 flex items-center justify-center">
+                    <span class="text-[10px] text-red-400">⚡</span>
+                  </div>
+                  <span class="text-xs font-medium text-white">用户反馈反思</span>
+                </div>
+                <span class="text-[10px] text-slate-400 block">用户纠正 Agent 的错误认知："不对，我不负责华东区了"</span>
+              </div>
+              <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+                <div class="flex items-center gap-2 mb-2">
+                  <div class="w-5 h-5 rounded bg-orange-500/20 flex items-center justify-center">
+                    <span class="text-[10px] text-orange-400">🔀</span>
+                  </div>
+                  <span class="text-xs font-medium text-white">冲突检测反思</span>
+                </div>
+                <span class="text-[10px] text-slate-400 block">新提取信息与已有记忆矛盾："预算从 500 万变成了 800 万"</span>
+              </div>
+              <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+                <div class="flex items-center gap-2 mb-2">
+                  <div class="w-5 h-5 rounded bg-blue-500/20 flex items-center justify-center">
+                    <span class="text-[10px] text-blue-400">🏁</span>
+                  </div>
+                  <span class="text-xs font-medium text-white">会话结束反思</span>
+                </div>
+                <span class="text-[10px] text-slate-400 block">对话结束时回顾全程，提炼高价值信息</span>
+              </div>
+              <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+                <div class="flex items-center gap-2 mb-2">
+                  <div class="w-5 h-5 rounded bg-amber-500/20 flex items-center justify-center">
+                    <span class="text-[10px] text-amber-400">⚠️</span>
+                  </div>
+                  <span class="text-xs font-medium text-white">失败驱动反思</span>
+                </div>
+                <span class="text-[10px] text-slate-400 block">Agent 执行失败后反思原因，更新规则记忆</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 处理动作 -->
+          <div>
+            <div class="text-[10px] font-bold text-purple-400 uppercase tracking-wider mb-3">消解策略（expected_action）</div>
+            <div class="space-y-3">
+              <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-500/10 text-green-400">update_old</span>
+                  <span class="text-xs font-medium text-white">更新旧记忆</span>
+                </div>
+                <span class="text-[10px] text-slate-400 block">新信息是旧信息的演进，直接覆盖（如预算变更、调岗）</span>
+              </div>
+              <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-500/10 text-red-400">archive_old</span>
+                  <span class="text-xs font-medium text-white">归档旧记忆</span>
+                </div>
+                <span class="text-[10px] text-slate-400 block">旧信息已失效，归档但不删除（如离职的联系人）</span>
+              </div>
+              <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">keep_both</span>
+                  <span class="text-xs font-medium text-white">两条并存</span>
+                </div>
+                <span class="text-[10px] text-slate-400 block">新旧信息分别适用不同条件，不矛盾（如不同客户的策略）</span>
+              </div>
+              <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-500/10 text-slate-400">discard_new</span>
+                  <span class="text-xs font-medium text-white">丢弃新信息</span>
+                </div>
+                <span class="text-[10px] text-slate-400 block">新信息可信度低或为临时状态，不写入长期记忆</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- M6. 界面交互设计 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <div class="arch-card rounded-3xl bg-slate-800/30 p-8 mb-8 animate-fade-up delay-7">
+        <div class="flex items-center gap-2 mb-6">
+          <div class="w-6 h-6 rounded-lg bg-purple-500/10 flex items-center justify-center">
+            <span class="text-xs">🖥️</span>
+          </div>
+          <h3 class="text-base font-bold text-white">评测报告界面设计</h3>
+        </div>
+
+        <!-- 报告示意 -->
+        <div class="bg-slate-900/60 rounded-2xl border border-slate-700/40 overflow-hidden">
+          <!-- 模拟顶栏 -->
+          <div class="bg-slate-800/80 px-4 py-2.5 border-b border-slate-700/50 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold text-white">🧠 Memory 评测报告</span>
+              <span class="text-[10px] text-slate-500">450 条用例 · 执行耗时 6.3s</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="px-2 py-1 rounded bg-purple-500/10 text-[10px] text-purple-400 border border-purple-500/20">执行全部</div>
+            </div>
+          </div>
+
+          <div class="p-5">
+            <!-- 总览指标 -->
+            <div class="grid grid-cols-6 gap-3 mb-5">
+              <div class="bg-slate-800/50 rounded-lg p-3 text-center">
+                <div class="text-[10px] text-slate-500">Pass Rate</div>
+                <div class="text-lg font-bold text-green-400">85.7%</div>
+              </div>
+              <div class="bg-slate-800/50 rounded-lg p-3 text-center">
+                <div class="text-[10px] text-slate-500">Recall@5</div>
+                <div class="text-lg font-bold text-purple-400">0.78</div>
+              </div>
+              <div class="bg-slate-800/50 rounded-lg p-3 text-center">
+                <div class="text-[10px] text-slate-500">MRR</div>
+                <div class="text-lg font-bold text-purple-400">0.62</div>
+              </div>
+              <div class="bg-slate-800/50 rounded-lg p-3 text-center">
+                <div class="text-[10px] text-slate-500">Top1 Hit</div>
+                <div class="text-lg font-bold text-purple-400">54%</div>
+              </div>
+              <div class="bg-slate-800/50 rounded-lg p-3 text-center">
+                <div class="text-[10px] text-slate-500">Dim Accuracy</div>
+                <div class="text-lg font-bold text-green-400">88%</div>
+              </div>
+              <div class="bg-slate-800/50 rounded-lg p-3 text-center">
+                <div class="text-[10px] text-slate-500">Neg Reject</div>
+                <div class="text-lg font-bold text-green-400">93%</div>
+              </div>
+            </div>
+
+            <!-- 按层级分组 -->
+            <div class="grid grid-cols-5 gap-3 mb-5">
+              <div class="bg-slate-800/50 rounded-lg p-3 border-l-2 border-purple-400/80">
+                <div class="text-[10px] text-slate-500 mb-1">L1 写入正确性</div>
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold text-green-400">92%</span>
+                  <span class="text-[9px] text-slate-500">230/250</span>
+                </div>
+              </div>
+              <div class="bg-slate-800/50 rounded-lg p-3 border-l-2 border-purple-400/60">
+                <div class="text-[10px] text-slate-500 mb-1">L2 检索召回</div>
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold text-green-400">85%</span>
+                  <span class="text-[9px] text-slate-500">170/200</span>
+                </div>
+              </div>
+              <div class="bg-slate-800/50 rounded-lg p-3 border-l-2 border-purple-400/40">
+                <div class="text-[10px] text-slate-500 mb-1">L3 时间衰减</div>
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold text-amber-400">72%</span>
+                  <span class="text-[9px] text-slate-500">13/18</span>
+                </div>
+              </div>
+              <div class="bg-slate-800/50 rounded-lg p-3 border-l-2 border-purple-400/30">
+                <div class="text-[10px] text-slate-500 mb-1">L4 上下文匹配</div>
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold text-amber-400">75%</span>
+                  <span class="text-[9px] text-slate-500">15/20</span>
+                </div>
+              </div>
+              <div class="bg-slate-800/50 rounded-lg p-3 border-l-2 border-purple-400/20">
+                <div class="text-[10px] text-slate-500 mb-1">L5 端到端效果</div>
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold text-amber-400">70%</span>
+                  <span class="text-[9px] text-slate-500">7/10</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 典型失败用例 -->
+            <div class="bg-red-500/5 rounded-xl p-4 border border-red-500/10">
+              <div class="text-[10px] font-bold text-red-400 mb-3">⚠️ 典型失败用例</div>
+              <div class="space-y-2">
+                <div class="bg-slate-900/60 rounded-lg p-3 flex items-center gap-3">
+                  <div class="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
+                    <span class="text-[10px] text-red-400">✗</span>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <span class="text-[11px] text-white block">[L3] 50 轮后衰减 — "华为张伟风格" 召回率降至 0.3</span>
+                    <span class="text-[10px] text-slate-500">recall=0.3 &lt; threshold=0.7 · 早期高频记忆被过度衰减</span>
+                  </div>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">temporal</span>
+                </div>
+                <div class="bg-slate-900/60 rounded-lg p-3 flex items-center gap-3">
+                  <div class="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
+                    <span class="text-[10px] text-red-400">✗</span>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <span class="text-[11px] text-white block">[L1] 冲突消解 — 系统 vs 用户优先级判断错误</span>
+                    <span class="text-[10px] text-slate-500">expected_action=update_old, actual=keep_both · 用户纠正应覆盖旧值</span>
+                  </div>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">conflict</span>
+                </div>
+                <div class="bg-slate-900/60 rounded-lg p-3 flex items-center gap-3">
+                  <div class="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
+                    <span class="text-[10px] text-red-400">✗</span>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <span class="text-[11px] text-white block">[L2] 模糊语义 — "之前聊过的那个大客户" 未命中华为</span>
+                    <span class="text-[10px] text-slate-500">recall@5=0 · 缺少指代消解能力，无法映射模糊引用</span>
+                  </div>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">fuzzy</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- M7. 执行模式与 CI 集成 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <div class="arch-card rounded-3xl bg-slate-800/30 p-8 mb-8 animate-fade-up delay-7">
+        <div class="flex items-center gap-2 mb-6">
+          <div class="w-6 h-6 rounded-lg bg-purple-500/10 flex items-center justify-center">
+            <span class="text-xs">⚙️</span>
+          </div>
+          <h3 class="text-base font-bold text-white">执行模式</h3>
+        </div>
+
+        <div class="grid grid-cols-2 gap-5">
+          <!-- 模式1: LLM 提取 -->
+          <div class="bg-slate-900/50 rounded-xl p-5 border border-purple-500/10">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                <span class="text-xs">🤖</span>
+              </div>
+              <span class="text-xs font-bold text-white">LLM 提取模式</span>
+            </div>
+            <div class="space-y-2 text-[10px] text-slate-400">
+              <p>• 真实调用 LLM 进行四维度提取</p>
+              <p>• 验证提取 prompt 质量和模型表现</p>
+              <p>• 适用于提取能力变更后的验证</p>
+              <p>• 需要 LLM API Key 配置</p>
+            </div>
+            <div class="mt-3 pt-2 border-t border-slate-700/30">
+              <span class="text-[10px] text-amber-400 font-medium">耗时 ~60s · 需 LLM API</span>
+            </div>
+          </div>
+
+          <!-- 模式2: 向量检索 -->
+          <div class="bg-slate-900/50 rounded-xl p-5 border border-purple-500/10">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="w-7 h-7 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                <span class="text-xs">🔮</span>
+              </div>
+              <span class="text-xs font-bold text-white">向量检索模式</span>
+            </div>
+            <div class="space-y-2 text-[10px] text-slate-400">
+              <p>• 真实 VDB（向量数据库）检索</p>
+              <p>• 验证 embedding 质量和检索效果</p>
+              <p>• 适用于 VDB 配置/索引变更后验证</p>
+              <p>• 需要 VDB 连接和 Embedding API</p>
+            </div>
+            <div class="mt-3 pt-2 border-t border-slate-700/30">
+              <span class="text-[10px] text-purple-400 font-medium">耗时 ~30s · 需 VDB + Embedding</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <!-- 7. 与其他维度的关系 -->
+      <!-- ═══════════════════════════════════════════════════════════ -->
+      <div class="arch-card rounded-3xl bg-slate-800/30 p-8 animate-fade-up delay-7">
+        <div class="flex items-center gap-2 mb-6">
+          <div class="w-6 h-6 rounded-lg bg-blue-500/10 flex items-center justify-center">
+            <span class="text-xs">🔗</span>
+          </div>
+          <h3 class="text-base font-bold text-white">与其他评测维度的关系</h3>
+        </div>
+
+        <div class="bg-slate-900/50 rounded-2xl border border-slate-700/30 p-6">
+          <div class="flex items-center gap-4">
+            <!-- Tool -->
+            <div class="flex-1 bg-blue-500/5 rounded-xl p-4 border border-blue-500/20 text-center">
+              <div class="text-lg mb-1">🔧</div>
+              <span class="text-xs font-bold text-blue-400 block">Tool 评测</span>
+              <span class="text-[10px] text-slate-500 mt-1 block">单元测试级</span>
+              <span class="text-[10px] text-slate-600 mt-0.5 block">验证工具本身正确性</span>
+            </div>
+
+            <!-- 箭头 -->
+            <div class="text-center shrink-0">
+              <svg width="40" height="20" viewBox="0 0 40 20" class="text-slate-600"><path d="M4 10 L36 10 M30 5 L36 10 L30 15" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+              <div class="text-[9px] text-slate-600 mt-0.5">通过后</div>
+            </div>
+
+            <!-- Agent -->
+            <div class="flex-1 bg-emerald-500/5 rounded-xl p-4 border border-emerald-500/10 text-center">
+              <div class="text-lg mb-1">🤖</div>
+              <span class="text-xs font-bold text-emerald-400 block">Agent 评测</span>
+              <span class="text-[10px] text-slate-500 mt-1 block">集成测试级</span>
+              <span class="text-[10px] text-slate-600 mt-0.5 block">Tool 被 Mock，验证决策</span>
+            </div>
+
+            <!-- 箭头 -->
+            <div class="text-center shrink-0">
+              <svg width="40" height="20" viewBox="0 0 40 20" class="text-slate-600"><path d="M4 10 L36 10 M30 5 L36 10 L30 15" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+              <div class="text-[9px] text-slate-600 mt-0.5">通过后</div>
+            </div>
+
+            <!-- E2E -->
+            <div class="flex-1 bg-amber-500/5 rounded-xl p-4 border border-amber-500/10 text-center">
+              <div class="text-lg mb-1">🎯</div>
+              <span class="text-xs font-bold text-amber-400 block">端到端评测</span>
+              <span class="text-[10px] text-slate-500 mt-1 block">E2E 测试级</span>
+              <span class="text-[10px] text-slate-600 mt-0.5 block">真实链路，验证业务效果</span>
+            </div>
+          </div>
+
+          <!-- 数据复用说明 -->
+          <div class="mt-5 bg-slate-800/40 rounded-lg p-4 border border-slate-700/30">
+            <div class="text-[10px] font-bold text-slate-400 mb-2">数据复用机制</div>
+            <div class="grid grid-cols-2 gap-4 text-[10px] text-slate-400">
+              <div>
+                <span class="text-blue-400 font-medium">Tool 用例 → Agent MockDataset：</span>
+                <span class="block mt-0.5">Tool 用例的 input/output 可被 Agent 评测引用为 Mock 预设数据</span>
+              </div>
+              <div>
+                <span class="text-amber-400 font-medium">Tool 用例 → E2E 断言：</span>
+                <span class="block mt-0.5">Tool 评测验证的返回格式，也是 E2E 评测中工具调用断言的参考基线</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 页脚 -->
+  <footer class="border-t border-slate-800 py-8 px-8">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div class="w-5 h-5 bg-gradient-to-br from-blue-500 to-indigo-600 rounded flex items-center justify-center">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+        <span class="text-xs text-slate-500">DeepAgent 评测体系架构设计 v2.0 — Tool + Memory 评测详案</span>
+      </div>
+      <span class="text-xs text-slate-600">多租户隔离 · CI/CD 集成 · 450 条记忆用例 · 四维度提取 · 五层评测</span>
+    </div>
+  </footer>
+
+</main>
+</body>
+</html>

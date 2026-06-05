@@ -210,7 +210,8 @@ class ManageSkillTool(Tool):
         # ═══ 资源文件分离校验 ═══
         # 如果 prompt 引用了 ${SKILL_DIR}/scripts/ 或 read_skill_resource，
         # 则 resources 字段必须包含对应的文件
-        resources = definition.get("resources", [])
+        resources = self._normalize_resources(definition.get("resources", []))
+        definition["resources"] = resources  # 写回规范化后的格式
         resource_paths = {r.get("path", "") for r in resources}
 
         # 校验 scripts 引用
@@ -503,7 +504,8 @@ class ManageSkillTool(Tool):
                 change_fields.append("ext_info")
 
             # ═══ 资源文件分离校验（与 _handle_create 相同逻辑）═══
-            resources = definition.get("resources", [])
+            resources = self._normalize_resources(definition.get("resources", []))
+            definition["resources"] = resources  # 写回规范化后的格式
             resource_paths = {r.get("path", "") for r in resources}
             new_prompt = definition.get("prompt", "")
 
@@ -774,6 +776,53 @@ class ManageSkillTool(Tool):
             return ToolResult(content="\n".join(lines))
         except Exception as e:
             return ToolResult(content=f"查询变更日志失败: {str(e)}", is_error=True)
+
+    def _normalize_resources(self, resources) -> list[dict]:
+        """规范化 resources 字段，兼容两种格式：
+
+        格式 1（标准 list）:
+            [{"path": "scripts/main.py", "content": "...", "content_type": "py"}, ...]
+
+        格式 2（LLM 偶尔生成的 dict 格式，key=path, value=content）:
+            {"scripts/main.py": "...(code)...", "scripts/requirements.txt": "..."}
+
+        统一返回格式 1 的 list。
+        """
+        if not resources:
+            return []
+
+        # 已经是 list 格式
+        if isinstance(resources, list):
+            # 额外兼容: list 中的元素可能是字符串(路径)而非dict
+            normalized = []
+            for item in resources:
+                if isinstance(item, dict):
+                    normalized.append(item)
+                elif isinstance(item, str):
+                    # 纯路径字符串，content 为空
+                    normalized.append({"path": item, "content": "", "content_type": ""})
+                else:
+                    logger.warning("resources 中发现无法识别的元素类型: %s", type(item))
+            return normalized
+
+        # dict 格式: {path: content, ...}
+        if isinstance(resources, dict):
+            normalized = []
+            for path, content in resources.items():
+                # 自动推断 content_type
+                ext = path.rsplit(".", 1)[-1] if "." in path else "txt"
+                normalized.append({
+                    "path": path,
+                    "content": content if isinstance(content, str) else str(content),
+                    "content_type": ext,
+                    "description": "",
+                })
+            logger.info("resources 从 dict 格式自动转换为 list: %s",
+                        [r["path"] for r in normalized])
+            return normalized
+
+        logger.warning("resources 字段类型无法识别: %s", type(resources))
+        return []
 
     def _validate_tools(self, tool_names: list[str]) -> str | None:
         """校验 allowed_tools 中的工具是否在数据库中存在且启用
