@@ -1,22 +1,23 @@
-"""四路并行记忆提取器
+"""统一记忆提取器 v3 — 单次 LLM 调用四维提取
 
-P0 优化实现：
-- 4 路并行 LLM 调用（profile / preferences / agent_rules / entities）
-- 输入过滤：profile/preferences/agent_rules 仅 user 消息，entities 全量
-- 已有状态注入：profile/agent_rules 注入已有记忆避免重复
-- 多租户隔离：tenant_id 全链路
-- 输出语言控制：output_language 参数
+替代原 v2 四路并行方案，核心变化：
+- 4 次 LLM 调用 → 1 次
+- 两阶段推理（_reasoning + result）保证分类质量
+- 输出 schema 与下游完全兼容（ExtractionItem 不变）
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from .prompts import (
+    UNIFIED_EXTRACT_PROMPT,
+    # v2 遗留导入（供测试/回退使用）
     PROFILE_EXTRACT_PROMPT,
     PREFERENCES_EXTRACT_PROMPT,
     AGENT_RULES_EXTRACT_PROMPT,
@@ -63,20 +64,19 @@ class ExtractionItem:
 
 @dataclass
 class ExtractionResult:
-    """四路提取的汇总结果"""
+    """提取的汇总结果"""
     items: list[ExtractionItem] = field(default_factory=list)
     tenant_id: str = ""
     user_id: str = ""
     thread_id: str = ""
     duration_ms: float = 0.0
     errors: list[str] = field(default_factory=list)
+    reasoning: list[dict] = field(default_factory=list)  # v3: 归属推理链
 
 
 # ═══════════════════════════════════════════════════════════
-# 数值过滤规则（P1-9 前置实现）
+# 数值过滤规则
 # ═══════════════════════════════════════════════════════════
-
-import re
 
 _NUMERIC_PATTERNS = [
     re.compile(r'\d{3,}[\.\d]*\s*[万元美]'),       # 金额：45万、280元
@@ -91,11 +91,9 @@ def _contains_only_precise_values(text: str) -> bool:
     """检测文本是否仅包含精确字段值（无增量认知）"""
     if not text:
         return False
-    # 移除所有精确值后，剩余有效文字 < 10 字则认为无增量认知
     cleaned = text
     for pattern in _NUMERIC_PATTERNS:
         cleaned = pattern.sub("", cleaned)
-    # 移除标点和空白
     cleaned = re.sub(r'[\s\W]+', '', cleaned)
     return len(cleaned) < 10
 
@@ -105,7 +103,7 @@ def _contains_only_precise_values(text: str) -> bool:
 # ═══════════════════════════════════════════════════════════
 
 class MemoryExtractor:
-    """四路并行记忆提取器
+    """统一记忆提取器 v3 — 单次 LLM 调用
 
     Usage:
         extractor = MemoryExtractor(llm=llm, state_provider=state_provider)
@@ -134,7 +132,7 @@ class MemoryExtractor:
         thread_id: str = "",
         output_language: str = "auto",
     ) -> ExtractionResult:
-        """四路并行提取，返回汇总结果"""
+        """统一提取：单次 LLM 调用，四维度同时输出"""
         start = time.monotonic()
         result = ExtractionResult(
             tenant_id=tenant_id, user_id=user_id, thread_id=thread_id,
@@ -143,105 +141,130 @@ class MemoryExtractor:
         if not messages or not self._llm:
             return result
 
-        # 预处理：提取用户原始消息（排除 middleware 注入的系统指令）
+        # 预处理：提取用户原始消息
         user_messages = self._filter_user_messages(messages)
         user_text = self._format_messages(user_messages) if user_messages else ""
 
         if not user_text:
             return result
 
-        # 获取已有状态（并行）
+        # 并行加载已有状态
         existing_profile, existing_rules, existing_entities = await self._load_existing_state(
             tenant_id, user_id
         )
 
-        # 四路并行提取（全部只用 user 消息）
-        tasks = [
-            self._extract_profile(user_text, existing_profile, output_language),
-            self._extract_preferences(user_text, output_language),
-            self._extract_agent_rules(user_text, existing_rules, output_language),
-            self._extract_entities(user_text, existing_entities, output_language),
-        ]
+        # 构建统一 prompt
+        prompt = UNIFIED_EXTRACT_PROMPT.format(
+            existing_profile=existing_profile or "（无）",
+            existing_rules=existing_rules or "（无）",
+            existing_entities=existing_entities or "（无）",
+            user_messages=user_text,
+            output_language=output_language,
+        )
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        dimension_names = ["profile", "preferences", "agent_rules", "entities"]
+        # 单次 LLM 调用
+        data = await self._invoke_llm(prompt)
+        if not data:
+            result.errors.append("LLM 调用返回空结果")
+            result.duration_ms = (time.monotonic() - start) * 1000
+            return result
 
-        for i, res in enumerate(results):
-            if isinstance(res, Exception):
-                error_msg = f"{dimension_names[i]} 提取失败: {res}"
-                logger.error(error_msg, exc_info=True)
-                result.errors.append(error_msg)
-            elif res:
-                result.items.extend(res)
+        # 解析 _reasoning（调试用）
+        reasoning = data.get("_reasoning", [])
+        result.reasoning = reasoning
+        logger.debug("Extraction reasoning (%d sentences): %s", len(reasoning), reasoning)
 
-        # 跨维度去重：如果 agent_rules 有提取结果，过滤掉与其重叠的 preferences
+        # 解析 result（兼容有/无 result 包裹层）
+        result_data = self._extract_result_data(data)
+
+        # 逐维度解析
+        try:
+            result.items.extend(self._parse_profile(result_data))
+        except Exception as e:
+            result.errors.append(f"profile 解析失败: {e}")
+
+        try:
+            result.items.extend(self._parse_preferences(result_data))
+        except Exception as e:
+            result.errors.append(f"preferences 解析失败: {e}")
+
+        try:
+            result.items.extend(self._parse_agent_rules(result_data))
+        except Exception as e:
+            result.errors.append(f"agent_rules 解析失败: {e}")
+
+        try:
+            result.items.extend(self._parse_entities(result_data))
+        except Exception as e:
+            result.errors.append(f"entities 解析失败: {e}")
+
+        # 后处理过滤
         result.items = self._post_filter(result.items)
 
         result.duration_ms = (time.monotonic() - start) * 1000
         logger.info(
-            "MemoryExtractor: extracted %d items in %.0fms (tenant=%s, user=%s, errors=%d)",
+            "MemoryExtractor v3: extracted %d items in %.0fms (tenant=%s, user=%s, errors=%d)",
             len(result.items), result.duration_ms, tenant_id, user_id, len(result.errors),
         )
         return result
 
     # ─────────────────────────────────────────────────────
-    # 四路提取实现
+    # 结果解析：四维度
     # ─────────────────────────────────────────────────────
 
-    async def _extract_profile(
-        self, user_text: str, existing: str, output_language: str,
-    ) -> list[ExtractionItem]:
-        """提取用户画像"""
-        prompt = PROFILE_EXTRACT_PROMPT.format(
-            existing_profile=existing or "（无历史画像）",
-            user_messages=user_text,
-            output_language=output_language,
-        )
-        data = await self._invoke_llm(prompt)
-        if not data:
+    @staticmethod
+    def _extract_result_data(data: dict) -> dict:
+        """兼容解析：支持 result 包裹层和直接输出两种格式"""
+        if "result" in data and isinstance(data["result"], dict):
+            return data["result"]
+        # 直接是四维度结构（模型省略了 result 层）
+        if any(k in data for k in ("profile", "preferences", "agent_rules", "entities")):
+            return data
+        return {}
+
+    @staticmethod
+    def _parse_profile(result_data: dict) -> list[ExtractionItem]:
+        """解析 profile 维度"""
+        profile = result_data.get("profile", {})
+        if not isinstance(profile, dict):
             return []
 
-        profile = data.get("profile", {})
         content = profile.get("content", "")
-        if not content:
+        if not content or not content.strip():
             return []
 
         return [ExtractionItem(
             dimension="profile",
-            content=content,
+            content=content.strip(),
             abstract=f"用户画像: {content[:80]}",
             merge_key="profile",
             source_type="insight",
         )]
 
-    async def _extract_preferences(
-        self, user_text: str, output_language: str,
-    ) -> list[ExtractionItem]:
-        """提取用户偏好"""
-        prompt = PREFERENCES_EXTRACT_PROMPT.format(
-            user_messages=user_text,
-            output_language=output_language,
-        )
-        data = await self._invoke_llm(prompt)
-        if not data:
-            return []
-
-        preferences = data.get("preferences", [])
-        if not preferences:
+    @staticmethod
+    def _parse_preferences(result_data: dict) -> list[ExtractionItem]:
+        """解析 preferences 维度"""
+        preferences = result_data.get("preferences", [])
+        if not isinstance(preferences, list) or not preferences:
             return []
 
         items = []
+        seen_slugs: dict[str, ExtractionItem] = {}
+
         for pref in preferences:
+            if not isinstance(pref, dict):
+                continue
             slug = pref.get("slug", "")
             abstract = pref.get("abstract", "")
             if not abstract:
                 continue
+
+            # 硬截断
             if len(abstract) > 200:
-                logger.warning("[extraction] preferences abstract 超长（%d 字符），截断。原文全文=\n%s",
-                               len(abstract), abstract)
+                logger.warning("[extraction] preferences abstract 超长（%d 字符），截断", len(abstract))
                 abstract = abstract[:200]
 
-            items.append(ExtractionItem(
+            item = ExtractionItem(
                 dimension="preferences",
                 slug=slug,
                 abstract=abstract,
@@ -250,67 +273,48 @@ class MemoryExtractor:
                 merge_key=f"preferences/{slug}" if slug else "preferences",
                 parent_entity="preferences",
                 source_type="insight",
-            ))
+            )
+            # slug 去重：同 slug 只保留最后一条
+            seen_slugs[slug] = item
 
-        # slug 去重校验：同一 slug 只保留最后一条
-        seen_slugs: dict[str, ExtractionItem] = {}
-        for item in items:
-            seen_slugs[item.slug] = item
         return list(seen_slugs.values())
 
-    async def _extract_agent_rules(
-        self, user_text: str, existing: str, output_language: str,
-    ) -> list[ExtractionItem]:
-        """提取 Agent 行为准则（原 soul）"""
-        prompt = AGENT_RULES_EXTRACT_PROMPT.format(
-            existing_rules=existing or "（无历史规则）",
-            user_messages=user_text,
-            output_language=output_language,
-        )
-        data = await self._invoke_llm(prompt)
-        if not data:
+    @staticmethod
+    def _parse_agent_rules(result_data: dict) -> list[ExtractionItem]:
+        """解析 agent_rules 维度"""
+        rules = result_data.get("agent_rules", {})
+        if not isinstance(rules, dict):
             return []
 
-        rules = data.get("agent_rules", {})
         content = rules.get("content", "")
-        if not content:
+        if not content or not content.strip():
             return []
 
         return [ExtractionItem(
             dimension="agent_rules",
-            content=content,
+            content=content.strip(),
             abstract=f"Agent行为准则: {content[:80]}",
             merge_key="agent_rules",
             source_type="insight",
         )]
 
-    async def _extract_entities(
-        self, conversation: str, existing: str, output_language: str,
-    ) -> list[ExtractionItem]:
-        """提取实体与事实"""
-        prompt = ENTITIES_EXTRACT_PROMPT.format(
-            existing_entities=existing or "（无已有实体）",
-            conversation=conversation,
-            output_language=output_language,
-        )
-        data = await self._invoke_llm(prompt)
-        if not data:
-            return []
-
-        entities = data.get("entities", [])
-        if not entities:
+    @staticmethod
+    def _parse_entities(result_data: dict) -> list[ExtractionItem]:
+        """解析 entities 维度"""
+        entities = result_data.get("entities", [])
+        if not isinstance(entities, list) or not entities:
             return []
 
         items = []
         for ent in entities:
+            if not isinstance(ent, dict):
+                continue
             abstract = ent.get("abstract", "")
             if not abstract or len(abstract) < 5:
                 continue
 
-            # 硬截断：prompt 要求 ≤50 字，超过说明 LLM 未遵守约束
             if len(abstract) > 200:
-                logger.warning("[extraction] entities abstract 超长（%d 字符），截断。原文全文=\n%s",
-                               len(abstract), abstract)
+                logger.warning("[extraction] entities abstract 超长（%d 字符），截断", len(abstract))
                 abstract = abstract[:200]
 
             content = ent.get("content", abstract)
@@ -376,7 +380,6 @@ class MemoryExtractor:
                 try:
                     return json.loads(json_str)
                 except json.JSONDecodeError:
-                    # 尝试修复常见 JSON 格式问题后重试
                     repaired = self._repair_json(json_str)
                     if repaired is not None:
                         return repaired
@@ -390,24 +393,11 @@ class MemoryExtractor:
 
     @staticmethod
     def _repair_json(raw: str) -> dict | None:
-        """尝试修复常见的 LLM JSON 输出问题并解析。
-
-        常见问题：
-        1. 尾部多余逗号 (trailing comma)
-        2. 单引号代替双引号
-        3. 未转义的换行符
-        4. 值中缺少逗号分隔（如 "key1": "val1" "key2": "val2"）
-        """
-        import re
-
+        """尝试修复常见的 LLM JSON 输出问题并解析"""
         text = raw
-        # 1. 替换未转义的换行/制表符
         text = text.replace("\n", "\\n").replace("\t", "\\t")
-        # 2. 移除尾部逗号 (,] 或 ,})
         text = re.sub(r",\s*([}\]])", r"\1", text)
-        # 3. 尝试修复缺少逗号的情况: "..." "..." → "...", "..."
         text = re.sub(r'"\s*\n?\s*"', '", "', text)
-        # 4. 修复 }" 或 ]" 后缺少逗号的情况
         text = re.sub(r'([}\]])\s*"', r'\1, "', text)
 
         try:
@@ -415,7 +405,6 @@ class MemoryExtractor:
         except json.JSONDecodeError:
             pass
 
-        # 5. 最后尝试：单引号替换为双引号
         try:
             return json.loads(raw.replace("'", '"'))
         except json.JSONDecodeError:
@@ -451,3 +440,53 @@ class MemoryExtractor:
                 continue
             filtered.append(item)
         return filtered
+
+
+# ═══════════════════════════════════════════════════════════
+# [DEPRECATED] v2 四路并行提取方法（注释保留供回退）
+# ═══════════════════════════════════════════════════════════
+
+# class MemoryExtractorV2:
+#     """四路并行记忆提取器（已废弃）
+#
+#     原逻辑：
+#     - extract_all 中创建 4 个 asyncio.Task 并行执行
+#     - 每路独立调用 LLM（_extract_profile/_extract_preferences/
+#       _extract_agent_rules/_extract_entities）
+#     - 结果合并后 _post_filter
+#
+#     废弃原因：
+#     - 4 次 LLM 调用成本高（input tokens 重复 4 倍）
+#     - 维度边界冲突在各路独立判断时无法一致消解
+#     - 统一提取 v3 用 CoT + 决策树在单次调用中完成
+#
+#     如需回退，将下方代码解除注释并恢复 extract_all 中的 asyncio.gather 逻辑：
+#
+#     async def _extract_profile(self, user_text, existing, output_language):
+#         prompt = PROFILE_EXTRACT_PROMPT.format(
+#             existing_profile=existing or "（无历史画像）",
+#             user_messages=user_text, output_language=output_language)
+#         data = await self._invoke_llm(prompt)
+#         ...
+#
+#     async def _extract_preferences(self, user_text, output_language):
+#         prompt = PREFERENCES_EXTRACT_PROMPT.format(
+#             user_messages=user_text, output_language=output_language)
+#         data = await self._invoke_llm(prompt)
+#         ...
+#
+#     async def _extract_agent_rules(self, user_text, existing, output_language):
+#         prompt = AGENT_RULES_EXTRACT_PROMPT.format(
+#             existing_rules=existing or "（无历史规则）",
+#             user_messages=user_text, output_language=output_language)
+#         data = await self._invoke_llm(prompt)
+#         ...
+#
+#     async def _extract_entities(self, conversation, existing, output_language):
+#         prompt = ENTITIES_EXTRACT_PROMPT.format(
+#             existing_entities=existing or "（无已有实体）",
+#             conversation=conversation, output_language=output_language)
+#         data = await self._invoke_llm(prompt)
+#         ...
+#     """
+#     pass

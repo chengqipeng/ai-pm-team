@@ -272,8 +272,9 @@ class ScriptSyncer:
             for i in range(1, len(parts)):
                 dirs.add("/".join(parts[:i]))
 
-        # 始终创建 output/ 目录（供脚本写入结果）
+        # 始终创建 output/ 和 tmp/ 目录
         dirs.add("output")
+        dirs.add("tmp")
 
         if dirs:
             # 一次性创建所有目录

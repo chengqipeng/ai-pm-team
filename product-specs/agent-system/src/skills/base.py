@@ -54,7 +54,7 @@ class SkillDefinition:
     tenant_id: int = 0                           # 0 = 平台级
 
     # 系统变量名（通过 ${VAR} 语法注入，不属于用户参数）
-    _SYSTEM_VAR_NAMES = frozenset({"SKILL_DIR", "SKILL_NAME"})
+    _SYSTEM_VAR_NAMES = frozenset({"SKILL_DIR", "SKILL_NAME", "SKILL_TMP_DIR", "SKILL_OUTPUT_DIR"})
 
     def format_prompt(self, arguments: dict[str, str], system_vars: dict[str, str] | None = None) -> str:
         """替换 prompt 中的占位符
@@ -468,6 +468,8 @@ class SkillExecutor:
         if skill_dir:
             system_vars["SKILL_DIR"] = skill_dir
             system_vars["SKILL_NAME"] = skill.name
+            system_vars["SKILL_TMP_DIR"] = f"{skill_dir}/tmp"
+            system_vars["SKILL_OUTPUT_DIR"] = f"{skill_dir}/output"
 
         formatted_prompt = skill.format_prompt(arguments, system_vars=system_vars)
         logger.info(f"SkillExecutor: {skill_name} (context={skill.context})")

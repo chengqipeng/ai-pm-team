@@ -144,10 +144,46 @@ class WriteFileTool(Tool):
 
     def prompt(self) -> str:
         return (
-            "write_file — 在远程沙盒中创建或覆盖文件。\n"
-            "自动创建父目录。\n"
-            "用法: write_file(path='src/main.py', content='print(\"hello\")')"
+            "write_file — 在远程沙箱中创建或覆盖文件。\n"
+            "所有文件必须写入 /sandbox/.skills/ 目录下。\n"
+            "Skill 执行中: 输出文件写入 ${SKILL_OUTPUT_DIR}，临时文件写入 ${SKILL_TMP_DIR}。\n"
+            "非 Skill 场景: 写入 /sandbox/.skills/.global/output/。\n"
+            "自动创建父目录。路径不在 /sandbox/.skills/ 下时会自动重定向。\n"
+            "用法: write_file(path='/sandbox/.skills/my-skill/output/report.html', content='...')"
         )
+
+    def _normalize_path(self, path: str) -> str:
+        """规范化文件路径，确保所有文件写入 /sandbox/.skills/ 目录下
+
+        规则:
+        - 已在 /sandbox/.skills/ 下 → 原样返回
+        - 不在 /sandbox/.skills/ 下 → 重定向到当前 skill 的 output/ 目录
+        - 无 skill 上下文 → 重定向到 /sandbox/.skills/.global/output/
+        """
+        from src.tools.sandbox.script_syncer import SKILL_BASE_DIR
+
+        # 已经在合法目录下，直接返回
+        if path.startswith(f"{SKILL_BASE_DIR}/"):
+            return path
+
+        # 提取文件名
+        import os
+        filename = os.path.basename(path)
+
+        # 确定目标目录
+        try:
+            from src.skills.context import get_skill_context
+            ctx = get_skill_context()
+            if ctx and ctx.skill_name:
+                target_dir = f"{SKILL_BASE_DIR}/{ctx.skill_name}/output"
+            else:
+                target_dir = f"{SKILL_BASE_DIR}/.global/output"
+        except Exception:
+            target_dir = f"{SKILL_BASE_DIR}/.global/output"
+
+        new_path = f"{target_dir}/{filename}"
+        logger.info("[write_file] 路径重定向: %s → %s", path, new_path)
+        return new_path
 
     async def call(
         self,
@@ -160,6 +196,9 @@ class WriteFileTool(Tool):
 
         if not path:
             return ToolResult(content="文件路径不能为空", is_error=True)
+
+        # 路径规范化：所有文件必须在 /sandbox/.skills/ 目录下
+        path = self._normalize_path(path)
 
         if not self._backend.is_connected:
             await self._backend.connect()

@@ -446,7 +446,7 @@ async def demo_plugin_lifecycle():
 def demo_micro_compact():
     section("MicroCompact — 裁剪旧 ToolMessage")
     from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-    from src.middleware.summarization import SummarizationMiddleware
+    from src.middleware.context_window import SummarizationMiddleware
 
     class R: pass
 
@@ -473,7 +473,7 @@ def demo_micro_compact():
 def demo_auto_compact():
     section("AutoCompact — 结构化摘要")
     from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-    from src.middleware.summarization import SummarizationMiddleware
+    from src.middleware.context_window import SummarizationMiddleware
 
     class R: pass
 
@@ -493,7 +493,7 @@ def demo_auto_compact():
 def demo_full_compact():
     section("FullCompact — 全量压缩 + 重注入")
     from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
-    from src.middleware.summarization import SummarizationMiddleware
+    from src.middleware.context_window import SummarizationMiddleware
 
     class R: pass
 
@@ -514,7 +514,7 @@ def demo_full_compact():
 
 def demo_circuit_breaker():
     section("压缩熔断 + 向后兼容")
-    from src.middleware.summarization import SummarizationMiddleware
+    from src.middleware.context_window import SummarizationMiddleware
     from langchain_core.messages import HumanMessage, AIMessage
 
     class R: pass

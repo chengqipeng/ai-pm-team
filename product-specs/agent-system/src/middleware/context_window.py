@@ -6,19 +6,27 @@ wrap_tool_call 阶段（源头控制）：
   - 工具执行后立即检查结果大小
   - 超过动态阈值 → 代码格式化提取（0 LLM 成本）或 LLM 摘要
   - 确保进入上下文的 ToolMessage 都是精简的
+  - Skill 完成时触发 Post-Skill Compact（即时内部压缩）
 
 before_model 阶段（窗口管理）：
   - Pass 0: MD5 去重（相同内容只保留最新一份）
-  - Pass 1: MicroCompact（CRM 专用摘要模板替换旧 ToolMessage）
-  - Pass 2: AutoCompact（结构化摘要替换旧消息）
-  - Pass 3: FullCompact（全量压缩 + 重注入关键信息）
+  - Pass 1: MicroCompact（CRM 专用摘要模板替换旧 ToolMessage）— Skill 边界感知
+  - Pass 2: AutoCompact（结构化摘要替换旧消息）— Skill 边界感知
+  - Pass 3: FullCompact（全量压缩 + 重注入关键信息 + 锚点注入）
   - 熔断机制：连续 N 次压缩失败后停止重试
+
+Skill 模式增强（对应缺口分析 §4）：
+  - §4.1 Skill 执行边界感知的尾部保护
+  - §4.2 工具组原子性增强（深度边界对齐）
+  - §4.3 Skill 结果锚点（防止迭代压缩数据衰减）
+  - §4.4 Post-Skill Compact（Skill 结束即收缩）
 
 参考：
   - apps-agent: process_sub_agent_result（源头摘要）
   - Hermes: _prune_old_tool_results（MD5 去重 + 信息摘要替换）
   - Claude Code: MicroCompact / AutoCompact / FullCompact（三层级联）
   - 设计文档: Layer 1 源头隔离 + Layer 2 当前轮次裁剪
+  - 缺口分析: Skill 模式上下文膨胀模型 + 增强策略
 """
 from __future__ import annotations
 
@@ -33,6 +41,14 @@ from langchain.agents.middleware.types import AgentMiddleware, AgentState
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
 from langgraph.types import Command
+
+from src.middleware.skill_compress import (
+    SkillAwareTailProtection,
+    SkillResultAnchor,
+    align_boundary_deep,
+    find_completed_skill_boundaries,
+    post_skill_compact,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +90,9 @@ SKIP_COMPACT_TOOLS = {"skills_tool", "agent_tool", "ask_user", "scratchpad", "re
 class ContextWindowMiddleware(AgentMiddleware):
     """上下文窗口管理 — 源头压缩 + 窗口管理统一中间件
 
-    wrap_tool_call: 源头压缩（动态阈值 + 代码提取 + LLM 摘要兜底）
+    wrap_tool_call: 源头压缩（动态阈值 + 代码提取 + LLM 摘要兜底）+ Post-Skill Compact
     before_model:  窗口管理（MD5 去重 + MicroCompact + AutoCompact + FullCompact）
+                   — 所有 Pass 都具备 Skill 边界感知和工具组原子性保护
     """
 
     def __init__(
@@ -87,6 +104,10 @@ class ContextWindowMiddleware(AgentMiddleware):
         tool_output_max_chars: int = 2_000,
         max_consecutive_failures: int = 3,
         llm: Any = None,
+        # Skill 模式增强参数
+        skill_min_tail: int = 5,
+        skill_max_tail: int = 30,
+        post_skill_compact_threshold: int = 8,
     ):
         super().__init__()
         self._max_tokens = max_tokens
@@ -98,8 +119,18 @@ class ContextWindowMiddleware(AgentMiddleware):
         self._consecutive_failures = 0
         self._llm = llm
 
+        # §4.1 Skill 边界感知尾部保护
+        self._skill_tail_protection = SkillAwareTailProtection(
+            min_tail_messages=skill_min_tail,
+            max_tail_messages=skill_max_tail,
+        )
+        # §4.3 Skill 结果锚点（session 级别，跨多轮压缩持久）
+        self._skill_anchors = SkillResultAnchor()
+        # §4.4 Post-Skill Compact 阈值
+        self._post_skill_compact_threshold = post_skill_compact_threshold
+
     # ═══════════════════════════════════════════════════════════
-    # wrap_tool_call: 源头压缩
+    # wrap_tool_call: 源头压缩 + Post-Skill Compact
     # ═══════════════════════════════════════════════════════════
 
     async def awrap_tool_call(self, request: ToolCallRequest, handler) -> ToolMessage | Command:
@@ -107,6 +138,11 @@ class ContextWindowMiddleware(AgentMiddleware):
         tool_call_id = request.tool_call.get("id", "")
 
         result = await handler(request)
+
+        # ── §4.3 + §4.4: skills_tool 完成时触发锚点提取和内部压缩 ──
+        if tool_name == "skills_tool":
+            self._on_skill_tool_complete(result)
+            return result
 
         # 跳过不需要压缩的工具
         if tool_name in SKIP_COMPACT_TOOLS:
@@ -159,6 +195,8 @@ class ContextWindowMiddleware(AgentMiddleware):
                 f"要求：保留关键数据（数字、名称、状态），去掉冗余描述。\n\n"
                 f"原文：\n{content[:3000]}"
             )
+            # §4.3 注入锚点到摘要 prompt，确保关键数据不丢
+            prompt = self._skill_anchors.inject_into_summary_prompt(prompt)
             resp = await self._llm.ainvoke([HM(content=prompt)])
             return resp.content[:max_words * 3]
         except Exception as e:
@@ -166,11 +204,63 @@ class ContextWindowMiddleware(AgentMiddleware):
             return None
 
     # ═══════════════════════════════════════════════════════════
-    # before_model: 窗口管理
+    # §4.3 + §4.4: Skill 完成时的锚点提取与内部压缩
+    # ═══════════════════════════════════════════════════════════
+
+    def _on_skill_tool_complete(self, result: ToolMessage | Any) -> None:
+        """skills_tool 返回结果时触发：提取锚点 + 标记待压缩
+
+        注意: Post-Skill Compact 实际在 before_model 中执行（此时才能访问完整 messages）。
+        这里只做锚点提取。
+        """
+        content = getattr(result, "content", "")
+        if not isinstance(content, str):
+            content = str(content)
+
+        # 从结果中提取技能名称（尝试从 [SKILL_DONE:xxx] 标记中获取）
+        skill_name = "unknown_skill"
+        import re
+        match = re.search(r'\[SKILL_DONE:\w+\]\s*(\S+)', content)
+        if match:
+            skill_name = match.group(1)
+
+        # §4.3 提取锚点
+        self._skill_anchors.on_skill_complete(
+            skill_name=skill_name,
+            skill_result=content,
+            tool_calls_history=[],  # wrap_tool_call 中无法访问完整历史
+        )
+
+    def _apply_post_skill_compact(self, messages: list) -> list:
+        """§4.4 Post-Skill Compact — 在 before_model 中对已完成的 Skill 做即时内部压缩
+
+        扫描消息列表中所有已完成的 Skill 执行，如果其内部消息数超过阈值则压缩。
+        从后向前处理以保持 index 稳定性。
+        """
+        boundaries = find_completed_skill_boundaries(messages)
+        if not boundaries:
+            return messages
+
+        # 从后向前压缩，避免 index 偏移
+        for start_idx, end_idx in reversed(boundaries):
+            skill_msg_count = end_idx - start_idx + 1
+            if skill_msg_count > self._post_skill_compact_threshold:
+                messages = post_skill_compact(
+                    messages, start_idx, end_idx,
+                    min_skill_messages=self._post_skill_compact_threshold,
+                )
+
+        return messages
+
+    # ═══════════════════════════════════════════════════════════
+    # before_model: 窗口管理（Skill 模式增强）
     # ═══════════════════════════════════════════════════════════
 
     def before_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
         messages = state.get("messages", [])
+
+        # §4.4 Post-Skill Compact — Skill 结束即收缩（在全局压缩前先控制源头）
+        messages = self._apply_post_skill_compact(messages)
 
         # Pass 0: MD5 去重
         dedup_result = self._md5_dedup(messages)
@@ -194,7 +284,7 @@ class ContextWindowMiddleware(AgentMiddleware):
         estimated = _estimate_tokens(messages)
 
         try:
-            # Pass 3: FullCompact
+            # Pass 3: FullCompact（含 §4.1 Skill 边界感知 + §4.3 锚点注入）
             if estimated >= self._full_trigger:
                 result = self._full_compact(messages, estimated)
                 if result:
@@ -206,7 +296,7 @@ class ContextWindowMiddleware(AgentMiddleware):
                         new_est, len(result["messages"]), messages, result["messages"])
                     return result
 
-            # Pass 2: AutoCompact
+            # Pass 2: AutoCompact（含 §4.1 Skill 边界感知 + §4.2 工具组原子性）
             if estimated >= self._auto_trigger:
                 result = self._auto_compact(messages, estimated)
                 if result:
@@ -218,7 +308,7 @@ class ContextWindowMiddleware(AgentMiddleware):
                         new_est, len(result["messages"]), messages, result["messages"])
                     return result
 
-            # Pass 1: MicroCompact
+            # Pass 1: MicroCompact（含 §4.1 Skill 边界感知 + §4.2 工具组原子性）
             if estimated >= self._micro_trigger:
                 result = self._micro_compact(messages, estimated)
                 if result:
@@ -275,17 +365,29 @@ class ContextWindowMiddleware(AgentMiddleware):
         return None
 
     # ═══════════════════════════════════════════════════════════
-    # Pass 1: MicroCompact — CRM 专用摘要模板
+    # Pass 1: MicroCompact — CRM 专用摘要模板 + Skill 边界感知
     # ═══════════════════════════════════════════════════════════
 
     def _micro_compact(self, messages: list, estimated: int) -> dict[str, Any] | None:
-        """裁剪旧 ToolMessage + tool_call 参数截断"""
-        keep_recent = 6
-        if len(messages) <= keep_recent:
+        """裁剪旧 ToolMessage + tool_call 参数截断
+
+        §4.1 增强: 使用 SkillAwareTailProtection 计算保护区起始位置
+        §4.2 增强: 使用 align_boundary_deep 确保工具组原子性
+        """
+        base_keep_recent = 6
+
+        # §4.1 Skill 边界感知的尾部保护
+        tail_start = self._skill_tail_protection.compute_tail_start(
+            messages, keep_recent=base_keep_recent, head_end=0,
+        )
+        # §4.2 深度边界对齐 — 不在工具组中间切割
+        tail_start = align_boundary_deep(messages, tail_start)
+
+        if tail_start <= 0 or tail_start >= len(messages):
             return None
 
-        old_messages = messages[:-keep_recent]
-        recent = messages[-keep_recent:]
+        old_messages = messages[:tail_start]
+        recent = messages[tail_start:]
         modified = False
         compacted = []
 
@@ -324,20 +426,34 @@ class ContextWindowMiddleware(AgentMiddleware):
             return None
 
         new_estimated = _estimate_tokens(compacted + recent)
-        logger.info("[ContextWindow] MicroCompact: %d → %d tokens", estimated, new_estimated)
+        logger.info("[ContextWindow] MicroCompact: %d → %d tokens (保护区从 idx %d 起)",
+                    estimated, new_estimated, tail_start)
         return {"messages": compacted + recent}
 
     # ═══════════════════════════════════════════════════════════
-    # Pass 2: AutoCompact — 结构化摘要
+    # Pass 2: AutoCompact — 结构化摘要 + Skill 边界感知
     # ═══════════════════════════════════════════════════════════
 
     def _auto_compact(self, messages: list, estimated: int) -> dict[str, Any] | None:
-        keep_recent = 4
-        if len(messages) <= keep_recent:
+        """结构化摘要替换旧消息
+
+        §4.1 增强: Skill 边界感知的尾部保护
+        §4.2 增强: 深度边界对齐
+        §4.3 增强: 锚点注入到摘要中
+        """
+        base_keep_recent = 4
+
+        # §4.1 + §4.2
+        tail_start = self._skill_tail_protection.compute_tail_start(
+            messages, keep_recent=base_keep_recent, head_end=0,
+        )
+        tail_start = align_boundary_deep(messages, tail_start)
+
+        if tail_start <= 0 or tail_start >= len(messages):
             return None
 
-        to_summarize = messages[:-keep_recent]
-        recent = messages[-keep_recent:]
+        to_summarize = messages[:tail_start]
+        recent = messages[tail_start:]
 
         parts = []
         for msg in to_summarize[-12:]:
@@ -353,28 +469,49 @@ class ContextWindowMiddleware(AgentMiddleware):
             return None
 
         summary_text = "[历史摘要]\n" + "\n".join(parts)
+
+        # §4.3 注入 Skill 锚点到摘要中，防止关键数据在迭代压缩中衰减
+        anchor_summary = self._skill_anchors.get_anchor_summary()
+        if anchor_summary:
+            summary_text += "\n\n" + anchor_summary
+
         new_messages = [SystemMessage(content=summary_text)] + recent
         new_estimated = _estimate_tokens(new_messages)
-        logger.info("[ContextWindow] AutoCompact: %d → %d tokens", estimated, new_estimated)
+        logger.info("[ContextWindow] AutoCompact: %d → %d tokens (保护区从 idx %d 起)",
+                    estimated, new_estimated, tail_start)
         return {"messages": new_messages}
 
     # ═══════════════════════════════════════════════════════════
-    # Pass 3: FullCompact — 全量压缩
+    # Pass 3: FullCompact — 全量压缩 + Skill 边界感知 + 锚点注入
     # ═══════════════════════════════════════════════════════════
 
     def _full_compact(self, messages: list, estimated: int) -> dict[str, Any] | None:
+        """全量压缩 — 保留 system + 最近交互 + 锚点
+
+        §4.1 增强: 尾部保护考虑 Skill 边界
+        §4.2 增强: 深度边界对齐
+        §4.3 增强: 锚点注入确保关键数据不丢
+        """
         new_messages = []
         recent_tool_results = []
         recent_human = None
 
-        for msg in reversed(messages[-8:]):
+        # §4.1 计算保护区（8 条基础 + Skill 边界感知）
+        base_keep = 8
+        tail_start = self._skill_tail_protection.compute_tail_start(
+            messages, keep_recent=base_keep, head_end=0,
+        )
+        tail_start = align_boundary_deep(messages, tail_start)
+
+        # 保护区内提取最近的 tool results 和 human message
+        for msg in reversed(messages[tail_start:]):
             if isinstance(msg, ToolMessage) and len(recent_tool_results) < 3:
                 recent_tool_results.append(msg)
             elif isinstance(msg, HumanMessage) and recent_human is None:
                 recent_human = msg
 
         summary_parts = []
-        for msg in messages:
+        for msg in messages[:tail_start]:
             content = getattr(msg, "content", "")
             if not isinstance(content, str):
                 continue
@@ -386,6 +523,12 @@ class ContextWindowMiddleware(AgentMiddleware):
 
         if summary_parts:
             compact_summary = "[全量压缩摘要]\n" + "\n".join(summary_parts[-20:])
+
+            # §4.3 注入 Skill 锚点到全量压缩摘要中
+            anchor_summary = self._skill_anchors.get_anchor_summary()
+            if anchor_summary:
+                compact_summary += "\n\n" + anchor_summary
+
             new_messages.append(SystemMessage(content=compact_summary))
 
         # 重注入最近的 tool_calls + results
@@ -402,7 +545,8 @@ class ContextWindowMiddleware(AgentMiddleware):
             new_messages.append(recent_human)
 
         new_estimated = _estimate_tokens(new_messages)
-        logger.info("[ContextWindow] FullCompact: %d → %d tokens", estimated, new_estimated)
+        logger.info("[ContextWindow] FullCompact: %d → %d tokens (Skill边界感知, 锚点%d个)",
+                    estimated, new_estimated, self._skill_anchors.anchor_count)
         return {"messages": new_messages}
 
     # ═══════════════════════════════════════════════════════════

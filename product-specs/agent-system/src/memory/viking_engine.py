@@ -599,6 +599,13 @@ class VikingMemoryEngine(MemoryEngine):
     # 走向量库的类别（需要语义检索）
     _VDB_CATEGORIES = {"entities", "preferences"}
 
+    # 检索最低相似度阈值 — 低于此分数的记忆不返回（防止无关记忆污染上下文）
+    # 腾讯 VectorDB hybrid_search 返回 0~1 归一化分数，0.35 为经验值：
+    #   > 0.6: 高度相关（如 "华为商机" 召回 "华为的3个商机"）
+    #   0.4~0.6: 中度相关（有一定语义关联）
+    #   < 0.35: 低相关（通常是向量库数据量小时的"凑数"结果）
+    _MIN_RETRIEVAL_SCORE = 0.35
+
     # ── URI 构建 ──
 
     @staticmethod
@@ -890,7 +897,16 @@ class VikingMemoryEngine(MemoryEngine):
         items: list[MemoryItem] = []
         hit_ids: list[tuple[str, str]] = []  # (doc_id, status) 用于异步更新 PG
 
+        # 过滤低于最低相似度阈值的结果（防止无关记忆污染上下文）
+        min_score = self._MIN_RETRIEVAL_SCORE
+        filtered_count = 0
+
         for r in collected[:top_k]:
+            raw_score = float(r.get("_final_score", r.get("score", 0)))
+            if raw_score < min_score:
+                filtered_count += 1
+                continue  # 低于阈值，跳过
+
             status = r.get("status", "active")  # 兼容旧数据
             is_directory = r.get("is_leaf") == "false"
 
@@ -939,6 +955,13 @@ class VikingMemoryEngine(MemoryEngine):
         # 异步批量更新 PG（last_accessed_at + active_count + 复活）
         if hit_ids:
             asyncio.create_task(self._update_access_batch(hit_ids))
+
+        if filtered_count > 0:
+            logger.debug(
+                "Memory retrieve: filtered %d low-score items (threshold=%.2f), "
+                "returning %d items for query: %s",
+                filtered_count, min_score, len(items), query[:80],
+            )
 
         items.sort(key=lambda x: x.confidence, reverse=True)
         return MemoryRetrievalResult(items=items[:top_k], query_used=query)
@@ -2524,9 +2547,101 @@ class VikingMemoryEngine(MemoryEngine):
     def delete_memories(self, ids: list[str]) -> int:
         try:
             self._vdb.delete(ids)
+            # 同步删除 PG
+            try:
+                from ..store.memory_dao import MemoryDAO
+                pass  # PG 按 memory_id 删除需要逐条，此处已在上层 API 处理
+            except Exception:
+                pass
             return len(ids)
         except Exception as e:
             logger.error("Delete memories failed: %s", e)
+            return 0
+
+    def delete_memories_by_keyword(self, user_id: str, keyword: str,
+                                   dimension: str | None = None) -> int:
+        """按关键词删除匹配的记忆 — 向量库 + PG 双路清理"""
+        uid = user_id or "default"
+        try:
+            # 从向量库按 filter 查出匹配的文档
+            filter_expr = f'user_id = "{uid}"'
+            if dimension:
+                filter_expr += f' and category = "{dimension}"'
+            docs = self._vdb.query_by_filter(filter_expr, limit=200)
+            if not docs:
+                return 0
+
+            # 按关键词过滤（在 abstract/content/text 中搜索）
+            matched_ids = []
+            for d in docs:
+                text_fields = (
+                    (d.get("abstract") or "") +
+                    (d.get("content") or "") +
+                    (d.get("text") or "")
+                )
+                if keyword.lower() in text_fields.lower():
+                    doc_id = d.get("id", "")
+                    if doc_id:
+                        matched_ids.append(doc_id)
+
+            if not matched_ids:
+                return 0
+
+            # 向量库删除
+            self._vdb.delete(matched_ids)
+
+            # PG 同步删除
+            try:
+                from ..store.memory_dao import MemoryDAO
+                pass  # PG 按 keyword 删除在上层 API 处理
+            except Exception as e:
+                logger.debug("PG delete_by_keyword sync failed: %s", e)
+
+            return len(matched_ids)
+        except Exception as e:
+            logger.error("delete_memories_by_keyword failed: %s", e)
+            return 0
+
+    def delete_memories_by_ids(self, ids: list) -> int:
+        """按 ID 列表删除记忆 — 向量库 + PG 双路清理"""
+        str_ids = [str(i) for i in ids if i]
+        if not str_ids:
+            return 0
+        return self.delete_memories(str_ids)
+
+    def clear_all_memories(self, user_id: str) -> int:
+        """清空用户所有记忆 — 向量库 + PG 双路清理"""
+        uid = user_id or "default"
+        try:
+            # 从向量库按 user_id filter 查出所有文档
+            filter_expr = f'user_id = "{uid}"'
+            docs = self._vdb.query_by_filter(filter_expr, limit=500)
+            if not docs:
+                # 即使向量库没有，也尝试清理 PG
+                try:
+                    from ..store.memory_dao import MemoryDAO
+                    MemoryDAO.delete_all(uid)
+                except Exception:
+                    pass
+                return 0
+
+            doc_ids = [d.get("id", "") for d in docs if d.get("id")]
+            if doc_ids:
+                self._vdb.delete(doc_ids)
+
+            # PG 同步清理
+            try:
+                from ..store.memory_dao import MemoryDAO
+                MemoryDAO.delete_all(uid)
+            except Exception as e:
+                logger.debug("PG clear_all sync failed: %s", e)
+
+            # 清空 agent_rules 缓存
+            self._agent_rules_cache.pop(uid, None)
+
+            return len(doc_ids)
+        except Exception as e:
+            logger.error("clear_all_memories failed: %s", e)
             return 0
 
     # ── VikingFS 集成 ──

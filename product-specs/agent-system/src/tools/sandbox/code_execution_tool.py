@@ -103,6 +103,26 @@ class CodeExecutionTool(Tool):
             "代码执行后直接返回结果，不要因结果不理想而自行换方式重试。"
         )
 
+    def _resolve_tmp_dir(self) -> str:
+        """根据当前 Skill 上下文确定临时文件目录
+
+        - 有 Skill 上下文 → /sandbox/.skills/{skill_name}/tmp
+        - 无 Skill 上下文 → /sandbox/.skills/.global/tmp（兜底）
+        """
+        try:
+            from src.skills.context import get_skill_context
+            from src.tools.sandbox.script_syncer import SKILL_BASE_DIR
+
+            ctx = get_skill_context()
+            if ctx and ctx.skill_name:
+                return f"{SKILL_BASE_DIR}/{ctx.skill_name}/tmp"
+        except Exception:
+            pass
+
+        # 兜底：非 skill 触发的代码执行
+        from src.tools.sandbox.script_syncer import SKILL_BASE_DIR
+        return f"{SKILL_BASE_DIR}/.global/tmp"
+
     async def call(
         self,
         input_data: dict,
@@ -128,10 +148,15 @@ class CodeExecutionTool(Tool):
 
         runner = LANGUAGE_RUNNERS[language]
         ext = LANGUAGE_EXTENSIONS[language]
-        tmp_file = f"/tmp/hermes_exec_{uuid.uuid4().hex[:12]}{ext}"
+        # 临时文件写入 skill 专属 tmp 目录
+        tmp_dir = self._resolve_tmp_dir()
+        tmp_file = f"{tmp_dir}/exec_{uuid.uuid4().hex[:12]}{ext}"
 
         try:
-            # 1. 写入临时文件
+            # 1. 确保临时目录存在
+            await self._backend.execute(f"mkdir -p {tmp_dir}")
+
+            # 2. 写入临时文件
             write_result = await self._backend.write_file(tmp_file, code)
             if write_result.is_error:
                 return ToolResult(
@@ -139,11 +164,11 @@ class CodeExecutionTool(Tool):
                     is_error=True,
                 )
 
-            # 2. 执行
+            # 3. 执行
             exec_command = f"{runner} {tmp_file}"
             result = await self._backend.execute(exec_command, timeout=timeout)
 
-            # 3. 返回结果
+            # 4. 返回结果
             if result.timed_out:
                 return ToolResult(
                     content=f"代码执行超时 ({timeout}s)",
@@ -159,7 +184,7 @@ class CodeExecutionTool(Tool):
             return ToolResult(content=result.output or "(无输出)")
 
         finally:
-            # 4. 清理临时文件
+            # 5. 清理临时文件
             await self._backend.execute(f"rm -f {tmp_file}")
 
     def is_read_only(self, input_data: dict) -> bool:

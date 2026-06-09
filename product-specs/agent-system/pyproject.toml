@@ -26,6 +26,8 @@ tcvdb-text = ">=0.1"                  # BM25 稀疏向量编码（混合检索�
 jieba = ">=0.42"                      # 中文分词 + TF-IDF 关键词提取
 e2b = "^2.23.1"
 deepeval = "^4.0.5"
+arize-phoenix = {version = "^17.2.0", python = ">=3.11,<3.15"}
+openinference-instrumentation-langchain = {version = "^0.1.66", python = ">=3.11,<3.15"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"

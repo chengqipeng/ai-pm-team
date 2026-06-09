@@ -1,14 +1,13 @@
-"""记忆提取模块 — 四路并行提取
+"""记忆提取模块 — 统一单次提取 v3
 
-P0 优化：将原 EXTRACTION_PROMPT 单 prompt 9 类拆为 4 路并行：
-  - profile: 用户画像
-  - preferences: 用户偏好
-  - agent_rules: Agent 行为准则
-  - entities: 实体与事实
+v3: 单次 LLM 调用完成四维度提取（UNIFIED_EXTRACT_PROMPT）
+v2: [DEPRECATED] 四路并行提取（保留导入供测试/回退使用）
 """
 
-from .extractor import MemoryExtractor
+from .extractor import MemoryExtractor, ExtractionItem, ExtractionResult
 from .prompts import (
+    UNIFIED_EXTRACT_PROMPT,
+    # v2 遗留（供测试和 eval 对比使用）
     PROFILE_EXTRACT_PROMPT,
     PREFERENCES_EXTRACT_PROMPT,
     AGENT_RULES_EXTRACT_PROMPT,
@@ -17,6 +16,10 @@ from .prompts import (
 
 __all__ = [
     "MemoryExtractor",
+    "ExtractionItem",
+    "ExtractionResult",
+    "UNIFIED_EXTRACT_PROMPT",
+    # v2 遗留导出
     "PROFILE_EXTRACT_PROMPT",
     "PREFERENCES_EXTRACT_PROMPT",
     "AGENT_RULES_EXTRACT_PROMPT",

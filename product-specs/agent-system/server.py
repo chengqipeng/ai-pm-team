@@ -30,6 +30,35 @@ try:
 except ImportError:
     pass
 
+# 修复 macOS gRPC SSL 证书 — 必须在 grpc import 之前设置
+if not os.environ.get("SSL_CERT_FILE"):
+    try:
+        import certifi
+        os.environ["SSL_CERT_FILE"] = certifi.where()
+        os.environ.setdefault("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", certifi.where())
+    except ImportError:
+        pass
+
+# ── Phoenix 本地可观测性（Trace UI: http://localhost:6006）──
+# 必须在 deepeval import 之前注册，否则 deepeval 会覆盖全局 TracerProvider
+_phoenix_tracer_provider = None
+if os.environ.get("PHOENIX_ENABLED", "1") == "1":
+    try:
+        from phoenix.otel import register as phoenix_register
+        from openinference.instrumentation.langchain import LangChainInstrumentor
+
+        phoenix_endpoint = os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006/v1/traces")
+        _phoenix_tracer_provider = phoenix_register(
+            endpoint=phoenix_endpoint,
+            set_global_tracer_provider=False,  # 不设为全局，避免与 deepeval 冲突
+        )
+        LangChainInstrumentor().instrument(tracer_provider=_phoenix_tracer_provider)
+        logging.getLogger(__name__).warning("Phoenix LangChain Instrumentor 已启用 → http://localhost:6006")
+    except ImportError as ie:
+        logging.getLogger(__name__).warning("Phoenix 未安装（跳过）: %s", ie)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Phoenix 初始化失败（不影响正常运行）: %s", exc)
+
 os.environ.setdefault("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
 
 from fastapi import FastAPI, Request
@@ -1144,6 +1173,14 @@ async def chat_stream(req: ChatRequest):
             },
             "recursion_limit": 500,
         }
+
+        # ── DeepEval 集成：评测模式时注入 CallbackHandler ──
+        if os.environ.get("DEEPEVAL_ENABLED") == "1":
+            from src.eval.deepeval_integration import inject_eval_callback
+            _eval_metrics = os.environ.get("DEEPEVAL_METRICS", "task_completion").split(",")
+            config = inject_eval_callback(config, eval_metrics=_eval_metrics)
+            logger.info("[deepeval] CallbackHandler 已注入, metrics=%s, thread=%s", _eval_metrics, thread_id)
+
         full_content = ""
         current_tool_span = None
         # 增量推送中间件 spans
@@ -1655,13 +1692,19 @@ async def chat_sync(req: ChatRequest):
     trace = tracer.start_trace(req.thread_id, req.message, model="deepseek-v4-flash", agent_name="CRM-Agent")
     trace_writer.on_trace_start(trace)
 
-    result = await agent.ainvoke({"messages": messages},
-                                  config={"configurable": {
-                                      "thread_id": req.thread_id,
-                                      "tenant_id": str(DEFAULT_TENANT_ID),
-                                      "user_id": req.user_id,
-                                      "knowledge_provider": getattr(app.state, "knowledge_provider", None),
-                                  }})
+    _sync_config = {"configurable": {
+                        "thread_id": req.thread_id,
+                        "tenant_id": str(DEFAULT_TENANT_ID),
+                        "user_id": req.user_id,
+                        "knowledge_provider": getattr(app.state, "knowledge_provider", None),
+                    }}
+    # ── DeepEval 集成 ──
+    if os.environ.get("DEEPEVAL_ENABLED") == "1":
+        from src.eval.deepeval_integration import inject_eval_callback
+        _eval_metrics = os.environ.get("DEEPEVAL_METRICS", "task_completion").split(",")
+        _sync_config = inject_eval_callback(_sync_config, eval_metrics=_eval_metrics)
+
+    result = await agent.ainvoke({"messages": messages}, config=_sync_config)
     msgs = result.get("messages", [])
 
     content = ""
@@ -2222,53 +2265,88 @@ async def memory_archive(memory_id: str, request: Request):
 
 @app.delete("/api/memory/all")
 async def memory_delete_all(tenant_id: int = DEFAULT_TENANT_ID):
-    """一键清空租户下所有用户的全部记忆 — PG 软删除 + 向量库物理删除"""
-    result = {"pg_deleted": 0, "vdb_deleted": 0}
+    """一键清空租户下所有用户的全部记忆 — PG 软删除 + 向量库双路清理
+
+    双路清理策略（解决 PG 与向量库数据不一致问题）：
+      1. PG 路径：软删除 ai_agent_memory 表中匹配 tenant_id 的记录
+      2. 向量库路径 A：按 PG 中的 memory_id 精确删除（有 PG 记录的）
+      3. 向量库路径 B：按 filter 扫描删除（PG 中没有记录但向量库中有的残留数据）
+    """
+    result = {"pg_deleted": 0, "vdb_deleted": 0, "vdb_orphan_deleted": 0}
     try:
         from src.store.pg_pool import get_conn
         import time as _time
         now = int(_time.time() * 1000)
-        with get_conn() as conn:
-            cur = conn.cursor()
-            # 查出所有 memory_id 用于向量库删除
-            cur.execute("""
-                SELECT memory_id FROM ai_agent_memory
-                WHERE tenant_id = %s AND delete_flg = 0
-            """, (tenant_id,))
-            vdb_ids = [r[0] for r in cur.fetchall() if r[0]]
 
-            # PG 软删除
-            cur.execute("""
-                UPDATE ai_agent_memory SET delete_flg = 1, updated_at = %s
-                WHERE tenant_id = %s AND delete_flg = 0
-            """, (now, tenant_id))
-            result["pg_deleted"] = cur.rowcount
+        vdb_ids = []
+        pg_user_ids = set()
+        try:
+            with get_conn() as conn:
+                cur = conn.cursor()
+                # 查出所有 memory_id 和 user_id
+                cur.execute("""
+                    SELECT memory_id, user_id FROM ai_agent_memory
+                    WHERE tenant_id = %s AND delete_flg = 0
+                """, (tenant_id,))
+                for row in cur.fetchall():
+                    if row[0]:
+                        vdb_ids.append(row[0])
+                    if row[1]:
+                        pg_user_ids.add(row[1])
 
-        # 向量库物理删除
-        if vdb_ids:
-            try:
-                import tcvectordb
-                vdb_url = os.environ.get("VDB_URL", "http://10.60.2.17")
-                vdb_key = os.environ.get("VDB_KEY", "bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck")
-                client = tcvectordb.VectorDBClient(url=vdb_url, username="root", key=vdb_key, timeout=10)
-                for db_info in client.list_databases():
-                    if not db_info.database_name.startswith("viking"):
-                        continue
+                # PG 软删除
+                cur.execute("""
+                    UPDATE ai_agent_memory SET delete_flg = 1, updated_at = %s
+                    WHERE tenant_id = %s AND delete_flg = 0
+                """, (now, tenant_id))
+                result["pg_deleted"] = cur.rowcount
+        except Exception as e:
+            logger.warning("PG delete-all failed (will still clean VDB): %s", e)
+
+        # 向量库清理 — 双路策略
+        try:
+            from src.memory.viking_engine import VikingMemoryEngine
+            vdb_url = os.environ.get("TENCENT_VDB_URL", os.environ.get("VDB_URL", "http://10.60.2.17"))
+            vdb_key = os.environ.get("TENCENT_VDB_KEY", os.environ.get("VDB_KEY", "bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck"))
+            vdb_username = os.environ.get("TENCENT_VDB_USERNAME", "root")
+            vdb_database = os.environ.get("TENCENT_VDB_DATABASE", "viking_memory")
+            vdb_collection = os.environ.get("TENCENT_VDB_COLLECTION", "agent_memories")
+
+            from src.memory.viking_engine import VectorStore
+            vdb = VectorStore(
+                url=vdb_url, key=vdb_key, username=vdb_username,
+                database_name=vdb_database, collection_name=vdb_collection,
+            )
+
+            # 路径 A：按 PG 中的 memory_id 精确删除
+            if vdb_ids:
+                for i in range(0, len(vdb_ids), 100):
+                    batch = vdb_ids[i:i+100]
                     try:
-                        db = client.database(db_info.database_name)
-                        for coll_info in db.list_collections():
-                            try:
-                                coll = db.collection(coll_info.collection_name)
-                                for i in range(0, len(vdb_ids), 100):
-                                    batch = vdb_ids[i:i+100]
-                                    coll.delete(document_ids=batch)
-                                result["vdb_deleted"] = len(vdb_ids)
-                            except Exception:
-                                pass
+                        vdb.delete(batch)
                     except Exception:
-                        continue
-            except Exception as e:
-                logger.debug("VDB clear-all failed: %s", e)
+                        pass
+                result["vdb_deleted"] = len(vdb_ids)
+
+            # 路径 B：按 filter 扫描清理向量库中的残留数据（PG 没有记录的）
+            # 扫描所有 user_id（包括 PG 中的 + 默认的 default_user/default）
+            scan_user_ids = pg_user_ids | {"default_user", "default"}
+            orphan_count = 0
+            for uid in scan_user_ids:
+                try:
+                    filter_expr = f'user_id = "{uid}"'
+                    docs = vdb.query_by_filter(filter_expr, limit=500)
+                    if docs:
+                        doc_ids = [d.get("id", "") for d in docs if d.get("id")]
+                        if doc_ids:
+                            vdb.delete(doc_ids)
+                            orphan_count += len(doc_ids)
+                except Exception as e:
+                    logger.debug("VDB orphan scan failed for user %s: %s", uid, e)
+            result["vdb_orphan_deleted"] = orphan_count
+
+        except Exception as e:
+            logger.warning("VDB clear-all failed: %s", e)
 
         return {"success": True, **result}
     except Exception as e:
@@ -2401,51 +2479,73 @@ async def memory_delete(memory_id: str, request: Request):
 
 @app.delete("/api/memory/user/{user_id}")
 async def memory_delete_user(user_id: str, tenant_id: int = DEFAULT_TENANT_ID):
-    """删除用户的所有记忆 — PG 软删除 + 向量库物理删除"""
-    result = {"pg_deleted": 0, "vdb_deleted": 0}
+    """删除用户的所有记忆 — PG 软删除 + 向量库双路清理
+
+    双路清理：先按 PG memory_id 删，再按向量库 user_id filter 扫描删残留
+    """
+    result = {"pg_deleted": 0, "vdb_deleted": 0, "vdb_orphan_deleted": 0}
     try:
         from src.store.pg_pool import get_conn
         import time as _time
         now = int(_time.time() * 1000)
-        with get_conn() as conn:
-            cur = conn.cursor()
-            # 查出所有 memory_id 用于向量库删除
-            cur.execute("""
-                SELECT memory_id FROM ai_agent_memory
-                WHERE user_id = %s AND (tenant_id = %s OR tenant_id = 0) AND delete_flg = 0
-            """, (user_id, tenant_id))
-            vdb_ids = [r[0] for r in cur.fetchall() if r[0]]
 
-            # PG 软删除
-            cur.execute("""
-                UPDATE ai_agent_memory SET delete_flg = 1, updated_at = %s
-                WHERE user_id = %s AND (tenant_id = %s OR tenant_id = 0) AND delete_flg = 0
-            """, (now, user_id, tenant_id))
-            result["pg_deleted"] = cur.rowcount
+        vdb_ids = []
+        try:
+            with get_conn() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT memory_id FROM ai_agent_memory
+                    WHERE user_id = %s AND (tenant_id = %s OR tenant_id = 0) AND delete_flg = 0
+                """, (user_id, tenant_id))
+                vdb_ids = [r[0] for r in cur.fetchall() if r[0]]
 
-        # 向量库物理删除
-        if vdb_ids:
-            try:
-                import tcvectordb
-                vdb_url = os.environ.get("VDB_URL", "http://10.60.2.17")
-                vdb_key = os.environ.get("VDB_KEY", "bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck")
-                client = tcvectordb.VectorDBClient(url=vdb_url, username="root", key=vdb_key, timeout=10)
-                for db_info in client.list_databases():
-                    if not db_info.database_name.startswith("viking"):
-                        continue
+                # PG 软删除
+                cur.execute("""
+                    UPDATE ai_agent_memory SET delete_flg = 1, updated_at = %s
+                    WHERE user_id = %s AND (tenant_id = %s OR tenant_id = 0) AND delete_flg = 0
+                """, (now, user_id, tenant_id))
+                result["pg_deleted"] = cur.rowcount
+        except Exception as e:
+            logger.warning("PG user delete failed (will still clean VDB): %s", e)
+
+        # 向量库清理 — 双路策略
+        try:
+            from src.memory.viking_engine import VectorStore
+            vdb_url = os.environ.get("TENCENT_VDB_URL", os.environ.get("VDB_URL", "http://10.60.2.17"))
+            vdb_key = os.environ.get("TENCENT_VDB_KEY", os.environ.get("VDB_KEY", "bRG3NETg13tv5Fn68VTdkxaJXH9tMQzhKeT3unck"))
+            vdb_username = os.environ.get("TENCENT_VDB_USERNAME", "root")
+            vdb_database = os.environ.get("TENCENT_VDB_DATABASE", "viking_memory")
+            vdb_collection = os.environ.get("TENCENT_VDB_COLLECTION", "agent_memories")
+
+            vdb = VectorStore(
+                url=vdb_url, key=vdb_key, username=vdb_username,
+                database_name=vdb_database, collection_name=vdb_collection,
+            )
+
+            # 路径 A：按 PG 中的 memory_id 精确删除
+            if vdb_ids:
+                for i in range(0, len(vdb_ids), 100):
+                    batch = vdb_ids[i:i+100]
                     try:
-                        db = client.database(db_info.database_name)
-                        for coll_info in db.list_collections():
-                            try:
-                                coll = db.collection(coll_info.collection_name)
-                                coll.delete(document_ids=vdb_ids)
-                                result["vdb_deleted"] += len(vdb_ids)
-                            except Exception:
-                                pass
+                        vdb.delete(batch)
                     except Exception:
-                        continue
+                        pass
+                result["vdb_deleted"] = len(vdb_ids)
+
+            # 路径 B：按 user_id filter 直接扫描向量库删除残留数据
+            try:
+                filter_expr = f'user_id = "{user_id}"'
+                docs = vdb.query_by_filter(filter_expr, limit=500)
+                if docs:
+                    doc_ids = [d.get("id", "") for d in docs if d.get("id")]
+                    if doc_ids:
+                        vdb.delete(doc_ids)
+                        result["vdb_orphan_deleted"] = len(doc_ids)
             except Exception as e:
-                logger.debug("VDB user delete failed: %s", e)
+                logger.debug("VDB orphan scan failed for user %s: %s", user_id, e)
+
+        except Exception as e:
+            logger.warning("VDB user delete failed: %s", e)
 
         return {"success": True, **result}
     except Exception as e:

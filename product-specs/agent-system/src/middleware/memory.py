@@ -357,6 +357,8 @@ class MemoryMiddleware(AgentMiddleware):
 
         目录节点：可通过 memory_read(id, level="L1") 获取结构化概览
         叶子节点：可通过 memory_read(id, level="L2") 获取完整内容
+
+        输出格式包含置信度分数（便于调试和 Agent 判断记忆可靠性）
         """
         if not result.items:
             return None
@@ -365,13 +367,14 @@ class MemoryMiddleware(AgentMiddleware):
             mem_id = item.metadata.get("id", "")
             category = item.metadata.get("category", "")
             node_type = item.metadata.get("type", "leaf")
+            score_str = f" (score:{item.confidence:.2f})" if item.confidence < 0.9 else ""
 
             if node_type == "directory":
                 # 目录节点：标记 [DIR]，可加载 L1
-                lines.append(f"  - [DIR:{mem_id}] [{category}] {item.content}")
+                lines.append(f"  - [DIR:{mem_id}] [{category}]{score_str} {item.content}")
             else:
                 # 叶子节点：标记 [ID]，可加载 L2（完整内容）
-                lines.append(f"  - [ID:{mem_id}] [{category}] {item.content}")
+                lines.append(f"  - [ID:{mem_id}] [{category}]{score_str} {item.content}")
 
         return (
             "## Relevant Memory\n"
