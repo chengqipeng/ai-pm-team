@@ -41,23 +41,24 @@ if not os.environ.get("SSL_CERT_FILE"):
 
 # ── Phoenix 本地可观测性（Trace UI: http://localhost:6006）──
 # 必须在 deepeval import 之前注册，否则 deepeval 会覆盖全局 TracerProvider
-_phoenix_tracer_provider = None
-if os.environ.get("PHOENIX_ENABLED", "1") == "1":
-    try:
-        from phoenix.otel import register as phoenix_register
-        from openinference.instrumentation.langchain import LangChainInstrumentor
-
-        phoenix_endpoint = os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006/v1/traces")
-        _phoenix_tracer_provider = phoenix_register(
-            endpoint=phoenix_endpoint,
-            set_global_tracer_provider=False,  # 不设为全局，避免与 deepeval 冲突
-        )
-        LangChainInstrumentor().instrument(tracer_provider=_phoenix_tracer_provider)
-        logging.getLogger(__name__).warning("Phoenix LangChain Instrumentor 已启用 → http://localhost:6006")
-    except ImportError as ie:
-        logging.getLogger(__name__).warning("Phoenix 未安装（跳过）: %s", ie)
-    except Exception as exc:
-        logging.getLogger(__name__).warning("Phoenix 初始化失败（不影响正常运行）: %s", exc)
+# [已禁用] 避免 localhost:6006 连接拒绝的日志噪音
+# _phoenix_tracer_provider = None
+# if os.environ.get("PHOENIX_ENABLED", "1") == "1":
+#     try:
+#         from phoenix.otel import register as phoenix_register
+#         from openinference.instrumentation.langchain import LangChainInstrumentor
+#
+#         phoenix_endpoint = os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006/v1/traces")
+#         _phoenix_tracer_provider = phoenix_register(
+#             endpoint=phoenix_endpoint,
+#             set_global_tracer_provider=False,  # 不设为全局，避免与 deepeval 冲突
+#         )
+#         LangChainInstrumentor().instrument(tracer_provider=_phoenix_tracer_provider)
+#         logging.getLogger(__name__).warning("Phoenix LangChain Instrumentor 已启用 → http://localhost:6006")
+#     except ImportError as ie:
+#         logging.getLogger(__name__).warning("Phoenix 未安装（跳过）: %s", ie)
+#     except Exception as exc:
+#         logging.getLogger(__name__).warning("Phoenix 初始化失败（不影响正常运行）: %s", exc)
 
 os.environ.setdefault("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
 

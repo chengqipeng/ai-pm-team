@@ -31,6 +31,8 @@ from .knowledge_dao import (
     KnowledgeIngestLogDAO,
     KnowledgeSearchLogDAO,
 )
+from .context_archive_models import ContextArchiveRow
+from .context_archive_dao import ContextArchiveDAO
 
 __all__ = [
     # pool
@@ -53,4 +55,6 @@ __all__ = [
     "KnowledgeSchemaDAO", "KnowledgeDocumentDAO",
     "KnowledgeChunkDAO", "KnowledgeIngestQueueDAO",
     "KnowledgeIngestLogDAO", "KnowledgeSearchLogDAO",
+    # context archive
+    "ContextArchiveRow", "ContextArchiveDAO",
 ]

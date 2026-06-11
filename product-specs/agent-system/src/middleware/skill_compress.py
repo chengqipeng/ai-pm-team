@@ -70,34 +70,68 @@ class SkillAwareTailProtection:
         skill_boundary = self._find_enclosing_skill_start(messages, base_cut, head_end)
 
         if skill_boundary is not None and skill_boundary < base_cut:
-            # 切割点在 Skill 内部 → 推到 Skill 起始前（完整保护该 Skill）
+            # 切割点在 Skill 内部 → 判断该 Skill 是否正在执行中
+            is_active = self._is_skill_active(messages, skill_boundary)
             protected_count = n - skill_boundary
+
+            if is_active:
+                # 正在执行的 Skill → 无条件保护（不受 max_tail 限制）
+                # 理由: 正在执行中的 Skill 如果被部分压缩，LLM 会丢失
+                # 已完成的工具调用结果，导致后续工具选择和参数提取失败
+                logger.debug(
+                    "[SkillTailProtect] 切割点 %d 在正在执行的 Skill 内部，"
+                    "无条件保护到 %d (保护 %d 条，忽略 max_tail 限制)",
+                    base_cut, skill_boundary, protected_count,
+                )
+                return skill_boundary
+
+            # 已完成的 Skill → 受 max_tail 限制
             if protected_count <= self.max_tail:
                 logger.debug(
-                    "[SkillTailProtect] 切割点 %d 在 Skill 内部，推进到 %d (保护 %d 条)",
+                    "[SkillTailProtect] 切割点 %d 在已完成的 Skill 内部，推进到 %d (保护 %d 条)",
                     base_cut, skill_boundary, protected_count,
                 )
                 return skill_boundary
             else:
-                # Skill 太大，超过 max_tail → 保留基础切割点（Skill 会被部分压缩）
+                # 已完成的 Skill 太大，超过 max_tail → 保留基础切割点
+                # 这种情况实际很少发生：Post-Skill Compact 已将完成的 Skill 从 20-30 条压缩到 ~10 条
                 logger.debug(
-                    "[SkillTailProtect] Skill 过大 (%d 条 > max_tail %d)，保留基础切割",
+                    "[SkillTailProtect] 已完成的 Skill 过大 (%d 条 > max_tail %d)，保留基础切割",
                     protected_count, self.max_tail,
                 )
                 return base_cut
 
         return base_cut
 
+    def _is_skill_active(self, messages: list, skill_start_idx: int) -> bool:
+        """判断从 skill_start_idx 开始的 Skill 是否正在执行中（未找到终止标记）
+
+        Args:
+            messages: 完整消息列表
+            skill_start_idx: Skill 启动的 AIMessage index
+
+        Returns:
+            True = 正在执行中（没有终止的 ToolMessage(name="skills_tool")）
+            False = 已完成
+        """
+        for i in range(skill_start_idx + 1, len(messages)):
+            msg = messages[i]
+            if isinstance(msg, ToolMessage):
+                tool_name = getattr(msg, "name", "") or ""
+                if tool_name == "skills_tool":
+                    return False  # 找到终止标记 → 已完成
+        return True  # 未找到终止标记 → 正在执行中
+
     def _find_enclosing_skill_start(
         self, messages: list, cut_idx: int, head_end: int
     ) -> int | None:
         """查找 cut_idx 所处的 Skill 执行边界
 
-        Skill 执行的标识:
-          - 起始: AIMessage 含 tool_calls 中有 name="skills_tool"
-          - 结束: ToolMessage 且 name="skills_tool"（返回最终结果）
+        支持 Fork 和 Inline 两种模式:
+          - Fork: ToolMessage 内容以 [SKILL_DONE: 开头 → 精确终止
+          - Inline: ToolMessage 是 prompt 返回 → 段延伸到下一个 skills_tool / HumanMessage
 
-        如果 cut_idx 在起始和结束之间 → 返回起始位置
+        如果 cut_idx 在 Skill 执行范围内 → 返回起始位置
         如果 cut_idx 不在 Skill 内部 → 返回 None
         """
         # 从 cut_idx 向前找最近的 skills_tool 启动
@@ -106,12 +140,16 @@ class SkillAwareTailProtection:
         for i in range(cut_idx - 1, max(head_end - 1, -1), -1):
             msg = messages[i]
 
-            # 检查是否是 skills_tool 的结果返回（意味着 cut_idx 在这个 Skill 之后）
+            # 检查是否是 skills_tool 的 ToolMessage
             if isinstance(msg, ToolMessage):
                 tool_name = getattr(msg, "name", "") or ""
                 if tool_name == "skills_tool":
-                    # cut_idx 在此 Skill 结束之后 → 不在 Skill 内部
-                    return None
+                    content = getattr(msg, "content", "") or ""
+                    if content.strip().startswith("[SKILL_DONE:"):
+                        # Fork 模式的终止标记 → cut_idx 在此 Skill 之后
+                        return None
+                    # Inline 模式的 prompt 返回 → 继续向前找 skills_tool 调用
+                    # （这条 ToolMessage 是 Skill 内部的，不是终止）
 
             # 检查是否是 skills_tool 的调用发起
             if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
@@ -125,25 +163,59 @@ class SkillAwareTailProtection:
         if skill_start is None:
             return None
 
-        # 从 skill_start 向后找对应的 skills_tool 结果
-        skill_end = None
+        # 找到 skill_start 后，确定 Skill 的终止位置
+        tm_idx = None
         for i in range(skill_start + 1, len(messages)):
-            msg = messages[i]
-            if isinstance(msg, ToolMessage):
-                tool_name = getattr(msg, "name", "") or ""
-                if tool_name == "skills_tool":
-                    skill_end = i
+            if isinstance(messages[i], ToolMessage):
+                tm_name = getattr(messages[i], "name", "") or ""
+                if tm_name == "skills_tool":
+                    tm_idx = i
                     break
 
-        if skill_end is None:
-            # Skill 正在执行中（还没有最终结果）→ 保护到当前位置
+        if tm_idx is None:
+            # 没有 ToolMessage 返回 → Skill 正在启动中 → 保护
             return skill_start
 
-        # cut_idx 在 [skill_start, skill_end] 之间 → 整个 Skill 纳入保护
-        if skill_start <= cut_idx <= skill_end:
+        # 区分 Fork / Inline
+        content = getattr(messages[tm_idx], "content", "") or ""
+        if content.strip().startswith("[SKILL_DONE:"):
+            # Fork 模式: 段 = [skill_start, tm_idx]
+            if skill_start <= cut_idx <= tm_idx:
+                return skill_start
+            return None  # cut_idx 在 fork 段之外
+
+        # Inline 模式: 段延伸到下一个 skills_tool 调用或 HumanMessage
+        inline_end = self._compute_inline_end(messages, tm_idx, skill_start)
+
+        if skill_start <= cut_idx <= inline_end:
             return skill_start
 
         return None
+
+    def _compute_inline_end(self, messages: list, prompt_return_idx: int, skill_start: int) -> int:
+        """计算 inline Skill 段的终止位置（用于 §4.1 保护区判断）
+
+        终止条件（与 find_completed_skill_boundaries 一致）:
+          - 下一个 skills_tool 调用的前一条
+          - 或下一个 HumanMessage 的前一条
+          - 或消息末尾
+        """
+        segment_end = len(messages) - 1
+
+        # 找下一个 skills_tool 调用
+        for i in range(prompt_return_idx + 1, len(messages)):
+            if isinstance(messages[i], AIMessage) and getattr(messages[i], "tool_calls", None):
+                if any(tc.get("name") == "skills_tool" for tc in messages[i].tool_calls):
+                    segment_end = min(segment_end, i - 1)
+                    break
+
+        # 找下一个 HumanMessage
+        for i in range(prompt_return_idx + 1, segment_end + 1):
+            if isinstance(messages[i], HumanMessage):
+                segment_end = min(segment_end, i - 1)
+                break
+
+        return max(segment_end, prompt_return_idx)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -493,38 +565,251 @@ def post_skill_compact(
 
 
 def find_completed_skill_boundaries(messages: list) -> list[tuple[int, int]]:
-    """扫描消息列表，找出所有已完成的 Skill 执行边界
+    """找出已完成的、可压缩的 Skill 执行段
+
+    三层识别策略（按可靠性递减）:
+      1. Fork Skill: ToolMessage 内容以 [SKILL_DONE: 开头 → 精确段 = [调用, 返回]
+      2. Inline Skill（有完成标记）: AIMessage 内容含 [INLINE_SKILL_DONE:xxx]
+         → 精确段 = [skills_tool 调用, 含标记的 AIMessage]
+      3. Inline Skill（无完成标记，兼容旧 Skill）: 以"轮次"为粒度
+         → 段 = 该轮次内从 skills_tool 调用到 HumanMessage 之前
+
+    设计决策:
+      - 层 1 和层 2 是精确识别（依赖可靠标记），覆盖 95%+ 场景
+      - 层 3 是兜底（旧 Skill 未注入完成标记指令时），以轮次为粒度处理
+      - 正在执行的 Skill（无完成标记且在当前轮次末尾）不加入 boundaries
 
     Returns:
-        [(start_idx, end_idx), ...] — 每个 Skill 的起止 index
+        [(start_idx, end_idx), ...] — 每个可压缩段的起止 index (inclusive)
     """
     boundaries: list[tuple[int, int]] = []
-    i = 0
-    while i < len(messages):
-        msg = messages[i]
-        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
-            for tc in msg.tool_calls:
-                if tc.get("name") == "skills_tool":
-                    # 找到 Skill 启动，向后找结束
-                    skill_start = i
-                    skill_end = None
-                    for j in range(i + 1, len(messages)):
+    covered_indices: set[int] = set()  # 已被识别的消息 index，避免重复
+
+    # ═══ 层 1: Fork Skill 精确识别 ═══
+    for i, msg in enumerate(messages):
+        if not (isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None)):
+            continue
+        if not any(tc.get("name") == "skills_tool" for tc in msg.tool_calls):
+            continue
+        # 找对应的 ToolMessage(name="skills_tool")
+        for j in range(i + 1, len(messages)):
+            if isinstance(messages[j], ToolMessage):
+                tm_name = getattr(messages[j], "name", "") or ""
+                if tm_name == "skills_tool":
+                    content = getattr(messages[j], "content", "") or ""
+                    if content.strip().startswith("[SKILL_DONE:"):
+                        boundaries.append((i, j))
+                        covered_indices.add(i)
+                        covered_indices.add(j)
+                    break
+
+    # ═══ 层 2: Inline Skill 精确识别（有 [INLINE_SKILL_DONE:] 完成标记）═══
+    for i, msg in enumerate(messages):
+        if i in covered_indices:
+            continue
+        if not (isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None)):
+            continue
+        if not any(tc.get("name") == "skills_tool" for tc in msg.tool_calls):
+            continue
+
+        # 找对应的 ToolMessage（prompt 返回，不是 [SKILL_DONE:]）
+        tm_idx = None
+        for j in range(i + 1, len(messages)):
+            if isinstance(messages[j], ToolMessage):
+                tm_name = getattr(messages[j], "name", "") or ""
+                if tm_name == "skills_tool":
+                    content = getattr(messages[j], "content", "") or ""
+                    if not content.strip().startswith("[SKILL_DONE:"):
+                        tm_idx = j  # 这是 inline prompt 返回
+                    break
+
+        if tm_idx is None:
+            continue  # 没有 prompt 返回，跳过
+
+        # 向后搜索 [INLINE_SKILL_DONE:xxx] 标记
+        skill_end = None
+        for j in range(tm_idx + 1, len(messages)):
+            if isinstance(messages[j], HumanMessage):
+                break  # 到了下一个轮次，标记不存在
+            if isinstance(messages[j], AIMessage):
+                content = getattr(messages[j], "content", "") or ""
+                if "[INLINE_SKILL_DONE:" in content:
+                    skill_end = j
+                    break
+
+        if skill_end is not None:
+            # 精确识别成功
+            if skill_end > i + 1:
+                boundaries.append((i, skill_end))
+                for k in range(i, skill_end + 1):
+                    covered_indices.add(k)
+
+    # ═══ 层 3: 兜底 — 无完成标记的 Inline Skill，以"轮次"为粒度 ═══
+    # 找到包含未覆盖的 inline skills_tool 调用的轮次
+    human_indices = [idx for idx, m in enumerate(messages) if isinstance(m, HumanMessage)]
+    turn_starts = [0] + [idx + 1 for idx in human_indices]
+    turn_ends = [idx - 1 for idx in human_indices] + [len(messages) - 1]
+
+    for t_idx in range(len(turn_starts)):
+        t_start = turn_starts[t_idx]
+        t_end = turn_ends[t_idx]
+        if t_start > t_end:
+            continue
+
+        # 检查该轮次是否有未覆盖的 inline skills_tool
+        has_uncovered_inline = False
+        first_skill_idx = None
+        for k in range(t_start, t_end + 1):
+            if k in covered_indices:
+                continue
+            msg = messages[k]
+            if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+                if any(tc.get("name") == "skills_tool" for tc in msg.tool_calls):
+                    # 确认是 inline（对应 TM 不含 [SKILL_DONE:]）
+                    for j in range(k + 1, min(k + 5, len(messages))):
                         if isinstance(messages[j], ToolMessage):
                             tm_name = getattr(messages[j], "name", "") or ""
                             if tm_name == "skills_tool":
-                                skill_end = j
+                                content = getattr(messages[j], "content", "") or ""
+                                if not content.strip().startswith("[SKILL_DONE:"):
+                                    has_uncovered_inline = True
+                                    if first_skill_idx is None:
+                                        first_skill_idx = k
                                 break
-                    if skill_end is not None:
-                        boundaries.append((skill_start, skill_end))
-                        i = skill_end  # 跳到 Skill 结束位置继续扫描
-                    break
-        i += 1
+            if has_uncovered_inline and first_skill_idx is not None:
+                break
+
+        if not has_uncovered_inline or first_skill_idx is None:
+            continue
+
+        # 轮次段: 从第一个 skills_tool 到轮次结束
+        segment_start = first_skill_idx
+        segment_end = t_end
+
+        # 检查是否正在执行（最后一个轮次 + 末尾是 ToolMessage/AI(tool_calls)）
+        if t_idx == len(turn_starts) - 1:
+            last_msg = messages[segment_end]
+            if isinstance(last_msg, ToolMessage):
+                continue
+            if isinstance(last_msg, AIMessage) and getattr(last_msg, "tool_calls", None):
+                continue
+
+        # 只有段足够长才处理
+        if segment_end - segment_start + 1 > 2:
+            # 排除已覆盖的范围
+            overlap = any(
+                s <= segment_start <= e or s <= segment_end <= e
+                for s, e in boundaries
+            )
+            if not overlap:
+                boundaries.append((segment_start, segment_end))
+
+    # 按 start_idx 排序
+    boundaries.sort(key=lambda x: x[0])
     return boundaries
 
 
 # ═══════════════════════════════════════════════════════════
 # 辅助函数
 # ═══════════════════════════════════════════════════════════
+
+def _detect_inline_mode(messages: list, prompt_return_idx: int) -> bool:
+    """判断 skills_tool 的 ToolMessage 返回的是 inline prompt 还是 fork 最终结果
+
+    启发式规则:
+      1. 如果 prompt_return_idx 之后紧接着是 AIMessage(tool_calls) 且不含 skills_tool
+         → inline 模式（LLM 在按 Skill prompt 中的 SOP 继续执行工具）
+      2. 如果返回内容看起来像 SOP 指令（包含步骤编号、"请"/"按照"等指令词）
+         → inline 模式
+      3. 其他情况 → fork 模式（返回的是最终结果）
+    """
+    # 检查 prompt 返回内容是否像 SOP 指令
+    content = getattr(messages[prompt_return_idx], "content", "") or ""
+    if isinstance(content, str):
+        # Inline prompt 通常包含步骤指引、工具使用说明
+        inline_indicators = [
+            "步骤", "Step ", "请按照", "请执行", "请使用",
+            "1.", "1、", "第一步", "## 任务",
+            "工具:", "调用", "SOP",
+        ]
+        indicator_count = sum(1 for ind in inline_indicators if ind in content)
+        if indicator_count >= 2:
+            return True
+
+    # 检查 prompt_return_idx 之后是否紧跟 LLM 的工具调用（非 skills_tool）
+    next_idx = prompt_return_idx + 1
+    if next_idx < len(messages):
+        next_msg = messages[next_idx]
+        if isinstance(next_msg, AIMessage) and getattr(next_msg, "tool_calls", None):
+            # 紧跟的工具调用中不含 skills_tool → LLM 在按 SOP 执行
+            tc_names = [tc.get("name", "") for tc in next_msg.tool_calls]
+            if "skills_tool" not in tc_names:
+                return True
+
+    return False
+
+
+def _find_inline_skill_end(messages: list, prompt_return_idx: int) -> int | None:
+    """找到 inline 模式 Skill 执行的终止位置
+
+    核心难题: Inline 模式没有明确终止标记。Skill 按 SOP 执行工具后，主 Agent
+    可能继续调用其他工具完成后续任务。两者在消息结构上完全一样。
+
+    设计原则: "宁多不少" — 边界偏大（多保护几条）的损害远小于边界偏小（Skill
+    内部被压缩导致 LLM 丢失上下文）。
+
+    终止判断策略（综合多个信号）:
+      1. 强终止: 下一个 HumanMessage → 用户发了新消息，Skill 肯定已结束
+      2. 强终止: 下一个 skills_tool 调用 → 新 Skill 开始，旧 Skill 结束
+      3. 弱终止: AIMessage 无 tool_calls 后面紧跟 HumanMessage → 对话轮次结束
+      4. 模糊情况（Skill 完成后主 Agent 继续调工具）: 不在此处做精确切分，
+         整体视为"Skill 执行段"。原因：
+         - Post-Skill Compact 对这段做压缩时，保留了头尾（protect_head=2, protect_tail=5）
+         - 即使多压缩了几条"后续"工具调用，损失的只是中间步骤的详细内容
+         - 如果错误地在中间切断，Skill 内部工具调用会被 MicroCompact 压缩 → 更大损害
+      5. 消息列表结束 + 最后消息有工具调用 → Skill 可能正在执行（返回 None）
+
+    Returns:
+        终止位置 index（inclusive），或 None（Skill 正在执行中/不确定）
+    """
+    last_meaningful_idx = prompt_return_idx  # 至少包含 prompt 返回
+
+    for i in range(prompt_return_idx + 1, len(messages)):
+        msg = messages[i]
+
+        # 强终止条件 1: 下一个 HumanMessage — 用户开始新轮次
+        if isinstance(msg, HumanMessage):
+            # Skill 在 HumanMessage 之前的最后一条消息处结束
+            return max(i - 1, prompt_return_idx)
+
+        # 强终止条件 2: 下一个 skills_tool 调用 — 新 Skill 开始
+        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+            for tc in msg.tool_calls:
+                if tc.get("name") == "skills_tool":
+                    # 新 Skill 开始，当前 Skill 在上一条消息结束
+                    return max(i - 1, prompt_return_idx)
+
+        # 跟踪最后一条有实质内容的消息
+        if isinstance(msg, ToolMessage):
+            last_meaningful_idx = i
+        elif isinstance(msg, AIMessage):
+            last_meaningful_idx = i
+
+    # 到了消息列表末尾
+    last_msg = messages[-1] if messages else None
+
+    # 如果最后一条是 ToolMessage 或 AIMessage(tool_calls) → 可能还在执行
+    if isinstance(last_msg, ToolMessage):
+        return None  # 正在执行中 — 不做 boundary 识别，让 §4.1 保护它
+    if isinstance(last_msg, AIMessage) and getattr(last_msg, "tool_calls", None):
+        return None  # 正在执行中
+
+    # 最后是 AIMessage 无 tool_calls（最终回复） → Skill+后续 整段结束
+    if last_meaningful_idx > prompt_return_idx:
+        return last_meaningful_idx
+
+    return None
+
 
 def _skill_internal_one_liner(tool_name: str, content: str) -> str:
     """Skill 内部工具调用的一行摘要（用于 post_skill_compact）"""

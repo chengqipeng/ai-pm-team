@@ -619,15 +619,32 @@ class SkillExecutor:
         except Exception as e:
             logger.warning("异步优化失败: %s — %s", skill_name, e)
 
+    # Inline Skill 完成标记指令 — 让 LLM 在完成 SOP 后输出可识别的终止信号
+    _INLINE_COMPLETION_INSTRUCTION = (
+        "\n\n---\n"
+        "## 执行完成标记（必须遵循）\n"
+        "当你完成上述所有步骤后，在你的总结回复的**第一行**输出以下标记（原样输出，不要修改）：\n"
+        "[INLINE_SKILL_DONE:{skill_name}]\n"
+        "输出标记后，继续你的正常回复内容。这个标记帮助系统追踪技能执行进度。\n"
+    )
+
     async def _execute_inline(self, skill: SkillDefinition, prompt: str) -> str:
         """
-        inline 模式 — 返回 prompt 文本，由 LLM 继续推理
+        inline 模式 — 返回 prompt 文本 + 完成标记指令，由 LLM 继续推理
 
         对应 design.md §6.4 inline 模式:
-        prompt 作为工具返回值注入对话，LLM 根据 prompt 中的 SOP 继续调用 Tool
+        prompt 作为工具返回值注入对话，LLM 根据 prompt 中的 SOP 继续调用 Tool。
+        SOP 末尾追加完成标记指令，LLM 执行完所有步骤后会输出
+        [INLINE_SKILL_DONE:skill_name] 标记，供压缩器精确识别边界。
         """
-        logger.info(f"Skill inline: {skill.name} ({len(prompt)} chars)")
-        return prompt
+        # 追加完成标记指令
+        completion_instruction = self._INLINE_COMPLETION_INSTRUCTION.format(
+            skill_name=skill.name
+        )
+        full_prompt = prompt + completion_instruction
+
+        logger.info(f"Skill inline: {skill.name} ({len(full_prompt)} chars, with completion marker)")
+        return full_prompt
 
     async def _execute_fork(
         self, skill: SkillDefinition, prompt: str, arguments: dict
