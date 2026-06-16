@@ -1,189 +1,254 @@
-"""上下文压缩存档 DAO — ai_context_archive 表的 CRUD 操作
+"""上下文存档 DAO — Legacy PG 实现（已废弃）
 
-设计原则:
-  1. 原文持久化 — 不再依赖 Checkpointer Redis 24h TTL，原始消息直接存入 PG
-  2. 数据时效性 — 每条存档带 data_timestamp，恢复时标注数据年龄
-  3. 多信号检索 — 支持 turn_id 精确查询、关键词模糊匹配、实体搜索
-  4. 租户隔离 — 所有查询强制 tenant_id 条件
+注意: ContextArchive 已迁移到纯 VDB 存储（见 src/middleware/context_archive.py）。
+本 DAO 保留用于:
+  1. 测试代码中 Mock 替换的目标模块
+  2. 未来可能的 PG 备份/审计写入
+  3. 兼容 __init__.py 导出
+
+生产环境不再调用本模块的方法，所有读写通过 VDB 完成。
 """
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
+from typing import Optional
 
-from .pg_pool import get_conn
 from .context_archive_models import ContextArchiveRow
+from .pg_pool import get_conn
+from .snowflake import next_id
 
 logger = logging.getLogger(__name__)
 
 
 class ContextArchiveDAO:
-    """ai_context_archive 表访问层"""
-
-    @staticmethod
-    def insert(row: ContextArchiveRow) -> None:
-        """插入单条存档记录"""
-        with get_conn() as conn:
-            conn.cursor().execute("""
-                INSERT INTO ai_context_archive
-                (id, tenant_id, thread_id, turn_id,
-                 user_query, answer_preview, entities, keywords,
-                 tool_names, skill_names, tool_summaries, key_data,
-                 message_count, message_range_start, message_range_end,
-                 original_messages, data_timestamp, archived_at,
-                 delete_flg, created_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """, (
-                row.id, row.tenant_id, row.thread_id, row.turn_id,
-                row.user_query, row.answer_preview, row.entities, row.keywords,
-                row.tool_names, row.skill_names, row.tool_summaries, row.key_data,
-                row.message_count, row.message_range_start, row.message_range_end,
-                row.original_messages, row.data_timestamp, row.archived_at,
-                row.delete_flg, row.created_at,
-            ))
+    """上下文存档 CRUD — ai_context_archive 表（Legacy）"""
 
     @staticmethod
     def batch_insert(rows: list[ContextArchiveRow]) -> None:
-        """批量插入存档记录（一次压缩可能产生多个轮次）"""
+        """批量写入存档行"""
         if not rows:
             return
-        with get_conn() as conn:
-            cur = conn.cursor()
-            args = [(
-                r.id, r.tenant_id, r.thread_id, r.turn_id,
-                r.user_query, r.answer_preview, r.entities, r.keywords,
-                r.tool_names, r.skill_names, r.tool_summaries, r.key_data,
-                r.message_count, r.message_range_start, r.message_range_end,
-                r.original_messages, r.data_timestamp, r.archived_at,
-                r.delete_flg, r.created_at,
-            ) for r in rows]
-            cur.executemany("""
-                INSERT INTO ai_context_archive
-                (id, tenant_id, thread_id, turn_id,
-                 user_query, answer_preview, entities, keywords,
-                 tool_names, skill_names, tool_summaries, key_data,
-                 message_count, message_range_start, message_range_end,
-                 original_messages, data_timestamp, archived_at,
-                 delete_flg, created_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """, args)
-
-    @staticmethod
-    def get_by_turn_id(tenant_id: int, thread_id: str, turn_id: int) -> ContextArchiveRow | None:
-        """按 turn_id 精确查询"""
-        with get_conn() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT * FROM ai_context_archive
-                WHERE tenant_id=%s AND thread_id=%s AND turn_id=%s AND delete_flg=0
-            """, (tenant_id, thread_id, turn_id))
-            row = cur.fetchone()
-            if not row:
-                return None
-            return _row_to_model(cur.description, row)
-
-    @staticmethod
-    def list_by_thread(tenant_id: int, thread_id: str, limit: int = 100) -> list[ContextArchiveRow]:
-        """获取会话的所有存档记录（按 turn_id 升序）"""
-        with get_conn() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT * FROM ai_context_archive
-                WHERE tenant_id=%s AND thread_id=%s AND delete_flg=0
-                ORDER BY turn_id ASC LIMIT %s
-            """, (tenant_id, thread_id, limit))
-            return [_row_to_model(cur.description, r) for r in cur.fetchall()]
-
-    @staticmethod
-    def search_by_keywords(
-        tenant_id: int, thread_id: str, keywords: list[str], top_k: int = 5
-    ) -> list[ContextArchiveRow]:
-        """按关键词模糊搜索（利用 PG 的 LIKE + 评分排序）
-
-        搜索范围: user_query, entities, keywords, tool_names, skill_names
-        """
-        if not keywords:
-            return []
-
-        with get_conn() as conn:
-            cur = conn.cursor()
-            # 构建 OR 条件（每个关键词匹配多个字段）
-            conditions = []
-            params: list[Any] = [tenant_id, thread_id]
-            for kw in keywords[:10]:  # 限制关键词数量防止 SQL 过长
-                kw_pattern = f"%{kw}%"
-                conditions.append(
-                    "(user_query ILIKE %s OR entities ILIKE %s "
-                    "OR keywords ILIKE %s OR tool_names ILIKE %s "
-                    "OR skill_names ILIKE %s OR answer_preview ILIKE %s)"
-                )
-                params.extend([kw_pattern] * 6)
-
-            where_clause = " OR ".join(conditions)
-            cur.execute(f"""
-                SELECT * FROM ai_context_archive
-                WHERE tenant_id=%s AND thread_id=%s AND delete_flg=0
-                AND ({where_clause})
-                ORDER BY turn_id DESC LIMIT %s
-            """, params + [top_k])
-            return [_row_to_model(cur.description, r) for r in cur.fetchall()]
-
-    @staticmethod
-    def search_by_entities(
-        tenant_id: int, thread_id: str, entity_names: list[str], top_k: int = 5
-    ) -> list[ContextArchiveRow]:
-        """按实体名搜索"""
-        if not entity_names:
-            return []
-        with get_conn() as conn:
-            cur = conn.cursor()
-            conditions = []
-            params: list[Any] = [tenant_id, thread_id]
-            for entity in entity_names[:10]:
-                conditions.append("entities ILIKE %s")
-                params.append(f"%{entity}%")
-
-            where_clause = " OR ".join(conditions)
-            cur.execute(f"""
-                SELECT * FROM ai_context_archive
-                WHERE tenant_id=%s AND thread_id=%s AND delete_flg=0
-                AND ({where_clause})
-                ORDER BY turn_id DESC LIMIT %s
-            """, params + [top_k])
-            return [_row_to_model(cur.description, r) for r in cur.fetchall()]
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    for row in rows:
+                        cur.execute("""
+                            INSERT INTO ai_context_archive
+                                (id, tenant_id, thread_id, turn_id, user_query,
+                                 answer_preview, entities, keywords, tool_names,
+                                 skill_names, tool_summaries, key_data,
+                                 original_messages_json, message_count,
+                                 message_range_start, message_range_end,
+                                 has_decision, decision_fields, task_id,
+                                 data_timestamp, delete_flg, created_at, updated_at)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        """, (
+                            row.id, row.tenant_id, row.thread_id, row.turn_id,
+                            row.user_query, row.answer_preview, row.entities,
+                            row.keywords, row.tool_names, row.skill_names,
+                            row.tool_summaries, row.key_data,
+                            row.original_messages_json, row.message_count,
+                            row.message_range_start, row.message_range_end,
+                            row.has_decision, row.decision_fields, row.task_id,
+                            row.data_timestamp, row.delete_flg,
+                            row.created_at, row.updated_at,
+                        ))
+        except Exception as e:
+            logger.warning("[ContextArchiveDAO] batch_insert 失败: %s", e)
 
     @staticmethod
     def get_max_turn_id(tenant_id: int, thread_id: str) -> int:
-        """获取当前会话最大 turn_id（用于自增）"""
-        with get_conn() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT COALESCE(MAX(turn_id), 0)
-                FROM ai_context_archive
-                WHERE tenant_id=%s AND thread_id=%s AND delete_flg=0
-            """, (tenant_id, thread_id))
-            return cur.fetchone()[0]
+        """获取当前会话最大 turn_id"""
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT COALESCE(MAX(turn_id), 0)
+                        FROM ai_context_archive
+                        WHERE tenant_id = %s AND thread_id = %s AND delete_flg = 0
+                    """, (tenant_id, thread_id))
+                    row = cur.fetchone()
+                    return row[0] if row else 0
+        except Exception as e:
+            logger.warning("[ContextArchiveDAO] get_max_turn_id 失败: %s", e)
+            return 0
 
     @staticmethod
-    def delete_by_thread(tenant_id: int, thread_id: str) -> int:
-        """软删除会话所有存档（会话结束时调用）"""
-        with get_conn() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                UPDATE ai_context_archive SET delete_flg=1
-                WHERE tenant_id=%s AND thread_id=%s AND delete_flg=0
-            """, (tenant_id, thread_id))
-            return cur.rowcount
+    def get_by_turn_id(tenant_id: int, thread_id: str, turn_id: int) -> Optional[ContextArchiveRow]:
+        """按 turn_id 精确获取"""
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT id, tenant_id, thread_id, turn_id, user_query,
+                               answer_preview, entities, keywords, tool_names,
+                               skill_names, tool_summaries, key_data,
+                               original_messages_json, message_count,
+                               message_range_start, message_range_end,
+                               has_decision, decision_fields, task_id,
+                               data_timestamp, delete_flg, created_at, updated_at
+                        FROM ai_context_archive
+                        WHERE tenant_id = %s AND thread_id = %s AND turn_id = %s
+                          AND delete_flg = 0
+                    """, (tenant_id, thread_id, turn_id))
+                    row = cur.fetchone()
+                    return _row_to_model(row) if row else None
+        except Exception as e:
+            logger.warning("[ContextArchiveDAO] get_by_turn_id 失败: %s", e)
+            return None
+
+    @staticmethod
+    def list_by_thread(tenant_id: int, thread_id: str, limit: int = 100) -> list[ContextArchiveRow]:
+        """按会话列出所有存档（按 turn_id 升序）"""
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT id, tenant_id, thread_id, turn_id, user_query,
+                               answer_preview, entities, keywords, tool_names,
+                               skill_names, tool_summaries, key_data,
+                               original_messages_json, message_count,
+                               message_range_start, message_range_end,
+                               has_decision, decision_fields, task_id,
+                               data_timestamp, delete_flg, created_at, updated_at
+                        FROM ai_context_archive
+                        WHERE tenant_id = %s AND thread_id = %s AND delete_flg = 0
+                        ORDER BY turn_id ASC
+                        LIMIT %s
+                    """, (tenant_id, thread_id, limit))
+                    return [_row_to_model(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.warning("[ContextArchiveDAO] list_by_thread 失败: %s", e)
+            return []
+
+    @staticmethod
+    def search_by_keywords(tenant_id: int, thread_id: str,
+                           keywords: list[str], top_k: int = 5) -> list[ContextArchiveRow]:
+        """按关键词搜索（ILIKE 降级检索）"""
+        if not keywords:
+            return []
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    conditions = " OR ".join(
+                        "user_query ILIKE %s OR entities ILIKE %s OR keywords ILIKE %s OR answer_preview ILIKE %s"
+                        for _ in keywords
+                    )
+                    params: list = [tenant_id, thread_id]
+                    for kw in keywords:
+                        pattern = f"%{kw}%"
+                        params.extend([pattern, pattern, pattern, pattern])
+                    params.append(top_k)
+
+                    cur.execute(f"""
+                        SELECT id, tenant_id, thread_id, turn_id, user_query,
+                               answer_preview, entities, keywords, tool_names,
+                               skill_names, tool_summaries, key_data,
+                               original_messages_json, message_count,
+                               message_range_start, message_range_end,
+                               has_decision, decision_fields, task_id,
+                               data_timestamp, delete_flg, created_at, updated_at
+                        FROM ai_context_archive
+                        WHERE tenant_id = %s AND thread_id = %s AND delete_flg = 0
+                          AND ({conditions})
+                        ORDER BY turn_id DESC
+                        LIMIT %s
+                    """, params)
+                    return [_row_to_model(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.warning("[ContextArchiveDAO] search_by_keywords 失败: %s", e)
+            return []
+
+    @staticmethod
+    def search_by_entities(tenant_id: int, thread_id: str,
+                           entity_names: list[str], top_k: int = 5) -> list[ContextArchiveRow]:
+        """按实体名搜索"""
+        if not entity_names:
+            return []
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    conditions = " OR ".join("entities ILIKE %s" for _ in entity_names)
+                    params: list = [tenant_id, thread_id]
+                    for name in entity_names:
+                        params.append(f"%{name}%")
+                    params.append(top_k)
+
+                    cur.execute(f"""
+                        SELECT id, tenant_id, thread_id, turn_id, user_query,
+                               answer_preview, entities, keywords, tool_names,
+                               skill_names, tool_summaries, key_data,
+                               original_messages_json, message_count,
+                               message_range_start, message_range_end,
+                               has_decision, decision_fields, task_id,
+                               data_timestamp, delete_flg, created_at, updated_at
+                        FROM ai_context_archive
+                        WHERE tenant_id = %s AND thread_id = %s AND delete_flg = 0
+                          AND ({conditions})
+                        ORDER BY turn_id DESC
+                        LIMIT %s
+                    """, params)
+                    return [_row_to_model(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.warning("[ContextArchiveDAO] search_by_entities 失败: %s", e)
+            return []
+
+    @staticmethod
+    def search_decisions(tenant_id: int, thread_id: str, top_k: int = 20) -> list[ContextArchiveRow]:
+        """搜索包含决策的存档"""
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT id, tenant_id, thread_id, turn_id, user_query,
+                               answer_preview, entities, keywords, tool_names,
+                               skill_names, tool_summaries, key_data,
+                               original_messages_json, message_count,
+                               message_range_start, message_range_end,
+                               has_decision, decision_fields, task_id,
+                               data_timestamp, delete_flg, created_at, updated_at
+                        FROM ai_context_archive
+                        WHERE tenant_id = %s AND thread_id = %s
+                          AND has_decision = 1 AND delete_flg = 0
+                        ORDER BY turn_id ASC
+                        LIMIT %s
+                    """, (tenant_id, thread_id, top_k))
+                    return [_row_to_model(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.warning("[ContextArchiveDAO] search_decisions 失败: %s", e)
+            return []
 
 
-def _row_to_model(desc, row) -> ContextArchiveRow:
-    """将数据库行映射为 ContextArchiveRow"""
-    import dataclasses
-    col_names = [d[0] for d in desc]
-    field_names = {f.name for f in dataclasses.fields(ContextArchiveRow)}
-    kwargs = {}
-    for i, name in enumerate(col_names):
-        if name in field_names:
-            kwargs[name] = row[i]
-    return ContextArchiveRow(**kwargs)
+# ═══════════════════════════════════════════════════════════
+# 内部工具函数
+# ═══════════════════════════════════════════════════════════
+
+def _row_to_model(row) -> ContextArchiveRow:
+    """将查询结果行转为 ContextArchiveRow"""
+    if not row:
+        return ContextArchiveRow()
+    return ContextArchiveRow(
+        id=row[0],
+        tenant_id=row[1],
+        thread_id=row[2],
+        turn_id=row[3],
+        user_query=row[4] or "",
+        answer_preview=row[5] or "",
+        entities=row[6] or "",
+        keywords=row[7] or "",
+        tool_names=row[8] or "",
+        skill_names=row[9] or "",
+        tool_summaries=row[10] or "[]",
+        key_data=row[11] or "{}",
+        original_messages_json=row[12] or "",
+        message_count=row[13] or 0,
+        message_range_start=row[14] or 0,
+        message_range_end=row[15] or 0,
+        has_decision=row[16] or 0,
+        decision_fields=row[17] or "[]",
+        task_id=row[18] or "",
+        data_timestamp=row[19] or 0,
+        delete_flg=row[20] or 0,
+        created_at=row[21] or 0,
+        updated_at=row[22] or 0,
+    )

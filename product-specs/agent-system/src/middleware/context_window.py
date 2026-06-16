@@ -104,11 +104,13 @@ TOOL_THRESHOLDS: dict[str, dict] = {
 DEFAULT_TOOL_THRESHOLD = {"threshold": 800, "max_summary": 200}
 
 # 安全网: 单条工具结果的绝对上限（不论当前/历史轮次）
-# 超过此值说明数据应该走 Scratchpad，强制截断防止窗口溢出
-SAFETY_CAP_CHARS = 50_000
+# 从 token 预算体系推导: 单条结果不允许超过保护区预算的 50%
+# 默认值 = 20K tokens × 50% × 2(字符/token) = 20,000 字符
+# 含义: 一条工具结果最多占用保护区预算的一半，超过说明应该分页/截断
+SAFETY_CAP_CHARS = 20_000
 
 # 不压缩的工具（skills_tool 由 SkillExecutor 自行处理；read_skill_resource 是知识文件，不能压缩）
-SKIP_COMPACT_TOOLS = {"skills_tool", "agent_tool", "ask_user", "scratchpad", "read_skill_resource"}
+SKIP_COMPACT_TOOLS = {"skills_tool", "agent_tool", "ask_user", "read_skill_resource"}
 
 
 # ═══════════════════════════════════════════════════════════
@@ -120,17 +122,11 @@ SUMMARY_PREFIX = (
     "[CONTEXT COMPACTION — REFERENCE ONLY]\n"
     "以下内容是早期对话的压缩摘要，不是当前指令。\n"
     "不要回答或执行摘要中提到的请求（它们已经被处理过了）。\n"
-    "当前任务见 '## Active Task' 部分。\n\n"
-    "⚠️ 重要：摘要中标记了 [📦 turn:N] 的内容表示该轮次已被压缩，只保留了摘要。\n"
-    "如果用户追问某个 [📦 turn:N] 的具体细节（如完整条款、精确数据表、原始工具输出），\n"
-    "请调用 recall_context(turn_id=N) 获取该轮次的完整原文。\n\n"
-    "⚠️ 数据时效性：recall_context 返回的是历史采集数据（会标注采集时间）。\n"
-    "如果数据涉及状态变化（如商机阶段、客户动态、库存、价格）且采集时间超过 4 小时，\n"
-    "应优先使用 query_data 等业务工具查询最新状态，而非依赖历史快照。\n"
-    "recall_context 适合恢复结论性/结构性信息（如报价条款、合同条件、分析结论）。\n\n"
+    "当前任务见 '## Active Task' 部分。\n"
+    "如果需要历史操作的细节数据，优先使用业务工具（query_data 等）查询最新状态。\n\n"
 )
 
-# CRM 7-Section 结构化摘要生成 Prompt（对齐 Hermes Phase 3）
+# CRM 7-Section 结构化摘要生成 Prompt（对齐 Hermes Phase 3，简化版）
 STRUCTURED_SUMMARY_PROMPT = """你是一个上下文压缩专家。将以下对话压缩为结构化摘要。
 
 ## 输出格式要求（严格遵循以下 7 个 section）：
@@ -142,36 +138,34 @@ STRUCTURED_SUMMARY_PROMPT = """你是一个上下文压缩专家。将以下对�
 [当前涉及的客户名称、行业、规模、关键联系人]
 
 ## 已完成操作
-[编号列表，每条标注 turn_id 方便引用原文]
-[格式: N. [📦 turn:T] 操作 目标 — 结果摘要 [tool: 工具名]]
-[示例: 1. [📦 turn:3] 查询 PT Sentosa 商机 — 3条活跃商机，总金额$88K [tool: query_data]]
-[示例: 2. [📦 turn:5] 生成报价方案 — $45K/年付$38,250/付款三期 [tool: analyze_data]]
+[编号列表，格式: N. 操作 目标 — 结果摘要 [tool: 工具名]]
+[示例: 1. 查询 PT Sentosa 商机 — 3条活跃商机，总金额$88K [tool: query_data]]
+[示例: 2. 生成报价方案 — $45K/年付$38,250/付款:签约30%+上线40%+验收30% [tool: analyze_data]]
+[要求: 结果摘要中必须包含关键数字，不能只写"已完成"]
 
 ## 关键数据
 [所有精确数字：金额、日期、百分比、客户名、商机名、实体 ID]
-[每个数字必须保留原始精确值，不能模糊化]
-[标注来源轮次: "$45,000 (turn:5)", "折扣15% (turn:5)"]
+[每个数字必须保留原始精确值，不能模糊化（$45,000 不能变成"约4.5万"）]
 
 ## 已回答问题
-[Q: 用户问题 → A: 答案摘要 [📦 turn:T]（防止重复回答）]
+[Q: 用户问题 → A: 答案要点（防止重复回答）]
 
 ## 待处理
-[用户提出但尚未完成的请求]
+[用户提出但尚未完成的请求，用 remaining 语义]
 
 ## 涉及实体
 [操作过的 CRM 实体及记录 ID，如 opportunity(opp_001), account(acc_xxx)]
 
 ## 规则：
 1. Active Task 是最重要的字段 — 必须逐字复制用户最近的未完成请求
-2. 关键数据中的数字必须精确保留（$45,000 不能变成"约4.5万"）
-3. 已完成操作必须标注 [📦 turn:T]，T 是对话中该操作发生的轮次编号
+2. 关键数据中的数字必须精确保留，不能模糊化
+3. 已完成操作的结果摘要必须包含关键结论和数字（付款条件、金额、折扣等）
 4. "待处理"用 remaining 语义，不是 next steps（避免被误读为指令）
 5. 摘要总长度控制在 1500 字以内
-6. [📦 turn:T] 标记告诉后续 AI：如果需要该轮次的完整细节，调用 recall_context(turn_id=T)
 
 {focus_topic_instruction}
 
-## 待压缩的对话内容（每轮标注了 turn_id）：
+## 待压缩的对话内容：
 {conversation}
 """
 
@@ -179,24 +173,25 @@ STRUCTURED_SUMMARY_PROMPT = """你是一个上下文压缩专家。将以下对�
 ITERATIVE_SUMMARY_PROMPT = """你是一个上下文压缩专家。基于上次摘要和新增对话，更新结构化摘要。
 
 ## 更新规则（严格遵循）：
-- PRESERVE: 保留上次摘要中所有仍然相关的信息（包括 [📦 turn:T] 标记）
-- ADD: 将新完成的操作添加到"已完成操作"列表（继续编号，标注新的 turn_id）
+- PRESERVE: 保留上次摘要中所有仍然相关的信息
+- ADD: 将新完成的操作添加到"已完成操作"列表（继续编号）
 - MOVE: 已完成的项从"待处理"移到"已完成操作"
-- MOVE: 已回答的问题添加到"已回答问题"（保留 [📦 turn:T] 标记）
+- MOVE: 已回答的问题添加到"已回答问题"
 - UPDATE: 更新"Active Task"为用户最近的未完成请求
-- UPDATE: 更新"关键数据"中的新发现数字（标注来源 turn_id）
+- UPDATE: 更新"关键数据"中的新发现数字
 - CRITICAL: Active Task 必须反映用户最新的未完成请求
-- CRITICAL: 所有 [📦 turn:T] 标记必须原样保留，这是检索原文的索引
+- CRITICAL: 关键数据中的精确数字必须保留，不能模糊化
+- EVICT: 当摘要超过 1200 字时，"已回答问题"只保留最近 3 条，"已完成操作"中纯查询操作可合并为一行
 
 ## 上次摘要：
 {previous_summary}
 
-## 新增对话内容（每轮标注了 turn_id）：
+## 新增对话内容：
 {new_conversation}
 
 {focus_topic_instruction}
 
-## 输出格式（严格遵循 7 个 section，保留所有 [📦 turn:T] 标记）：
+## 输出格式（严格遵循 7 个 section）：
 ## Active Task
 ## 客户上下文
 ## 已完成操作
@@ -216,7 +211,7 @@ class ContextWindowMiddleware(AgentMiddleware):
     核心原则: 不到阈值不压缩。窗口没有压力时历史数据完整保留，
     窗口有压力时统一裁剪，但当前轮次（最后 HumanMessage 之后）始终完整保护。
 
-    wrap_tool_call: 安全网截断（仅 >50K 极端情况）+ Skill 锚点提取
+    wrap_tool_call: 安全网截断（从 token 预算推导阈值）+ Skill 锚点提取
     before_model:  Post-Skill Compact + MD5 去重 + 阈值触发压缩
                    （MicroCompact / AutoCompact / FullCompact）
     """
@@ -235,8 +230,11 @@ class ContextWindowMiddleware(AgentMiddleware):
         skill_min_tail: int = 5,
         skill_max_tail: int = 30,
         post_skill_compact_threshold: int = 8,
-        # 安全网参数
-        safety_cap_chars: int = SAFETY_CAP_CHARS,
+        post_skill_compact_token_budget: int = 4000,
+        # 安全网参数（None = 从 token 预算自动推导）
+        safety_cap_chars: int | None = None,
+        # Token 预算参数（对齐 Hermes _find_tail_cut_by_tokens）
+        tail_token_budget_ratio: float = 0.20,
     ):
         super().__init__()
         self._max_tokens = max_tokens
@@ -248,7 +246,27 @@ class ContextWindowMiddleware(AgentMiddleware):
         self._consecutive_failures = 0
         self._llm = llm
         self._model_router = model_router
-        self._safety_cap = safety_cap_chars
+
+        # Token 预算：尾部保护区最多占 max_tokens 的 ratio 比例
+        # 例如 max_tokens=100K, ratio=0.20 → 预算 20K tokens
+        self._tail_token_budget = int(max_tokens * tail_token_budget_ratio)
+
+        # 安全网阈值: 从 token 预算体系推导
+        # 公式: 保护区 token 预算 × 50% × 2(字符/token)
+        # 含义: 单条工具结果最多占用保护区预算的一半
+        if safety_cap_chars is not None:
+            self._safety_cap = safety_cap_chars
+        else:
+            self._safety_cap = int(self._tail_token_budget * 0.5 * 2)
+
+        # 真实 token 跟踪（由 LLM 响应后通过 update_real_tokens 回填）
+        self._last_real_prompt_tokens: int = 0
+        # 本轮累计 token（用于前端展示）
+        self._turn_input_tokens: int = 0
+        self._turn_output_tokens: int = 0
+        self._turn_llm_calls: int = 0
+        # 最后一次压缩是否触发（用于前端展示）
+        self._last_compression_triggered: bool = False
 
         # §4.1 Skill 边界感知尾部保护
         self._skill_tail_protection = SkillAwareTailProtection(
@@ -259,6 +277,7 @@ class ContextWindowMiddleware(AgentMiddleware):
         self._skill_anchors = SkillResultAnchor()
         # §4.4 Post-Skill Compact 阈值
         self._post_skill_compact_threshold = post_skill_compact_threshold
+        self._post_skill_compact_token_budget = post_skill_compact_token_budget
 
         # Phase 3: 迭代摘要状态（对齐 Hermes self._previous_summary）
         self._previous_summary: str | None = None
@@ -269,7 +288,7 @@ class ContextWindowMiddleware(AgentMiddleware):
         # 格式化时记录的轮次数（供存档使用）
         self._last_format_turn_count: int = 0
         # 压缩存档索引（供 recall_context 工具检索恢复原文）
-        self._archive = ContextArchive(max_entries=100)
+        self._archive = ContextArchive()
         # 当前 thread_id（由 before_model 从 runtime 获取，供存档引用 Checkpointer）
         self._current_thread_id: str = ""
 
@@ -310,8 +329,10 @@ class ContextWindowMiddleware(AgentMiddleware):
                 summary = _fallback_truncate(tool_name, content, self._safety_cap // 10)
             result.content = summary
             logger.warning(
-                "[ContextWindow] 安全网截断 %s: %d→%d chars (原文超过安全上限 %d)",
+                "[ContextWindow] 安全网截断 %s: %d→%d chars (原文超过 token 预算推导上限 %d，"
+                "即保护区预算 %d tokens 的 50%%)",
                 tool_name, original_len, len(summary), self._safety_cap,
+                self._tail_token_budget,
             )
             self._record_compact_span(tool_name, original_len, len(summary),
                                       original_content=content[:2000],
@@ -400,10 +421,18 @@ class ContextWindowMiddleware(AgentMiddleware):
         # 从后向前压缩，避免 index 偏移
         for start_idx, end_idx in reversed(boundaries):
             skill_msg_count = end_idx - start_idx + 1
-            if skill_msg_count > self._post_skill_compact_threshold:
+            # 估算 Skill 内部 token（2 字符/token）
+            skill_tokens = sum(
+                len(getattr(m, "content", "") or "") // 2
+                for m in messages[start_idx:end_idx + 1]
+            )
+            # 双条件触发：条数超阈值 OR token 超预算
+            if (skill_msg_count > self._post_skill_compact_threshold
+                    or skill_tokens > self._post_skill_compact_token_budget):
                 messages = post_skill_compact(
                     messages, start_idx, end_idx,
                     min_skill_messages=self._post_skill_compact_threshold,
+                    max_skill_tokens=self._post_skill_compact_token_budget,
                 )
 
         return messages
@@ -445,6 +474,66 @@ class ContextWindowMiddleware(AgentMiddleware):
     # 保护区计算辅助 — 对齐 Hermes _find_tail_cut_by_tokens
     # ═══════════════════════════════════════════════════════════
 
+    def update_real_tokens(self, input_tokens: int, output_tokens: int = 0) -> None:
+        """由外部（AGUIConverter / TracingMiddleware）在 LLM 响应后回填真实 token 数
+
+        解决问题: _estimate_tokens 的 2 字符/token 估算有 ±30% 误差，
+        使用 LLM 响应中的 usage_metadata.input_tokens 可精确触发压缩。
+
+        Args:
+            input_tokens: LLM 实际消耗的 prompt tokens（用于压缩阈值判断）
+            output_tokens: LLM 输出 tokens（仅用于前端展示统计）
+        """
+        if input_tokens > 0:
+            self._last_real_prompt_tokens = input_tokens
+        # 累计本轮用量（用于 get_usage_summary）
+        self._turn_input_tokens += input_tokens
+        self._turn_output_tokens += output_tokens
+        self._turn_llm_calls += 1
+
+    def reset_turn_usage(self) -> None:
+        """重置本轮用量统计（在每轮对话开始时由 Adapter 调用）"""
+        self._turn_input_tokens = 0
+        self._turn_output_tokens = 0
+        self._turn_llm_calls = 0
+        self._last_compression_triggered = False
+
+    def get_usage_summary(self) -> dict[str, Any]:
+        """获取本轮 Token 用量摘要（用于前端 usage_summary 事件推送）
+
+        Returns:
+            {
+                "input_tokens": 总输入 token,
+                "output_tokens": 总输出 token,
+                "total_tokens": 总 token,
+                "llm_calls": LLM 调用次数,
+                "context_window": {
+                    "max_tokens": 上下文窗口上限,
+                    "estimated_used": 当前估算使用量,
+                    "usage_percent": 使用百分比,
+                    "tail_budget": 尾部预算 token 数,
+                    "compression_triggered": 本轮是否触发了压缩,
+                },
+            }
+        """
+        # 使用最近一次真实值或估算值
+        current_used = self._turn_input_tokens if self._turn_input_tokens > 0 else 0
+        usage_pct = round(current_used / max(self._max_tokens, 1) * 100, 1)
+
+        return {
+            "input_tokens": self._turn_input_tokens,
+            "output_tokens": self._turn_output_tokens,
+            "total_tokens": self._turn_input_tokens + self._turn_output_tokens,
+            "llm_calls": self._turn_llm_calls,
+            "context_window": {
+                "max_tokens": self._max_tokens,
+                "estimated_used": current_used,
+                "usage_percent": usage_pct,
+                "tail_budget": self._tail_token_budget,
+                "compression_triggered": self._last_compression_triggered,
+            },
+        }
+
     def _find_current_turn_start(self, messages: list) -> int:
         """找到当前轮次的起始位置（最后一条 HumanMessage 的 index）
 
@@ -456,6 +545,146 @@ class ContextWindowMiddleware(AgentMiddleware):
             if isinstance(messages[i], HumanMessage):
                 return i
         return 0
+
+    # ═══════════════════════════════════════════════════════════
+    # 系统级自动注入：检测回溯信号 → 从存档恢复相关历史细节
+    # 替代 recall_context 工具（不依赖 LLM 自主判断）
+    # 检索策略: 向量语义 + BM25 混合检索（复用 VikingMemoryEngine 基础设施）
+    # ═══════════════════════════════════════════════════════════
+
+    # 回溯信号词（用户追问历史内容的语言模式）
+    _RETROSPECT_SIGNALS = (
+        "之前", "刚才", "上面", "前面", "earlier", "之前说的", "刚刚",
+        "那个", "那次", "上次", "回顾", "回看",
+        "具体", "详细", "细节", "完整", "原文",
+        "怎么写的", "怎么说的", "什么条件", "什么方案",
+        "付款条件", "报价方案", "合同条款",
+    )
+
+    def _auto_inject_archived_context(self, messages: list) -> dict[str, Any] | None:
+        """系统级自动注入 — 检测用户是否在追问被压缩的历史内容
+
+        检索策略（双路并行）:
+          1. 向量语义检索: 将用户问题 embed → 在存档向量索引中做 cosine 相似度
+          2. BM25 关键词检索: 对用户问题做 BM25 稀疏编码 → 关键词精确匹配
+          3. 加权融合: dense_weight=0.3, sparse_weight=0.7（CRM 场景关键词更可靠）
+          4. 降级: 向量库不可用时 fallback 到 PG ILIKE 检索
+
+        触发条件（任一满足）:
+          1. 当前问题包含回溯信号词（"之前""具体""付款条件"等）
+          2. 当前问题提及摘要中出现过的实体名
+
+        行为:
+          - 从向量库/PG 存档中搜索相关轮次
+          - 将恢复的内容作为 SystemMessage 注入到当前消息前
+          - LLM 直接看到原文，无需调用任何工具
+
+        限制:
+          - 每轮最多注入 1 条（避免上下文膨胀）
+          - 注入内容限制在 2000 字符以内
+          - 无存档时静默跳过
+        """
+        if not self._archive or not self._archive.has_entries():
+            return None
+
+        # 获取当前用户问题
+        current_query = ""
+        for msg in reversed(messages):
+            if isinstance(msg, HumanMessage):
+                current_query = msg.content if isinstance(msg.content, str) else str(msg.content)
+                break
+
+        if not current_query or len(current_query) < 4:
+            return None
+
+        # 检测回溯信号
+        if not self._has_retrospect_signal(current_query):
+            return None
+
+        # 优先使用向量+BM25混合检索，降级到PG关键词检索
+        try:
+            matched = self._archive.hybrid_search(current_query, top_k=1)
+        except Exception as e:
+            logger.debug("[AutoInject] 检索失败: %s", e)
+            return None
+
+        if not matched:
+            return None
+
+        entry = matched[0]
+
+        # 格式化恢复内容（限制长度）
+        recovered = self._format_archived_for_inject(entry)
+        if not recovered:
+            return None
+
+        # 构建注入消息
+        inject_content = (
+            "[历史细节 — 系统自动恢复]\n"
+            f"以下是与当前问题相关的历史对话详情"
+            f"（原始问题: {entry.user_query[:60]}）:\n\n"
+            f"{recovered}"
+        )
+
+        # 插入到最后一条 HumanMessage 之前
+        inject_msg = SystemMessage(content=inject_content)
+        new_messages = list(messages)
+        insert_idx = len(new_messages) - 1
+        for i in range(len(new_messages) - 1, -1, -1):
+            if isinstance(new_messages[i], HumanMessage):
+                insert_idx = i
+                break
+        new_messages.insert(insert_idx, inject_msg)
+
+        logger.info(
+            "[AutoInject] 自动注入历史细节: query='%s' → 命中 turn %d (%d字符)",
+            current_query[:40], entry.turn_id, len(recovered),
+        )
+        return {"messages": new_messages}
+
+    def _has_retrospect_signal(self, query: str) -> bool:
+        """检测用户问题是否包含回溯信号（追问历史的语言模式）"""
+        query_lower = query.lower()
+        for signal in self._RETROSPECT_SIGNALS:
+            if signal in query_lower:
+                return True
+        return False
+
+    def _format_archived_for_inject(self, entry) -> str | None:
+        """格式化存档内容用于自动注入（限制 2000 字符）"""
+        import json as _json
+
+        if not entry.original_messages_json:
+            if entry.answer_preview:
+                return f"[回复摘要] {entry.answer_preview}"
+            return None
+
+        try:
+            messages_data = _json.loads(entry.original_messages_json)
+        except (ValueError, TypeError):
+            return entry.answer_preview if entry.answer_preview else None
+
+        parts = []
+        for msg in messages_data:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if not content or not content.strip():
+                continue
+            if role == "human":
+                parts.append(f"[用户] {content[:300]}")
+            elif role == "tool":
+                tool_name = msg.get("name", "tool")
+                parts.append(f"[工具:{tool_name}] {content[:500]}")
+            elif role == "ai" and content.strip():
+                parts.append(f"[助手] {content[:500]}")
+
+        if not parts:
+            return entry.answer_preview if entry.answer_preview else None
+
+        result = "\n".join(parts)
+        if len(result) > 2000:
+            result = result[:2000] + "\n[...已截断]"
+        return result
 
     # ═══════════════════════════════════════════════════════════
     # before_model: 阈值触发式压缩（对齐 Hermes 模式）
@@ -481,6 +710,12 @@ class ContextWindowMiddleware(AgentMiddleware):
         except Exception:
             pass
 
+        # ═══ 系统级自动注入：检测回溯信号 → 从存档恢复相关历史 ═══
+        # 不依赖 LLM 主动调 recall_context，由系统在 before_model 阶段自动完成
+        auto_inject_result = self._auto_inject_archived_context(messages)
+        if auto_inject_result:
+            messages = auto_inject_result["messages"]
+
         # §4.4 Post-Skill Compact — Skill 结束即收缩（始终执行，与阈值无关）
         messages = self._apply_post_skill_compact(messages)
 
@@ -504,6 +739,14 @@ class ContextWindowMiddleware(AgentMiddleware):
             return dedup_result
 
         estimated = _estimate_tokens(messages)
+
+        # 优先使用真实 token 数（由 LLM 响应回填），消除估算 ±30% 误差
+        if self._last_real_prompt_tokens > 0:
+            estimated = self._last_real_prompt_tokens
+            self._last_real_prompt_tokens = 0  # 消费一次
+
+        # 重置本轮压缩状态标记
+        self._last_compression_triggered = False
 
         try:
             # Pass 3: FullCompact（含 §4.1 Skill 边界感知 + §4.3 锚点注入）
@@ -612,6 +855,7 @@ class ContextWindowMiddleware(AgentMiddleware):
         # §4.1 Skill 边界感知的尾部保护
         skill_tail_start = self._skill_tail_protection.compute_tail_start(
             messages, keep_recent=base_keep_recent, head_end=0,
+            token_budget=self._tail_token_budget,
         )
 
         # 取最小 index（最大保护范围）: 当前轮次 vs Skill 边界 vs 基础 keep_recent
@@ -622,6 +866,8 @@ class ContextWindowMiddleware(AgentMiddleware):
 
         if tail_start <= 0 or tail_start >= len(messages):
             return None
+
+        self._last_compression_triggered = True
 
         old_messages = messages[:tail_start]
         recent = messages[tail_start:]
@@ -710,6 +956,7 @@ class ContextWindowMiddleware(AgentMiddleware):
         current_turn_start = self._find_current_turn_start(messages)
         skill_tail_start = self._skill_tail_protection.compute_tail_start(
             messages, keep_recent=base_keep_recent, head_end=head_end,
+            token_budget=self._tail_token_budget,
         )
         tail_start = min(current_turn_start, skill_tail_start)
         tail_start = align_boundary_deep(messages, tail_start)
@@ -770,6 +1017,7 @@ class ContextWindowMiddleware(AgentMiddleware):
             estimated, new_estimated, savings_ratio * 100, tail_start,
             "迭代更新" if self._previous_summary else "首次生成",
         )
+        self._last_compression_triggered = True
         return {"messages": new_messages}
 
     def _generate_structured_summary(
@@ -976,6 +1224,7 @@ class ContextWindowMiddleware(AgentMiddleware):
         current_turn_start = self._find_current_turn_start(messages)
         skill_tail_start = self._skill_tail_protection.compute_tail_start(
             messages, keep_recent=base_keep, head_end=head_end,
+            token_budget=self._tail_token_budget,
         )
         tail_start = min(current_turn_start, skill_tail_start)
         tail_start = align_boundary_deep(messages, tail_start)
@@ -1045,6 +1294,7 @@ class ContextWindowMiddleware(AgentMiddleware):
         new_estimated = _estimate_tokens(new_messages)
         logger.info("[ContextWindow] FullCompact: %d → %d tokens (Skill边界感知, 锚点%d个)",
                     estimated, new_estimated, self._skill_anchors.anchor_count)
+        self._last_compression_triggered = True
         return {"messages": new_messages}
 
     # ═══════════════════════════════════════════════════════════
@@ -1183,7 +1433,7 @@ class ContextWindowMiddleware(AgentMiddleware):
 
     @property
     def archive(self) -> ContextArchive:
-        """供 RecallContextTool 访问的压缩存档索引"""
+        """压缩存档索引（供自动注入和外部访问）"""
         return self._archive
 
 
@@ -1217,7 +1467,7 @@ def _try_code_extract(tool_name: str, content: str) -> str | None:
 
 
 def _extract_from_json(tool_name: str, data: Any) -> str | None:
-    """从 JSON 数据提取摘要"""
+    """从 JSON 数据提取结构化摘要（通用 JSON 结构处理）"""
     if isinstance(data, dict) and "records" in data:
         records = data["records"]
         if isinstance(records, list):
@@ -1227,46 +1477,214 @@ def _extract_from_json(tool_name: str, data: Any) -> str | None:
             names_str = ", ".join(n for n in names if n)
             extra = f"...等{count}条" if count > 5 else ""
             amounts = [r.get("amount", 0) for r in records if r.get("amount")]
-            # 金额直接求和，不假设单位（CRM 数据可能是美元/人民币/卢比等）
-            amount_str = f", 总金额{sum(float(a) for a in amounts):,.0f}" if amounts else ""
-            return f"查询返回{count}条记录: {names_str}{extra}{amount_str}"
+            amount_str = (f", 总金额{sum(float(a) for a in amounts):,.0f}"
+                          if amounts else "")
+            stages = [r.get("stage") for r in records if r.get("stage")]
+            stage_str = (f", 阶段:{'/'.join(dict.fromkeys(stages))}"
+                         if stages else "")
+            return (f"[{tool_name}] 查询返回{count}条: "
+                    f"{names_str}{extra}{amount_str}{stage_str}")
 
     if isinstance(data, dict) and "records" not in data:
         key_fields = ["name", "id", "industry", "city", "amount", "stage",
-                      "status", "probability", "title", "type"]
-        parts = [f"{k}={data[k]}" for k in key_fields if k in data and data[k]]
+                      "status", "probability", "title", "type", "owner"]
+        parts = [f"{k}={data[k]}" for k in key_fields
+                 if k in data and data[k]]
         if parts:
-            return f"记录: {', '.join(str(p) for p in parts[:8])}"
+            return f"[{tool_name}] 记录: {', '.join(str(p) for p in parts[:8])}"
 
     if isinstance(data, list):
         count = len(data)
         if count > 0 and isinstance(data[0], dict):
-            names = [str(r.get("name", r.get("title", ""))) for r in data[:5]]
-            return f"返回{count}条: {', '.join(n for n in names if n)}"
-        return f"返回{count}项数据"
+            names = [str(r.get("name", r.get("title", "")))
+                     for r in data[:5]]
+            extra = f"...等{count}条" if count > 5 else ""
+            return (f"[{tool_name}] 返回{count}条: "
+                    f"{', '.join(n for n in names if n)}{extra}")
+        return f"[{tool_name}] 返回{count}项数据"
 
     return None
 
 
 def _crm_tool_summary(msg: ToolMessage) -> str:
-    """CRM 工具专用一行摘要（用于 MicroCompact 替换旧 ToolMessage）"""
+    """CRM 工具专用摘要（对齐 Hermes _summarize_tool_result — 按工具类型分发）
+
+    每种工具提取最有价值的信息：查询目标、结果数、关键数据点。
+    格式: [tool_name] 动作 目标 → 结果摘要
+    """
     content = msg.content if isinstance(msg.content, str) else str(msg.content)
     tool_name = getattr(msg, "name", "") or ""
 
-    # JSON 数据提取
+    # 尝试 JSON 解析
+    data = None
     stripped = content.strip()
     if stripped.startswith("{") or stripped.startswith("["):
         try:
             data = json.loads(stripped)
-            extracted = _extract_from_json(tool_name, data)
-            if extracted:
-                return extracted
         except json.JSONDecodeError:
             pass
 
-    # 通用：保留前 100 字符
-    preview = content[:100].replace("\n", " ")
+    # 按工具类型分发专用摘要器
+    summarizer = _TOOL_SUMMARIZERS.get(tool_name)
+    if summarizer:
+        result = summarizer(content, data, tool_name)
+        if result:
+            return result
+
+    # JSON 通用提取（无专用摘要器时的 fallback）
+    if data:
+        extracted = _extract_from_json(tool_name, data)
+        if extracted:
+            return extracted
+
+    # 最终兜底：工具名 + 前 150 字符 + 字符数
+    preview = content[:150].replace("\n", " ").strip()
     return f"[{tool_name or 'tool'}] {preview}... ({len(content)}字符)"
+
+
+# ═══════════════════════════════════════════════════════════
+# 按工具类型的专用摘要生成器（对齐 Hermes _summarize_tool_result）
+# ═══════════════════════════════════════════════════════════
+
+def _summarize_query_data(content: str, data: Any | None, tool_name: str) -> str | None:
+    """query_data: 提取记录数 + 名称列表 + 金额汇总 + 阶段分布"""
+    if data:
+        return _extract_from_json(tool_name, data)
+    # 非 JSON: 尝试提取记录数
+    import re as _re
+    count_match = _re.search(r'(\d+)\s*(?:条|records?|items?|结果)', content[:300])
+    count_str = f"{count_match.group(1)}条结果" if count_match else ""
+    preview = content.split("\n")[0][:120] if "\n" in content else content[:120]
+    return f"[query_data] {count_str} — {preview}"
+
+
+def _summarize_query_schema(content: str, data: Any | None, tool_name: str) -> str | None:
+    """query_schema: 提取实体名 + 字段数 + 关键字段名"""
+    if data and isinstance(data, dict):
+        fields = data.get("fields") or data.get("items") or data.get("columns")
+        entity = data.get("entity") or data.get("name") or data.get("object") or ""
+        if isinstance(fields, list):
+            count = len(fields)
+            field_names = [f.get("name", f.get("api_key", "")) for f in fields[:8]
+                          if isinstance(f, dict)]
+            names_str = ", ".join(n for n in field_names if n)
+            extra = f"...等{count}个" if count > 8 else ""
+            return (f"[query_schema] {entity} 字段定义({count}个): "
+                    f"{names_str}{extra}")
+    return None
+
+
+def _summarize_web_search(content: str, data: Any | None, tool_name: str) -> str | None:
+    """web_search: 提取搜索词 + 结果数 + 来源域名/关键发现"""
+    import re as _re
+    # 尝试从 JSON 结构提取
+    if data and isinstance(data, dict):
+        query = data.get("query") or data.get("keyword") or ""
+        results = data.get("results") or data.get("items") or []
+        if isinstance(results, list):
+            count = len(results)
+            titles = [r.get("title", "")[:40] for r in results[:3]
+                      if isinstance(r, dict)]
+            return (f"[web_search] 搜索'{query}' → {count}条结果: "
+                    f"{'; '.join(t for t in titles if t)}")
+    if data and isinstance(data, list):
+        count = len(data)
+        titles = [r.get("title", "")[:40] for r in data[:3]
+                  if isinstance(r, dict)]
+        return (f"[web_search] {count}条结果: "
+                f"{'; '.join(t for t in titles if t)}")
+    # 非 JSON: 提取有意义的文本行
+    lines = content.split("\n")
+    meaningful = [l.strip() for l in lines
+                  if l.strip() and 15 < len(l.strip()) <= 200][:3]
+    if meaningful:
+        return f"[web_search] ({len(content)}字符) " + " | ".join(meaningful)
+    # 最终: 取前 150 字符
+    return f"[web_search] {content[:150].replace(chr(10), ' ')}..."
+
+
+def _summarize_analyze_data(content: str, data: Any | None, tool_name: str) -> str | None:
+    """analyze_data: 提取分析结论 + 关键数字（金额/百分比/日期）"""
+    import re as _re
+    # 提取关键数字
+    amounts = _re.findall(r'[\$¥￥]\s*[\d,.]+[KMB万亿]?', content[:1000])
+    pcts = _re.findall(r'\d+\.?\d*\s*%', content[:1000])
+    dates = _re.findall(r'\d{4}[-/]\d{1,2}[-/]\d{1,2}', content[:500])
+    # 提取第一行作为结论
+    first_line = content.split("\n")[0][:150] if "\n" in content else content[:150]
+    # 组装
+    key_data_parts = []
+    if amounts:
+        key_data_parts.append(f"金额:{','.join(amounts[:3])}")
+    if pcts:
+        key_data_parts.append(f"比例:{','.join(pcts[:3])}")
+    if dates:
+        key_data_parts.append(f"日期:{','.join(dates[:2])}")
+    key_data_str = f" [{'; '.join(key_data_parts)}]" if key_data_parts else ""
+    return f"[analyze_data] {first_line}{key_data_str}"
+
+
+def _summarize_knowledge_search(content: str, data: Any | None, tool_name: str) -> str | None:
+    """knowledge_search: 提取命中数 + 文档标题/来源 + 相关度"""
+    if data and isinstance(data, dict):
+        results = data.get("results") or data.get("items") or []
+        if isinstance(results, list):
+            count = len(results)
+            titles = [r.get("title", r.get("doc_name", ""))[:30]
+                      for r in results[:3] if isinstance(r, dict)]
+            return (f"[knowledge_search] 命中{count}条: "
+                    f"{'; '.join(t for t in titles if t)}")
+    if data and isinstance(data, list):
+        count = len(data)
+        titles = [r.get("title", r.get("doc_name", ""))[:30]
+                  for r in data[:3] if isinstance(r, dict)]
+        return (f"[knowledge_search] 命中{count}条: "
+                f"{'; '.join(t for t in titles if t)}")
+    # 非 JSON: 检索结果通常是格式化文本
+    import re as _re
+    count_match = _re.search(r'(\d+)\s*(?:条|results?|matches?|命中)', content[:200])
+    count_str = f"命中{count_match.group(1)}条" if count_match else ""
+    preview = content[:120].replace("\n", " ")
+    return f"[knowledge_search] {count_str} — {preview}"
+
+
+def _summarize_modify_data(content: str, data: Any | None, tool_name: str) -> str | None:
+    """modify_data: 提取操作类型 + 目标实体 + 结果状态"""
+    if data and isinstance(data, dict):
+        action = data.get("action") or data.get("operation") or "修改"
+        target = data.get("name") or data.get("id") or data.get("entity") or ""
+        status = data.get("status") or data.get("result") or "完成"
+        return f"[modify_data] {action} {target} → {status}"
+    # 非 JSON
+    preview = content[:100].replace("\n", " ")
+    return f"[modify_data] {preview}"
+
+
+def _summarize_browse_metamodel(content: str, data: Any | None, tool_name: str) -> str | None:
+    """browse_metamodel: 提取元模型列表 + 数量"""
+    if data:
+        return _extract_from_json(tool_name, data)
+    return None
+
+
+def _summarize_query_metadata(content: str, data: Any | None, tool_name: str) -> str | None:
+    """query_metadata: 提取元数据类型 + 记录数 + 关键字段"""
+    if data:
+        return _extract_from_json(tool_name, data)
+    return None
+
+
+# 注册工具摘要器映射
+_TOOL_SUMMARIZERS: dict[str, Any] = {
+    "query_data": _summarize_query_data,
+    "query_schema": _summarize_query_schema,
+    "web_search": _summarize_web_search,
+    "analyze_data": _summarize_analyze_data,
+    "knowledge_search": _summarize_knowledge_search,
+    "modify_data": _summarize_modify_data,
+    "browse_metamodel": _summarize_browse_metamodel,
+    "query_metadata": _summarize_query_metadata,
+}
 
 
 def _fallback_truncate(tool_name: str, content: str, max_chars: int) -> str:

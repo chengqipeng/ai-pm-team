@@ -442,9 +442,39 @@ def custom_event(name: str, value: dict) -> AGUIEvent:
     - ui.*             → 通用 UI 事件（EventBus 消费）
     - component_*      → 渐进式组件状态（component_loading/delta/complete/error/data）
     - step_metadata    → STEP 事件的扩展字段
+    - usage_summary    → 每轮对话结束时的 Token 用量汇总
     """
     return AGUIEvent(type=AGUIEventType.CUSTOM, data={"name": name, "value": value})
 
 
 # custom_event 的别名
 custom = custom_event
+
+
+def usage_summary_event(
+    input_tokens: int,
+    output_tokens: int,
+    llm_calls: int = 1,
+    context_window: dict | None = None,
+) -> AGUIEvent:
+    """每轮对话结束时的 Token 用量汇总事件
+
+    前端消费此事件在对话气泡底部渲染 Token Bar：
+      📊 输入 1,234 ↓  输出 456 ↑  |  ████████░░░ 42% 上下文
+
+    Args:
+        input_tokens: 本轮总输入 token 数
+        output_tokens: 本轮总输出 token 数
+        llm_calls: 本轮 LLM 调用次数
+        context_window: 上下文窗口状态 {max_tokens, estimated_used, usage_percent,
+                        tail_budget, compression_triggered}
+    """
+    value: dict[str, Any] = {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
+        "llm_calls": llm_calls,
+    }
+    if context_window:
+        value["context_window"] = context_window
+    return custom_event("usage_summary", value)

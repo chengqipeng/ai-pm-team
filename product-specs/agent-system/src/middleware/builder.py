@@ -8,6 +8,19 @@ from langchain.agents.middleware.types import AgentMiddleware
 
 logger = logging.getLogger(__name__)
 
+# 模块级引用：最近一次构建的 ContextWindowMiddleware 实例
+# 供 AGUIConverter 等外部模块获取用量信息（避免循环依赖）
+_active_context_window: Any = None
+
+
+def _get_active_context_window_middleware():
+    """获取当前活跃的 ContextWindowMiddleware 实例
+
+    用于 AGUIConverter 在 RUN_FINISHED 前获取用量摘要。
+    如果尚未构建中间件（首次调用前），返回 None。
+    """
+    return _active_context_window
+
 
 def build_middleware(
     features: Any = None,
@@ -86,6 +99,10 @@ def build_middleware(
         middleware.append(MultimodalInjectMiddleware())
 
     middleware.append(ContextWindowMiddleware(max_tokens=32_000, llm=llm))
+
+    # 注册到模块级引用（供 AGUIConverter 获取用量信息）
+    global _active_context_window
+    _active_context_window = middleware[-1]
 
     # 记忆中间件（按 features 开关）
     memory_enabled = getattr(features, "memory_enabled", True) if features else True

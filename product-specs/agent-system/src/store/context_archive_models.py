@@ -1,4 +1,10 @@
-"""上下文压缩存档数据模型 — 对应 paas_ai.ai_context_archive 表"""
+"""上下文存档数据模型 — 对应 ai_context_archive 表（Legacy PG 模型）
+
+注意: 当前 ContextArchive 已迁移到纯 VDB 存储，本模型保留用于:
+  1. 测试代码中的类型标注
+  2. 兼容旧版 PG DAO 接口
+  3. 未来可能的 PG 备份/审计需求
+"""
 from __future__ import annotations
 
 import time
@@ -9,32 +15,30 @@ from .snowflake import next_id
 
 @dataclass
 class ContextArchiveRow:
-    """被压缩轮次的持久化记录
-
-    表: ai_context_archive
-    生命周期: 随会话存在，会话删除时级联清理
-    用途: 供 recall_context 工具跨会话检索被压缩的历史对话原文
-    """
+    """上下文存档行 — 对齐 ai_context_archive 表结构"""
     id: int = 0
     tenant_id: int = 0
-    thread_id: str = ""           # 会话 thread_id（关联 ai_conversation）
-    turn_id: int = 0              # 轮次编号（会话内递增，与摘要中 [📦 turn:N] 对应）
-    user_query: str = ""          # 用户原始问题（完整保留，最大 2000 字符）
-    answer_preview: str = ""      # Agent 回复前 500 字
-    entities: str = "[]"          # JSON: 实体名列表
-    keywords: str = "[]"          # JSON: 分词关键词列表
-    tool_names: str = "[]"        # JSON: 使用的工具名列表
-    skill_names: str = "[]"       # JSON: 执行的 Skill 名列表
-    tool_summaries: str = "[]"    # JSON: 每个 ToolMessage 的一行摘要
-    key_data: str = "{}"          # JSON: 正则提取的精确数字 {金额:[], 日期:[], 比例:[]}
-    message_count: int = 0        # 该轮次消息条数
-    message_range_start: int = 0  # 原文在完整 messages 中的起始索引
-    message_range_end: int = 0    # 原文在完整 messages 中的结束索引
-    original_messages: str = ""   # JSON: 原始消息序列化（完整原文持久化，不再依赖 Checkpointer TTL）
-    data_timestamp: int = 0       # 数据采集时间（毫秒时间戳，用于时效性判断）
-    archived_at: int = 0          # 存档时间（毫秒时间戳）
+    thread_id: str = ""
+    turn_id: int = 0
+    user_query: str = ""
+    answer_preview: str = ""
+    entities: str = ""              # JSON 或空格分隔的实体名
+    keywords: str = ""              # JSON 或空格分隔的关键词
+    tool_names: str = ""            # 空格分隔的工具名
+    skill_names: str = ""           # 空格分隔的技能名
+    tool_summaries: str = "[]"      # JSON 数组
+    key_data: str = "{}"            # JSON 对象
+    original_messages_json: str = ""  # 完整原始消息 JSON
+    message_count: int = 0
+    message_range_start: int = 0
+    message_range_end: int = 0
+    has_decision: int = 0           # 0/1
+    decision_fields: str = "[]"     # JSON 数组
+    task_id: str = ""
+    data_timestamp: int = 0         # 毫秒时间戳
     delete_flg: int = 0
     created_at: int = 0
+    updated_at: int = 0
 
     def __post_init__(self):
         if not self.id:
@@ -42,7 +46,5 @@ class ContextArchiveRow:
         now = int(time.time() * 1000)
         if not self.created_at:
             self.created_at = now
-        if not self.archived_at:
-            self.archived_at = now
-        if not self.data_timestamp:
-            self.data_timestamp = now
+        if not self.updated_at:
+            self.updated_at = now

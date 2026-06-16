@@ -761,6 +761,27 @@ except ImportError as exc:
 except Exception as exc:
     logger.warning("Memory 评测 API 挂载失败: %s", exc)
 
+# ── 挂载 链路评测 API ──
+try:
+    from src.api.chain_eval_api import router as chain_eval_router
+    app.include_router(chain_eval_router)
+    logger.info("已挂载 链路评测 API: /api/eval/chain/*")
+except ImportError as exc:
+    logger.warning("链路评测 API 未启用: %s", exc)
+except Exception as exc:
+    logger.warning("链路评测 API 挂载失败: %s", exc)
+
+
+# ── 挂载 存档检索评测 API ──
+try:
+    from src.api.archive_recall_eval_api import router as archive_recall_eval_router
+    app.include_router(archive_recall_eval_router)
+    logger.info("已挂载 存档检索评测 API: /api/eval/archive-recall/*")
+except ImportError as exc:
+    logger.warning("存档检索评测 API 未启用: %s", exc)
+except Exception as exc:
+    logger.warning("存档检索评测 API 挂载失败: %s", exc)
+
 
 # ── API 路由 ──
 
@@ -2168,6 +2189,36 @@ async def memory_eval_page():
         with open(html_path, encoding="utf-8") as f:
             return f.read()
     return "<h1>Memory Eval — 页面未找到</h1>"
+
+
+@app.get("/eval/chain", response_class=HTMLResponse)
+async def chain_eval_page():
+    """链路评测总览页 — 评测集管理 + 执行 + 历史报告"""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "chain_eval.html")
+    if os.path.exists(html_path):
+        with open(html_path, encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Chain Eval — 页面未找到</h1>"
+
+
+@app.get("/eval/chain/{run_id}", response_class=HTMLResponse)
+async def chain_eval_detail_page(run_id: str):
+    """链路回放详情页 — 单次运行的链路瀑布图回放"""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "chain_eval_detail.html")
+    if os.path.exists(html_path):
+        with open(html_path, encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Chain Eval Detail — 页面未找到</h1>"
+
+
+@app.get("/eval/archive-recall", response_class=HTMLResponse)
+async def archive_recall_eval_page():
+    """存档检索评测页面 — LLM Rewrite + VDB hybrid_search"""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "archive_recall_eval.html")
+    if os.path.exists(html_path):
+        with open(html_path, encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Archive Recall Eval — 页面未找到</h1>"
 
 
 # ── 记忆浏览 API ──

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>链路评测 — DeepAgent</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; background: #f8fafc; }
+@keyframes fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.animate-fade-in { animation: fade-in 0.3s ease-out; }
+.suite-card { transition: all 0.2s; }
+.suite-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px -5px rgba(0,0,0,0.1); }
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+.progress-bar { transition: width 0.5s ease; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- 顶部导航 -->
+<header class="bg-white/80 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-50">
+  <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a href="/" class="flex items-center gap-2 text-gray-900 no-underline hover:opacity-80 transition-opacity">
+        <div class="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+        <span class="font-bold text-sm">DeepAgent</span>
+      </a>
+      <span class="text-gray-300 mx-1">/</span>
+      <span class="text-sm text-gray-500">评测</span>
+      <span class="text-gray-300 mx-1">/</span>
+      <span class="text-sm font-semibold text-gray-700">链路评测</span>
+    </div>
+    <nav class="flex items-center gap-1">
+      <a href="/" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all no-underline">对话</a>
+      <a href="/eval/tools" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all no-underline">Tool评测</a>
+      <a href="/eval/memory" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all no-underline">Memory评测</a>
+      <a href="/eval/chain" class="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg transition-all no-underline">链路评测</a>
+    </nav>
+  </div>
+</header>
+
+<!-- 主内容 -->
+<div class="max-w-7xl mx-auto px-6 py-8">
+  <!-- 标题 -->
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-gray-900">🔗 链路评测中心</h1>
+    <p class="text-sm text-gray-500 mt-2">验证 Agent 从输入到输出的完整执行路径，定位推理链路中的问题节点</p>
+  </div>
+
+  <!-- 统计卡片 -->
+  <div id="statsCards" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+    <div class="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+      <div class="text-xs text-gray-400 mb-1">评测集</div>
+      <div id="statSuites" class="text-2xl font-bold text-gray-900">-</div>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+      <div class="text-xs text-gray-400 mb-1">通过率</div>
+      <div id="statPassRate" class="text-2xl font-bold text-green-600">-</div>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+      <div class="text-xs text-gray-400 mb-1">平均耗时</div>
+      <div id="statAvgDuration" class="text-2xl font-bold text-gray-900">-</div>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+      <div class="text-xs text-gray-400 mb-1">上次运行</div>
+      <div id="statLastRun" class="text-2xl font-bold text-gray-900">-</div>
+    </div>
+  </div>
+
+  <!-- 操作栏 -->
+  <div class="flex items-center gap-4 mb-8">
+    <button onclick="runAllEval()" id="runAllBtn" class="px-5 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 transition-all shadow-sm hover:shadow-lg flex items-center gap-2">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      执行全部评测
+    </button>
+    <button onclick="runSelectedEval()" id="runSelectedBtn" class="px-4 py-2.5 bg-white text-gray-700 text-sm font-medium rounded-xl border border-gray-200 hover:border-blue-300 hover:text-blue-600 transition-all flex items-center gap-2">
+      执行选中
+    </button>
+    <!-- SSE 进度条 -->
+    <div id="progressBar" class="hidden flex-1 flex items-center gap-3">
+      <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+        <div id="progressFill" class="progress-bar h-full bg-blue-500 rounded-full" style="width: 0%"></div>
+      </div>
+      <span id="progressText" class="text-xs text-gray-500 whitespace-nowrap">0/0</span>
+    </div>
+  </div>
+
+  <!-- 评测集列表 -->
+  <div class="mb-8">
+    <h2 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4">评测集列表</h2>
+    <div id="suiteList" class="space-y-3">
+      <!-- 动态填充 -->
+    </div>
+  </div>
+
+  <!-- 历史报告 -->
+  <div>
+    <h2 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4">历史报告</h2>
+    <div id="runHistory" class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <!-- 动态填充 -->
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api/eval/chain';
+
+// ─── 初始化 ─────────────────────────────────────────────
+async function init() {
+  await Promise.all([loadStats(), loadSuites(), loadRuns()]);
+}
+
+async function loadStats() {
+  try {
+    const resp = await fetch(`${API}/stats`);
+    const data = await resp.json();
+    document.getElementById('statSuites').textContent = data.total_suites;
+    const rate = (data.pass_rate * 100).toFixed(1) + '%';
+    const el = document.getElementById('statPassRate');
+    el.textContent = rate;
+    el.className = `text-2xl font-bold ${data.pass_rate >= 0.9 ? 'text-green-600' : data.pass_rate >= 0.7 ? 'text-yellow-600' : 'text-red-500'}`;
+    document.getElementById('statAvgDuration').textContent = (data.avg_duration_ms / 1000).toFixed(1) + 's';
+    document.getElementById('statLastRun').textContent = data.last_run_at ? timeAgo(data.last_run_at) : '暂无';
+  } catch(e) { console.error('loadStats:', e); }
+}
+
+async function loadSuites() {
+  try {
+    const resp = await fetch(`${API}/suites`);
+    const data = await resp.json();
+    renderSuites(data.items || []);
+  } catch(e) { console.error('loadSuites:', e); }
+}
+
+async function loadRuns() {
+  try {
+    const resp = await fetch(`${API}/runs?limit=10`);
+    const data = await resp.json();
+    renderRuns(data.items || []);
+  } catch(e) { console.error('loadRuns:', e); }
+}
+
+// ─── 渲染 ─────────────────────────────────────────────
+function renderSuites(suites) {
+  const container = document.getElementById('suiteList');
+  if (!suites.length) {
+    container.innerHTML = '<div class="text-center py-8 text-gray-400">暂无评测集，点击"创建评测集"开始</div>';
+    return;
+  }
+  container.innerHTML = suites.map(s => {
+    const lastRun = s.last_run;
+    const passRate = lastRun ? (lastRun.pass_rate * 100).toFixed(0) + '%' : '-';
+    const passColor = lastRun ? (lastRun.pass_rate >= 1 ? 'text-green-600' : lastRun.pass_rate >= 0.8 ? 'text-yellow-600' : 'text-red-500') : 'text-gray-400';
+    const failedCases = lastRun && lastRun.failed > 0
+      ? `失败: ${lastRun.failed} 个用例`
+      : (lastRun ? '全部通过 ✅' : '未运行');
+    const failColor = lastRun && lastRun.failed > 0 ? 'text-red-500' : 'text-green-600';
+
+    return `
+      <div class="suite-card bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-3">
+            <input type="checkbox" class="suite-checkbox w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" data-suite-id="${s.id}">
+            <div>
+              <h3 class="text-sm font-bold text-gray-900">${s.name}</h3>
+              <p class="text-xs text-gray-400 mt-0.5">${s.description || ''}</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="runSuiteEval('${s.id}')" class="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-all flex items-center gap-1">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              执行
+            </button>
+            ${lastRun ? `<a href="/eval/chain/${lastRun.run_id}" class="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 rounded-lg hover:bg-gray-100 transition-all no-underline">查看报告</a>` : ''}
+          </div>
+        </div>
+        <div class="flex items-center gap-4 text-xs">
+          <span class="text-gray-500">用例: <strong>${s.case_count}</strong></span>
+          <span class="text-gray-300">|</span>
+          <span class="text-gray-500">上次: <strong class="${passColor}">${lastRun ? lastRun.passed + '/' + lastRun.total + ' (' + passRate + ')' : '-'}</strong></span>
+          <span class="text-gray-300">|</span>
+          <span class="${failColor} font-medium">${failedCases}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderRuns(runs) {
+  const container = document.getElementById('runHistory');
+  if (!runs.length) {
+    container.innerHTML = '<div class="text-center py-8 text-gray-400">暂无运行记录</div>';
+    return;
+  }
+  container.innerHTML = `
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 border-b border-gray-100">
+        <tr>
+          <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">运行</th>
+          <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">时间</th>
+          <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">通过率</th>
+          <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">用例数</th>
+          <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">耗时</th>
+          <th class="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase">操作</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        ${runs.map((r, i) => {
+          const rate = (r.pass_rate * 100).toFixed(1);
+          const rateColor = r.pass_rate >= 0.9 ? 'text-green-600' : r.pass_rate >= 0.7 ? 'text-yellow-600' : 'text-red-500';
+          return `
+            <tr class="hover:bg-gray-50/50 transition-colors">
+              <td class="px-5 py-3">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-mono text-gray-400">#${r.run_id.replace('run_', '')}</span>
+                  <span class="text-xs text-gray-700 font-medium">${r.suite_name || ''}</span>
+                </div>
+              </td>
+              <td class="px-5 py-3 text-xs text-gray-500">${formatTime(r.created_at)}</td>
+              <td class="px-5 py-3"><span class="text-xs font-bold ${rateColor}">${rate}%</span></td>
+              <td class="px-5 py-3 text-xs text-gray-600">${r.total} 用例</td>
+              <td class="px-5 py-3 text-xs text-gray-500">${(r.duration_ms / 1000).toFixed(1)}s</td>
+              <td class="px-5 py-3 text-right">
+                <a href="/eval/chain/${r.run_id}" class="text-xs text-blue-600 hover:text-blue-800 font-medium no-underline">查看</a>
+              </td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+// ─── 执行评测 ─────────────────────────────────────────
+async function runAllEval() {
+  await executeEval([]);
+}
+
+function runSelectedEval() {
+  const checked = [...document.querySelectorAll('.suite-checkbox:checked')];
+  const suiteIds = checked.map(cb => cb.dataset.suiteId);
+  if (!suiteIds.length) { alert('请先勾选要执行的评测集'); return; }
+  executeEval(suiteIds);
+}
+
+function runSuiteEval(suiteId) {
+  executeEval([suiteId]);
+}
+
+async function executeEval(suiteIds) {
+  const btn = document.getElementById('runAllBtn');
+  const progressBar = document.getElementById('progressBar');
+  const progressFill = document.getElementById('progressFill');
+  const progressText = document.getElementById('progressText');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="pulse-dot">●</span> 执行中...';
+  progressBar.classList.remove('hidden');
+  progressFill.style.width = '0%';
+
+  try {
+    const resp = await fetch(`${API}/run-stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ suite_ids: suiteIds }),
+    });
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = JSON.parse(line.slice(6));
+
+        switch (data.event) {
+          case 'start':
+            progressText.textContent = `0/${data.total}`;
+            break;
+          case 'case_complete':
+            const pct = (data.index / data.total * 100).toFixed(0);
+            progressFill.style.width = pct + '%';
+            progressText.textContent = `${data.index}/${data.total}`;
+            break;
+          case 'complete':
+            progressFill.style.width = '100%';
+            const rate = (data.pass_rate * 100).toFixed(1);
+            progressText.textContent = `完成 — ${rate}% (${data.passed}/${data.total})`;
+            // 刷新数据
+            setTimeout(() => {
+              loadStats();
+              loadSuites();
+              loadRuns();
+            }, 500);
+            break;
+        }
+      }
+    }
+  } catch(e) {
+    alert('执行失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg> 执行全部评测`;
+    setTimeout(() => { progressBar.classList.add('hidden'); }, 3000);
+  }
+}
+
+// ─── 工具函数 ──────────────────────────────────────────
+function timeAgo(ts) {
+  const diff = Date.now() - ts;
+  if (diff < 60000) return '刚刚';
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+  return Math.floor(diff / 86400000) + '天前';
+}
+
+function formatTime(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+init();
+</script>
+</body>
+</html>

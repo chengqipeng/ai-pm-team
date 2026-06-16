@@ -35,7 +35,7 @@ class SkillAwareTailProtection:
     压缩切割点容易落在 Skill 内部，导致用户追问时无法回溯具体查询细节。
 
     规则:
-      1. Token 预算是第一优先级（基础逻辑不变）
+      1. Token 预算是第一优先级 — 基于实际 token 占比决定保护区大小
       2. 如果 token 预算的切割点落在 Skill 执行中间，将切割点推进到 Skill 起始位置
       3. min_tail 硬底线仍为原值
       4. max_tail 上限 30 条，防止巨型 Skill 过度保护尾部
@@ -45,13 +45,16 @@ class SkillAwareTailProtection:
         self.min_tail = min_tail_messages
         self.max_tail = max_tail_messages
 
-    def compute_tail_start(self, messages: list, keep_recent: int, head_end: int = 0) -> int:
+    def compute_tail_start(self, messages: list, keep_recent: int, head_end: int = 0,
+                           token_budget: int = 0) -> int:
         """计算 Skill 边界感知的尾部保护起始位置
 
         Args:
             messages: 完整消息列表
             keep_recent: 基础保护条数（来自各 Pass 的 keep_recent 参数）
             head_end: 头部保护区结束位置（system prompt 等）
+            token_budget: Token 预算（>0 时启用预算优先模式，对齐 Hermes _find_tail_cut_by_tokens）
+                          预算含义: 尾部保护区最多占用的 token 数
 
         Returns:
             尾部保护的起始 index — messages[返回值:] 都应被保护
@@ -60,8 +63,14 @@ class SkillAwareTailProtection:
         if n <= keep_recent:
             return 0
 
-        # 基础切割点
-        base_cut = n - keep_recent
+        # ── Token 预算优先：按实际内容量决定保护区大小 ──
+        if token_budget > 0:
+            budget_cut = self._find_cut_by_token_budget(messages, head_end, token_budget)
+            # 取 token 预算和固定条数中更大的保护范围（更小的 index）
+            base_cut = min(budget_cut, n - keep_recent)
+        else:
+            # 无预算时退化为固定条数
+            base_cut = n - keep_recent
 
         # 确保不小于 head_end
         base_cut = max(base_cut, head_end)
@@ -103,15 +112,83 @@ class SkillAwareTailProtection:
 
         return base_cut
 
+    def _find_cut_by_token_budget(self, messages: list, head_end: int, token_budget: int) -> int:
+        """从消息列表末尾向前累积 token，直到超出预算，返回尾部保护区起始 index
+
+        对齐 Hermes Agent _find_tail_cut_by_tokens 算法：
+        - 中英混合场景使用 2 字符/token（偏保守，宁多保护不漏保护）
+        - soft_ceiling = 1.5 × budget（允许包含一条大消息而不截断）
+        - 硬底线 min_tail = 3 条（极端情况仍保持最低可用性）
+        - tool_call 参数也计入 token 预算
+
+        Args:
+            messages: 完整消息列表
+            head_end: 头部保护区结束位置
+            token_budget: 尾部保护区的 token 预算
+
+        Returns:
+            尾部保护区起始 index — messages[返回值:] 应被保护
+        """
+        n = len(messages)
+        min_tail = min(3, n - head_end - 1) if n - head_end > 1 else 0
+        soft_ceiling = int(token_budget * 1.5)
+        accumulated = 0
+        cut_idx = n
+
+        for i in range(n - 1, head_end - 1, -1):
+            msg = messages[i]
+            content = getattr(msg, "content", "") or ""
+
+            # Token 估算：中英混合 2 字符/token（与 _estimate_tokens 一致）
+            if isinstance(content, str):
+                msg_tokens = len(content) // 2 + 10  # +10 角色/元数据开销
+            elif isinstance(content, list):
+                msg_tokens = sum(
+                    len(b.get("text", "")) // 2 if isinstance(b, dict) else len(str(b)) // 2
+                    for b in content
+                ) + 10
+            else:
+                msg_tokens = 10
+
+            # tool_calls 参数也计入预算
+            tool_calls = getattr(msg, "tool_calls", None)
+            if tool_calls:
+                for tc in tool_calls:
+                    args = tc.get("args", {})
+                    msg_tokens += len(str(args)) // 4  # 参数通常是 JSON/英文，用 4 字符/token
+
+            # 超过 soft_ceiling 且已满足 min_tail → 停止累积
+            if accumulated + msg_tokens > soft_ceiling and (n - i) >= min_tail:
+                break
+            accumulated += msg_tokens
+            cut_idx = i
+
+        # 确保至少 min_tail 条
+        fallback_cut = n - min_tail
+        cut_idx = min(cut_idx, fallback_cut)
+
+        # 如果预算能覆盖全部消息（小对话），强制切到 head 后面让压缩有可操作空间
+        if cut_idx <= head_end:
+            cut_idx = max(fallback_cut, head_end + 1)
+
+        return cut_idx
+
     def _is_skill_active(self, messages: list, skill_start_idx: int) -> bool:
         """判断从 skill_start_idx 开始的 Skill 是否正在执行中（未找到终止标记）
+
+        终止标记判断:
+          - Fork: ToolMessage(name="skills_tool") 内容以 [SKILL_DONE: 开头
+          - Inline: AIMessage 内容含 [INLINE_SKILL_DONE:
+
+        注意: inline 模式的 prompt 返回也是 ToolMessage(name="skills_tool")，
+        但内容不以 [SKILL_DONE: 开头 → 不视为终止。
 
         Args:
             messages: 完整消息列表
             skill_start_idx: Skill 启动的 AIMessage index
 
         Returns:
-            True = 正在执行中（没有终止的 ToolMessage(name="skills_tool")）
+            True = 正在执行中（没有终止标记）
             False = 已完成
         """
         for i in range(skill_start_idx + 1, len(messages)):
@@ -119,8 +196,17 @@ class SkillAwareTailProtection:
             if isinstance(msg, ToolMessage):
                 tool_name = getattr(msg, "name", "") or ""
                 if tool_name == "skills_tool":
-                    return False  # 找到终止标记 → 已完成
-        return True  # 未找到终止标记 → 正在执行中
+                    content = getattr(msg, "content", "") or ""
+                    # 只有 [SKILL_DONE: 开头才是 Fork 终止标记
+                    # inline prompt 返回也是 name="skills_tool" 但内容不是 SKILL_DONE
+                    if content.strip().startswith("[SKILL_DONE:"):
+                        return False
+            elif isinstance(msg, AIMessage):
+                content = getattr(msg, "content", "") or ""
+                # Inline 终止标记
+                if "[INLINE_SKILL_DONE:" in content:
+                    return False
+        return True  # 未找到任何终止标记 → 正在执行中
 
     def _find_enclosing_skill_start(
         self, messages: list, cut_idx: int, head_end: int
@@ -452,11 +538,17 @@ def post_skill_compact(
     skill_start_idx: int,
     skill_end_idx: int,
     min_skill_messages: int = 8,
+    max_skill_tokens: int = 4000,
 ) -> list:
     """Skill 执行完成后的即时内部压缩
 
     时机: skills_tool 返回最终结果后、主 Agent 继续之前
     目标: 将 Skill 内部 20-30 条消息精简为 ~8 条
+
+    触发条件（任一满足即触发）:
+      1. Skill 内部消息数 > min_skill_messages（默认 8）
+      2. Skill 内部估算 token 总量 > max_skill_tokens（默认 4000）
+         — 覆盖"少轮次但单条结果巨大"的场景
 
     保留:
       - Skill 启动: AIMessage(tool_calls=[skills_tool]) — 第1条
@@ -472,7 +564,8 @@ def post_skill_compact(
         messages: 完整消息列表
         skill_start_idx: Skill 启动的 AIMessage index
         skill_end_idx: Skill 最终结果的 ToolMessage index（inclusive）
-        min_skill_messages: Skill 内部消息数低于此值时不压缩
+        min_skill_messages: Skill 内部消息数低于此值时按条数不触发
+        max_skill_tokens: Skill 内部 token 总量超过此值时强制触发（覆盖少轮大内容场景）
 
     Returns:
         压缩后的完整消息列表（原地替换 Skill 内部部分）
@@ -483,8 +576,14 @@ def post_skill_compact(
     skill_messages = messages[skill_start_idx:skill_end_idx + 1]
     n = len(skill_messages)
 
-    if n <= min_skill_messages:
-        # Skill 够短，不处理
+    # 估算 Skill 内部 token 总量（2 字符/token，偏保守）
+    skill_tokens = sum(
+        len(getattr(m, "content", "") or "") // 2
+        for m in skill_messages
+    )
+
+    # 双条件触发：条数不够 AND token 也不超 → 不压缩
+    if n <= min_skill_messages and skill_tokens <= max_skill_tokens:
         return messages
 
     # 保护头部（启动调用 + 可能的启动确认）和尾部（最终结果 + 最后2轮内部调用）
@@ -493,6 +592,10 @@ def post_skill_compact(
 
     # 确保头尾不重叠
     if protect_head + protect_tail >= n:
+        # 消息数不足以做"删除中间条目"模式
+        # 但如果是 token 触发，改用"就地压缩大内容"模式
+        if skill_tokens > max_skill_tokens:
+            return _inplace_compress_skill(messages, skill_start_idx, skill_end_idx)
         return messages
 
     # 中间区域做信息摘要替换
@@ -558,6 +661,66 @@ def post_skill_compact(
     logger.info(
         "[PostSkillCompact] Skill 内部 %d→%d 条, ~%d→%d tokens (节省%.0f%%)",
         n, len(new_skill_msgs), original_tokens, new_tokens,
+        (1 - new_tokens / max(original_tokens, 1)) * 100,
+    )
+
+    return result
+
+
+def _inplace_compress_skill(
+    messages: list, skill_start_idx: int, skill_end_idx: int
+) -> list:
+    """就地压缩 Skill 大内容（少轮次但 token 高的场景）
+
+    不删除任何条目，而是对每条消息的 content 做就地压缩:
+      - 保留第一条（skills_tool 调用）和最后一条（最终结果）完整
+      - 中间的 ToolMessage > 500 字 → 一行摘要替换
+      - 中间的 AIMessage > 300 字 → 截断到 150 字
+
+    适用场景: Skill 只调了 3-5 次工具，但某些工具返回了 5K-15K 字符的结果。
+    """
+    result = list(messages)
+
+    # 保护第一条和最后一条
+    for i in range(skill_start_idx + 1, skill_end_idx):
+        msg = result[i]
+
+        if isinstance(msg, ToolMessage):
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            if len(content) > 500:
+                tool_name = getattr(msg, "name", "") or ""
+                summary = _skill_internal_one_liner(tool_name, content)
+                result[i] = ToolMessage(
+                    content=summary,
+                    tool_call_id=getattr(msg, "tool_call_id", ""),
+                    name=tool_name,
+                )
+
+        elif isinstance(msg, AIMessage):
+            content = msg.content if isinstance(msg.content, str) else ""
+            tool_calls = getattr(msg, "tool_calls", None)
+
+            if tool_calls and len(content) > 150:
+                short_content = content[:150] + "..."
+                result[i] = AIMessage(content=short_content, tool_calls=tool_calls)
+            elif not tool_calls and len(content) > 300:
+                result[i] = AIMessage(
+                    content=content[:150] + f"...[已压缩，原{len(content)}字]"
+                )
+
+    # 日志
+    original_tokens = sum(
+        len(getattr(messages[i], "content", "") or "") // 2
+        for i in range(skill_start_idx, skill_end_idx + 1)
+    )
+    new_tokens = sum(
+        len(getattr(result[i], "content", "") or "") // 2
+        for i in range(skill_start_idx, skill_end_idx + 1)
+    )
+    n = skill_end_idx - skill_start_idx + 1
+    logger.info(
+        "[PostSkillCompact] 就地压缩: %d 条不变, ~%d→%d tokens (节省%.0f%%)",
+        n, original_tokens, new_tokens,
         (1 - new_tokens / max(original_tokens, 1)) * 100,
     )
 
@@ -812,29 +975,170 @@ def _find_inline_skill_end(messages: list, prompt_return_idx: int) -> int | None
 
 
 def _skill_internal_one_liner(tool_name: str, content: str) -> str:
-    """Skill 内部工具调用的一行摘要（用于 post_skill_compact）"""
+    """Skill 内部工具调用的一行摘要（用于 post_skill_compact）
+
+    改进策略:
+      1. JSON 对象: 提取关键字段 + 金额/日期等精确数字
+      2. JSON 数组: 记录数 + 代表性样本 + 金额聚合统计
+      3. 非 JSON 文本: 提取关键数字（金额/百分比/日期）+ 前 80 字符预览
+    """
     import json as _json
 
-    # JSON 结构化数据 → 提取关键字段
+    # JSON 结构化数据 → 按类型分发
     stripped = content.strip()
     if stripped.startswith("{") or stripped.startswith("["):
         try:
             data = _json.loads(stripped)
             if isinstance(data, dict):
-                # 单条记录
-                key_fields = ["name", "id", "amount", "stage", "status", "title", "type"]
-                parts = [f"{k}={data[k]}" for k in key_fields if k in data and data[k]]
-                if parts:
-                    return f"[{tool_name}] {', '.join(str(p) for p in parts[:6])}"
-                # records 列表
-                if "records" in data and isinstance(data["records"], list):
-                    count = len(data["records"])
-                    return f"[{tool_name}] 返回{count}条记录"
+                return _one_liner_json_object(tool_name, data)
             elif isinstance(data, list):
-                return f"[{tool_name}] 返回{len(data)}条数据"
+                return _one_liner_json_array(tool_name, data)
         except _json.JSONDecodeError:
             pass
 
-    # 非 JSON → 取前 80 字符
+    # 非 JSON → 提取关键数字 + 前缀预览
+    return _one_liner_text(tool_name, content)
+
+
+def _one_liner_json_object(tool_name: str, data: dict) -> str:
+    """JSON 对象: 提取关键字段 + records 子结构聚合 + 嵌套数字提取"""
+    # 如果包含 records 列表（query_data 典型返回）
+    if "records" in data and isinstance(data["records"], list):
+        records = data["records"]
+        return _one_liner_json_array(tool_name, records)
+
+    # 如果包含 fields 列表（query_schema 典型返回）
+    if "fields" in data and isinstance(data["fields"], list):
+        entity = data.get("entity") or data.get("name") or data.get("object") or ""
+        fields = data["fields"]
+        count = len(fields)
+        field_names = []
+        for f in fields[:6]:
+            if isinstance(f, dict):
+                field_names.append(f.get("api_key") or f.get("name") or f.get("label") or "")
+        names_str = ", ".join(n for n in field_names if n)
+        extra = f"...等{count}个" if count > 6 else ""
+        return f"[{tool_name}] {entity} 字段定义({count}个): {names_str}{extra}"
+
+    # 单条记录: 提取业务关键字段
+    key_fields = ["name", "id", "amount", "stage", "status", "title",
+                  "type", "owner", "close_date", "probability"]
+    parts = []
+    for k in key_fields:
+        v = data.get(k)
+        if v is not None and v != "":
+            parts.append(f"{k}={v}")
+    if parts:
+        return f"[{tool_name}] {', '.join(str(p) for p in parts[:8])}"
+
+    # 嵌套结构: 递归提取数字型值和子对象的关键字段
+    num_parts = _extract_nested_numbers(data)
+    if num_parts:
+        return f"[{tool_name}] {', '.join(num_parts[:8])}"
+
+    # 兜底: key 数量 + 前几个 key
+    keys = list(data.keys())[:6]
+    return f"[{tool_name}] 对象({len(data)}字段): {', '.join(keys)}"
+
+
+def _extract_nested_numbers(data: dict, prefix: str = "", depth: int = 0) -> list[str]:
+    """从嵌套 JSON 中提取数字型值（金额、百分比、计数等）
+
+    最多递归 2 层，提取所有数字和含数字的字符串值。
+    """
+    if depth > 2:
+        return []
+    parts: list[str] = []
+    for k, v in data.items():
+        label = f"{prefix}{k}" if prefix else k
+        if isinstance(v, (int, float)) and v != 0:
+            parts.append(f"{label}={v:g}")
+        elif isinstance(v, str) and re.search(r'\d', v) and len(v) < 30:
+            parts.append(f"{label}={v}")
+        elif isinstance(v, dict) and depth < 2:
+            parts.extend(_extract_nested_numbers(v, prefix=f"{label}.", depth=depth + 1))
+        elif isinstance(v, list) and len(v) > 0 and depth < 2:
+            if isinstance(v[0], dict):
+                # 列表取前 2 条的关键字段
+                for i, item in enumerate(v[:2]):
+                    name = item.get("name") or item.get("title") or ""
+                    amt = item.get("amount")
+                    if name or amt:
+                        parts.append(f"{label}[{i}]={name}{'/' + str(amt) if amt else ''}")
+            elif isinstance(v[0], (int, float)):
+                parts.append(f"{label}=[{v[0]}...{v[-1]}]({len(v)}项)")
+    return parts
+
+
+def _one_liner_json_array(tool_name: str, data: list) -> str:
+    """JSON 数组: 记录数 + 样本名 + 金额聚合"""
+    count = len(data)
+    parts = [f"返回{count}条"]
+
+    if count > 0 and isinstance(data[0], dict):
+        # 提取前 5 条的 name/title
+        names = []
+        for item in data[:5]:
+            n = item.get("name") or item.get("title") or item.get("subject") or ""
+            if n:
+                names.append(str(n)[:20])
+        if names:
+            names_str = ", ".join(names)
+            if count > 5:
+                names_str += f"...等{count}条"
+            parts.append(names_str)
+
+        # 金额聚合（如果有 amount 字段）
+        amounts = []
+        for item in data:
+            amt = item.get("amount")
+            if amt is not None:
+                try:
+                    amounts.append(float(amt))
+                except (ValueError, TypeError):
+                    pass
+        if amounts:
+            total = sum(amounts)
+            parts.append(f"总金额{total:,.0f}")
+
+        # 阶段分布（如果有 stage 字段）
+        stages: dict[str, int] = {}
+        for item in data:
+            s = item.get("stage") or item.get("status")
+            if s:
+                stages[str(s)] = stages.get(str(s), 0) + 1
+        if stages:
+            stage_str = "/".join(f"{k}:{v}" for k, v in list(stages.items())[:4])
+            parts.append(stage_str)
+
+    return f"[{tool_name}] {', '.join(parts)}"
+
+
+def _one_liner_text(tool_name: str, content: str) -> str:
+    """非 JSON 文本: 提取关键数字 + 前缀预览"""
+    # 提取关键数字（金额、百分比、日期）
+    key_numbers = []
+
+    amounts = re.findall(
+        r'[\$¥￥]\s*[\d,.]+[KMB万亿]?|\d[\d,.]*\s*(?:万|亿|USD|CNY|元)',
+        content[:2000],
+    )
+    if amounts:
+        unique = list(dict.fromkeys(amounts[:5]))
+        key_numbers.append(f"金额:{','.join(unique)}")
+
+    pcts = re.findall(r'\d+\.?\d*\s*%', content[:2000])
+    if pcts:
+        unique = list(dict.fromkeys(pcts[:4]))
+        key_numbers.append(f"比例:{','.join(unique)}")
+
+    dates = re.findall(r'\d{4}[-/]\d{1,2}[-/]\d{1,2}', content[:1000])
+    if dates:
+        unique = list(dict.fromkeys(dates[:3]))
+        key_numbers.append(f"日期:{','.join(unique)}")
+
+    # 组装: 工具名 + 前缀预览 + 关键数字
     preview = content[:80].replace("\n", " ").strip()
-    return f"[{tool_name}] {preview}... ({len(content)}字符)"
+    key_str = f" [{'; '.join(key_numbers)}]" if key_numbers else ""
+    return f"[{tool_name}] {preview}...{key_str} ({len(content)}字符)"
+

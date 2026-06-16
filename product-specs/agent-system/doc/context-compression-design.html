@@ -1,803 +1,1228 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>上下文压缩 — 完整链路结构逻辑</title>
-    <style>
-        :root {
-            --bg-primary: #0f172a;
-            --bg-secondary: #1e293b;
-            --bg-tertiary: #334155;
-            --text-primary: #f1f5f9;
-            --text-secondary: #94a3b8;
-            --text-muted: #64748b;
-            --accent-blue: #60a5fa;
-            --accent-purple: #a78bfa;
-            --accent-green: #4ade80;
-            --accent-amber: #fbbf24;
-            --accent-red: #f87171;
-            --accent-cyan: #22d3ee;
-            --border-color: #334155;
-            --code-bg: #1a2332;
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            line-height: 1.7;
-            padding: 2rem;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        h1 {
-            font-size: 2rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .subtitle {
-            color: var(--text-secondary);
-            font-size: 0.95rem;
-            margin-bottom: 2.5rem;
-            padding-bottom: 1.5rem;
-            border-bottom: 1px solid var(--border-color);
-        }
-        h2 {
-            font-size: 1.4rem;
-            font-weight: 600;
-            color: var(--accent-blue);
-            margin-top: 3rem;
-            margin-bottom: 1rem;
-            padding-left: 0.8rem;
-            border-left: 3px solid var(--accent-blue);
-        }
-        h3 {
-            font-size: 1.1rem;
-            font-weight: 600;
-            color: var(--accent-purple);
-            margin-top: 2rem;
-            margin-bottom: 0.8rem;
-        }
-        h4 {
-            font-size: 1rem;
-            font-weight: 600;
-            color: var(--accent-cyan);
-            margin-top: 1.5rem;
-            margin-bottom: 0.5rem;
-        }
-        p { margin-bottom: 0.8rem; color: var(--text-secondary); }
-        strong { color: var(--text-primary); }
-        pre {
-            background: var(--code-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 1.2rem;
-            overflow-x: auto;
-            margin: 1rem 0;
-            font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-            font-size: 0.82rem;
-            line-height: 1.6;
-            color: var(--text-secondary);
-        }
-        code {
-            font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-            font-size: 0.85rem;
-            background: var(--bg-tertiary);
-            padding: 0.15rem 0.4rem;
-            border-radius: 4px;
-            color: var(--accent-cyan);
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 1rem 0;
-            font-size: 0.88rem;
-        }
-        th {
-            background: var(--bg-tertiary);
-            color: var(--accent-blue);
-            font-weight: 600;
-            padding: 0.7rem 1rem;
-            text-align: left;
-            border-bottom: 2px solid var(--accent-blue);
-        }
-        td {
-            padding: 0.6rem 1rem;
-            border-bottom: 1px solid var(--border-color);
-            color: var(--text-secondary);
-        }
-        tr:hover td { background: rgba(96, 165, 250, 0.05); }
-        .card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            padding: 1.5rem;
-            margin: 1.2rem 0;
-        }
-        .card-title {
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 0.5rem;
-        }
-        .layer-box {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 1rem 1.2rem;
-            margin: 0.5rem 0;
-        }
-        .layer-box.layer-a { border-left: 4px solid var(--accent-green); }
-        .layer-box.layer-b { border-left: 4px solid var(--accent-blue); }
-        .layer-box.layer-c { border-left: 4px solid var(--accent-amber); }
-        .layer-box.layer-d { border-left: 4px solid var(--accent-purple); }
-        .layer-label {
-            font-weight: 700;
-            font-size: 0.9rem;
-            margin-bottom: 0.3rem;
-        }
-        .layer-a .layer-label { color: var(--accent-green); }
-        .layer-b .layer-label { color: var(--accent-blue); }
-        .layer-c .layer-label { color: var(--accent-amber); }
-        .layer-d .layer-label { color: var(--accent-purple); }
-        .layer-desc { color: var(--text-secondary); font-size: 0.88rem; }
-        .badge {
-            display: inline-block;
-            padding: 0.15rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-        .badge-green { background: rgba(74, 222, 128, 0.15); color: var(--accent-green); }
-        .badge-blue { background: rgba(96, 165, 250, 0.15); color: var(--accent-blue); }
-        .badge-amber { background: rgba(251, 191, 36, 0.15); color: var(--accent-amber); }
-        .badge-red { background: rgba(248, 113, 113, 0.15); color: var(--accent-red); }
-        .badge-purple { background: rgba(167, 139, 250, 0.15); color: var(--accent-purple); }
-        .flow-arrow {
-            text-align: center;
-            color: var(--text-muted);
-            font-size: 1.2rem;
-            margin: 0.3rem 0;
-        }
-        .toc {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            padding: 1.5rem;
-            margin-bottom: 2.5rem;
-        }
-        .toc-title {
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 0.8rem;
-        }
-        .toc a {
-            color: var(--accent-blue);
-            text-decoration: none;
-            font-size: 0.9rem;
-            display: block;
-            padding: 0.25rem 0;
-        }
-        .toc a:hover { color: var(--accent-purple); text-decoration: underline; }
-        .toc .sub { padding-left: 1.2rem; }
-        .highlight-box {
-            background: rgba(96, 165, 250, 0.08);
-            border: 1px solid rgba(96, 165, 250, 0.3);
-            border-radius: 8px;
-            padding: 1rem 1.2rem;
-            margin: 1rem 0;
-        }
-        .warning-box {
-            background: rgba(251, 191, 36, 0.08);
-            border: 1px solid rgba(251, 191, 36, 0.3);
-            border-radius: 8px;
-            padding: 1rem 1.2rem;
-            margin: 1rem 0;
-        }
-        .section-divider {
-            border: none;
-            border-top: 1px solid var(--border-color);
-            margin: 3rem 0;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 上下文压缩链路 — 完整架构</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1419; color: #e7e9ea; padding: 40px 60px; line-height: 1.6; }
+h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; color: #fff; }
+.subtitle { color: #71767b; font-size: 14px; margin-bottom: 40px; }
+.section { margin-bottom: 48px; }
+.section-title { font-size: 18px; font-weight: 600; color: #1d9bf0; margin-bottom: 16px; padding-left: 12px; border-left: 3px solid #1d9bf0; }
+
+/* 主流程图 */
+.pipeline { display: flex; flex-direction: column; gap: 0; position: relative; padding-left: 30px; }
+.pipeline::before { content: ''; position: absolute; left: 14px; top: 24px; bottom: 24px; width: 2px; background: linear-gradient(to bottom, #1d9bf0, #7856ff, #f91880); }
+.stage { position: relative; padding: 20px 24px; margin-bottom: 16px; background: #16202a; border: 1px solid #2f3336; border-radius: 12px; transition: all 0.2s; }
+.stage:hover { border-color: #1d9bf0; background: #1a2c3d; }
+.stage::before { content: ''; position: absolute; left: -24px; top: 28px; width: 12px; height: 12px; background: #1d9bf0; border-radius: 50%; border: 2px solid #0f1419; z-index: 1; }
+.stage.always::before { background: #00ba7c; }
+.stage.threshold::before { background: #f91880; }
+.stage.skill::before { background: #7856ff; }
+.stage-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.stage-name { font-size: 16px; font-weight: 600; color: #fff; }
+.stage-tag { font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; }
+.tag-always { background: rgba(0,186,124,0.15); color: #00ba7c; }
+.tag-threshold { background: rgba(249,24,128,0.15); color: #f91880; }
+.tag-skill { background: rgba(120,86,255,0.15); color: #7856ff; }
+.tag-safety { background: rgba(255,122,0,0.15); color: #ff7a00; }
+.stage-desc { color: #9ca3af; font-size: 13px; margin-bottom: 10px; }
+.stage-detail { font-size: 13px; color: #d1d5db; background: #1e2a36; padding: 12px 16px; border-radius: 8px; }
+.stage-detail code { color: #1d9bf0; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.stage-detail .key { color: #f91880; }
+.stage-detail .val { color: #00ba7c; }
+
+/* 保护区图示 */
+.protection-diagram { display: grid; grid-template-columns: 1fr 2fr 1.5fr; gap: 2px; margin: 16px 0; border-radius: 8px; overflow: hidden; }
+.prot-zone { padding: 12px 16px; text-align: center; }
+.prot-head { background: rgba(120,86,255,0.2); border: 1px solid rgba(120,86,255,0.4); }
+.prot-middle { background: rgba(249,24,128,0.15); border: 1px solid rgba(249,24,128,0.3); }
+.prot-tail { background: rgba(0,186,124,0.2); border: 1px solid rgba(0,186,124,0.4); }
+.prot-zone .label { font-size: 11px; color: #71767b; display: block; margin-bottom: 4px; }
+.prot-zone .content { font-size: 13px; font-weight: 500; }
+
+/* 压缩级别表 */
+.levels-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+.levels-table th { background: #1e2a36; padding: 10px 14px; text-align: left; color: #9ca3af; font-weight: 500; border-bottom: 1px solid #2f3336; }
+.levels-table td { padding: 10px 14px; border-bottom: 1px solid #1e2a36; }
+.levels-table tr:hover td { background: rgba(29,155,240,0.05); }
+.level-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.level-micro { background: rgba(255,212,0,0.15); color: #ffd400; }
+.level-auto { background: rgba(249,24,128,0.15); color: #f91880; }
+.level-full { background: rgba(255,0,0,0.15); color: #ff6b6b; }
+
+/* Skill 压缩 */
+.skill-flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 12px 0; }
+.skill-card { background: #1e2a36; padding: 14px 16px; border-radius: 8px; border: 1px solid #2f3336; }
+.skill-card .card-title { font-size: 12px; font-weight: 600; color: #7856ff; margin-bottom: 6px; }
+.skill-card .card-body { font-size: 12px; color: #9ca3af; }
+
+/* 恢复链路 */
+.recovery-chain { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.recovery-node { padding: 8px 14px; background: #1e2a36; border-radius: 6px; font-size: 12px; border: 1px solid #2f3336; }
+.recovery-node.active { border-color: #00ba7c; color: #00ba7c; }
+.recovery-arrow { color: #71767b; font-size: 16px; }
+
+/* 关键决策 */
+.decisions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 12px 0; }
+.decision-item { background: #1e2a36; padding: 14px 16px; border-radius: 8px; border-left: 3px solid #1d9bf0; }
+.decision-item .q { font-size: 13px; font-weight: 500; color: #e7e9ea; margin-bottom: 4px; }
+.decision-item .a { font-size: 12px; color: #9ca3af; }
+
+/* 风险标注 */
+.risk-box { background: rgba(255,122,0,0.08); border: 1px solid rgba(255,122,0,0.3); border-radius: 8px; padding: 14px 18px; margin-top: 12px; }
+.risk-box .risk-title { font-size: 13px; font-weight: 600; color: #ff7a00; margin-bottom: 6px; }
+.risk-box .risk-body { font-size: 12px; color: #d1a872; }
+</style>
 </head>
 <body>
-<div class="container">
 
-<h1>上下文压缩 — 完整链路结构逻辑</h1>
-<p class="subtitle">基于 Claude Code / Hermes Agent / neo-apps 三系统精华，面向 toB CRM SaaS 场景。核心原则：压缩为主（保证因果链完整性）+ 检索为辅（恢复被压缩的细节）。</p>
+<h1>🗜️ Agent 上下文压缩链路</h1>
+<p class="subtitle">四层级联压缩 + Skill 边界感知 + VDB 存档恢复 &nbsp;|&nbsp; 基于 Hermes Agent + Claude Code 最佳实践</p>
 
-<div class="toc">
-    <div class="toc-title">目录</div>
-    <a href="#section1">一、全景架构（四层分时策略）</a>
-    <a href="#section2">二、每次 LLM 调用前的上下文构成</a>
-    <a href="#section3">三、核心压缩链路（ContextWindowMiddleware）</a>
-    <a class="sub" href="#section3-1">3.1 数据流全景</a>
-    <a class="sub" href="#section3-2">3.2 三层级联压缩详细逻辑</a>
-    <a class="sub" href="#section3-3">3.3 保护区确定逻辑</a>
-    <a href="#section4">四、Skill 模式压缩增强</a>
-    <a class="sub" href="#section4-1">4.1 Skill 边界识别（三层策略）</a>
-    <a class="sub" href="#section4-2">4.2 Post-Skill Compact</a>
-    <a class="sub" href="#section4-3">4.3 Skill 结果锚点</a>
-    <a class="sub" href="#section4-4">4.4 Focus Topic 推断</a>
-    <a class="sub" href="#section4-5">4.5 FullCompact 与 Post-Skill Compact 的关系</a>
-    <a href="#section5">五、迭代摘要状态机</a>
-    <a href="#section6">六、压缩后恢复机制（ContextArchive + recall_context）</a>
-    <a href="#section7">七、安全机制汇总</a>
-    <a href="#section8">八、辅助 LLM 路由</a>
-    <a href="#section9">九、文件结构</a>
+<!-- ═══════════════ 为什么需要 ═══════════════ -->
+<div class="section">
+<div class="section-title">为什么需要这套机制</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:12px 0;">
+  <div style="background:#16202a;padding:16px;border-radius:8px;border:1px solid #2f3336;">
+    <div style="font-size:13px;font-weight:600;color:#1d9bf0;margin-bottom:8px;">上下文压缩</div>
+    <div style="font-size:12px;color:#9ca3af;">模型窗口有限，多轮对话后上下文溢出导致 Agent 无法继续工作</div>
+  </div>
+  <div style="background:#16202a;padding:16px;border-radius:8px;border:1px solid #2f3336;">
+    <div style="font-size:13px;font-weight:600;color:#f91880;margin-bottom:8px;">Token 预算</div>
+    <div style="font-size:12px;color:#9ca3af;">上下文信息过多时 LLM 注意力分散，遗漏关键业务约束做出错误判断</div>
+  </div>
+  <div style="background:#16202a;padding:16px;border-radius:8px;border:1px solid #2f3336;">
+    <div style="font-size:13px;font-weight:600;color:#7856ff;margin-bottom:8px;">recall_context</div>
+    <div style="font-size:12px;color:#9ca3af;">压缩后用户追问明细时，避免重新查询导致数据快照不一致（前后矛盾）</div>
+  </div>
+</div>
+<div style="text-align:center;font-size:13px;color:#71767b;margin-top:8px;">
+  压缩让 Agent 能持续工作，预算让 Agent 保持专注，recall 让 Agent 前后一致。
+</div>
 </div>
 
-<hr class="section-divider">
+<!-- ═══════════════ 设计哲学 ═══════════════ -->
+<div class="section">
+<div class="section-title">一、设计哲学</div>
+<div class="stage-detail" style="font-size:14px;line-height:1.8;">
+  <strong style="color:#f91880;">核心矛盾：</strong><br>
+  &nbsp;&nbsp;业务需要完整数据 → LLM 才能做出准确判断<br>
+  &nbsp;&nbsp;窗口有限 (100K tokens) → 放不下所有数据<br>
+  &nbsp;&nbsp;用户要快 → 不能每次都调 LLM 做压缩<br><br>
 
-<!-- ═══════════════════════════════════════════════════ -->
-<h2 id="section1">一、全景架构（四层分时策略）</h2>
+  <strong style="color:#1d9bf0;">解法：不是"砍数据"，而是"分层管控 + 按需恢复"</strong><br><br>
 
-<div class="layer-box layer-a">
-    <div class="layer-label">Layer A: 当前轮次（全量保留，零压缩）</div>
-    <div class="layer-desc">
-        = 最后一条 HumanMessage 之后的所有消息<br>
-        → 仅处理: MD5 去重 + Post-Skill Compact<br>
-        → 不做任何检索替代（因果依赖链完整性）
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:12px 0;">
+    <div style="background:#1a2c3d;padding:14px;border-radius:8px;border-top:3px solid #00ba7c;">
+      <div style="font-size:12px;color:#00ba7c;font-weight:600;margin-bottom:6px;">原则 ①</div>
+      <div style="font-size:13px;color:#e7e9ea;font-weight:500;">不到阈值不压缩</div>
+      <div style="font-size:12px;color:#9ca3af;margin-top:4px;">窗口没压力时完整保留一切，不做任何预防性裁剪</div>
     </div>
-</div>
-
-<div class="layer-box layer-b">
-    <div class="layer-label">Layer B: 近期历史（滑动窗口，摘要形式）</div>
-    <div class="layer-desc">
-        = 最近 3-5 轮的 answerSummary<br>
-        → 保持对话连贯性<br>
-        → 不做检索替代（连续依赖太强）
+    <div style="background:#1a2c3d;padding:14px;border-radius:8px;border-top:3px solid #1d9bf0;">
+      <div style="font-size:12px;color:#1d9bf0;font-weight:600;margin-bottom:6px;">原则 ②</div>
+      <div style="font-size:13px;color:#e7e9ea;font-weight:500;">当前轮次绝对保护</div>
+      <div style="font-size:12px;color:#9ca3af;margin-top:4px;">LLM 正在推理的因果链不可破坏，任何压缩只作用于历史</div>
     </div>
-</div>
-
-<div class="layer-box layer-c">
-    <div class="layer-label">Layer C: 中期历史（压缩为主）</div>
-    <div class="layer-desc">
-        = 同会话更早的轮次<br>
-        → AutoCompact: LLM 7-section 迭代摘要<br>
-        → FullCompact: LLM 全量压缩 + 重注入<br>
-        → 压缩前存档到 PG（供 recall_context 恢复细节）
+    <div style="background:#1a2c3d;padding:14px;border-radius:8px;border-top:3px solid #7856ff;">
+      <div style="font-size:12px;color:#7856ff;font-weight:600;margin-bottom:6px;">原则 ③</div>
+      <div style="font-size:13px;color:#e7e9ea;font-weight:500;">压缩不等于丢弃</div>
+      <div style="font-size:12px;color:#9ca3af;margin-top:4px;">被压缩的原文存入 VDB，用户追问或 LLM 需要时随时恢复</div>
     </div>
+  </div>
+</div>
 </div>
 
-<div class="layer-box layer-d">
-    <div class="layer-label">Layer D: 长期记忆（检索为主）</div>
-    <div class="layer-desc">
-        = 跨会话记忆 + 被压缩丢弃的细节<br>
-        → MemoryMiddleware 每轮检索注入<br>
-        → recall_context 工具按需恢复被压缩细节
+<!-- ═══════════════ 总体架构 ═══════════════ -->
+<div class="section">
+<div class="section-title">二、总体架构（数据生命周期）</div>
+
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:2px;margin:16px 0;border-radius:8px;overflow:hidden;">
+  <div style="background:rgba(29,155,240,0.15);padding:16px;text-align:center;border:1px solid rgba(29,155,240,0.3);">
+    <div style="font-size:11px;color:#71767b;margin-bottom:6px;">Phase 1 · 诞生</div>
+    <div style="font-size:20px;margin-bottom:4px;">📥</div>
+    <div style="font-size:13px;font-weight:500;color:#1d9bf0;">工具返回原文</div>
+    <div style="font-size:11px;color:#9ca3af;margin-top:4px;">完整保留给当前轮 LLM<br>&gt;20K字符紧急截断<br><em>(从token预算推导)</em></div>
+  </div>
+  <div style="background:rgba(0,186,124,0.15);padding:16px;text-align:center;border:1px solid rgba(0,186,124,0.3);">
+    <div style="font-size:11px;color:#71767b;margin-bottom:6px;">Phase 2 · 活跃期</div>
+    <div style="font-size:20px;margin-bottom:4px;">👁️</div>
+    <div style="font-size:13px;font-weight:500;color:#00ba7c;">保护区内</div>
+    <div style="font-size:11px;color:#9ca3af;margin-top:4px;">
+      当前轮次: <strong>无预算限制</strong><br>
+      <span style="font-size:10px;">(因果链完整性 &gt; 空间节省)</span><br>
+      历史保护区: <strong>≤20K tokens</strong><br>
+      <span style="font-size:10px;">(max_tokens×20%, 预算控制)</span>
     </div>
+  </div>
+  <div style="background:rgba(249,24,128,0.15);padding:16px;text-align:center;border:1px solid rgba(249,24,128,0.3);">
+    <div style="font-size:11px;color:#71767b;margin-bottom:6px;">Phase 3 · 压缩期</div>
+    <div style="font-size:20px;margin-bottom:4px;">🗜️</div>
+    <div style="font-size:13px;font-weight:500;color:#f91880;">摘要替换</div>
+    <div style="font-size:11px;color:#9ca3af;margin-top:4px;">
+      目标: 总量控制在 <strong>10-20K tokens</strong><br>
+      <span style="font-size:10px;">推导: 固定区4.5K + 摘要3K + 保护区15K</span><br>
+      单Skill: ≤ <strong>4K tokens</strong><br>
+      <span style="font-size:10px;">(max_tokens×4%/Skill)</span><br>
+      原文写入 VDB 存档
+    </div>
+  </div>
+  <div style="background:rgba(120,86,255,0.15);padding:16px;text-align:center;border:1px solid rgba(120,86,255,0.3);">
+    <div style="font-size:11px;color:#71767b;margin-bottom:6px;">Phase 4 · 恢复期</div>
+    <div style="font-size:20px;margin-bottom:4px;">🔄</div>
+    <div style="font-size:13px;font-weight:500;color:#7856ff;">按需恢复</div>
+    <div style="font-size:11px;color:#9ca3af;margin-top:4px;">VDB hybrid_search<br>原文注入回上下文<br><em>(限2K字符/次)</em></div>
+  </div>
 </div>
 
-<hr class="section-divider">
-
-<!-- ═══════════════════════════════════════════════════ -->
-<h2 id="section2">二、每次 LLM 调用前的上下文构成</h2>
-
-<pre>
-最终上下文 = [System Prompt]                              ~2K tokens  固定
-           + [Layer D: 迭代摘要 + Skill 锚点]             ~1K tokens  结构化参考
-           + [Layer D: 记忆检索结果]                       ~1K tokens  MemoryMiddleware 注入
-           + [Layer B: 最近 3-5 轮 answerSummary]         ~1.5K tokens 连贯性
-           + [Layer A: 当前轮次完整消息]                   ~5-15K tokens 推理基础
-           ─────────────────────────────────
-           总计: ~10-20K tokens（远低于窗口限制）
-</pre>
-
-<hr class="section-divider">
-
-<!-- ═══════════════════════════════════════════════════ -->
-<h2 id="section3">三、核心压缩链路（ContextWindowMiddleware）</h2>
-
-<h3 id="section3-1">3.1 数据流全景</h3>
-
-<pre>
-用户消息进入
-    │
-    ▼
-┌─────────────────────────────────────────────────────────┐
-│ MemoryMiddleware.before_agent()                          │
-│   → 语义检索跨会话记忆 → 注入 Layer D                    │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│ ContextWindowMiddleware.before_model()                   │
-│                                                          │
-│  ┌──── 始终执行 ────┐                                   │
-│  │ 1. Post-Skill Compact  → Skill 内部 &gt;8 条则即时裁剪│
-│  │ 2. MD5 去重            → 相同 ToolMessage 只保留最新  │
-│  └───────────────────┘                                   │
-│                                                          │
-│  ┌──── 阈值触发 ────┐                                   │
-│  │ 估算 tokens                                           │
-│  │                                                       │
-│  │ ≥90%? ──→ FullCompact                                │
-│  │   │       ├── 存档索引 → PG (ai_context_archive)     │
-│  │   │       ├── LLM 结构化摘要（迭代更新）              │
-│  │   │       ├── Skill 锚点注入                          │
-│  │   │       └── 重注入最近 3 个 ToolMessage             │
-│  │   │                                                   │
-│  │ ≥75%? ──→ AutoCompact                                │
-│  │   │       ├── 存档索引 → PG (ai_context_archive)     │
-│  │   │       ├── LLM 7-section 迭代摘要                  │
-│  │   │       ├── Focus Topic 引导                        │
-│  │   │       ├── Skill 锚点注入                          │
-│  │   │       └── 反抖动检查                              │
-│  │   │                                                   │
-│  │ ≥50%? ──→ MicroCompact                               │
-│  │           ├── 旧 ToolMessage → CRM 一行摘要           │
-│  │           └── 旧 tool_call args → 截断               │
-│  │                                                       │
-│  │ &lt;50%  ──→ 不压缩                                  │
-│  └───────────────────┘                                   │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│ LLM 推理                                                │
-│   如果需要历史细节 → 调用 recall_context 工具            │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│ awrap_tool_call (工具执行)                               │
-│   - 安全网截断 (&gt;50K 才触发)                          │
-│   - skills_tool → 锚点提取 + Focus Topic 更新           │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│ 回复输出                                                │
-│   → answer 写入 ai_message 表（永久存储）                │
-│   → Checkpointer 自动保存完整 messages（Redis 24h TTL）  │
-│   → answerSummary 异步生成写入 DB                        │
-│   → sessionSummary 迭代更新写入 Redis                    │
-│   → MemoryMiddleware 异步提取长期记忆                    │
-└─────────────────────────────────────────────────────────┘
-</pre>
-
-<h3 id="section3-2">3.2 三层级联压缩详细逻辑</h3>
-
-<h4>MicroCompact（≥50%，零 LLM 成本）</h4>
-<div class="card">
-    <div class="card-title"><span class="badge badge-green">≥50%</span> 纯规则驱动，毫秒级执行</div>
-    <p><strong>触发条件:</strong> 估算 tokens ≥ max_tokens × 50%</p>
-    <p><strong>对象:</strong> 保护区外的旧消息</p>
-    <p><strong>保护区确定:</strong></p>
-    <ul style="color:var(--text-secondary); padding-left:1.5rem; margin-bottom:0.8rem;">
-        <li>当前轮次锚定: 最后 HumanMessage index</li>
-        <li>Skill 边界保护: SkillAwareTailProtection.compute_tail_start()</li>
-        <li>工具组原子性: align_boundary_deep()</li>
-        <li>取 min(三者) = 最大保护范围</li>
-        <li>base_keep_recent = 6</li>
-    </ul>
-    <p><strong>压缩区处理:</strong></p>
-    <ul style="color:var(--text-secondary); padding-left:1.5rem;">
-        <li>ToolMessage &gt; 200 字 → <code>_crm_tool_summary()</code> 零 LLM 一行摘要</li>
-        <li>AIMessage tool_call args &gt; 500 字 → 截断到 200 字</li>
-    </ul>
+<div class="stage-detail" style="margin-top:16px;">
+  <strong>三道防线的协作关系：</strong><br><br>
+  <div style="display:grid;grid-template-columns:1fr 30px 1fr 30px 1fr;align-items:start;gap:0;margin:8px 0;">
+    <div style="background:rgba(0,186,124,0.12);border:1px solid rgba(0,186,124,0.3);border-radius:8px;padding:12px;text-align:center;">
+      <div style="font-size:11px;color:#00ba7c;font-weight:600;">防线 1 · 源头控制</div>
+      <div style="font-size:12px;color:#d1d5db;margin-top:4px;">Post-Skill Compact</div>
+      <div style="font-size:11px;color:#9ca3af;margin-top:2px;">Skill 完成即收缩<br>预算: 4K tokens/Skill<br>成本: 零 LLM</div>
+    </div>
+    <div style="text-align:center;color:#71767b;font-size:18px;padding-top:30px;">→</div>
+    <div style="background:rgba(249,24,128,0.12);border:1px solid rgba(249,24,128,0.3);border-radius:8px;padding:12px;">
+      <div style="font-size:11px;color:#f91880;font-weight:600;text-align:center;">防线 2 · 全局管控</div>
+      <div style="font-size:12px;color:#d1d5db;margin-top:4px;text-align:center;">Micro/Auto/FullCompact</div>
+      <div style="font-size:11px;color:#9ca3af;margin-top:2px;">
+        ≥50% <strong>Micro</strong>: 旧TM→一行摘要, args截断<br>
+        ≥75% <strong>Auto</strong>: LLM 7-section结构化摘要<br>
+        ≥90% <strong>Full</strong>: 全量压缩+重注入近期数据<br>
+        <span style="color:#71767b;">控制总量 10-20K | 成本 0~1次辅助LLM</span>
+      </div>
+    </div>
+    <div style="text-align:center;color:#71767b;font-size:18px;padding-top:30px;">→</div>
+    <div style="background:rgba(120,86,255,0.12);border:1px solid rgba(120,86,255,0.3);border-radius:8px;padding:12px;text-align:center;">
+      <div style="font-size:11px;color:#7856ff;font-weight:600;">防线 3 · 信息恢复</div>
+      <div style="font-size:12px;color:#d1d5db;margin-top:4px;">VDB 存档 + recall_context</div>
+      <div style="font-size:11px;color:#9ca3af;margin-top:2px;">压缩可逆<br>自动注入 + LLM 工具调用<br>VDB 永久存储原文</div>
+    </div>
+  </div>
+</div>
 </div>
 
-<h4>AutoCompact（≥75%，LLM 结构化摘要）</h4>
-<div class="card">
-    <div class="card-title"><span class="badge badge-amber">≥75%</span> LLM 结构化摘要 + 迭代更新</div>
-    <p><strong>触发条件:</strong> 估算 tokens ≥ max_tokens × 75%</p>
-    <p><strong>对象:</strong> 保护区外的全部消息（Middle 段）</p>
-    <p><strong>分区模型:</strong></p>
-    <ul style="color:var(--text-secondary); padding-left:1.5rem; margin-bottom:0.8rem;">
-        <li>Head 保护区: SystemMessage + 第一条 HumanMessage</li>
-        <li>Tail 保护区: min(当前轮次, Skill 边界, base_keep_recent=4)</li>
-        <li>Middle (压缩区): [head_end, tail_start)</li>
-    </ul>
-    <p><strong>处理流程:</strong></p>
-    <ol style="color:var(--text-secondary); padding-left:1.5rem; margin-bottom:0.8rem;">
-        <li><strong>压缩前存档:</strong> _archive.index_messages() → 按轮次切分 → 提取 entities/keywords/tool_names → 序列化原始消息 → 持久化到 PG</li>
-        <li><strong>LLM 摘要生成 (Phase 2/3/4):</strong>
-            <ul>
-                <li>首次 → STRUCTURED_SUMMARY_PROMPT (CRM 7-section)</li>
-                <li>后续 → ITERATIVE_SUMMARY_PROMPT (PRESERVE/ADD/MOVE/UPDATE)</li>
-                <li>Focus Topic 注入 → 60-70% 篇幅聚焦当前任务</li>
-                <li>Skill 锚点注入 → 关键数字永不衰减</li>
-                <li>辅助 LLM 路由: ModelRouter.AUXILIARY → 便宜快速模型</li>
-            </ul>
-        </li>
-        <li><strong>安全机制:</strong> 反抖动(连续 2 次节省 &lt;10% 则跳过) + LLM 降级 + 摘要隔离前缀</li>
-    </ol>
-    <p><strong>结果:</strong> Head + [摘要 SystemMessage] + Tail</p>
+<!-- ═══════════════ Token 预算 ═══════════════ -->
+<div class="section">
+<div class="section-title">三、Token 预算分配体系</div>
+
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:24px;margin-bottom:16px;">
+  <div style="text-align:center;font-size:14px;color:#e7e9ea;margin-bottom:16px;">
+    窗口总量: <strong style="color:#1d9bf0;font-size:18px;">100,000</strong> tokens — 所有设计的硬约束
+  </div>
+  
+  <!-- 进度条风格的预算分配 -->
+  <div style="background:#0f1419;border-radius:6px;overflow:hidden;height:36px;display:flex;margin-bottom:16px;">
+    <div style="background:rgba(0,186,124,0.6);width:4.5%;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;white-space:nowrap;" title="固定区 4.5K">固定</div>
+    <div style="background:rgba(120,86,255,0.6);width:3.5%;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;white-space:nowrap;" title="压缩产物 3.5K">摘要</div>
+    <div style="background:rgba(249,24,128,0.5);width:12%;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;white-space:nowrap;" title="已完成Skill 9-12K">Skill(压缩后)</div>
+    <div style="background:rgba(29,155,240,0.6);width:15%;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;white-space:nowrap;" title="保护区 5-15K">当前轮次(保护区)</div>
+    <div style="background:rgba(255,255,255,0.05);flex:1;display:flex;align-items:center;justify-content:center;font-size:10px;color:#71767b;">可用空间 (~65%)</div>
+  </div>
+
+  <!-- 详细分配表 -->
+  <table class="levels-table" style="margin:0;">
+    <tr><th>区块</th><th>预算</th><th>占比</th><th>说明</th></tr>
+    <tr>
+      <td style="color:#00ba7c;">固定区</td>
+      <td>~4,500 tokens</td>
+      <td>4.5%</td>
+      <td>System Prompt (2K) + 跨会话记忆 (1K) + 近期历史 answerSummary (1.5K)</td>
+    </tr>
+    <tr>
+      <td style="color:#7856ff;">压缩产物区</td>
+      <td>~1,200-3,500 tokens</td>
+      <td>1-3.5%</td>
+      <td>迭代摘要 7-section (1-2K) + Skill 锚点 (200-500) + 存档自动注入 (0-1K)</td>
+    </tr>
+    <tr>
+      <td style="color:#f91880;">已完成 Skill 区</td>
+      <td>≤ 4,000 tokens/个</td>
+      <td>每个 4%</td>
+      <td>单 Skill 预算 = max_tokens × 4%，超过即触发 Post-Skill Compact</td>
+    </tr>
+    <tr>
+      <td style="color:#1d9bf0;">保护区（尾部）</td>
+      <td>≤ 20,000 tokens</td>
+      <td>20%</td>
+      <td>max_tokens × 20%，soft_ceiling = 30K（允许包含一条大消息）</td>
+    </tr>
+    <tr>
+      <td style="color:#71767b;">可用空间</td>
+      <td>~65,000 tokens</td>
+      <td>~65%</td>
+      <td>留给后续推理输出 + 新增工具调用</td>
+    </tr>
+  </table>
 </div>
 
-<h4>FullCompact（≥90%，最大损失压缩）</h4>
-<div class="card">
-    <div class="card-title"><span class="badge badge-red">≥90%</span> 最大损失压缩 + 重注入</div>
-    <p><strong>触发条件:</strong> 估算 tokens ≥ max_tokens × 90%</p>
-    <p><strong>对象:</strong> 全部消息</p>
-    <p><strong>处理:</strong></p>
-    <ul style="color:var(--text-secondary); padding-left:1.5rem;">
-        <li>同 AutoCompact 的 LLM 摘要流程</li>
-        <li>额外: 重注入最近 3 个 ToolMessage + 最近 HumanMessage</li>
-        <li>保留所有 SystemMessage</li>
-        <li>压缩前同样存档到 PG</li>
-        <li>base_keep_recent = 8</li>
-    </ul>
+<!-- 触发阈值 -->
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:20px;">
+  <div style="font-size:13px;font-weight:600;color:#e7e9ea;margin-bottom:12px;">全局压缩触发阈值</div>
+  <div style="position:relative;height:40px;background:#0f1419;border-radius:6px;overflow:hidden;margin-bottom:12px;">
+    <div style="position:absolute;left:0;top:0;height:100%;width:50%;border-right:2px dashed rgba(255,212,0,0.6);"></div>
+    <div style="position:absolute;left:0;top:0;height:100%;width:75%;border-right:2px dashed rgba(249,24,128,0.6);"></div>
+    <div style="position:absolute;left:0;top:0;height:100%;width:90%;border-right:2px dashed rgba(255,0,0,0.6);"></div>
+    <div style="position:absolute;left:49%;top:50%;transform:translateY(-50%);font-size:10px;color:#ffd400;">50K</div>
+    <div style="position:absolute;left:74%;top:50%;transform:translateY(-50%);font-size:10px;color:#f91880;">75K</div>
+    <div style="position:absolute;left:88%;top:50%;transform:translateY(-50%);font-size:10px;color:#ff6b6b;">90K</div>
+    <div style="position:absolute;right:4px;top:50%;transform:translateY(-50%);font-size:10px;color:#71767b;">100K</div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px;">
+    <div><span class="level-badge level-micro">MicroCompact</span> <span style="color:#9ca3af;">≥50% · 零LLM · 规则裁剪</span></div>
+    <div><span class="level-badge level-auto">AutoCompact</span> <span style="color:#9ca3af;">≥75% · 辅助LLM · 结构化摘要</span></div>
+    <div><span class="level-badge level-full">FullCompact</span> <span style="color:#9ca3af;">≥90% · 辅助LLM · 全量压缩+重注入</span></div>
+  </div>
+</div>
 </div>
 
-<h3 id="section3-3">3.3 保护区确定逻辑（三层策略）</h3>
+<!-- ═══════════════ 以下是原有的执行链路详情 ═══════════════ -->
 
-<pre>
-  ┌─── 当前轮次锚定 ───┐
-  │ _find_current_turn_start()                            │
-  │ 最后 HumanMessage index → 之后所有消息绝对保护        │
-  └────────────────────────────────────────────────────────┘
-          │
-          ▼
-  ┌─── Skill 边界感知 (§4.1) ───┐
-  │ SkillAwareTailProtection.compute_tail_start()         │
-  │ 如果切割点落在 Skill 内部:                             │
-  │   正在执行的 Skill → 无条件完整保护（无 max_tail 限制）│
-  │   已完成的 Skill → 受 max_tail=30 限制                │
-  └────────────────────────────────────────────────────────┘
-          │
-          ▼
-  ┌─── 工具组原子性 (§4.2) ───┐
-  │ align_boundary_deep()                                  │
-  │ 不在并发 tool_calls 的 ToolMessage 中间切割            │
-  │ 回退到父 AIMessage 起始                               │
-  └────────────────────────────────────────────────────────┘
-          │
-          ▼
-  最终保护区起始 = min(三者)
-</pre>
+<!-- ═══════════════ 核心流程 ═══════════════ -->
+<div class="section">
+<div class="section-title">压缩执行链路（before_model 阶段，每次 LLM 调用前）</div>
 
-<hr class="section-divider">
+<div class="pipeline">
 
-<!-- ═══════════════════════════════════════════════════ -->
-<h2 id="section4">四、Skill 模式压缩增强</h2>
+<!-- Stage 0: 安全网 -->
+<div class="stage always">
+  <div class="stage-header">
+    <span class="stage-name">Stage 0 · 安全网截断</span>
+    <span class="stage-tag tag-safety">wrap_tool_call · 极端防御</span>
+    <span class="stage-tag tag-always">始终检查 · 几乎不触发</span>
+  </div>
+  <div class="stage-desc">
+    <strong>纯防御性机制</strong> — 正常工具返回（500~5000 字符）完整保留，仅对极端异常（工具 bug 返回未分页全量数据、爬虫拉回整页 HTML 等）做紧急截断。生产环境触发概率 &lt; 1%。
+  </div>
+  <div class="stage-detail">
+    <strong>触发条件：</strong>单条 ToolMessage &gt; <code>20,000</code> 字符（从 token 预算推导: 保护区预算 20K tokens × 50% × 2 字符/token）<br><br>
 
-<h3 id="section4-1">4.1 Skill 边界识别（三层策略）</h3>
+    <details>
+    <summary style="cursor:pointer;color:#1d9bf0;font-weight:600;margin-bottom:8px;">按数据类型分发处理 ▸</summary>
+    <table class="levels-table" style="margin:8px 0;">
+      <tr><th>数据类型</th><th>检测方式</th><th>处理策略</th><th>保留信息</th></tr>
+      <tr>
+        <td>JSON 对象</td>
+        <td>内容以 <code>{</code> 开头</td>
+        <td>提取关键字段（name/id/industry/amount/stage/status）拼接为一行摘要</td>
+        <td>记录身份 + 核心业务状态</td>
+      </tr>
+      <tr>
+        <td>JSON 数组</td>
+        <td>内容以 <code>[</code> 开头</td>
+        <td>提取记录数 + 前 5 条的 name/title + 金额汇总 + 阶段分布</td>
+        <td>数据规模 + 代表性样本 + 聚合统计</td>
+      </tr>
+      <tr>
+        <td>Markdown / 长文本</td>
+        <td>含换行符、非 JSON 格式</td>
+        <td>提取前 3 行有意义文本（20~200字符的行）作为摘要预览</td>
+        <td>文档结构骨架 + 关键结论</td>
+      </tr>
+      <tr>
+        <td>HTML / 富文本</td>
+        <td>含 <code>&lt;html&gt;</code> 或 <code>&lt;div&gt;</code> 标签</td>
+        <td>同 Markdown 策略：提取有意义的纯文本行</td>
+        <td>页面核心内容（去标签噪音）</td>
+      </tr>
+      <tr>
+        <td>兜底（未知格式）</td>
+        <td>上述规则均未命中</td>
+        <td>保留前 <code>SAFETY_CAP / 10</code>（约 5K）字符 + 原始长度标注</td>
+        <td>内容前缀 + 元信息（便于 LLM 判断是否需要重查）</td>
+      </tr>
+    </table>
+    </details>
 
-<table>
-    <thead>
-        <tr><th>层级</th><th>信号</th><th>识别范围</th><th>可靠性</th></tr>
-    </thead>
-    <tbody>
-        <tr>
-            <td><span class="badge badge-green">层 1</span> Fork Skill</td>
-            <td>ToolMessage(name="skills_tool") 内容以 <code>[SKILL_DONE:</code> 开头</td>
-            <td>段 = [skills_tool 调用, 返回结果]</td>
-            <td>100%</td>
-        </tr>
-        <tr>
-            <td><span class="badge badge-blue">层 2</span> Inline Skill (有标记)</td>
-            <td>AIMessage 内容含 <code>[INLINE_SKILL_DONE:skill_name]</code></td>
-            <td>段 = [skills_tool 调用, ..., 含标记的 AIMessage]</td>
-            <td>95%+</td>
-        </tr>
-        <tr>
-            <td><span class="badge badge-amber">层 3</span> 兜底 (无标记)</td>
-            <td>以"轮次"(HumanMessage 之间)为原子单元</td>
-            <td>段 = 该轮次内从 skills_tool 调用到 HumanMessage 前</td>
-            <td>100% (宁多不少)</td>
-        </tr>
-    </tbody>
-</table>
+    <details>
+    <summary style="cursor:pointer;color:#1d9bf0;font-weight:600;margin-bottom:8px;">跳过工具（不做安全网截断） ▸</summary>
+    <table class="levels-table" style="margin:8px 0;">
+      <tr><th>工具</th><th>跳过原因</th></tr>
+      <tr><td><code>skills_tool</code></td><td>由 SkillExecutor 自行管理内部消息，Post-Skill Compact 负责压缩</td></tr>
+      <tr><td><code>agent_tool</code></td><td>子 Agent 调用结果由子 Agent 内部处理完毕后返回摘要</td></tr>
+      <tr><td><code>ask_user</code></td><td>用户交互消息不可截断（保证对话完整性）</td></tr>
+      <tr><td><code>read_skill_resource</code></td><td>知识文件/资源文件内容，Skill 执行依赖完整原文不可截断</td></tr>
+    </table>
+    </details>
 
-<h3 id="section4-2">4.2 Post-Skill Compact</h3>
-
-<div class="card">
-    <div class="card-title">Skill 结束后即时内部压缩（始终执行，不受阈值限制）</div>
-    <p><strong>触发:</strong> Skill 段内消息数 &gt; 8 条</p>
-    <p><strong>保留:</strong></p>
-    <ul style="color:var(--text-secondary); padding-left:1.5rem; margin-bottom:0.8rem;">
-        <li><code>protect_head = 2</code> (启动调用 + 第一个 ToolMessage)</li>
-        <li><code>protect_tail = 5</code> (最后2轮内部调用 + 最终结果)</li>
-    </ul>
-    <p><strong>中间区域压缩:</strong></p>
-    <ul style="color:var(--text-secondary); padding-left:1.5rem;">
-        <li>ToolMessage &gt; 150 字 → <code>_skill_internal_one_liner()</code></li>
-        <li>AIMessage + tool_calls → 保留 tool_calls 结构 + 截断规划文本到 80 字</li>
-        <li>AIMessage 纯文本 &gt; 200 字 → 截断到 100 字</li>
-    </ul>
+    <strong>设计意图：</strong>安全网阈值从 token 预算体系推导（非硬编码），公式: <code>tail_token_budget × 50% × 2</code>。含义: 单条工具结果最多占用保护区预算的一半。窗口越大阈值越宽松，窗口越小阈值越严格。如果此阶段频繁触发，说明上游工具需要增加分页/限流逻辑。
+  </div>
 </div>
 
-<h3 id="section4-3">4.3 Skill 结果锚点（SkillResultAnchor）</h3>
+<!-- Stage 1: Post-Skill Compact -->
+<div class="stage skill">
+  <div class="stage-header">
+    <span class="stage-name">Stage 1 · Post-Skill Compact</span>
+    <span class="stage-tag tag-skill">Skill 增强</span>
+    <span class="stage-tag tag-always">始终执行</span>
+  </div>
+  <div class="stage-desc">已完成的 Skill 执行段满足触发条件时，即时压缩中间工具调用过程。</div>
+  <div class="stage-detail">
+    <strong>触发条件（任一满足即触发）：</strong><br>
+    &nbsp;&nbsp;条件 A：Skill 内部消息数 &gt; <code>8</code> 条（多轮调用场景）<br>
+    &nbsp;&nbsp;条件 B：Skill 内部估算 token &gt; <code>4000</code>（少轮但单条结果巨大，如 web_search 返回 8K+ 字符）<br>
+    &nbsp;&nbsp;两条件均不满足 → 不压缩（Skill 够短且内容量小）<br><br>
 
-<div class="card">
-    <div class="card-title">防止多次迭代压缩导致关键数据衰减</div>
-    <p><strong>提取时机:</strong> skills_tool 完成时（零 LLM 成本，正则提取）</p>
-    <p><strong>提取规则:</strong></p>
-    <ul style="color:var(--text-secondary); padding-left:1.5rem; margin-bottom:0.8rem;">
-        <li>金额: <code>[$¥]\d+[KMB万亿]?</code></li>
-        <li>日期: <code>\d{4}-\d{2}-\d{2}</code></li>
-        <li>百分比: <code>\d+\.?\d*%</code></li>
-        <li>查询实体: 从 tool_calls args 提取</li>
-        <li>搜索词: 从 web_search args 提取</li>
-    </ul>
-    <p><strong>存储:</strong> session 级内存缓存（最多 10 个，FIFO 淘汰）</p>
-    <p><strong>注入:</strong> 每次摘要生成 prompt 中 + 每次压缩后摘要消息中</p>
-    <p><strong>作用:</strong> 确保关键数字在多次迭代压缩后永不衰减</p>
+    <strong>边界识别（三层策略）：</strong><br>
+    &nbsp;&nbsp;层 1：Fork Skill → <code>[SKILL_DONE:]</code> 前缀精确终止（100% 可靠）<br>
+    &nbsp;&nbsp;层 2：Inline Skill → <code>[INLINE_SKILL_DONE:xxx]</code> 标记（95%+）<br>
+    &nbsp;&nbsp;层 3：兜底 → 以 HumanMessage / 下一个 skills_tool 为终止<br><br>
+    <strong>保护策略：</strong><br>
+    &nbsp;&nbsp;<span class="key">protect_head</span> = 2（skills_tool 调用 + prompt/启动确认）<br>
+    &nbsp;&nbsp;<span class="key">protect_tail</span> = 5（最后 2 轮内部调用 + 最终结果）<br>
+    &nbsp;&nbsp;中间区：ToolMessage &gt; 150字 → 一行摘要 | AIMessage 规划文本 → 截断到 80字
+  </div>
 </div>
 
-<h3 id="section4-4">4.4 Focus Topic 推断</h3>
-
-<table>
-    <thead><tr><th>Skill 名称</th><th>Focus Topic</th></tr></thead>
-    <tbody>
-        <tr><td>报价 / quote / pricing</td><td>报价/金额/折扣/竞品定价/付款条件</td></tr>
-        <tr><td>竞品 / competitor</td><td>竞品/定价/市场份额/优劣势对比</td></tr>
-        <tr><td>拜访 / visit</td><td>客户画像/商机/联系人/历史互动/需求</td></tr>
-        <tr><td>pipeline / 漏斗</td><td>商机/阶段/金额/赢率/跟进状态</td></tr>
-        <tr><td>coaching</td><td>销售人员/业绩/风险商机/跟进策略</td></tr>
-        <tr><td>分析 / analysis</td><td>数据/指标/趋势/对比/结论</td></tr>
-    </tbody>
-</table>
-<p>注入摘要 prompt，让 60-70% 篇幅聚焦当前任务相关信息。</p>
-
-<h3 id="section4-5">4.5 FullCompact 与 Post-Skill Compact 的关系</h3>
-
-<div class="highlight-box">
-    <p><strong>核心结论:</strong> 两者是<strong>独立阶段、先后执行、互不冲突</strong>的机制。</p>
-    <p>Post-Skill Compact 是"预防性减压"（源头控制 Skill 膨胀），FullCompact 是"治疗性压缩"（窗口快满时紧急腾空间）。</p>
+<!-- Stage 2: MD5 去重 -->
+<div class="stage always">
+  <div class="stage-header">
+    <span class="stage-name">Stage 2 · MD5 去重</span>
+    <span class="stage-tag tag-always">始终执行</span>
+  </div>
+  <div class="stage-desc">从末尾向前遍历，相同内容的 ToolMessage 只保留最新一份。</div>
+  <div class="stage-detail">
+    算法：MD5 前 12 位作为 key，<code>content &lt; 100 字符</code> 跳过<br>
+    替换内容：<code>"[重复结果 — 与最近一次相同查询结果一致]"</code><br>
+    典型场景：LLM 重复调用 query_schema / query_data 同一实体
+  </div>
 </div>
 
-<p><strong>执行顺序:</strong></p>
-<pre>
-before_model() 入口
-    │
-    ▼
-┌─── 始终执行（与阈值无关）───┐
-│ 1. Post-Skill Compact        │ ← Skill 内部压缩（先执行）
-│ 2. MD5 去重                  │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌─── 阈值判断 ───┐
-│ 估算 tokens     │
-│ ≥90% → FullCompact           │ ← 全局压缩（后执行）
-│ ≥75% → AutoCompact           │
-│ ≥50% → MicroCompact          │
-└──────────────────────────────┘
-</pre>
+<!-- Stage 3: 阈值检查 -->
+<div class="stage threshold">
+  <div class="stage-header">
+    <span class="stage-name">Stage 3 · 阈值触发压缩</span>
+    <span class="stage-tag tag-threshold">条件触发</span>
+  </div>
+  <div class="stage-desc">估算当前 token 用量，按阈值触发三级压缩（优先使用 LLM 真实 usage 回填值）。</div>
 
-<table>
-    <thead><tr><th>维度</th><th>Post-Skill Compact</th><th>FullCompact</th></tr></thead>
-    <tbody>
-        <tr><td>触发条件</td><td>Skill 段内消息数 &gt; 8（始终执行）</td><td>估算 tokens ≥ 90% 窗口上限</td></tr>
-        <tr><td>作用范围</td><td>仅 Skill 内部中间消息</td><td>全部保护区外消息</td></tr>
-        <tr><td>压缩方式</td><td>纯规则截断（零 LLM）</td><td>LLM 7-section 结构化摘要</td></tr>
-        <tr><td>目的</td><td>在源头控制 Skill 膨胀</td><td>窗口快满时紧急腾空间</td></tr>
-        <tr><td>保护策略</td><td>保留 head=2 + tail=5</td><td>保留 keep_recent=8 + Skill 边界</td></tr>
-    </tbody>
-</table>
+  <table class="levels-table">
+    <tr><th>级别</th><th>触发条件</th><th>处理方式</th><th>LLM 成本</th></tr>
+    <tr>
+      <td><span class="level-badge level-micro">MicroCompact</span></td>
+      <td>≥ 50% 窗口</td>
+      <td>保护区外旧 ToolMessage → CRM 一行摘要 + tool_call args &gt; 500字截断到 200字</td>
+      <td>零</td>
+    </tr>
+    <tr>
+      <td><span class="level-badge level-auto">AutoCompact</span></td>
+      <td>≥ 75% 窗口</td>
+      <td>压缩区 → LLM 7-section 结构化摘要（迭代更新） + Skill 锚点注入</td>
+      <td>1 次辅助模型</td>
+    </tr>
+    <tr>
+      <td><span class="level-badge level-full">FullCompact</span></td>
+      <td>≥ 90% 窗口</td>
+      <td>全量 LLM 摘要 + 重注入最近 3 个 ToolMessage + 最近 HumanMessage</td>
+      <td>1 次辅助模型</td>
+    </tr>
+  </table>
 
-<p><strong>协作场景:</strong></p>
-<pre>
-═══ Skill 执行完毕（25 条消息）═══
-
-Post-Skill Compact 介入（始终执行）:
-  保留 head 2 条 + tail 5 条
-  中间 18 条 → 规则压缩
-  结果: 25 条 → ~10 条（体积减少 60-70%）
-
-═══ 多轮对话后，窗口达到 90% ═══
-
-FullCompact 介入:
-  Skill 段已被 Post-Skill 压缩过（只剩 ~10 条）
-  - 如果在保护区内 → 完整保留这 10 条
-  - 如果已被推出保护区 → 和其他旧消息一起送入 LLM 摘要
-    → "2. [📦 turn:3] 执行报价Skill — $45K/年付$38,250 [tool: skills_tool]"
-</pre>
-
-<div class="warning-box">
-    <p><strong>为什么需要两层:</strong></p>
-    <ul style="color:var(--text-secondary); padding-left:1.5rem;">
-        <li><strong>只有 FullCompact:</strong> 连续 3 个 Skill = 75 条消息堆积，可能从 40% 跳到 95%，摘要质量下降</li>
-        <li><strong>只有 Post-Skill:</strong> 20 轮对话后仍然 200+ 条，窗口最终溢出</li>
-        <li><strong>两者配合:</strong> Post-Skill 先减压延缓膨胀，FullCompact 面对更小数据量，摘要质量更高、成本更低</li>
-    </ul>
+  <div class="stage-detail" style="margin-top:12px;">
+    <strong>安全机制：</strong>
+    熔断器（连续 3 次失败 → 停止重试）| 反抖动（连续 2 次节省 &lt;10% → 跳过）| LLM 降级链（AUXILIARY → 主模型 → 行级截断）
+  </div>
 </div>
 
-<hr class="section-divider">
-
-<!-- ═══════════════════════════════════════════════════ -->
-<h2 id="section5">五、迭代摘要状态机</h2>
-
-<pre>
-┌───────────────────────────────────┐
-│ _previous_summary = None          │ ← 会话开始
-│ 首次 AutoCompact:                  │
-│   → STRUCTURED_SUMMARY_PROMPT     │
-│   → 完整对话 → CRM 7-section 摘要 │
-└──────────────┬────────────────────┘
-               │ 成功: _previous_summary = 摘要
-               ▼
-┌───────────────────────────────────┐
-│ 后续每次 AutoCompact:              │
-│   → ITERATIVE_SUMMARY_PROMPT      │
-│   → 上次摘要 + 新增对话            │
-│   → PRESERVE / ADD / MOVE / UPDATE│
-└──────────────┬────────────────────┘
-               │ 成功: 更新 _previous_summary
-               │ 失败: 保持旧值不污染
-               ▼
-         (循环直到会话结束)
-               │
-               ▼
-┌───────────────────────────────────┐
-│ reset_session()                   │
-│ 清理: _previous_summary = None    │
-│       _current_focus_topic = None │
-│       _skill_anchors.clear()      │
-│       _archive.clear()            │
-└───────────────────────────────────┘
-</pre>
-
-<h4>CRM 7-Section 摘要模板</h4>
-<div class="card">
-<pre style="border:none; padding:0; margin:0;">
-## Active Task        ← 逐字复制用户最近未完成请求
-## 客户上下文         ← 客户名/行业/规模/联系人
-## 已完成操作         ← N. [📦 turn:T] 操作 目标 — 结果 [tool: 工具名]
-## 关键数据           ← 精确数字永不模糊化（标注来源 turn_id）
-## 已回答问题         ← 防止压缩后重复回答
-## 待处理             ← remaining 语义
-## 涉及实体           ← CRM 实体 + 记录 ID
-</pre>
+</div><!-- end pipeline -->
 </div>
 
-<p><strong>迭代更新规则:</strong></p>
-<ul style="color:var(--text-secondary); padding-left:1.5rem;">
-    <li><strong>PRESERVE:</strong> 保留上次摘要中所有仍然相关的信息（包括 [📦 turn:T] 标记）</li>
-    <li><strong>ADD:</strong> 将新完成的操作添加到"已完成操作"列表</li>
-    <li><strong>MOVE:</strong> 已完成的项从"待处理"移到"已完成操作"</li>
-    <li><strong>UPDATE:</strong> 更新"Active Task"为用户最近的未完成请求</li>
-</ul>
+<!-- ═══════════════ 保护区 ═══════════════ -->
+<div class="section">
+<div class="section-title">保护区划定（决定哪些消息不被压缩）</div>
 
-<hr class="section-divider">
-
-<!-- ═══════════════════════════════════════════════════ -->
-<h2 id="section6">六、压缩后恢复机制（ContextArchive + recall_context）</h2>
-
-<h3>6.1 存储架构</h3>
-
-<div class="card">
-    <div class="card-title">PG: ai_context_archive 表（唯一存储层）</div>
-    <p>每个被压缩轮次一行:</p>
-<pre style="border:none; padding:0; margin:0;">
-turn_id, tenant_id, thread_id
-user_query (原始问题, ≤2000字)
-answer_preview (Agent 回复前 500 字)
-entities[] (正则提取的 CRM 实体名)
-keywords[] (分词关键词)
-tool_names[], skill_names[]
-tool_summaries[] (每个 ToolMessage 一行摘要)
-key_data (正则提取的金额/日期/百分比)
-original_messages (完整消息 JSON 序列化)
-data_timestamp (数据采集时间)
-archived_at (存档时间)
-</pre>
+<div class="protection-diagram">
+  <div class="prot-zone prot-head">
+    <span class="label">Head 保护区</span>
+    <span class="content">SystemMessage + 第一条 HumanMessage</span>
+  </div>
+  <div class="prot-zone prot-middle">
+    <span class="label">压缩区（送入 LLM 摘要 / 规则裁剪）</span>
+    <span class="content">head_end ... tail_start 之间的全部消息</span>
+  </div>
+  <div class="prot-zone prot-tail">
+    <span class="label">Tail 保护区（绝对保护）</span>
+    <span class="content">当前轮次 + Skill 边界 + 工具组原子性</span>
+  </div>
 </div>
 
-<h3>6.2 recall_context 工具检索逻辑</h3>
-
-<pre>
-LLM 调用 recall_context(query)
-         │
-         ▼
-┌─── 精确 turn_id 匹配 ───┐
-│ 如果 query 含 "turn:N"   │
-│ → PG 精确查询            │
-│ → 命中: 返回原文          │
-│ → 未命中: 返回未找到      │ (禁止降级)
-└─────────┬────────────────┘
-          │ 无精确 turn_id
-          ▼
-┌─── 多信号检索 ───────────────────────────────────────────┐
-│ 1. 提取 entities + keywords                             │
-│ 2. PG ILIKE 多字段搜索 (候选集 top_k×3)                │
-│ 3. 应用层评分排序:                                       │
-│    - 实体匹配 (权重 0.35)                               │
-│    - 关键词重叠 (权重 0.25)                              │
-│    - user_query 词匹配 (权重 0.15)                      │
-│    - 工具/Skill 名匹配 (权重 0.15)                      │
-│    - 时间衰减 (权重 0.10)                               │
-│ 4. 返回 top_k 结果 + 数据时效性标注                     │
-└──────────────────────────────────────────────────────────┘
-</pre>
-
-<h3>6.3 数据时效性判断</h3>
-
-<table>
-    <thead><tr><th>数据年龄</th><th>时效性描述</th></tr></thead>
-    <tbody>
-        <tr><td>&lt; 5min</td><td>"数据采集于刚才（实时）"</td></tr>
-        <tr><td>&lt; 1h</td><td>"数据采集于 N 分钟前"</td></tr>
-        <tr><td>&lt; 4h</td><td>"数据采集于 N 小时前"</td></tr>
-        <tr><td>&lt; 24h</td><td>"数据采集于 N 小时前（建议确认是否需要最新数据）"</td></tr>
-        <tr><td>&gt; 24h</td><td>"数据采集于 N 天前（数据可能已过时，建议重新查询）"</td></tr>
-    </tbody>
-</table>
-<p><code>staleness_hours = 4.0</code> → 超过则标记为"可能已过时"，引导 LLM 使用业务工具重查。</p>
-
-<hr class="section-divider">
-
-<!-- ═══════════════════════════════════════════════════ -->
-<h2 id="section7">七、安全机制汇总</h2>
-
-<table>
-    <thead><tr><th>机制</th><th>来源</th><th>实现</th></tr></thead>
-    <tbody>
-        <tr><td>熔断器</td><td>Claude Code</td><td>连续 3 次压缩失败 → 停止重试</td></tr>
-        <tr><td>反抖动</td><td>Hermes</td><td>连续 2 次节省 &lt;10% → 跳过</td></tr>
-        <tr><td>LLM 降级链</td><td>自研</td><td>ModelRouter.AUXILIARY → self._llm → None → 行级截断</td></tr>
-        <tr><td>安全网</td><td>自研</td><td>单条工具结果 &gt; 50K → 强制截断</td></tr>
-        <tr><td>Skill 执行保护</td><td>自研</td><td>_is_skill_active=True → 无条件完整保护</td></tr>
-        <tr><td>工具组原子性</td><td>Hermes</td><td>align_boundary_deep 不在并发 tool_calls 中间切割</td></tr>
-        <tr><td>摘要隔离前缀</td><td>Hermes</td><td>SUMMARY_PREFIX 标记"仅供参考，非当前指令"</td></tr>
-    </tbody>
-</table>
-
-<hr class="section-divider">
-
-<!-- ═══════════════════════════════════════════════════ -->
-<h2 id="section8">八、辅助 LLM 路由</h2>
-
-<pre>
-压缩任务 → ModelRouter.AUXILIARY (deepseek-v4-flash 便宜快速)
-
-降级链路:
-  AUXILIARY (优先) → self._llm (主模型) → None → 行级截断 (零成本)
-
-配置示例:
-  ModelRouterConfig(
-      default = ModelConfig(model="deepseek-chat"),           # 主推理
-      routes = {
-          "auxiliary": ModelConfig(model="deepseek-v4-flash"),  # 摘要/压缩
-          "simple":    ModelConfig(model="deepseek-v4-flash"),  # 分类/FAQ
-      }
-  )
-</pre>
-
-<hr class="section-divider">
-
-<!-- ═══════════════════════════════════════════════════ -->
-<h2 id="section9">九、文件结构</h2>
-
-<pre>
-src/middleware/
-├── context_window.py          # 核心: 三层级联压缩 + 迭代摘要 + Focus Topic
-├── skill_compress.py          # Skill 增强: 边界识别 + 锚点 + Post-Skill Compact
-├── context_archive.py         # 压缩存档: 索引 + PG 持久化 + 检索逻辑
-├── memory.py                  # MemoryMiddleware（长期记忆检索注入）
-
-src/tools/builtins/
-├── recall_context_tool.py     # recall_context 工具（LLM 自主调用恢复细节）
-
-src/store/
-├── context_archive_dao.py     # PG DAO: ai_context_archive CRUD
-├── context_archive_models.py  # 数据模型: ContextArchiveRow
-
-src/core/
-├── model_router.py            # 多模型路由（AUXILIARY 用于压缩）
-├── checkpointer.py            # Redis/SQLite checkpointer
-
-sql/
-├── ai_context_archive.sql     # PG 存档表 DDL
-</pre>
-
-<hr class="section-divider">
-
-<div style="text-align:center; color:var(--text-muted); font-size:0.85rem; margin-top:2rem;">
-    设计哲学：不到阈值不压缩，到了阈值一次性处理。<br>
-    四层分时策略 — 当前轮次全量保留 → 近期摘要 → 中期 LLM 压缩 → 长期检索恢复。
+<div class="stage-detail">
+  <strong>Tail 计算规则（取最大保护范围）：</strong><br><br>
+  <code>tail_start = min(current_turn_start, skill_boundary_start)</code><br>
+  <code>tail_start = align_boundary_deep(messages, tail_start)</code><br><br>
+  
+  ① <span class="key">当前轮次锚定</span>：最后一条 HumanMessage 之后 → 全部保护<br>
+  ② <span class="key">Token 预算</span>：尾部保护区最多占 max_tokens × 20%（soft_ceiling = 1.5×）<br>
+  ③ <span class="key">Skill 边界感知</span>：切割点在 Skill 内部 → 推进到 Skill 起始位置<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;• 正在执行的 Skill → <span class="val">无条件完整保护</span>（不受 max_tail 限制）<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;• 已完成的 Skill → 受 max_tail=30 条限制<br>
+  ④ <span class="key">工具组原子性</span>：切割点在并发 ToolMessage 中间 → 回退到父 AIMessage
+</div>
 </div>
 
+<!-- ═══════════════ Skill 压缩增强 ═══════════════ -->
+<div class="section">
+<div class="section-title">Skill 模式压缩增强（§4.1 ~ §4.4）</div>
+
+<div class="skill-flow">
+  <div class="skill-card">
+    <div class="card-title">§4.1 边界感知尾部保护</div>
+    <div class="card-body">
+      以 Skill 执行为原子单位<br>
+      Token 预算优先 → Skill 边界修正<br>
+      正在执行 → 无条件保护<br>
+      已完成 → max_tail=30 限制
+    </div>
+  </div>
+  <div class="skill-card">
+    <div class="card-title">§4.3 结果锚点 (SkillResultAnchor)</div>
+    <div class="card-body">
+      Skill 完成时正则提取：<br>
+      金额 / 日期 / 百分比 / 实体 / 搜索词<br>
+      Session 级缓存（最多 10 个，FIFO）<br>
+      注入摘要 prompt → 防止迭代衰减
+    </div>
+  </div>
+  <div class="skill-card">
+    <div class="card-title">§4.4 Post-Skill Compact</div>
+    <div class="card-body">
+      双条件触发（任一满足）：<br>
+      ① 消息数 &gt; 8 条<br>
+      ② token 总量 &gt; 4000<br>
+      Head=2 / Tail=5 / 中间裁剪<br>
+      零 LLM 成本（规则摘要）<br>
+      从后向前处理保持 index 稳定
+    </div>
+  </div>
 </div>
+
+<div class="stage-detail">
+  <strong>Phase 4 · Focus Topic 自动推断：</strong><br>
+  从 Skill 名称映射压缩焦点 → 相关内容分配 60-70% 摘要篇幅<br>
+  <code>报价/竞品 → "报价/金额/折扣/竞品定价/付款条件"</code><br>
+  <code>Pipeline → "商机/阶段/金额/赢率/跟进状态"</code><br>
+  <code>拜访 → "客户画像/商机/联系人/历史互动/需求"</code>
+</div>
+</div>
+
+<!-- ═══════════════ LLM 结构化摘要 ═══════════════ -->
+<div class="section">
+<div class="section-title">LLM 结构化摘要（AutoCompact / FullCompact 核心）</div>
+
+<div class="stage-detail">
+  <strong>CRM 7-Section 模板：</strong><br><br>
+  <code>## Active Task</code> — 逐字复制用户最近未完成请求（最重要字段）<br>
+  <code>## 客户上下文</code> — 客户名称 / 行业 / 规模 / 关键联系人<br>
+  <code>## 已完成操作</code> — N. 操作 目标 — 结果摘要 [tool: 工具名]<br>
+  <code>## 关键数据</code> — 精确数字永不模糊化（$45,000 ≠ "约4.5万"）<br>
+  <code>## 已回答问题</code> — 防止压缩后重复回答<br>
+  <code>## 待处理</code> — 未完成请求（remaining 语义，非指令）<br>
+  <code>## 涉及实体</code> — CRM 实体 + 记录 ID<br><br>
+
+  <strong>迭代更新策略（Phase 3）：</strong><br>
+  首次 → <code>STRUCTURED_SUMMARY_PROMPT</code>（完整对话 → 7-section）<br>
+  后续 → <code>ITERATIVE_SUMMARY_PROMPT</code>（上次摘要 + 新增 → PRESERVE / ADD / MOVE / UPDATE）<br>
+  超长驱逐 → 摘要 &gt;1200字时："已回答问题"只保留最近 3 条<br><br>
+
+  <strong>摘要隔离前缀（防止 LLM 误执行摘要中的指令）：</strong><br>
+  <code>[CONTEXT COMPACTION — REFERENCE ONLY] 早期对话已被压缩为摘要...</code>
+</div>
+</div>
+
+<!-- ═══════════════ 恢复机制 ═══════════════ -->
+<div class="section">
+<div class="section-title">压缩后恢复机制（ContextArchive + 自动注入）</div>
+
+<div class="recovery-chain">
+  <div class="recovery-node active">用户追问含回溯信号</div>
+  <span class="recovery-arrow">→</span>
+  <div class="recovery-node">_has_retrospect_signal 检测</div>
+  <span class="recovery-arrow">→</span>
+  <div class="recovery-node active">VDB hybrid_search</div>
+  <span class="recovery-arrow">→</span>
+  <div class="recovery-node">dense(0.6) + BM25(0.4)</div>
+  <span class="recovery-arrow">→</span>
+  <div class="recovery-node active">原文 SystemMessage 注入</div>
+  <span class="recovery-arrow">→</span>
+  <div class="recovery-node">LLM 直接看到历史细节</div>
+</div>
+
+<div class="stage-detail">
+  <strong>存档写入时机：</strong>AutoCompact / FullCompact 执行前，将压缩区消息按轮次切分写入 VDB<br><br>
+  <strong>存储内容：</strong>user_query + answer_preview + 完整原始 messages JSON + 实体/关键词/工具名索引<br><br>
+  <strong>回溯信号词：</strong><code>之前, 刚才, 具体, 详细, 细节, 完整, 付款条件, 报价方案...</code><br><br>
+  <strong>动态 Score 截断：</strong>score ≥ 0.35 的全部返回（高分多就多返回），上限 top_k×2<br><br>
+  <strong>注入限制：</strong>每轮最多 1 条 | 内容限制 2000 字符 | 无存档时静默跳过
+</div>
+
+<div class="risk-box">
+  <div class="risk-title">⚠️ 关键风险：VDB 不可用时的信息丢失</div>
+  <div class="risk-body">
+    当前实现：VDB 写入失败 → 静默跳过（<code>_ensure_vdb()</code> 返回 None）→ 压缩正常执行 → 原文永久丢失<br>
+    建议改进：VDB 写入失败时将当前 compact 降级为 MicroCompact（保留更多原文），或在 Checkpointer 24h 过期前完成 VDB 补写
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════ 关键设计决策 ═══════════════ -->
+<div class="section">
+<div class="section-title">关键设计决策</div>
+
+<div class="decisions">
+  <div class="decision-item">
+    <div class="q">Skill 内部执行逻辑是否保留？</div>
+    <div class="a">查询类 Skill → 不保留（中间工具调用无因果依赖）<br>决策类 Skill → 由 VDB 存档兜底恢复</div>
+  </div>
+  <div class="decision-item">
+    <div class="q">为什么不做源头压缩？</div>
+    <div class="a">对齐 Hermes：当前轮次工具结果 LLM 必须完整看到（因果链完整性 > 空间节省）</div>
+  </div>
+  <div class="decision-item">
+    <div class="q">迭代摘要 vs 全量重生成？</div>
+    <div class="a">迭代更新（PRESERVE/ADD）防止多次压缩导致早期信息衰减</div>
+  </div>
+  <div class="decision-item">
+    <div class="q">辅助 LLM 为什么独立路由？</div>
+    <div class="a">ModelRouter.AUXILIARY → 便宜快速模型，摘要失败不阻塞主推理链路</div>
+  </div>
+  <div class="decision-item">
+    <div class="q">正在执行的 Skill 为何无条件保护？</div>
+    <div class="a">Skill 执行中被部分压缩 → LLM 丢失已完成工具结果 → 后续工具选择和参数失败</div>
+  </div>
+  <div class="decision-item">
+    <div class="q">为什么用 MD5 而非字符串比较？</div>
+    <div class="a">工具结果可达数十 KB，逐字符比较 O(n²) 太慢；MD5 前 12 位碰撞概率 ≈ 1/281 万亿</div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════ 最终上下文构成 ═══════════════ -->
+<div class="section">
+<div class="section-title">最终 LLM 上下文构成（压缩后）</div>
+
+<div class="stage-detail">
+  <table class="levels-table">
+    <tr><th>区块</th><th>来源</th><th>典型大小</th><th>说明</th></tr>
+    <tr><td>System Prompt</td><td>固定</td><td>~2K tokens</td><td>Agent 身份 + 工具说明 + 全局指令</td></tr>
+    <tr><td>迭代摘要 + Skill 锚点</td><td>Layer C 压缩产物</td><td>~1-2K tokens</td><td>7-section 结构化摘要 + 关键数字锚点</td></tr>
+    <tr><td>记忆检索结果</td><td>MemoryMiddleware</td><td>~1K tokens</td><td>跨会话长期记忆（语义检索注入）</td></tr>
+    <tr><td>历史存档自动注入</td><td>ContextArchive</td><td>0~1K tokens</td><td>回溯信号触发时注入（限 2000 字符）</td></tr>
+    <tr><td>当前轮次完整消息</td><td>Layer A 保护区</td><td>~5-15K tokens</td><td>最后 HumanMessage 之后全部消息</td></tr>
+    <tr style="font-weight:600;"><td colspan="2">合计</td><td>~10-20K tokens</td><td>远低于 100K 窗口限制</td></tr>
+  </table>
+</div>
+</div>
+
+<!-- ═══════════════ Post-Skill Compact 详细设计（新页）═══════════════ -->
+<div style="page-break-before:always;"></div>
+
+<div class="section" style="margin-top:60px;">
+<div class="section-title">Post-Skill Compact — 压缩细节设计</div>
+
+<!-- 定位说明 -->
+<div class="stage-detail" style="margin-bottom:20px;">
+  <strong>定位：</strong>Skill 执行完成后的<strong>即时内部压缩</strong>。不等全局阈值触发，Skill 一完成就将内部工具调用过程收缩，从源头控制上下文膨胀。<br>
+  <strong>时机：</strong>每次 LLM 调用前的 <code>before_model</code> 阶段，在 MD5 去重和全局阈值检查之前执行。<br>
+  <strong>成本：</strong>零 LLM 调用，纯规则处理，毫秒级完成。
+</div>
+
+<!-- 触发条件 -->
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:20px;margin-bottom:20px;">
+  <div style="font-size:14px;font-weight:600;color:#e7e9ea;margin-bottom:12px;">触发条件（OR 关系，任一满足即触发）</div>
+  <div style="display:grid;grid-template-columns:1fr 60px 1fr;align-items:center;gap:0;">
+    <div style="background:rgba(255,212,0,0.1);border:1px solid rgba(255,212,0,0.3);border-radius:8px;padding:14px;text-align:center;">
+      <div style="font-size:12px;color:#ffd400;font-weight:600;margin-bottom:4px;">条件 A · 消息条数</div>
+      <div style="font-size:20px;font-weight:700;color:#ffd400;">> 8 条</div>
+      <div style="font-size:11px;color:#9ca3af;margin-top:4px;">多轮工具调用场景<br>（竞品调研 10+ 步、多实体关联查询）</div>
+    </div>
+    <div style="text-align:center;font-size:16px;font-weight:700;color:#71767b;">OR</div>
+    <div style="background:rgba(249,24,128,0.1);border:1px solid rgba(249,24,128,0.3);border-radius:8px;padding:14px;text-align:center;">
+      <div style="font-size:12px;color:#f91880;font-weight:600;margin-bottom:4px;">条件 B · Token 总量</div>
+      <div style="font-size:20px;font-weight:700;color:#f91880;">> 4,000</div>
+      <div style="font-size:11px;color:#9ca3af;margin-top:4px;">少轮但单条结果巨大<br>（web_search 返回 8K+、query_data 50条商机）</div>
+    </div>
+  </div>
+  <div style="font-size:12px;color:#71767b;margin-top:12px;text-align:center;">
+    两个条件均不满足 → 不压缩（Skill 够短且内容量小，完整保留）
+  </div>
+</div>
+
+<!-- 两种压缩模式 -->
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:20px;margin-bottom:20px;">
+  <div style="font-size:14px;font-weight:600;color:#e7e9ea;margin-bottom:12px;">两种压缩模式（根据消息数自动选择）</div>
+  
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <!-- 模式 A: 删除中间条目 -->
+    <div style="background:#0f1419;border:1px solid #2f3336;border-radius:8px;padding:16px;">
+      <div style="font-size:12px;font-weight:600;color:#1d9bf0;margin-bottom:8px;">模式 A · 删除中间条目</div>
+      <div style="font-size:11px;color:#9ca3af;margin-bottom:8px;">适用：消息数 ≥ protect_head + protect_tail (7条)</div>
+      
+      <div style="font-size:12px;color:#d1d5db;margin-bottom:8px;">
+        <span style="color:#00ba7c;">■ protect_head = 2</span><br>
+        &nbsp;&nbsp;① skills_tool 调用 AIMessage<br>
+        &nbsp;&nbsp;② Skill prompt/启动确认 ToolMessage<br><br>
+        <span style="color:#f91880;">■ 中间区 → 规则压缩</span><br>
+        &nbsp;&nbsp;ToolMessage > 150字 → 一行摘要<br>
+        &nbsp;&nbsp;AIMessage(tool_calls) → 规划文本截断到 80字<br>
+        &nbsp;&nbsp;AIMessage(纯文本) > 200字 → 截断到 100字<br><br>
+        <span style="color:#1d9bf0;">■ protect_tail = 5</span><br>
+        &nbsp;&nbsp;最后 2 轮内部工具调用 + 最终结果
+      </div>
+    </div>
+    
+    <!-- 模式 B: 就地压缩大内容 -->
+    <div style="background:#0f1419;border:1px solid #2f3336;border-radius:8px;padding:16px;">
+      <div style="font-size:12px;font-weight:600;color:#7856ff;margin-bottom:8px;">模式 B · 就地压缩大内容</div>
+      <div style="font-size:11px;color:#9ca3af;margin-bottom:8px;">适用：消息数 < 7 但 token > 4000（少轮大内容）</div>
+      
+      <div style="font-size:12px;color:#d1d5db;margin-bottom:8px;">
+        <span style="color:#00ba7c;">■ 保留第一条和最后一条完整</span><br>
+        &nbsp;&nbsp;第一条: skills_tool 调用<br>
+        &nbsp;&nbsp;最后一条: Skill 最终结果<br><br>
+        <span style="color:#f91880;">■ 中间每条就地压缩</span><br>
+        &nbsp;&nbsp;ToolMessage > 500字 → 一行摘要替换<br>
+        &nbsp;&nbsp;AIMessage(tool_calls) > 150字 → 截断保留 tool_calls<br>
+        &nbsp;&nbsp;AIMessage(纯文本) > 300字 → 截断到 150字<br><br>
+        <span style="color:#71767b;">■ 不删除任何条目</span><br>
+        &nbsp;&nbsp;消息结构完整，只是每条内容变短
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 一行摘要的数据类型处理 -->
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:20px;margin-bottom:20px;">
+  <div style="font-size:14px;font-weight:600;color:#e7e9ea;margin-bottom:12px;">一行摘要生成策略（_skill_internal_one_liner）</div>
+  <div style="font-size:12px;color:#9ca3af;margin-bottom:12px;">核心原则: 关键数字不丢失 — 即使截断了原文，金额/百分比/日期通过正则/结构提取保留在摘要中。</div>
+  
+  <table class="levels-table">
+    <tr><th>数据类型</th><th>检测方式</th><th>提取策略</th><th>输出示例</th></tr>
+    <tr>
+      <td style="color:#1d9bf0;">JSON 数组</td>
+      <td>以 <code>[</code> 开头</td>
+      <td>记录数 + 前5条name + 金额sum + 阶段分布</td>
+      <td><code>[query_data] 返回50条, 商机A,B,C..., 总金额3.6M, proposal:20/closing:7</code></td>
+    </tr>
+    <tr>
+      <td style="color:#1d9bf0;">JSON 对象(records)</td>
+      <td>含 <code>records</code> 字段</td>
+      <td>同数组策略（解包 records 子结构）</td>
+      <td><code>[query_data] 返回3条, ERP,CRM,BI, 总金额88K</code></td>
+    </tr>
+    <tr>
+      <td style="color:#00ba7c;">JSON 对象(schema)</td>
+      <td>含 <code>fields</code> 字段</td>
+      <td>实体名 + 字段数 + 字段名列表</td>
+      <td><code>[query_schema] opportunity 字段定义(35个): name,amount,stage...</code></td>
+    </tr>
+    <tr>
+      <td style="color:#00ba7c;">JSON 对象(单记录)</td>
+      <td>含业务关键字段</td>
+      <td>提取 name/id/amount/stage/owner/close_date</td>
+      <td><code>[modify_data] name=ERP, amount=38250, stage=proposal</code></td>
+    </tr>
+    <tr>
+      <td style="color:#7856ff;">JSON 嵌套结构</td>
+      <td>值为 dict/list</td>
+      <td>递归 2 层，提取所有数字型值 + 子对象关键字段</td>
+      <td><code>[analyze_data] summary.total=3.6M, win_rate=32%, top[0]=DealA/450K</code></td>
+    </tr>
+    <tr>
+      <td style="color:#f91880;">文本（含数字）</td>
+      <td>非 JSON + 正则匹配到数字</td>
+      <td>前80字预览 + 提取金额/百分比/日期</td>
+      <td><code>[web_search] Odoo pricing... [金额:$24.90,$75; 比例:15%; 日期:2025-03-20]</code></td>
+    </tr>
+    <tr>
+      <td style="color:#71767b;">文本（纯描述）</td>
+      <td>非 JSON + 无数字</td>
+      <td>前80字预览 + 字符数标注</td>
+      <td><code>[web_search] PT Sentosa是一家制造业公司... (800字符)</code></td>
+    </tr>
+  </table>
+</div>
+
+<!-- Skill 边界识别 -->
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:20px;margin-bottom:20px;">
+  <div style="font-size:14px;font-weight:600;color:#e7e9ea;margin-bottom:12px;">Skill 边界识别（三层策略）</div>
+  <div style="font-size:12px;color:#9ca3af;margin-bottom:12px;">Post-Skill Compact 的前提是准确识别"Skill 从哪里开始、到哪里结束"。</div>
+  
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+    <div style="background:#0f1419;padding:14px;border-radius:8px;border-top:3px solid #00ba7c;">
+      <div style="font-size:11px;color:#00ba7c;font-weight:600;margin-bottom:6px;">层 1 · Fork Skill（精确）</div>
+      <div style="font-size:12px;color:#d1d5db;">
+        <strong>信号：</strong>ToolMessage 内容以<br><code>[SKILL_DONE:]</code> 开头<br>
+        <strong>段：</strong>[skills_tool调用, 返回结果]<br>
+        <strong>可靠性：</strong><span style="color:#00ba7c;">100%</span>
+      </div>
+    </div>
+    <div style="background:#0f1419;padding:14px;border-radius:8px;border-top:3px solid #1d9bf0;">
+      <div style="font-size:11px;color:#1d9bf0;font-weight:600;margin-bottom:6px;">层 2 · Inline Skill（精确）</div>
+      <div style="font-size:12px;color:#d1d5db;">
+        <strong>信号：</strong>AIMessage 含<br><code>[INLINE_SKILL_DONE:xxx]</code><br>
+        <strong>段：</strong>[skills_tool调用, ..., 含标记的AI]<br>
+        <strong>可靠性：</strong><span style="color:#1d9bf0;">95%+</span>
+      </div>
+    </div>
+    <div style="background:#0f1419;padding:14px;border-radius:8px;border-top:3px solid #71767b;">
+      <div style="font-size:11px;color:#71767b;font-weight:600;margin-bottom:6px;">层 3 · 兜底（轮次粒度）</div>
+      <div style="font-size:12px;color:#d1d5db;">
+        <strong>信号：</strong>下一个 skills_tool 调用<br>或 HumanMessage 出现<br>
+        <strong>段：</strong>该轮次内 skills_tool 到轮次结束<br>
+        <strong>可靠性：</strong><span style="color:#71767b;">安全（宁多不少）</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 压缩前后示例 -->
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:20px;margin-bottom:20px;">
+  <div style="font-size:14px;font-weight:600;color:#e7e9ea;margin-bottom:12px;">压缩前后对比示例</div>
+  
+  <div style="display:grid;grid-template-columns:1fr 40px 1fr;align-items:start;gap:0;">
+    <!-- 压缩前 -->
+    <div style="background:#0f1419;padding:14px;border-radius:8px;font-size:11px;font-family:monospace;">
+      <div style="color:#71767b;margin-bottom:8px;">压缩前（Skill "竞品调研"，12条消息，~14K tokens）</div>
+      <div style="color:#00ba7c;">[1] AI: skills_tool("竞品调研")</div>
+      <div style="color:#00ba7c;">[2] TM: SOP prompt... (800字)</div>
+      <div style="color:#f91880;">[3] AI: web_search("Odoo pricing")</div>
+      <div style="color:#f91880;">[4] TM: Odoo定价页全文... (8,000字)</div>
+      <div style="color:#f91880;">[5] AI: web_search("SAP pricing")</div>
+      <div style="color:#f91880;">[6] TM: SAP定价页全文... (6,000字)</div>
+      <div style="color:#f91880;">[7] AI: web_search("market share")</div>
+      <div style="color:#f91880;">[8] TM: 市场份额报告... (5,000字)</div>
+      <div style="color:#1d9bf0;">[9] AI: analyze_data("comparison")</div>
+      <div style="color:#1d9bf0;">[10] TM: 对比分析结果... (3,000字)</div>
+      <div style="color:#1d9bf0;">[11] AI: 最终竞品报告... (2,500字)</div>
+      <div style="color:#1d9bf0;">[12] TM: [INLINE_SKILL_DONE] (200字)</div>
+    </div>
+    
+    <!-- 箭头 -->
+    <div style="text-align:center;padding-top:60px;font-size:20px;color:#f91880;">→</div>
+    
+    <!-- 压缩后 -->
+    <div style="background:#0f1419;padding:14px;border-radius:8px;font-size:11px;font-family:monospace;">
+      <div style="color:#71767b;margin-bottom:8px;">压缩后（12条→12条，~3K tokens，节省 78%）</div>
+      <div style="color:#00ba7c;">[1] AI: skills_tool("竞品调研") <span style="color:#71767b;">← head保护</span></div>
+      <div style="color:#00ba7c;">[2] TM: SOP prompt... (800字) <span style="color:#71767b;">← head保护</span></div>
+      <div style="color:#f91880;">[3] AI: web_search("Odoo pri... <span style="color:#71767b;">← 截断80字</span></div>
+      <div style="color:#f91880;">[4] TM: [web_search] Odoo...[金额:$24.90,$18; 比例:15%] <span style="color:#71767b;">← 摘要</span></div>
+      <div style="color:#f91880;">[5] AI: web_search("SAP pri... <span style="color:#71767b;">← 截断80字</span></div>
+      <div style="color:#f91880;">[6] TM: [web_search] SAP...[金额:$75; 比例:20%] <span style="color:#71767b;">← 摘要</span></div>
+      <div style="color:#f91880;">[7] AI: web_search("market... <span style="color:#71767b;">← 截断80字</span></div>
+      <div style="color:#1d9bf0;">[8] TM: 市场份额报告... (5,000字) <span style="color:#71767b;">← tail保护</span></div>
+      <div style="color:#1d9bf0;">[9] AI: analyze_data... <span style="color:#71767b;">← tail保护</span></div>
+      <div style="color:#1d9bf0;">[10] TM: 对比分析结果... (3,000字) <span style="color:#71767b;">← tail保护</span></div>
+      <div style="color:#1d9bf0;">[11] AI: 最终竞品报告... (2,500字) <span style="color:#71767b;">← tail保护</span></div>
+      <div style="color:#1d9bf0;">[12] TM: [INLINE_SKILL_DONE] <span style="color:#71767b;">← tail保护</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- 与其他机制的关系 -->
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:20px;">
+  <div style="font-size:14px;font-weight:600;color:#e7e9ea;margin-bottom:12px;">与其他压缩机制的协作</div>
+  
+  <table class="levels-table">
+    <tr><th>阶段</th><th>Post-Skill Compact 的角色</th></tr>
+    <tr>
+      <td>Skill 完成时</td>
+      <td>立即执行，将内部 12K tokens 压到 ~3K。后续 LLM 调用看到的已经是压缩后的 Skill 段</td>
+    </tr>
+    <tr>
+      <td>全局 MicroCompact</td>
+      <td>压缩后的 Skill 段如果在保护区外，ToolMessage 被进一步压缩为 CRM 一行摘要。但因为已经很短（~3K），额外收益有限</td>
+    </tr>
+    <tr>
+      <td>全局 AutoCompact</td>
+      <td>压缩后的 Skill 段和其他历史消息一起被 LLM 摘要为 7-section 结构。此时 Skill 的关键数据由 SkillResultAnchor 锚点保护</td>
+    </tr>
+    <tr>
+      <td>用户追问细节</td>
+      <td>被压缩的中间步骤原文已在 Skill 完成前由 ContextArchive 存档到 VDB。recall_context 可恢复完整工具过程</td>
+    </tr>
+  </table>
+  
+  <div class="risk-box" style="margin-top:12px;">
+    <div class="risk-title">关键保障：SkillResultAnchor</div>
+    <div class="risk-body">
+      Skill 完成时，正则提取关键数字（金额/日期/百分比/实体名/搜索词）存入 session 级缓存。<br>
+      后续所有压缩（Post-Skill / AutoCompact / FullCompact）的摘要生成 prompt 中都会注入这些锚点，<br>
+      确保关键数字在多次迭代压缩后永不衰减。
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════ MicroCompact 与 Post-Skill Compact 的关系 ═══════════════ -->
+<div class="section">
+<div class="section-title">MicroCompact 与 Post-Skill Compact 的关系</div>
+
+<div class="stage-detail" style="margin-bottom:16px;">
+  <strong>结论：时序互补，非功能重叠。</strong>两者通过阈值天然互斥——Post-Skill Compact 压缩后的摘要通常 60-150 字符，低于 MicroCompact 的 200 字符触发阈值，不会被二次处理。
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 60px 1fr;align-items:start;gap:0;margin-bottom:16px;">
+  <div style="background:#16202a;padding:16px;border-radius:8px;border:1px solid #2f3336;">
+    <div style="font-size:13px;font-weight:600;color:#7856ff;margin-bottom:10px;">Post-Skill Compact</div>
+    <table class="levels-table" style="font-size:11px;">
+      <tr><td style="color:#9ca3af;">触发时机</td><td>Skill 完成时（即时）</td></tr>
+      <tr><td style="color:#9ca3af;">处理对象</td><td>Skill 内部中间步骤</td></tr>
+      <tr><td style="color:#9ca3af;">ToolMessage 阈值</td><td>> 150 字</td></tr>
+      <tr><td style="color:#9ca3af;">压缩后长度</td><td>60-150 字符</td></tr>
+      <tr><td style="color:#9ca3af;">LLM 成本</td><td>零</td></tr>
+    </table>
+  </div>
+  
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding-top:60px;">
+    <div style="font-size:12px;color:#71767b;">时序</div>
+    <div style="font-size:18px;color:#71767b;">→</div>
+  </div>
+  
+  <div style="background:#16202a;padding:16px;border-radius:8px;border:1px solid #2f3336;">
+    <div style="font-size:13px;font-weight:600;color:#ffd400;margin-bottom:10px;">MicroCompact</div>
+    <table class="levels-table" style="font-size:11px;">
+      <tr><td style="color:#9ca3af;">触发时机</td><td>全局 ≥50% 阈值时</td></tr>
+      <tr><td style="color:#9ca3af;">处理对象</td><td>保护区外所有旧 ToolMessage</td></tr>
+      <tr><td style="color:#9ca3af;">ToolMessage 阈值</td><td>> 200 字</td></tr>
+      <tr><td style="color:#9ca3af;">压缩后长度</td><td>40-80 字符</td></tr>
+      <tr><td style="color:#9ca3af;">LLM 成本</td><td>零</td></tr>
+    </table>
+  </div>
+</div>
+
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:20px;">
+  <div style="font-size:13px;font-weight:600;color:#e7e9ea;margin-bottom:10px;">互斥保证 — 为什么不会重复压缩</div>
+  <div style="font-size:12px;color:#d1d5db;line-height:1.8;">
+    <code style="color:#7856ff;">Post-Skill Compact</code> 将 Skill 中间的 ToolMessage (8000字) 压缩为一行摘要 (80-120字)<br>
+    → 结果 < 200 字 → <code style="color:#ffd400;">MicroCompact</code> 遇到时检查: <code>len(content) > 200</code> → <span style="color:#00ba7c;">False → 跳过</span><br><br>
+    
+    <strong>唯一会被 MicroCompact 处理的情况：</strong><br>
+    Post-Skill Compact 的 <code>protect_tail</code> 保护了 Skill 最后 5 条消息的完整原文（如 ToolMessage 3000字）。<br>
+    这些消息后来随着对话推进被推出保护区 → 此时 MicroCompact 会将它们压缩。<br>
+    <span style="color:#9ca3af;">这是预期行为: 当时需要完整内容做推理，推出保护区说明已不再是当前任务的直接依赖。</span>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════ AutoCompact vs FullCompact 对比 ═══════════════ -->
+<div style="page-break-before:always;"></div>
+
+<!-- ═══════════════ VDB 写入数据处理逻辑 ═══════════════ -->
+<div class="section" style="margin-top:60px;">
+<div class="section-title">ContextArchive · VDB 写入数据处理逻辑</div>
+
+<!-- 架构概览 -->
+<div class="stage-detail" style="margin-bottom:16px;">
+  <strong>定位：</strong>AutoCompact / FullCompact 压缩前，将即将被压缩的消息按轮次切分写入 VDB，供后续 recall_context 恢复原文。<br>
+  <strong>核心保证：</strong><code>content</code> 字段存储<strong>完整原始数据</strong>（零修改），其他字段是从原始数据中加工提取的检索索引。
+</div>
+
+<!-- 架构图：原始 vs 加工 -->
+<div style="display:grid;grid-template-columns:1fr 40px 1fr;align-items:start;gap:0;margin-bottom:20px;">
+  <div style="background:rgba(0,186,124,0.1);border:1px solid rgba(0,186,124,0.3);border-radius:8px;padding:16px;">
+    <div style="font-size:12px;font-weight:600;color:#00ba7c;margin-bottom:8px;">原始数据（recall 时返回）</div>
+    <div style="font-size:12px;color:#d1d5db;">
+      <code>content</code> = 该轮次所有消息的完整 JSON 序列化<br><br>
+      包含：<br>
+      • HumanMessage 原文<br>
+      • AIMessage 原文 + tool_calls 完整参数<br>
+      • ToolMessage 工具返回的完整原文（可能 5000+ 字）<br><br>
+      <span style="color:#00ba7c;">零裁剪 · 零摘要 · 零改写</span>
+    </div>
+  </div>
+  <div style="text-align:center;padding-top:40px;font-size:16px;color:#71767b;">+</div>
+  <div style="background:rgba(120,86,255,0.1);border:1px solid rgba(120,86,255,0.3);border-radius:8px;padding:16px;">
+    <div style="font-size:12px;font-weight:600;color:#7856ff;margin-bottom:8px;">加工数据（仅用于检索匹配）</div>
+    <div style="font-size:12px;color:#d1d5db;">
+      <code>vector</code> = Dense embedding 语义向量<br>
+      <code>abstract</code> = BM25 稀疏编码源文本<br>
+      <code>FilterIndex</code> = 精确过滤字段<br>
+      <code>元数据</code> = 实体/关键词/数字/工具名<br><br>
+      <span style="color:#7856ff;">从原始数据提取 · 不返回给用户 · 仅辅助检索</span>
+    </div>
+  </div>
+</div>
+
+<!-- 处理链路：从原始消息到 VDB 记录 -->
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:20px;margin-bottom:20px;">
+  <div style="font-size:14px;font-weight:600;color:#e7e9ea;margin-bottom:14px;">加工处理链路（每轮次独立执行）</div>
+  
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;">
+    <div style="background:#0f1419;padding:10px;border-radius:6px;text-align:center;border-top:2px solid #1d9bf0;">
+      <div style="font-size:10px;color:#71767b;">Step 1</div>
+      <div style="font-size:11px;color:#1d9bf0;font-weight:600;">按轮次切分</div>
+      <div style="font-size:10px;color:#9ca3af;">HumanMessage 为分隔符</div>
+    </div>
+    <div style="background:#0f1419;padding:10px;border-radius:6px;text-align:center;border-top:2px solid #00ba7c;">
+      <div style="font-size:10px;color:#71767b;">Step 2</div>
+      <div style="font-size:11px;color:#00ba7c;font-weight:600;">序列化原文</div>
+      <div style="font-size:10px;color:#9ca3af;">messages → JSON 直存</div>
+    </div>
+    <div style="background:#0f1419;padding:10px;border-radius:6px;text-align:center;border-top:2px solid #7856ff;">
+      <div style="font-size:10px;color:#71767b;">Step 3</div>
+      <div style="font-size:11px;color:#7856ff;font-weight:600;">提取索引字段</div>
+      <div style="font-size:10px;color:#9ca3af;">实体/关键词/数字/分类</div>
+    </div>
+    <div style="background:#0f1419;padding:10px;border-radius:6px;text-align:center;border-top:2px solid #f91880;">
+      <div style="font-size:10px;color:#71767b;">Step 4</div>
+      <div style="font-size:11px;color:#f91880;font-weight:600;">向量化</div>
+      <div style="font-size:10px;color:#9ca3af;">Dense + BM25 双路编码</div>
+    </div>
+  </div>
+
+  <!-- 详细字段加工表 -->
+  <details>
+  <summary style="cursor:pointer;color:#1d9bf0;font-weight:600;margin-bottom:8px;">字段加工细节（含代码使用验证）▸</summary>
+  <table class="levels-table" style="font-size:11px;">
+    <tr><th>字段</th><th>字段类型</th><th>来源</th><th>加工方式</th><th>读取时使用逻辑（代码验证）</th></tr>
+    <tr>
+      <td style="color:#00ba7c;font-weight:600;">content</td>
+      <td><span style="color:#00ba7c;">存储</span></td>
+      <td>全部消息</td>
+      <td>JSON 序列化，<strong>零修改</strong></td>
+      <td>✅ <strong>核心字段</strong>。hybrid_search 命中后反序列化 → auto_inject/recall_context 返回原始数据快照。</td>
+    </tr>
+    <tr>
+      <td>user_query</td>
+      <td><span style="color:#f91880;font-weight:600;">搜索</span></td>
+      <td>HumanMessage.content</td>
+      <td>截断 500 字</td>
+      <td>✅ <strong>BM25 源文本主体</strong>（构成 abstract 字段）。精确词匹配的核心输入。同时用于时间线展示和变更检测。</td>
+    </tr>
+    <tr>
+      <td>answer_preview</td>
+      <td><span style="color:#f91880;font-weight:600;">搜索</span></td>
+      <td>最后一条纯文本 AIMessage</td>
+      <td>截断 500 字</td>
+      <td>✅ <strong>BM25 源文本补充 + Dense embedding 主体</strong>。双路检索的核心输入。同时用于变更检测提取可追踪值。</td>
+    </tr>
+    <tr>
+      <td>entities_text</td>
+      <td><span style="color:#f91880;font-weight:600;">搜索</span></td>
+      <td>全部 content 拼接</td>
+      <td>5层提取: ①CRM记录ID ②印尼/国际公司 ③中文公司(后缀+词典) ④中英文人名 ⑤国际品牌词典</td>
+      <td>✅ <strong>Dense embedding 扩展</strong>（拼入 embed_text 扩大语义空间）。同时用于邻轮扩展的实体交集判断。</td>
+    </tr>
+    <tr>
+      <td>tool_names_text</td>
+      <td><span style="color:#f91880;font-weight:600;">搜索</span></td>
+      <td>ToolMessage.name</td>
+      <td>去重，空格拼接</td>
+      <td>✅ <strong>Dense embedding 扩展</strong>（拼入 embed_text 丰富工具语义）。同时用于时间线展示和变更发起者推断。</td>
+    </tr>
+    <tr>
+      <td>biz_object</td>
+      <td><span style="color:#71767b;">元数据</span></td>
+      <td>user_query + answer_preview + all_content</td>
+      <td>3层推断: ①tool_call args entity字段 ②CRM记录ID前缀 ③文本正则兜底</td>
+      <td>✅ <strong>不作为检索 filter</strong>（避免对工具集过拟合）。仅写入 VDB 供 ContextArchiveService 时间线展示和变更检测。区分能力交给 dense+BM25 语义匹配。</td>
+    </tr>
+    <tr>
+      <td>has_decision</td>
+      <td><span style="color:#71767b;">元数据</span></td>
+      <td>全部 content</td>
+      <td>增强检测: 7类用户决策信号 + 3类Agent确认 + 写操作关键词</td>
+      <td>✅ <strong>不作为检索 filter</strong>（F1≈77%，硬过滤会漏检）。仅写入 VDB 供 ContextArchiveService EvolutionChain 变更链构建。</td>
+    </tr>
+    <tr>
+      <td>key_data_json</td>
+      <td><span style="color:#71767b;">元数据</span></td>
+      <td>全部 content 拼接</td>
+      <td>带上下文验证: 金额需语境词 + 日期验证有效性 + 百分比≤100%需语境</td>
+      <td>✅ 非搜索字段。ContextArchiveService 变更检测对比值变化 + 当前状态提取。</td>
+    </tr>
+    <tr>
+      <td>skill_names_text</td>
+      <td><span style="color:#71767b;">元数据</span></td>
+      <td>skills_tool 的 args.skill_name</td>
+      <td>去重，空格拼接</td>
+      <td>✅ 非搜索字段。时间线展示"执行的 Skill"。</td>
+    </tr>
+    <tr>
+      <td>data_timestamp</td>
+      <td><span style="color:#71767b;">元数据</span></td>
+      <td>消息 additional_kwargs</td>
+      <td>取时间戳，无则 time.time()</td>
+      <td>✅ 非搜索字段。时效性判断（>4h标注"可能过时"）+ 时间线排序。</td>
+    </tr>
+  </table>
+  <div style="margin-top:8px;font-size:11px;color:#71767b;background:#0f1419;padding:8px 12px;border-radius:4px;">
+    <span style="color:#f91880;">搜索</span> = 参与 hybrid_search 的向量化/BM25 编码（决定"能不能找到"）&nbsp;|&nbsp;
+    <span style="color:#71767b;">元数据</span> = 仅在命中后读取使用（不参与检索匹配，供展示/变更检测）&nbsp;|&nbsp;
+    <span style="color:#00ba7c;">存储</span> = recall 时返回的原始数据
+  </div>
+  </details>
+</div>
+
+<!-- 双路向量化 -->
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:20px;margin-bottom:20px;">
+  <div style="font-size:14px;font-weight:600;color:#e7e9ea;margin-bottom:12px;">双路向量化策略</div>
+  
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+    <div style="background:#0f1419;padding:14px;border-radius:8px;border-left:3px solid #1d9bf0;">
+      <div style="font-size:12px;font-weight:600;color:#1d9bf0;margin-bottom:6px;">Dense Embedding（权重 0.6）</div>
+      <div style="font-size:11px;color:#d1d5db;">
+        <strong>输入：</strong>user_query + answer_preview + 实体名 + 工具名<br>
+        <strong>截断：</strong>800 字符<br>
+        <strong>模型：</strong>text-embedding-3-small<br>
+        <strong>优势：</strong>语义相似度，覆盖"用不同词表达同一意思"<br>
+        <span style="color:#9ca3af;">例: 写入"生成报价" → 追问"价格怎么算的" ✓</span>
+      </div>
+    </div>
+    <div style="background:#0f1419;padding:14px;border-radius:8px;border-left:3px solid #ffd400;">
+      <div style="font-size:12px;font-weight:600;color:#ffd400;margin-bottom:6px;">BM25 Sparse（权重 0.4）</div>
+      <div style="font-size:11px;color:#d1d5db;">
+        <strong>输入：</strong>user_query + answer_preview（纯原文）<br>
+        <strong>截断：</strong>800 字符<br>
+        <strong>编码：</strong>VDB 内置 BM25 自动编码<br>
+        <strong>优势：</strong>精确词匹配，覆盖"用原词追问"<br>
+        <span style="color:#9ca3af;">例: 写入含"付款条件" → 追问"付款条件" ✓</span>
+      </div>
+    </div>
+  </div>
+  
+  <div style="font-size:11px;color:#71767b;margin-top:10px;background:#0f1419;padding:10px;border-radius:6px;">
+    <strong>为什么 Dense 和 BM25 用不同的源文本：</strong><br>
+    Dense 追加实体名+工具名 → 扩展语义空间，提升跨表达召回<br>
+    BM25 只用纯原文 → 避免辅助词稀释词频，保证精确匹配的区分度
+  </div>
+</div>
+
+<!-- 检索时的匹配逻辑 -->
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:20px;">
+  <div style="font-size:14px;font-weight:600;color:#e7e9ea;margin-bottom:12px;">检索匹配逻辑（hybrid_search）</div>
+  
+  <div style="font-size:12px;color:#d1d5db;background:#0f1419;padding:14px;border-radius:8px;font-family:monospace;line-height:1.8;">
+    <span style="color:#71767b;">用户追问: "之前报价的付款条件怎么写的"</span><br><br>
+    <span style="color:#1d9bf0;">① query → embedding → query_vector</span><br>
+    <span style="color:#ffd400;">② query → BM25 自动编码</span><br>
+    <span style="color:#71767b;">③ VDB hybrid_search(</span><br>
+    <span style="color:#71767b;">&nbsp;&nbsp;&nbsp;&nbsp;vector=query_vector,</span><br>
+    <span style="color:#71767b;">&nbsp;&nbsp;&nbsp;&nbsp;query_text=query,</span><br>
+    <span style="color:#71767b;">&nbsp;&nbsp;&nbsp;&nbsp;dense_weight=0.6, sparse_weight=0.4,</span><br>
+    <span style="color:#71767b;">&nbsp;&nbsp;&nbsp;&nbsp;filter='thread_id="当前会话"',</span><br>
+    <span style="color:#71767b;">&nbsp;&nbsp;&nbsp;&nbsp;top_k=15</span><br>
+    <span style="color:#71767b;">&nbsp;&nbsp;)</span><br>
+    <span style="color:#00ba7c;">④ score ≥ 0.35 → 返回 content 字段（原始 JSON）</span><br>
+    <span style="color:#00ba7c;">⑤ 反序列化 → 格式化为可读文本 → 注入上下文</span>
+  </div>
+</div>
+</div>
+
+<div class="section">
+<div class="section-title">AutoCompact vs FullCompact — 为什么需要两级而非一级</div>
+
+<div class="stage-detail" style="margin-bottom:16px;">
+  <strong>核心原因：压缩力度和信息损失是 trade-off。</strong>窗口压力不同时需要不同的压缩策略——压力中等时保守压缩（保留更多上下文连贯性），压力紧急时激进压缩（确保不溢出）。如果只有一级，要么过早丢信息，要么来不及释放空间。
+</div>
+
+<!-- 对比表 -->
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:20px;margin-bottom:16px;">
+  <table class="levels-table">
+    <tr>
+      <th>维度</th>
+      <th><span class="level-badge level-auto">AutoCompact (≥75%)</span></th>
+      <th><span class="level-badge level-full">FullCompact (≥90%)</span></th>
+    </tr>
+    <tr>
+      <td style="color:#9ca3af;">压力程度</td>
+      <td>中等 — 还有 25% 空间，不紧急</td>
+      <td>紧急 — 只剩 10%，下一轮可能溢出</td>
+    </tr>
+    <tr>
+      <td style="color:#9ca3af;">Tail 保护条数</td>
+      <td>base_keep = 4（保守，保留更多近期上下文）</td>
+      <td>base_keep = 8（更大保护区，但压缩区更广）</td>
+    </tr>
+    <tr>
+      <td style="color:#9ca3af;">压缩区范围</td>
+      <td>head_end → tail_start（部分历史）</td>
+      <td>head_end → tail_start（全部历史，Tail 更靠后）</td>
+    </tr>
+    <tr>
+      <td style="color:#9ca3af;">压缩后重注入</td>
+      <td>无 — 摘要 + Tail 保护区已够用</td>
+      <td><strong>重注入最近 3 个 ToolMessage + 最近 HumanMessage</strong><br>（摘要替换了全部历史，需要补回最近交互的具体数据）</td>
+    </tr>
+    <tr>
+      <td style="color:#9ca3af;">摘要策略</td>
+      <td>可能是首次生成（STRUCTURED_SUMMARY_PROMPT）</td>
+      <td>强制迭代更新（基于上次 _previous_summary）</td>
+    </tr>
+    <tr>
+      <td style="color:#9ca3af;">典型节省</td>
+      <td>75K → 15-20K（节省 70-80%）</td>
+      <td>90K → 12-18K（节省 80-85%）</td>
+    </tr>
+    <tr>
+      <td style="color:#9ca3af;">信息损失程度</td>
+      <td>低 — Tail 保护 4 条 + 摘要完整</td>
+      <td>中 — 压缩区更大，但重注入弥补关键数据</td>
+    </tr>
+    <tr>
+      <td style="color:#9ca3af;">触发频率</td>
+      <td>较高（10-15 轮对话后常见）</td>
+      <td>较低（20+ 轮或多 Skill 连续执行才触发）</td>
+    </tr>
+  </table>
+</div>
+
+<!-- 为什么不合并 -->
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:20px;margin-bottom:16px;">
+  <div style="font-size:13px;font-weight:600;color:#e7e9ea;margin-bottom:12px;">为什么不合并为一个？</div>
+  
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <div style="background:#0f1419;padding:14px;border-radius:8px;border-left:3px solid #f91880;">
+      <div style="font-size:12px;font-weight:600;color:#f91880;margin-bottom:6px;">如果只有 AutoCompact（75% 触发）</div>
+      <div style="font-size:12px;color:#9ca3af;">
+        窗口从 75% 压到 20% 后继续对话，再次涨到 90%+ 时：<br>
+        • _previous_summary 已存在，可以迭代更新 ✓<br>
+        • 但没有"重注入"机制 → 摘要替换了全部历史后，LLM 看不到最近的具体工具结果<br>
+        • <strong>问题：</strong>LLM 只有摘要没有原始数据，回复"根据之前分析"却说不出具体数字
+      </div>
+    </div>
+    <div style="background:#0f1419;padding:14px;border-radius:8px;border-left:3px solid #ffd400;">
+      <div style="font-size:12px;font-weight:600;color:#ffd400;margin-bottom:6px;">如果只有 FullCompact（90% 触发）</div>
+      <div style="font-size:12px;color:#9ca3af;">
+        窗口涨到 75-89% 时没有任何压缩介入：<br>
+        • 用户在 80% 时提问，LLM 推理用 80K tokens 的 input → 延迟高 + 成本高<br>
+        • 如果这轮 LLM 又调了工具，可能直接从 85% 跳到 95% → FullCompact 被迫紧急压缩<br>
+        • <strong>问题：</strong>没有渐进降压，直接从"满载"跳到"紧急全压" → 信息损失更大
+      </div>
+    </div>
+  </div>
+  
+  <div style="margin-top:14px;font-size:12px;color:#d1d5db;background:#0f1419;padding:12px;border-radius:6px;">
+    <strong>两级的协作逻辑：</strong><br>
+    75% 时 AutoCompact 做一次温和压缩（降到 ~20%）→ 用户继续对话 → 再次涨到 90% → FullCompact 做紧急压缩 + 重注入关键数据。<br>
+    <span style="color:#9ca3af;">类比：内存管理中的 soft limit (GC) + hard limit (OOM kill)。AutoCompact = GC，FullCompact = OOM 前的最后一次全量 GC + 数据抢救。</span>
+  </div>
+</div>
+
+<!-- FullCompact 独有的重注入机制 -->
+<div style="background:#16202a;border:1px solid #2f3336;border-radius:12px;padding:20px;">
+  <div style="font-size:13px;font-weight:600;color:#e7e9ea;margin-bottom:12px;">FullCompact 独有：重注入机制</div>
+  <div style="font-size:12px;color:#9ca3af;margin-bottom:12px;">FullCompact 压缩区覆盖几乎全部历史，摘要替换后 LLM 只剩抽象描述。重注入确保 LLM 仍能看到"最近发生了什么"的具体数据。</div>
+  
+  <div style="font-size:12px;color:#d1d5db;background:#0f1419;padding:14px;border-radius:8px;font-family:monospace;">
+    <span style="color:#71767b;">FullCompact 后的最终 messages 结构:</span><br><br>
+    <span style="color:#00ba7c;">[1] SystemMessage: Agent 身份 + 工具说明</span><br>
+    <span style="color:#00ba7c;">[2] HumanMessage: 第一条用户消息（全局指令）</span><br>
+    <span style="color:#7856ff;">[3] SystemMessage: [CONTEXT COMPACTION] + 7-section 摘要 + 锚点</span><br>
+    <span style="color:#f91880;">[4] AIMessage: tool_calls=[tc1, tc2, tc3] (占位，对应重注入的3个TM)</span><br>
+    <span style="color:#f91880;">[5] ToolMessage: 最近第3个工具结果（完整原文）</span><br>
+    <span style="color:#f91880;">[6] ToolMessage: 最近第2个工具结果（完整原文）</span><br>
+    <span style="color:#f91880;">[7] ToolMessage: 最近第1个工具结果（完整原文）</span><br>
+    <span style="color:#1d9bf0;">[8] HumanMessage: 用户最近的问题</span><br>
+    <span style="color:#1d9bf0;">[9+] Tail 保护区: 当前轮次完整消息...</span>
+  </div>
+</div>
+</div>
+
 </body>
 </html>

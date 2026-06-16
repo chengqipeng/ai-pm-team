@@ -128,6 +128,11 @@ class AGUIConverter:
         # ── Fork Skill 输出控制 ──
         # 标记是否抑制后续 LLM 文本输出（silent 模式）
         self._suppress_next_text: bool = False
+
+        # ── Token 用量累计（用于 usage_summary 事件推送）──
+        self._turn_input_tokens: int = 0
+        self._turn_output_tokens: int = 0
+        self._turn_llm_calls: int = 0
         # silent 模式：硬抑制 — 完全屏蔽 LLM 文本，直到下一次 tool call 或 run 结束
         self._hard_suppress_text: bool = False
         # doc_stream 模式：硬抑制对话区文本，但通过 doc_stream 事件流式推送到右侧面板
@@ -182,6 +187,7 @@ class AGUIConverter:
                 )
                 async for e in self._close_active_streams():
                     yield e
+                yield self._build_usage_summary_event()
                 yield m.run_finished(self.run_id, self.thread_id)
                 return
             # GraphRecursionError 继承自 RuntimeError — 单独处理，给出友好提示
@@ -225,7 +231,45 @@ class AGUIConverter:
 
         async for e in self._close_active_streams():
             yield e
+        yield self._build_usage_summary_event()
         yield m.run_finished(self.run_id, self.thread_id)
+
+    # ═══════════════════════════════════════════════════════════
+    # Token 用量汇总
+    # ═══════════════════════════════════════════════════════════
+
+    def _build_usage_summary_event(self) -> m.AGUIEvent:
+        """构建 usage_summary 自定义事件（在 RUN_FINISHED 之前发出）
+
+        前端消费此事件在对话气泡底部渲染 Token Bar：
+          📊 输入 1,234 ↓  输出 456 ↑  |  ████████░░░ 42% 上下文
+        """
+        # 尝试从 ContextWindowMiddleware 获取更丰富的窗口状态
+        context_window = None
+        try:
+            from src.middleware.builder import _get_active_context_window_middleware
+            cw_mw = _get_active_context_window_middleware()
+            if cw_mw:
+                summary = cw_mw.get_usage_summary()
+                context_window = summary.get("context_window")
+        except (ImportError, Exception):
+            pass
+
+        # 如果无法获取窗口状态，构建基础版本
+        if context_window is None:
+            context_window = {
+                "max_tokens": 100_000,
+                "estimated_used": self._turn_input_tokens,
+                "usage_percent": round(self._turn_input_tokens / 100_000 * 100, 1),
+                "compression_triggered": False,
+            }
+
+        return m.usage_summary_event(
+            input_tokens=self._turn_input_tokens,
+            output_tokens=self._turn_output_tokens,
+            llm_calls=self._turn_llm_calls,
+            context_window=context_window,
+        )
 
     # ═══════════════════════════════════════════════════════════
     # 分发
@@ -310,6 +354,21 @@ class AGUIConverter:
                         "input_tokens": um.get("input_tokens", 0),
                         "output_tokens": um.get("output_tokens", 0),
                     }
+                    # ── Token 预算集成：累计本轮用量 + 回填到 ContextWindowMiddleware ──
+                    _in_tok = um.get("input_tokens", 0)
+                    _out_tok = um.get("output_tokens", 0)
+                    self._turn_input_tokens += _in_tok
+                    self._turn_output_tokens += _out_tok
+                    self._turn_llm_calls += 1
+                    # 回填真实 token 到 ContextWindowMiddleware（消除估算误差）
+                    try:
+                        from src.middleware.context_window import ContextWindowMiddleware
+                        from src.middleware.builder import _get_active_context_window_middleware
+                        cw_mw = _get_active_context_window_middleware()
+                        if cw_mw:
+                            cw_mw.update_real_tokens(_in_tok, _out_tok)
+                    except (ImportError, Exception):
+                        pass  # 非关键路径，静默降级
 
                 try:
                     from src.middleware.tracing import tracing_middleware

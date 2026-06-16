@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>toB CRM 领域 Skill 设计规范</title>
+<style>
+:root {
+  --primary: #2563eb;
+  --primary-light: #dbeafe;
+  --primary-dark: #1e40af;
+  --accent: #f59e0b;
+  --accent-light: #fef3c7;
+  --danger: #dc2626;
+  --danger-light: #fee2e2;
+  --success: #16a34a;
+  --success-light: #dcfce7;
+  --purple: #7c3aed;
+  --purple-light: #ede9fe;
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-500: #6b7280;
+  --gray-600: #4b5563;
+  --gray-700: #374151;
+  --gray-800: #1f2937;
+  --gray-900: #111827;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: linear-gradient(135deg, #f0f4ff 0%, #fdf4ff 50%, #f0fdf4 100%);
+  color: var(--gray-800);
+  line-height: 1.8;
+  font-size: 15px;
+  min-height: 100vh;
+}
+.container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+/* Hero */
+.hero {
+  text-align: center;
+  padding: 4rem 2rem;
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 50%, #4f46e5 100%);
+  border-radius: var(--radius);
+  color: white;
+  margin-bottom: 3rem;
+  box-shadow: var(--shadow-lg);
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -50%; left: -50%;
+  width: 200%; height: 200%;
+  background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 60%);
+  animation: rotate 20s linear infinite;
+}
+@keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.hero-badge {
+  display: inline-block;
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 20px;
+  padding: 0.3rem 1rem;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+  position: relative;
+}
+.hero h1 { font-size: 2.5rem; font-weight: 700; margin-bottom: 0.8rem; position: relative; }
+.hero-subtitle { font-size: 1.05rem; opacity: 0.9; max-width: 700px; margin: 0 auto; position: relative; }
+.hero code { background: rgba(255,255,255,0.2); padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.9rem; }
+
+/* Section */
+.section {
+  background: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 2.5rem;
+  margin-bottom: 2rem;
+  border: 1px solid var(--gray-200);
+}
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid var(--gray-100);
+}
+.section-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px; height: 36px;
+  background: var(--primary);
+  color: white;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+.section-title { font-size: 1.5rem; font-weight: 700; color: var(--gray-900); }
+
+/* Cards */
+.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.2rem; margin: 1.5rem 0; }
+.card {
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  padding: 1.5rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.card-title { font-weight: 600; font-size: 1rem; margin-bottom: 0.5rem; color: var(--gray-900); }
+.card-desc { font-size: 0.9rem; color: var(--gray-600); }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; margin: 1.2rem 0; font-size: 0.9rem; }
+th {
+  background: var(--gray-100);
+  padding: 0.8rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: var(--gray-700);
+  border-bottom: 2px solid var(--gray-200);
+}
+td { padding: 0.7rem 1rem; border-bottom: 1px solid var(--gray-200); vertical-align: top; }
+tr:hover td { background: var(--gray-50); }
+
+/* Code blocks */
+pre {
+  background: var(--gray-900);
+  color: #e5e7eb;
+  padding: 1.5rem;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  margin: 1.2rem 0;
+}
+code {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.85em;
+}
+:not(pre) > code {
+  background: var(--gray-100);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  color: var(--primary-dark);
+}
+
+/* Callouts */
+.callout {
+  padding: 1.2rem 1.5rem;
+  border-radius: var(--radius-sm);
+  margin: 1.2rem 0;
+  border-left: 4px solid;
+}
+.callout-danger { background: var(--danger-light); border-color: var(--danger); }
+.callout-warning { background: var(--accent-light); border-color: var(--accent); }
+.callout-success { background: var(--success-light); border-color: var(--success); }
+.callout-info { background: var(--primary-light); border-color: var(--primary); }
+.callout-purple { background: var(--purple-light); border-color: var(--purple); }
+.callout-title { font-weight: 700; margin-bottom: 0.3rem; }
+
+/* Layer diagram */
+.layer-stack { margin: 1.5rem 0; }
+.layer {
+  padding: 1rem 1.5rem;
+  border: 1px solid var(--gray-200);
+  margin-bottom: -1px;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.layer:first-child { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.layer:last-child { border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+.layer-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+}
+.layer-label { font-weight: 600; min-width: 200px; }
+.layer-desc { font-size: 0.9rem; color: var(--gray-600); }
+
+/* Flow */
+.flow { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 1.5rem 0; }
+.flow-step {
+  background: var(--primary-light);
+  border: 1px solid var(--primary);
+  color: var(--primary-dark);
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.flow-arrow { color: var(--gray-400); font-size: 1.2rem; }
+
+/* Checklist */
+.checklist { list-style: none; margin: 1rem 0; }
+.checklist li {
+  padding: 0.6rem 0 0.6rem 2rem;
+  position: relative;
+  border-bottom: 1px solid var(--gray-100);
+}
+.checklist li::before {
+  content: '□';
+  position: absolute;
+  left: 0;
+  color: var(--primary);
+  font-weight: 700;
+}
+
+/* Badge */
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.badge-red { background: var(--danger-light); color: var(--danger); }
+.badge-green { background: var(--success-light); color: var(--success); }
+.badge-blue { background: var(--primary-light); color: var(--primary); }
+.badge-amber { background: var(--accent-light); color: #92400e; }
+
+/* TOC */
+.toc {
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  padding: 2rem;
+  margin-bottom: 2rem;
+  box-shadow: var(--shadow);
+}
+.toc-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; color: var(--gray-900); }
+.toc-list { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.5rem; }
+.toc-list li a {
+  color: var(--gray-700);
+  text-decoration: none;
+  padding: 0.4rem 0.8rem;
+  display: block;
+  border-radius: 6px;
+  transition: background 0.2s;
+  font-size: 0.9rem;
+}
+.toc-list li a:hover { background: var(--primary-light); color: var(--primary-dark); }
+.toc-list li a span { color: var(--primary); font-weight: 600; margin-right: 0.5rem; }
+
+/* Subsection */
+h3 { font-size: 1.15rem; font-weight: 600; margin: 1.8rem 0 0.8rem; color: var(--gray-800); padding-left: 0.8rem; border-left: 3px solid var(--primary); }
+h4 { font-size: 1rem; font-weight: 600; margin: 1.2rem 0 0.5rem; color: var(--gray-700); }
+p { margin: 0.6rem 0; }
+ul, ol { margin: 0.6rem 0 0.6rem 1.5rem; }
+li { margin: 0.3rem 0; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .container { padding: 1rem; }
+  .hero { padding: 2.5rem 1.5rem; }
+  .hero h1 { font-size: 1.8rem; }
+  .section { padding: 1.5rem; }
+  .card-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- Hero -->
+<header class="hero">
+  <div class="hero-badge">Design Specification v1.0 · 2026-06</div>
+  <h1>toB CRM 领域 Skill 设计规范</h1>
+  <p class="hero-subtitle">基于 <code>stock-overall-analysis</code> v4.6 架构模式提炼<br>适配 aPaaS 元数据驱动平台的 CRM Agent 技能体系</p>
+</header>
+
+<!-- TOC -->
+<nav class="toc">
+  <div class="toc-title">📑 目录</div>
+  <ul class="toc-list">
+    <li><a href="#s1"><span>01</span>设计哲学</a></li>
+    <li><a href="#s2"><span>02</span>架构六层模型</a></li>
+    <li><a href="#s3"><span>03</span>SKILL.md 规范结构</a></li>
+    <li><a href="#s4"><span>04</span>核心设计模式</a></li>
+    <li><a href="#s5"><span>05</span>六大场景框架</a></li>
+    <li><a href="#s6"><span>06</span>决策收敛规则</a></li>
+    <li><a href="#s7"><span>07</span>报告模板原则</a></li>
+    <li><a href="#s8"><span>08</span>数据获取原则</a></li>
+    <li><a href="#s9"><span>09</span>自检质量保证</a></li>
+    <li><a href="#s10"><span>10</span>版本演进策略</a></li>
+    <li><a href="#s11"><span>11</span>独立部署规范</a></li>
+    <li><a href="#s12"><span>12</span>设计 Checklist</a></li>
+  </ul>
+</nav>
+
+
+<!-- Section 1: Design Philosophy -->
+<section class="section" id="s1">
+  <div class="section-header">
+    <div class="section-number">1</div>
+    <div class="section-title">设计哲学</div>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">核心原则：Agent 做判断，脚本做计算</div>
+    <p>将 LLM 的语义理解优势与代码的精确计算优势严格分离，消除 LLM 数字幻觉对报告质量的影响。</p>
+  </div>
+
+  <table>
+    <thead><tr><th>角色</th><th>负责</th><th>禁止</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Agent（LLM）</strong></td>
+        <td>理解用户意图、搜索信息、定性判断、撰写报告/建议</td>
+        <td><span class="badge badge-red">数学计算</span> <span class="badge badge-red">操作大数据集</span> <span class="badge badge-red">编造统计数据</span></td>
+      </tr>
+      <tr>
+        <td><strong>Scripts（代码）</strong></td>
+        <td>聚合统计、评分模型、阈值检测、数据校验</td>
+        <td><span class="badge badge-red">主观判断</span> <span class="badge badge-red">创造性分析</span> <span class="badge badge-red">上下文理解</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>LLM 在 CRM 场景中的已知幻觉模式</h3>
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-title">🔢 数值编造</div>
+      <div class="card-desc">编造客户营收/续约率、把5个商机金额加错、Q1增速和Q2增速搞混</div>
+    </div>
+    <div class="card">
+      <div class="card-title">🎯 自信推断</div>
+      <div class="card-desc">没有活动记录支撑就判断"关系良好"、编造竞品使用情况</div>
+    </div>
+    <div class="card">
+      <div class="card-title">💭 模糊建议</div>
+      <div class="card-desc">"建议关注""值得期待"替代具体行动、缺少 WHO/WHAT/WHEN</div>
+    </div>
+    <div class="card">
+      <div class="card-title">📊 虚假评分</div>
+      <div class="card-desc">凭直觉给健康度评分、自行打概率分数、伪造加权计算过程</div>
+    </div>
+  </div>
+</section>
+
+<!-- Section 2: Architecture -->
+<section class="section" id="s2">
+  <div class="section-header">
+    <div class="section-number">2</div>
+    <div class="section-title">Skill 架构六层模型</div>
+  </div>
+
+  <div class="layer-stack">
+    <div class="layer" style="background: #fdf4ff;">
+      <div class="layer-num" style="background: #7c3aed;">6</div>
+      <div class="layer-label">交付物模板</div>
+      <div class="layer-desc">格式锁定 + 自检清单 + 唯一产出文件 · <code>references/output-template.md</code></div>
+    </div>
+    <div class="layer" style="background: #fef3c7;">
+      <div class="layer-num" style="background: #d97706;">5</div>
+      <div class="layer-label">决策收敛</div>
+      <div class="layer-desc">多维度结论交叉验证 → 矛盾检测 → 最终建议 · <code>conflict_detector / recommendation_engine</code></div>
+    </div>
+    <div class="layer" style="background: #dbeafe;">
+      <div class="layer-num" style="background: #2563eb;">4</div>
+      <div class="layer-label">脚本编排</div>
+      <div class="layer-desc">Agent 只需 2-4 条命令，内部自动编排所有计算步骤 · <code>run_skill.py → init / post_analysis</code></div>
+    </div>
+    <div class="layer" style="background: #dcfce7;">
+      <div class="layer-num" style="background: #16a34a;">3</div>
+      <div class="layer-label">数据契约</div>
+      <div class="layer-desc">标准化 JSON schema + 自动修复 + 校验 + 诊断 · <code>output/agent_exchange/</code></div>
+    </div>
+    <div class="layer" style="background: #e0e7ff;">
+      <div class="layer-num" style="background: #4338ca;">2</div>
+      <div class="layer-label">数据获取策略</div>
+      <div class="layer-desc">实体关联图驱动 + 分层查询策略 + 补采规则 · <code>gen_data_plan.py</code></div>
+    </div>
+    <div class="layer" style="background: #f3f4f6;">
+      <div class="layer-num" style="background: #6b7280;">1</div>
+      <div class="layer-label">数据基座</div>
+      <div class="layer-desc">CRM entity data + 元数据 + 知识库 · <code>query_data / analyze_data / knowledge_search</code></div>
+    </div>
+  </div>
+
+  <div class="callout callout-purple">
+    <div class="callout-title">设计要点</div>
+    <p>每层只依赖下层，不越级调用。Agent 只接触 Layer 4（命令）和 Layer 6（模板），中间层对 Agent 透明。</p>
+  </div>
+</section>
+
+<!-- Section 3: SKILL.md Structure -->
+<section class="section" id="s3">
+  <div class="section-header">
+    <div class="section-number">3</div>
+    <div class="section-title">SKILL.md 规范结构</div>
+  </div>
+
+  <p>每个 CRM Skill 的 SKILL.md 必须包含以下章节，顺序固定：</p>
+
+  <pre><code>---
+name: &lt;skill-api-key&gt;                       # camelCase，全局唯一
+description: &lt;一句话描述，含核心价值&gt;
+whenToUse: &lt;触发关键词，'|' 分隔&gt;
+version: "&lt;major&gt;.&lt;minor&gt;.&lt;patch&gt;"
+standalone: true | false
+agentCapabilities:
+  - query_data
+  - analyze_data
+  - search_web | knowledge_search | ...
+providedOutputs:
+  - path: output/&lt;动态文件名&gt;.md
+    type: markdown
+    description: 唯一交付物
+---
+
+# &lt;Skill 中文名&gt;
+
+## 启动命令
+## 完整流程（严格按顺序，不可跳步）
+## ⛔ 禁止直接调用的命令
+## 遇到报错时
+## 核心原则（最高优先级）
+  ### 流程红线（N条）
+  ### 章节写作指导
+## 分析方法论参考框架
+## 数据获取原则（⚠️ 最高优先级）
+  ### 文件路径结构
+  ### 获取数据的正确方式
+  ### ⛔ 绝对禁止的操作
+## 决策收敛规则
+## 任务完成标志
+## 报告模板
+## 报告自检（N条）</code></pre>
+
+  <div class="callout callout-warning">
+    <div class="callout-title">⚠️ Front Matter 字段说明</div>
+    <p><code>whenToUse</code>：'|' 分隔的触发关键词，Agent 路由时做意图匹配<br>
+    <code>standalone</code>：true = 独立运行（含 vendor），false = 依赖平台工具注册<br>
+    <code>providedOutputs</code>：声明唯一交付物路径模式，运行时动态替换变量</p>
+  </div>
+</section>
+
+<!-- Section 4: Core Design Patterns -->
+<section class="section" id="s4">
+  <div class="section-header">
+    <div class="section-number">4</div>
+    <div class="section-title">核心设计模式（8 种）</div>
+  </div>
+
+  <h3>模式 1：严格流水线（不可跳步）</h3>
+  <div class="flow">
+    <div class="flow-step">init</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">Agent 数据获取+搜索</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">post_analysis</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">recommend</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">撰写报告</div>
+  </div>
+  <table>
+    <thead><tr><th>步骤</th><th>执行者</th><th>内部编排</th><th>产出</th></tr></thead>
+    <tbody>
+      <tr><td><code>init</code></td><td>脚本</td><td>schema加载→关联图→数据计划→基线快照</td><td>data_plan.json + baseline.json</td></tr>
+      <tr><td>数据获取</td><td>Agent</td><td>按 data_plan 执行 query/search → 写入 JSON</td><td>analysis_input.json + market_context.json</td></tr>
+      <tr><td><code>post_analysis</code></td><td>脚本</td><td>聚合→评分→趋势→风险检测</td><td>scored_result.json + risk_signals.json</td></tr>
+      <tr><td><code>recommend</code></td><td>脚本</td><td>矛盾检测→优先级→行动生成</td><td>recommendation.json + conflicts.json</td></tr>
+      <tr><td>撰写报告</td><td>Agent</td><td>基于脚本产出+模板撰写交付物</td><td>唯一 .md 文件</td></tr>
+    </tbody>
+  </table>
+
+  <h3>模式 2：一键聚合命令</h3>
+  <div class="callout callout-info">
+    <div class="callout-title">原则</div>
+    <p>暴露给 Agent ≤ 5 条命令。Agent 不该知道内部有 10+ 个子脚本。每个用户可见命令背后可以是任意复杂的编排，但接口极简。</p>
+  </div>
+  <pre><code># Agent 能执行的全部命令
+python3 run_skill.py init --account-id &lt;ID&gt;
+python3 run_skill.py post_analysis --account-id &lt;ID&gt;
+python3 run_skill.py recommend --account-id &lt;ID&gt;
+python3 run_skill.py calc_metrics --account-id &lt;ID&gt;
+python3 run_skill.py status --account-id &lt;ID&gt;
+python3 run_skill.py validate --account-id &lt;ID&gt;</code></pre>
+
+  <h3>模式 3：Agent-Script 数据契约</h3>
+  <pre><code>Agent 数据获取结果 → fsWrite → analysis_input.json
+                              → market_context.json
+                              → relationship_map.json
+
+Scripts 读取 JSON → 计算/评分 → scored_result.json
+                               → risk_signals.json
+                               → recommendation.json
+
+Agent 读取脚本产出 → 撰写交付物</code></pre>
+  <p>脚本端必须实现<strong>自动修复逻辑</strong>：Agent 写错类型自动转换、漏填字段自动补全、校验失败给精确诊断。</p>
+
+  <h3>模式 4：禁止清单 &gt; 允许清单</h3>
+  <div class="callout callout-danger">
+    <div class="callout-title">⛔ CRM Skill 通用禁止清单（最高优先级）</div>
+    <ol>
+      <li>禁止编造客户营收/利润/融资数据 — 搜不到标"信息空白"</li>
+      <li>禁止自行计算转化率/增长率/加权评分 — 用 <code>calc_metrics</code> 脚本</li>
+      <li>禁止猜测决策链角色 — 未确认的标 <code>[推断]</code></li>
+      <li>禁止用"建议关注""值得期待"等模糊措辞 — 每条建议含 WHO/WHAT/WHEN</li>
+      <li>禁止一次 query_data 查全量 — 分页查询，单次≤100条</li>
+      <li>禁止直接读取大 JSON 中间文件 — 用 <code>extract_summary</code> 命令</li>
+      <li>禁止把推测当事实 — 标注 [事实]/[推断]/[估算]/[信息空白]</li>
+      <li>禁止跳过矛盾解释 — 数据矛盾处必须给出解释</li>
+      <li>禁止产出多个文件 — 唯一交付物</li>
+      <li>禁止暴露内部字段名/评分公式/调试信息</li>
+    </ol>
+  </div>
+
+  <h3>模式 5：方法论知识库</h3>
+  <pre><code>references/
+├── methodologies/
+│   ├── sales-methodology.md       # MEDDIC/Challenger/SPIN
+│   ├── customer-success.md        # Health Score/QBR/Expansion
+│   ├── pipeline-management.md     # Stage Gate/Velocity
+│   └── account-planning.md        # Wallet Share/White Space
+├── industries/
+│   ├── _index.md                  # 行业索引 + 加载策略
+│   ├── manufacturing.md           # 制造业客户特征
+│   ├── financial-services.md      # 金融客户合规需求
+│   └── technology.md              # 科技客户增长阶段
+└── playbooks/
+    ├── renewal-defense.md         # 续约防御策略
+    ├── competitive-displacement.md# 竞品替换剧本
+    └── expansion-motion.md        # Cross-sell/Up-sell</code></pre>
+
+  <h3>模式 6：数据获取策略引擎</h3>
+  <p>类比 <code>gen_search_plan.py</code>，CRM Skill 用 <code>gen_data_plan.py</code>：基于实体关联图 + 场景画像生成结构化数据获取计划。</p>
+  <pre><code>SCENARIO_PROFILES = {
+    "account_insight": {
+        "必查实体": ["account", "opportunity", "contact", "activity"],
+        "补查条件": {"contract": "有续约场景时", "competitor": "有竞品信息时"},
+        "聚合维度": ["opportunity_by_stage", "activity_by_month"],
+        "外部搜索": ["行业动态", "竞品信息", "工商信息"],
+    },
+    "renewal_risk": {
+        "必查实体": ["account", "contract", "activity", "case"],
+        "信号检测": ["activity_gap_>30d", "nps_drop_>20%", "champion_left"],
+    },
+}</code></pre>
+
+  <h3>模式 7：多 Agent 协作契约</h3>
+  <table>
+    <thead><tr><th>Wave</th><th>Sub-Agent</th><th>角色</th><th>产出</th></tr></thead>
+    <tbody>
+      <tr><td>1（并行）</td><td>SA-CRM-DATA</td><td>CRM 结构化数据获取</td><td>crm_raw.json</td></tr>
+      <tr><td>1（并行）</td><td>SA-MARKET</td><td>市场/行业/竞品搜索</td><td>market_context.json</td></tr>
+      <tr><td>1（并行）</td><td>SA-INTERNAL</td><td>内部知识/案例搜索</td><td>internal_knowledge.json</td></tr>
+      <tr><td>2（串行）</td><td>脚本</td><td>评分+趋势+矛盾检测</td><td>scored_result.json</td></tr>
+      <tr><td>3</td><td>主 Agent</td><td>撰写最终报告</td><td>唯一交付物</td></tr>
+    </tbody>
+  </table>
+
+  <h3>模式 8：自检驱动质量保证</h3>
+  <p>每条自检对应一个<strong>历史上出过的质量问题</strong>。区分"硬门槛"（不通过则不产出）和"软警告"（标注后可继续）。可脚本化执行（<code>validate</code> 命令）。</p>
+</section>
+
+
+<!-- Section 5: Six Scenarios -->
+<section class="section" id="s5">
+  <div class="section-header">
+    <div class="section-number">5</div>
+    <div class="section-title">CRM 六大场景 Skill 设计框架</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>Skill 场景</th><th>核心问题</th><th>交叉验证维度</th><th>典型脚本能力</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>客户洞察</strong></td>
+        <td>值不值得投入？最佳切入点？</td>
+        <td>行业 × 财务 × 关系 × 商机历史</td>
+        <td>健康度评分、LTV预测、钱包份额</td>
+      </tr>
+      <tr>
+        <td><strong>商机推进</strong></td>
+        <td>这单怎么赢？风险在哪？</td>
+        <td>MEDDIC × 竞品 × 活动频次 × 相似案例</td>
+        <td>赢率预测、阶段转化率、风险信号</td>
+      </tr>
+      <tr>
+        <td><strong>续约风险</strong></td>
+        <td>会不会流失？怎么防？</td>
+        <td>使用量 × 活动 × NPS × 合同 × 竞品</td>
+        <td>流失概率评分、营收影响量化</td>
+      </tr>
+      <tr>
+        <td><strong>Pipeline Review</strong></td>
+        <td>本季度能完成多少？哪些有风险？</td>
+        <td>阶段 × 金额 × 速度 × 历史转化</td>
+        <td>加权预测、Commit准确度、缺口分析</td>
+      </tr>
+      <tr>
+        <td><strong>团队绩效</strong></td>
+        <td>谁需要辅导？资源怎么分？</td>
+        <td>配额 × 活动 × 转化 × 效率</td>
+        <td>绩效矩阵、九宫格、趋势排名</td>
+      </tr>
+      <tr>
+        <td><strong>竞品分析</strong></td>
+        <td>对手在做什么？怎么差异化？</td>
+        <td>赢率 × 客户反馈 × 功能对比 × 定价</td>
+        <td>Win/Loss统计、替换成本计算</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="card-grid">
+    <div class="card" style="border-left: 4px solid var(--primary);">
+      <div class="card-title">🎯 客户洞察 Skill</div>
+      <div class="card-desc">
+        <strong>专业分析体系：</strong><br>
+        客户画像构建（基础/业务/组织/关系/价值）→ 深度分析（健康度/钱包份额/决策链/竞品渗透/扩展路径）→ 行动建议
+      </div>
+    </div>
+    <div class="card" style="border-left: 4px solid var(--accent);">
+      <div class="card-title">📊 商机推进 Skill</div>
+      <div class="card-desc">
+        <strong>MEDDIC 框架：</strong><br>
+        Metrics → Economic Buyer → Decision Criteria → Decision Process → Identify Pain → Champion<br>
+        + 阶段转化分析 + 竞争态势 + 风险信号 + 赢单路径
+      </div>
+    </div>
+    <div class="card" style="border-left: 4px solid var(--danger);">
+      <div class="card-title">🚨 续约风险 Skill</div>
+      <div class="card-desc">
+        <strong>多源信号融合：</strong><br>
+        使用量趋势 × 活动频次变化 × NPS评分 × 合同到期 × Champion状态 × 竞品动作 → 流失概率 + 营收影响 + 防御策略
+      </div>
+    </div>
+    <div class="card" style="border-left: 4px solid var(--success);">
+      <div class="card-title">📈 Pipeline Review Skill</div>
+      <div class="card-desc">
+        <strong>量化预测体系：</strong><br>
+        加权Pipeline（阶段转化率×金额）→ Commit验证（承诺vs历史准确度）→ 缺口分析（目标-预测=Gap）→ 补救建议
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- Section 6: Decision Convergence -->
+<section class="section" id="s6">
+  <div class="section-header">
+    <div class="section-number">6</div>
+    <div class="section-title">决策收敛规则（CRM 版）</div>
+  </div>
+
+  <h3>CRM 矛盾检测（6项）</h3>
+  <table>
+    <thead><tr><th>#</th><th>检测项</th><th>对比维度</th><th>矛盾含义</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>活动 vs 进展</td><td>活动频繁 × 商机阶段不推进</td>
+        <td>关系好但没找到痛点/决策人</td></tr>
+      <tr><td>2</td><td>NPS vs 续约</td><td>NPS 高分 × 续约风险信号</td>
+        <td>使用者满意但决策者有其他考量</td></tr>
+      <tr><td>3</td><td>规模 vs 价值</td><td>客户规模大 × 贡献金额小</td>
+        <td>钱包份额低，有扩展空间或有竞品</td></tr>
+      <tr><td>4</td><td>赢率 vs 资源</td><td>历史赢率低 × 投入资源多</td>
+        <td>可能是错误的客户或策略有问题</td></tr>
+      <tr><td>5</td><td>增长 vs 健康</td><td>客户业务增长 × 我方份额不增</td>
+        <td>竞品在蚕食或产品不满足新需求</td></tr>
+      <tr><td>6</td><td>承诺 vs 行为</td><td>客户口头承诺 × 行为不匹配</td>
+        <td>Champion 影响力不足或预算受阻</td></tr>
+    </tbody>
+  </table>
+
+  <h3>最终建议映射</h3>
+  <table>
+    <thead><tr><th>维度组合</th><th>建议等级</th><th>行动方向</th></tr></thead>
+    <tbody>
+      <tr><td>高价值 + 高健康 + 低风险</td>
+        <td><span class="badge badge-green">🟢 扩展</span></td>
+        <td>Cross-sell / Up-sell</td></tr>
+      <tr><td>高价值 + 低健康 + 高风险</td>
+        <td><span class="badge badge-red">🔴 紧急救援</span></td>
+        <td>Executive engagement + 价值重申</td></tr>
+      <tr><td>低价值 + 高健康</td>
+        <td><span class="badge badge-amber">🟡 培育</span></td>
+        <td>自动化服务 + 观察增长信号</td></tr>
+      <tr><td>低价值 + 低健康</td>
+        <td><span class="badge badge-blue">⚪ 最小投入</span></td>
+        <td>降级服务等级</td></tr>
+      <tr><td>矛盾冲突</td>
+        <td><span class="badge badge-amber">⚠️ 需确认</span></td>
+        <td>标注矛盾 + 建议数据核实</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- Section 7: Report Template -->
+<section class="section" id="s7">
+  <div class="section-header">
+    <div class="section-number">7</div>
+    <div class="section-title">报告模板设计原则</div>
+  </div>
+
+  <div class="callout callout-danger">
+    <div class="callout-title">⛔ 格式锁定规则</div>
+    <p>以下结构所有分析目标格式完全一致，差异只体现在内容中。禁止改名/合并/拆分/调序。</p>
+  </div>
+
+  <pre><code>## 一、结论先行           ← ⛔格式锁定：固定表格（评级+核心判断+首要行动）
+---
+## 二、关键数据           ← 固定多维数据表（计算结果引用，非心算）
+## 三、深度分析           ← 按场景拆解的分析章节
+## 四、风险与矛盾         ← 风险矩阵 + 矛盾检测结果
+## 五、行动计划           ← P0/P1/P2 优先级 + WHO/WHAT/WHEN
+## 六、跟踪指标           ← 下次复查时的观察点
+&lt;small&gt;附录：数据来源 + 置信度说明&lt;/small&gt;</code></pre>
+
+  <h3>"一、结论先行"格式硬约束</h3>
+  <ul>
+    <li>综合评级行：⭐星级 + 评级词 + 评分/100 + ≤30字核心判断</li>
+    <li>首要行动：恰好 1-2 句，含具体角色和时间</li>
+    <li>禁止在表格前后插入自由文字段落</li>
+    <li>所有目标无论行业/规模/场景，格式完全相同</li>
+  </ul>
+</section>
+
+<!-- Section 8: Data Acquisition -->
+<section class="section" id="s8">
+  <div class="section-header">
+    <div class="section-number">8</div>
+    <div class="section-title">数据获取原则</div>
+  </div>
+
+  <h3>获取数据的正确方式</h3>
+  <table>
+    <thead><tr><th>需要的数据</th><th>正确做法</th><th>禁止做法</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>客户基本信息</td>
+        <td><code>query_data(action="get", entity="account", record_id=X)</code></td>
+        <td><span class="badge badge-red">从记忆中回忆</span></td>
+      </tr>
+      <tr>
+        <td>商机统计（金额/转化）</td>
+        <td><code>python3 run_skill.py calc_metrics --account-id X</code></td>
+        <td><span class="badge badge-red">Agent 自行加总/算转化率</span></td>
+      </tr>
+      <tr>
+        <td>活动频次趋势</td>
+        <td><code>analyze_data(entity="activity", group_by="month")</code></td>
+        <td><span class="badge badge-red">Agent 数活动条数</span></td>
+      </tr>
+      <tr>
+        <td>健康度评分</td>
+        <td><code>post_analysis</code> 产出的 scored_result.json</td>
+        <td><span class="badge badge-red">Agent 自行打分</span></td>
+      </tr>
+      <tr>
+        <td>竞品信息</td>
+        <td><code>search_web("客户名+竞品关键词")</code> + 标注来源</td>
+        <td><span class="badge badge-red">编造竞品使用情况</span></td>
+      </tr>
+      <tr>
+        <td>行业基准</td>
+        <td><code>knowledge_search</code> 或预加载行业知识包</td>
+        <td><span class="badge badge-red">编造"行业平均转化率"</span></td>
+      </tr>
+      <tr>
+        <td>流失概率</td>
+        <td>脚本评分模型输出</td>
+        <td><span class="badge badge-red">Agent 凭直觉给概率</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>⛔ 绝对禁止的操作</h3>
+  <div class="callout callout-danger">
+    <ol>
+      <li>禁止一次 query_data 查 >100 条记录（分页或用 analyze_data 聚合）</li>
+      <li>禁止直接读取 baseline.json / scored_result.json 完整内容（用 extract_summary）</li>
+      <li>禁止用 <code>python -c</code> 执行任何数据处理（用 run_skill.py 命令）</li>
+      <li>禁止编造客户未公开的财务数据</li>
+      <li>禁止在没有活动记录支撑的情况下判断"关系良好"</li>
+    </ol>
+  </div>
+
+  <h3>文件路径结构</h3>
+  <pre><code>output/
+├── &lt;account-id&gt;/                      ← 每次分析独立目录
+│   ├── data_plan.json                 ✅ 可读取
+│   ├── scored_result.json             ✅ 可读取（用 extract_summary）
+│   ├── risk_signals.json              ✅ 可读取
+│   ├── recommendation.json            ✅ 可读取
+│   ├── conflicts.json                 ✅ 可读取
+│   └── metrics.json                   ✅ 可读取
+└── agent_exchange/&lt;account-id&gt;/       ← Agent↔Script 交换区
+    ├── analysis_input.json            ✅ Agent 写入
+    ├── market_context.json            ✅ Agent 写入
+    ├── relationship_map.json          ✅ Agent 写入
+    └── baseline_raw.json              ⛔ 禁止直接读取（体积大）</code></pre>
+</section>
+
+
+<!-- Section 9: Quality Assurance -->
+<section class="section" id="s9">
+  <div class="section-header">
+    <div class="section-number">9</div>
+    <div class="section-title">自检质量保证</div>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">设计原则</div>
+    <p>每条自检对应一个历史上出过的质量问题。任何一项硬门槛未通过则报告不得产出。</p>
+  </div>
+
+  <h3>CRM 通用自检模板（10项）</h3>
+  <ul class="checklist">
+    <li><strong>数据完整性</strong>：所有必查实体的数据已获取，缺失标注"信息空白"</li>
+    <li><strong>计算正确性</strong>：所有数值型结论来自 calc_metrics 脚本输出，非 Agent 心算</li>
+    <li><strong>证据链完整</strong>：每条结论有数据支撑，标注来源（CRM/搜索/知识库/推断）</li>
+    <li><strong>行动可执行</strong>：每条建议含 WHO（角色）/ WHAT（动作）/ WHEN（时间）</li>
+    <li><strong>格式合规</strong>：报告严格遵循模板结构，章节名称/顺序/表格格式未被修改</li>
+    <li><strong>无幻觉标记</strong>：所有不确定信息标注 [推断] / [估算] / [信息空白]</li>
+    <li><strong>矛盾已处理</strong>：数据矛盾处有解释（即使是"数据不一致，需人工确认"）</li>
+    <li><strong>无内部泄露</strong>：报告中无系统字段名、评分公式、调试信息</li>
+    <li><strong>时效性标注</strong>：外部搜索数据标注获取日期，≥90天标注"可能过时"</li>
+    <li><strong>唯一交付物</strong>：只产出了 1 个文件</li>
+  </ul>
+
+  <h3>场景专属自检追加项（示例）</h3>
+  <table>
+    <thead><tr><th>场景</th><th>追加自检项</th></tr></thead>
+    <tbody>
+      <tr><td>续约风险</td><td>流失概率来自评分模型（非直觉）、包含竞品替换成本分析、有≥2种防御策略</td></tr>
+      <tr><td>商机推进</td><td>MEDDIC 6维逐项评估、有竞争态势判断、风险信号≥3条来源</td></tr>
+      <tr><td>Pipeline</td><td>加权金额来自脚本计算、Commit与历史准确度对比、Gap有补救方案</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- Section 10: Version Evolution -->
+<section class="section" id="s10">
+  <div class="section-header">
+    <div class="section-number">10</div>
+    <div class="section-title">版本演进策略</div>
+  </div>
+
+  <div class="callout callout-purple">
+    <div class="callout-title">核心规律</div>
+    <p>每个版本的核心改进都来自"Agent 在生产中反复犯的同一个错"。Skill 的质量通过"运行→发现问题→加规则/加校验/加自动修复"不断螺旋上升。</p>
+  </div>
+
+  <table>
+    <thead><tr><th>错误模式</th><th>修复方式</th><th>版本号变更</th></tr></thead>
+    <tbody>
+      <tr><td>Agent 算错转化率</td><td>加 calc_metrics 脚本 + 禁止心算规则</td><td><span class="badge badge-amber">minor</span></td></tr>
+      <tr><td>Agent 忽略竞品信息</td><td>搜索计划强制包含竞品查询 + 自检增加</td><td><span class="badge badge-blue">patch</span></td></tr>
+      <tr><td>Agent 产出格式不一致</td><td>格式锁定 + 模板硬约束</td><td><span class="badge badge-amber">minor</span></td></tr>
+      <tr><td>Agent 给模糊建议</td><td>禁止清单 + WHO/WHAT/WHEN 自检</td><td><span class="badge badge-blue">patch</span></td></tr>
+      <tr><td>Agent 自信编造数据</td><td>[推断]/[信息空白] 强制标注 + 校验</td><td><span class="badge badge-amber">minor</span></td></tr>
+      <tr><td>流程中断后恢复困难</td><td>增加 status 命令 + 前置条件检查</td><td><span class="badge badge-red">major</span></td></tr>
+    </tbody>
+  </table>
+
+  <h3>版本号规约</h3>
+  <ul>
+    <li><strong>major</strong>（X.0.0）：流程架构变更（新增/删除步骤、产出格式重构）</li>
+    <li><strong>minor</strong>（X.Y.0）：新增脚本能力、新增禁止规则、新增自检项</li>
+    <li><strong>patch</strong>（X.Y.Z）：修复已知 Agent 错误模式、优化提示词</li>
+  </ul>
+</section>
+
+<!-- Section 11: Deployment -->
+<section class="section" id="s11">
+  <div class="section-header">
+    <div class="section-number">11</div>
+    <div class="section-title">独立部署规范</div>
+  </div>
+
+  <pre><code>&lt;skill-name&gt;/
+├── SKILL.md                         ← Skill 主文档（Agent 必读）
+├── README.md                        ← 人类阅读说明
+├── dependencies.yaml                ← 机器可读依赖声明
+├── run_skill.py                     ← 统一命令入口
+│
+├── scripts/                         ← 计算代码
+│   ├── init.py                      ← 一键初始化
+│   ├── gen_data_plan.py             ← 数据获取计划
+│   ├── calc_metrics.py              ← 精确数值计算
+│   ├── scoring_model.py             ← 评分模型
+│   ├── conflict_detector.py         ← 矛盾检测
+│   ├── recommendation_engine.py     ← 行动建议
+│   ├── post_analysis.py             ← 一键分析链
+│   ├── status.py                    ← 进度查询
+│   ├── validate.py                  ← 自检执行
+│   └── test_*.py                    ← 回归测试
+│
+├── references/                      ← 参考文档
+│   ├── output-template.md           ← 报告模板
+│   ├── methodologies/               ← 方法论
+│   ├── industries/                  ← 行业知识包
+│   ├── playbooks/                   ← 策略剧本
+│   └── sub-agent-contracts/         ← 子 Agent 契约
+│
+├── vendor/                          ← 内置依赖（standalone 时）
+│   └── shared_libs/
+│
+└── output/                          ← 运行时产出
+    ├── &lt;target-id&gt;/
+    └── agent_exchange/&lt;target-id&gt;/</code></pre>
+
+  <h3>dependencies.yaml 核心字段</h3>
+  <pre><code>schema_version: "1.0"
+skill:
+  name: account-insight-pro
+  version: "2.0.0"
+  independence_status: "standalone"
+
+runtime:
+  python: { minVersion: "3.8" }
+
+agent_capabilities:
+  required:
+    - id: query_data
+      purpose: "CRM 结构化数据查询"
+    - id: analyze_data
+      purpose: "聚合统计分析"
+    - id: search_web
+      purpose: "外部信息搜索"
+    - id: knowledge_search
+      purpose: "知识库检索"
+
+database_dependencies:
+  required:
+    - entity: account
+      hard_blocker: true
+    - entity: opportunity
+      hard_blocker: true
+  optional:
+    - entity: contract
+    - entity: competitor
+
+outputs:
+  mandatory:
+    - path: "output/&lt;客户名&gt;_洞察报告_&lt;日期&gt;.md"
+      format: markdown
+      role: "唯一交付物"</code></pre>
+</section>
+
+<!-- Section 12: Design Checklist -->
+<section class="section" id="s12">
+  <div class="section-header">
+    <div class="section-number">12</div>
+    <div class="section-title">Skill 设计 Checklist（通用）</div>
+  </div>
+
+  <div class="callout callout-success">
+    <div class="callout-title">✅ 设计任何高质量 Skill 时逐项检查</div>
+  </div>
+
+  <ul class="checklist">
+    <li><strong>[流程定义]</strong> 完整流水线，每步有前置条件检查和状态查询命令</li>
+    <li><strong>[职责分离]</strong> Agent做判断+搜索，脚本做计算+评分+校验</li>
+    <li><strong>[接口极简]</strong> 暴露给Agent的命令≤5个，内部复杂度封装在脚本中</li>
+    <li><strong>[数据契约]</strong> Agent↔脚本通过标准化JSON交换，有schema+自动修复+诊断</li>
+    <li><strong>[禁止清单]</strong> 每条禁止对应一个已知的LLM幻觉或错误模式</li>
+    <li><strong>[方法论嵌入]</strong> 领域专家SOP结构化写入SKILL.md，Agent执行时参考</li>
+    <li><strong>[数据策略]</strong> 不靠Agent即兴查询，由引擎生成结构化数据获取计划</li>
+    <li><strong>[交叉验证]</strong> 多源结论必须交叉验证，发现矛盾必须解释</li>
+    <li><strong>[输出模板]</strong> 唯一交付物+格式锁定+自检门槛</li>
+    <li><strong>[错误恢复]</strong> status命令+精确诊断+自动修复，Agent遇错不卡死</li>
+    <li><strong>[独立部署]</strong> vendor化所有依赖，一个目录可完整运行</li>
+    <li><strong>[版本演进]</strong> 每次修复一个"Agent反复犯的错"就升级一条规则</li>
+  </ul>
+
+  <div class="callout callout-purple" style="margin-top: 2rem;">
+    <div class="callout-title">💡 一句话总结</div>
+    <p style="font-size: 1.1rem; font-weight: 500;">把 Agent 当成一个"会犯错的聪明实习生"来设计——给他清晰的SOP、明确的禁止清单、精确的工具、自动的校验，然后让他发挥判断力做那些只有人能做的事。</p>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer style="text-align:center; padding:3rem 0 1rem; color: var(--gray-500); font-size: 0.85rem;">
+  <p>toB CRM Skill Design Specification v1.0 · 基于 stock-overall-analysis v4.6 架构模式</p>
+  <p>aPaaS Agent System · 2026-06</p>
+</footer>
+
+</div><!-- /.container -->
+</body>
+</html>

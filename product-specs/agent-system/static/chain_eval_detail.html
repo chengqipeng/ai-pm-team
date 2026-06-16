@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>链路回放 — DeepAgent</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; background: #f8fafc; }
+@keyframes fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.animate-fade-in { animation: fade-in 0.3s ease-out; }
+.case-row { transition: all 0.15s; cursor: pointer; }
+.case-row:hover { background: #f8fafc; }
+.case-row.expanded { background: #f0f9ff; border-color: #bfdbfe; }
+.detail-panel { transition: max-height 0.4s ease, opacity 0.3s ease; overflow: hidden; }
+.detail-panel.collapsed { max-height: 0; opacity: 0; }
+.detail-panel.expanded { max-height: 5000px; opacity: 1; }
+.waterfall-bar { transition: all 0.2s; cursor: pointer; border-radius: 3px; }
+.waterfall-bar:hover { filter: brightness(1.1); transform: scaleY(1.2); }
+.waterfall-bar.passed { background: #22c55e; }
+.waterfall-bar.failed { background: #ef4444; }
+.waterfall-bar.warning { background: #f59e0b; }
+.span-detail { transition: all 0.2s; }
+.span-detail:hover { background: #f0f9ff; }
+.json-view { font-family: 'JetBrains Mono', 'Fira Code', 'Menlo', monospace; font-size: 11px; line-height: 1.6; }
+.tooltip { position: absolute; background: #1f2937; color: white; padding: 6px 10px; border-radius: 6px; font-size: 11px; pointer-events: none; z-index: 100; white-space: nowrap; }
+.msg-system { border-left: 3px solid #8b5cf6; }
+.msg-user { border-left: 3px solid #3b82f6; }
+.msg-tool { border-left: 3px solid #f59e0b; }
+.msg-assistant { border-left: 3px solid #10b981; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- 顶部导航 -->
+<header class="bg-white/80 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-50">
+  <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a href="/" class="flex items-center gap-2 text-gray-900 no-underline hover:opacity-80 transition-opacity">
+        <div class="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+        <span class="font-bold text-sm">DeepAgent</span>
+      </a>
+      <span class="text-gray-300 mx-1">/</span>
+      <a href="/eval/chain" class="text-sm text-gray-500 hover:text-blue-600 no-underline">链路评测</a>
+      <span class="text-gray-300 mx-1">/</span>
+      <span id="breadcrumbRun" class="text-sm font-semibold text-gray-700">Run</span>
+    </div>
+    <nav class="flex items-center gap-1">
+      <a href="/" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all no-underline">对话</a>
+      <a href="/eval/tools" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all no-underline">Tool评测</a>
+      <a href="/eval/memory" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all no-underline">Memory评测</a>
+      <a href="/eval/chain" class="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg transition-all no-underline">链路评测</a>
+    </nav>
+  </div>
+</header>
+
+<!-- 主内容 -->
+<div class="max-w-7xl mx-auto px-6 py-8">
+  <!-- 运行概览 -->
+  <div id="runHeader" class="mb-8">
+    <div class="flex items-center gap-4 mb-3">
+      <h1 id="runTitle" class="text-xl font-bold text-gray-900">加载中...</h1>
+      <span id="runTime" class="text-sm text-gray-400"></span>
+    </div>
+    <div id="runStats" class="flex items-center gap-6 text-sm text-gray-600">
+      <!-- 动态填充 -->
+    </div>
+  </div>
+
+  <!-- 用例列表 -->
+  <div class="mb-4">
+    <h2 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-3">用例列表 <span class="text-gray-400 font-normal normal-case">（点击展开链路回放）</span></h2>
+  </div>
+
+  <div id="caseList" class="space-y-2">
+    <!-- 动态填充 -->
+  </div>
+</div>
+
+<script>
+const API = '/api/eval/chain';
+let runData = null;
+
+// ─── 从 URL 获取 run_id ─────────────────────────────────
+function getRunId() {
+  const parts = window.location.pathname.split('/');
+  return parts[parts.length - 1];
+}
+
+// ─── 初始化 ─────────────────────────────────────────────
+async function init() {
+  const runId = getRunId();
+  try {
+    const resp = await fetch(`${API}/runs/${runId}`);
+    if (!resp.ok) throw new Error('运行记录不存在');
+    runData = await resp.json();
+    renderRunHeader(runData);
+    renderCaseList(runData.cases || []);
+    // 自动展开第一个失败用例
+    autoExpandFirstFailure();
+  } catch(e) {
+    document.getElementById('caseList').innerHTML = `
+      <div class="text-center py-16 text-gray-400">
+        <div class="text-4xl mb-3">⚠️</div>
+        <div>加载失败: ${e.message}</div>
+      </div>`;
+  }
+}
+
+function renderRunHeader(run) {
+  document.getElementById('breadcrumbRun').textContent = `Run#${run.run_id.replace('run_', '')}`;
+  document.getElementById('runTitle').textContent = `运行 #${run.run_id.replace('run_', '')} — ${run.suite_name || ''}`;
+  document.getElementById('runTime').textContent = formatTime(run.created_at);
+
+  const passRate = (run.pass_rate * 100).toFixed(1);
+  const rateColor = run.pass_rate >= 0.9 ? 'text-green-600' : run.pass_rate >= 0.7 ? 'text-yellow-600' : 'text-red-500';
+
+  document.getElementById('runStats').innerHTML = `
+    <span>通过: <strong class="${rateColor}">${run.passed}/${run.total} (${passRate}%)</strong></span>
+    <span class="text-gray-300">|</span>
+    <span>耗时: <strong>${(run.duration_ms / 1000).toFixed(1)}s</strong></span>
+    <span class="text-gray-300">|</span>
+    <span>Token: <strong>${run.token_total ? run.token_total.toLocaleString() : '-'}</strong></span>
+  `;
+
+  document.title = `Run#${run.run_id.replace('run_', '')} — 链路评测 — DeepAgent`;
+}
+
+function renderCaseList(cases) {
+  const container = document.getElementById('caseList');
+  if (!cases.length) {
+    container.innerHTML = '<div class="text-center py-12 text-gray-400">该运行无详细用例数据</div>';
+    return;
+  }
+
+  container.innerHTML = cases.map((c, idx) => {
+    const icon = c.status === 'passed' ? '✅' : '❌';
+    const statusColor = c.status === 'passed' ? 'text-green-600' : 'text-red-500';
+    const bgColor = c.status === 'failed' ? 'border-red-100' : 'border-gray-100';
+
+    return `
+      <div class="case-item" data-case-id="${c.case_id}">
+        <!-- 用例行 -->
+        <div class="case-row flex items-center justify-between px-5 py-3.5 bg-white rounded-xl border ${bgColor} shadow-sm" onclick="toggleCase('${c.case_id}')">
+          <div class="flex items-center gap-3">
+            <span class="text-base">${icon}</span>
+            <span class="text-xs font-mono text-gray-400">${c.case_id}</span>
+            <span class="text-sm font-medium text-gray-800">${c.case_name}</span>
+          </div>
+          <div class="flex items-center gap-4">
+            <span class="text-xs text-gray-400">${(c.latency_ms / 1000).toFixed(2)}s</span>
+            <svg class="case-chevron w-4 h-4 text-gray-300 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+        <!-- 详情面板 -->
+        <div class="detail-panel collapsed" id="detail_${c.case_id}">
+          <div class="mt-2 bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+            ${renderCaseDetail(c)}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderCaseDetail(c) {
+  const chain = c.chain || [];
+  const totalDuration = chain.length ? Math.max(...chain.map(s => s.start_ms + s.duration_ms)) : c.latency_ms;
+
+  let html = '';
+
+  // 输入/期望/实际
+  html += `
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div class="bg-gray-50 rounded-lg p-3">
+        <div class="text-[10px] font-bold text-gray-400 uppercase mb-1">输入</div>
+        <div class="text-sm text-gray-800">"${escapeHtml(c.input)}"</div>
+      </div>
+      ${c.status === 'failed' ? `
+      <div class="bg-green-50 rounded-lg p-3">
+        <div class="text-[10px] font-bold text-green-500 uppercase mb-1">期望</div>
+        <div class="text-sm text-gray-800">${c.failure_attribution ? c.failure_attribution.reason : '通过所有断言'}</div>
+      </div>
+      <div class="bg-red-50 rounded-lg p-3">
+        <div class="text-[10px] font-bold text-red-500 uppercase mb-1">实际</div>
+        <div class="text-sm text-gray-800">${escapeHtml(c.final_response || '')}</div>
+      </div>
+      ` : `
+      <div class="bg-green-50 rounded-lg p-3 col-span-2">
+        <div class="text-[10px] font-bold text-green-500 uppercase mb-1">实际输出</div>
+        <div class="text-sm text-gray-800">${escapeHtml(c.final_response || '')}</div>
+      </div>
+      `}
+    </div>
+  `;
+
+  // 链路瀑布图
+  if (chain.length) {
+    html += `
+      <div class="mb-6">
+        <div class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <span>链路瀑布图</span>
+          <span class="text-gray-300 font-normal">${totalDuration}ms</span>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-4 space-y-1.5">
+          ${chain.map((span, i) => renderWaterfallSpan(span, i, totalDuration, c.case_id)).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  // 断言结果
+  if (c.assertions && c.assertions.length) {
+    html += `
+      <div class="mb-6">
+        <div class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">断言结果</div>
+        <div class="space-y-1.5">
+          ${c.assertions.map(a => `
+            <div class="flex items-center gap-2 text-sm">
+              <span>${a.passed ? '✅' : '❌'}</span>
+              <span class="font-mono text-xs text-gray-500">${a.type}</span>
+              <span class="text-gray-700">${escapeHtml(a.detail)}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  // 失败归因
+  if (c.failure_attribution) {
+    const fa = c.failure_attribution;
+    html += `
+      <div class="bg-red-50 border border-red-100 rounded-lg p-4">
+        <div class="text-xs font-bold text-red-600 uppercase tracking-wider mb-2">失败归因</div>
+        <div class="space-y-1 text-sm">
+          <div><span class="text-gray-500">类型:</span> <span class="font-medium text-gray-800">${fa.type}</span></div>
+          <div><span class="text-gray-500">节点:</span> <span class="font-mono text-red-600">${fa.node}</span></div>
+          <div><span class="text-gray-500">原因:</span> <span class="text-gray-800">${escapeHtml(fa.reason)}</span></div>
+          <div><span class="text-gray-500">建议:</span> <span class="text-blue-700">${escapeHtml(fa.suggestion)}</span></div>
+        </div>
+      </div>
+    `;
+  }
+
+  return html;
+}
+
+function renderWaterfallSpan(span, index, totalDuration, caseId) {
+  const leftPct = (span.start_ms / totalDuration * 100).toFixed(1);
+  const widthPct = Math.max((span.duration_ms / totalDuration * 100), 1.5).toFixed(1);
+  const statusClass = span.status === 'passed' ? 'passed' : span.status === 'failed' ? 'failed' : 'warning';
+  const statusIcon = span.status === 'passed' ? '✅' : span.status === 'failed' ? '❌' : '⚠️';
+
+  // Span 标签
+  let label = span.type;
+  if (span.type === 'llm_call' && span.round) label = `llm_call_${span.round}`;
+  if (span.type === 'tool_call' && span.tool_name) label = `tool:${span.tool_name}`;
+  if (span.type === 'llm_judge') label = 'llm_judge';
+
+  // 摘要信息
+  let summary = '';
+  const meta = span.metadata || {};
+  if (span.type === 'memory_retrieve') summary = `hits: ${meta.hits || 0}`;
+  if (span.type === 'llm_call') summary = meta.decision === 'tool_call' ? `→ ${meta.tool_name}` : '→ final_response';
+  if (span.type === 'tool_call') summary = meta.is_mocked ? '(mock)' : '';
+  if (span.type === 'llm_judge') summary = `score: ${meta.score || '-'}`;
+  if (span.failure_reason) summary = span.failure_reason;
+
+  const spanId = `span_${caseId}_${index}`;
+  const hasExpandable = span.expandable || (span.metadata && Object.keys(span.metadata).length > 2);
+  const isFailure = span.status === 'failed';
+
+  return `
+    <div class="span-detail rounded-lg p-2 ${isFailure ? 'bg-red-50/50' : ''}" id="row_${spanId}">
+      <div class="flex items-center gap-3 cursor-pointer" onclick="${hasExpandable ? `toggleSpanDetail('${spanId}')` : ''}">
+        <!-- 状态 + 标签 -->
+        <span class="text-xs w-4 text-center">${statusIcon}</span>
+        <span class="text-xs font-mono font-medium text-gray-700 w-32 truncate">${label}</span>
+        <!-- 瀑布条 -->
+        <div class="flex-1 relative h-5">
+          <div class="waterfall-bar ${statusClass} absolute top-1 h-3"
+               style="left: ${leftPct}%; width: ${widthPct}%;"
+               title="${label}: ${span.duration_ms}ms"></div>
+        </div>
+        <!-- 耗时 -->
+        <span class="text-xs text-gray-400 w-14 text-right">${span.duration_ms}ms</span>
+        <!-- 展开箭头 -->
+        ${hasExpandable ? '<svg class="w-3 h-3 text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>' : '<span class="w-3"></span>'}
+      </div>
+      <!-- 摘要 -->
+      ${summary ? `<div class="ml-7 mt-0.5 text-[11px] text-gray-500 pl-32">${escapeHtml(summary)}</div>` : ''}
+      <!-- 可展开详情 -->
+      ${hasExpandable ? `<div class="detail-panel collapsed" id="${spanId}">
+        <div class="ml-7 mt-2 pl-32">${renderSpanExpandable(span)}</div>
+      </div>` : ''}
+    </div>
+  `;
+}
+
+function renderSpanExpandable(span) {
+  let html = '';
+  const meta = span.metadata || {};
+  const expandable = span.expandable || {};
+
+  // LLM 节点：显示 messages
+  if (span.type === 'llm_call' && expandable.input_messages) {
+    html += `
+      <div class="bg-white rounded-lg border border-gray-100 p-3 mb-2">
+        <div class="text-[10px] font-bold text-gray-400 uppercase mb-2">输入 Messages (${expandable.input_messages.length}条)</div>
+        <div class="space-y-2">
+          ${expandable.input_messages.map(msg => {
+            const roleColor = msg.role === 'system' ? 'msg-system' : msg.role === 'user' ? 'msg-user' : msg.role === 'tool' ? 'msg-tool' : 'msg-assistant';
+            return `
+              <div class="${roleColor} pl-3 py-1">
+                <span class="text-[10px] font-bold text-gray-400">[${msg.role}]</span>
+                <span class="text-xs text-gray-700 ml-1">${escapeHtml(truncate(msg.content, 200))}</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+        ${expandable.output_raw ? `
+        <div class="mt-3 pt-2 border-t border-gray-50">
+          <div class="text-[10px] font-bold text-gray-400 uppercase mb-1">输出</div>
+          <div class="text-xs text-gray-700 json-view">${escapeHtml(truncate(expandable.output_raw, 300))}</div>
+        </div>
+        ` : ''}
+        ${meta.expected_decision ? `
+        <div class="mt-2 pt-2 border-t border-red-100 bg-red-50/50 -mx-3 -mb-3 px-3 pb-3 rounded-b-lg">
+          <div class="text-[10px] font-bold text-red-500">⚠️ 期望: ${meta.expected_decision}${meta.expected_contains ? ` (包含 "${meta.expected_contains}")` : ''}</div>
+          <div class="text-[10px] text-red-600 mt-0.5">实际: ${meta.decision}${meta.tool_name ? ` → ${meta.tool_name}` : ''}</div>
+        </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  // Tool 节点：显示 args + response
+  if (span.type === 'tool_call' && meta) {
+    html += `
+      <div class="bg-white rounded-lg border border-gray-100 p-3 mb-2">
+        ${meta.args ? `
+        <div class="mb-2">
+          <div class="text-[10px] font-bold text-gray-400 uppercase mb-1">参数</div>
+          <pre class="json-view text-gray-700 bg-gray-50 rounded p-2 overflow-x-auto">${escapeHtml(JSON.stringify(meta.args, null, 2))}</pre>
+        </div>
+        ` : ''}
+        ${meta.response !== undefined ? `
+        <div>
+          <div class="text-[10px] font-bold text-gray-400 uppercase mb-1">返回</div>
+          <pre class="json-view text-gray-700 bg-gray-50 rounded p-2 overflow-x-auto">${escapeHtml(JSON.stringify(meta.response, null, 2))}</pre>
+        </div>
+        ` : ''}
+        ${meta.is_mocked ? '<div class="mt-1 text-[10px] text-amber-500 font-medium">⚡ Mock 数据</div>' : ''}
+      </div>
+    `;
+  }
+
+  // LLM Judge
+  if (span.type === 'llm_judge' && meta) {
+    html += `
+      <div class="bg-white rounded-lg border border-gray-100 p-3 mb-2">
+        <div class="flex items-center gap-3 mb-1">
+          <span class="text-xs font-bold text-gray-700">Score: ${meta.score}</span>
+          <div class="flex-1 h-1.5 bg-gray-100 rounded-full">
+            <div class="h-full rounded-full ${meta.score >= 0.8 ? 'bg-green-500' : meta.score >= 0.6 ? 'bg-yellow-500' : 'bg-red-500'}" style="width: ${(meta.score * 100)}%"></div>
+          </div>
+        </div>
+        ${meta.feedback ? `<div class="text-xs text-gray-600">${escapeHtml(meta.feedback)}</div>` : ''}
+      </div>
+    `;
+  }
+
+  // 通用 metadata
+  if (!html && meta && Object.keys(meta).length > 0) {
+    html += `
+      <div class="bg-white rounded-lg border border-gray-100 p-3 mb-2">
+        <pre class="json-view text-gray-700">${escapeHtml(JSON.stringify(meta, null, 2))}</pre>
+      </div>
+    `;
+  }
+
+  return html;
+}
+
+// ─── 交互逻辑 ──────────────────────────────────────────
+function toggleCase(caseId) {
+  const panel = document.getElementById(`detail_${caseId}`);
+  const row = panel.previousElementSibling;
+  const chevron = row.querySelector('.case-chevron');
+
+  if (panel.classList.contains('collapsed')) {
+    panel.classList.remove('collapsed');
+    panel.classList.add('expanded');
+    row.classList.add('expanded');
+    if (chevron) chevron.style.transform = 'rotate(180deg)';
+  } else {
+    panel.classList.remove('expanded');
+    panel.classList.add('collapsed');
+    row.classList.remove('expanded');
+    if (chevron) chevron.style.transform = '';
+  }
+}
+
+function toggleSpanDetail(spanId) {
+  const panel = document.getElementById(spanId);
+  if (panel.classList.contains('collapsed')) {
+    panel.classList.remove('collapsed');
+    panel.classList.add('expanded');
+  } else {
+    panel.classList.remove('expanded');
+    panel.classList.add('collapsed');
+  }
+}
+
+function autoExpandFirstFailure() {
+  if (!runData || !runData.cases) return;
+  const firstFailed = runData.cases.find(c => c.status === 'failed');
+  if (firstFailed) {
+    setTimeout(() => {
+      toggleCase(firstFailed.case_id);
+      // 滚动到该用例
+      const el = document.querySelector(`[data-case-id="${firstFailed.case_id}"]`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // 自动展开第一个失败 span
+      const chain = firstFailed.chain || [];
+      const failedSpanIdx = chain.findIndex(s => s.status === 'failed');
+      if (failedSpanIdx >= 0) {
+        setTimeout(() => {
+          const spanId = `span_${firstFailed.case_id}_${failedSpanIdx}`;
+          toggleSpanDetail(spanId);
+        }, 400);
+      }
+    }, 300);
+  }
+}
+
+// ─── 工具函数 ──────────────────────────────────────────
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function truncate(str, max) {
+  if (!str) return '';
+  return str.length > max ? str.slice(0, max) + '...' : str;
+}
+
+function formatTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+init();
+</script>
+</body>
+</html>

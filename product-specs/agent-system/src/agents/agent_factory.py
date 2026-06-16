@@ -202,10 +202,6 @@ class AgentFactory:
                 memory_engine=self._memory_engine,
             )
 
-        # 6.5 注入 recall_context 工具的 archive 引用
-        # RecallContextTool 需要 ContextWindowMiddleware 的 archive 实例才能工作
-        self._inject_archive_into_recall_tool(all_tools, middlewares)
-
         # 7. 创建 Agent
         agent = create_agent(
             model=self._model,
@@ -227,31 +223,3 @@ class AgentFactory:
             keys = [k for k in self._cache if k.startswith(f"{agent_name}:")]
             for k in keys:
                 del self._cache[k]
-
-    @staticmethod
-    def _inject_archive_into_recall_tool(tools: list, middlewares: list) -> None:
-        """将 ContextWindowMiddleware 的 archive 注入到 RecallContextTool
-
-        遍历工具列表找到 recall_context，遍历中间件找到 ContextWindowMiddleware，
-        将后者的 .archive 属性设置到前者。支持 TracingWrapper 包装的中间件。
-        """
-        # 找到 recall_context 工具
-        recall_tool = None
-        for tool in tools:
-            if getattr(tool, "name", "") == "recall_context":
-                recall_tool = tool
-                break
-
-        if recall_tool is None:
-            return
-
-        # 从中间件中找到 ContextWindowMiddleware 的 archive
-        for mw in middlewares:
-            # 支持 TracingWrapper 包装：先尝试 _inner 属性
-            inner = getattr(mw, "_inner", mw)
-            if hasattr(inner, "archive"):
-                recall_tool.archive = inner.archive
-                logger.info("[AgentFactory] recall_context 工具已注入 archive 引用")
-                return
-
-        logger.warning("[AgentFactory] 未找到 ContextWindowMiddleware，recall_context 工具无法获取 archive")
