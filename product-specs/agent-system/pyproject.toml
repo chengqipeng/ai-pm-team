@@ -28,6 +28,10 @@ e2b = "^2.23.1"
 deepeval = "^4.0.5"
 arize-phoenix = {version = "^17.2.0", python = ">=3.11,<3.15"}
 openinference-instrumentation-langchain = {version = "^0.1.66", python = ">=3.11,<3.15"}
+headroom-ai = {version = "^0.25", extras = ["ml", "code"], optional = true, python = ">=3.11,<3.14"}  # Headroom 压缩引擎
+
+[tool.poetry.extras]
+headroom = ["headroom-ai"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"

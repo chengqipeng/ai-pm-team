@@ -93,10 +93,10 @@ class WebSearchTool(Tool):
 
             if references:
                 parts.append(f"**搜索结果（{len(references)} 条）：**")
-                for ref in references[:5]:
+                for ref in references[:8]:
                     title = ref.get("title", "")
                     url = ref.get("url", "")
-                    content = ref.get("content", "")[:200]
+                    content = ref.get("content", "")[:500]
                     date = ref.get("date", "")
                     parts.append(f"\n{ref.get('id', '')}. **{title}**")
                     if date:

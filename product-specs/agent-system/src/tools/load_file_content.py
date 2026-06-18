@@ -83,10 +83,11 @@ class LoadFileContentTool(BaseTool):
                 })
                 results.append(f"📷 图片: {fname} (已注入多模态视觉)")
             elif content:
-                # 文档：直接返回文本内容
-                # 截断过长内容
-                if len(content) > 10000:
-                    content = content[:10000] + f"\n...[截断，原文 {len(content)} 字符]"
+                # 文档：返回文本内容（超长时由 CompressionEngine 统一处理）
+                if len(content) > 50000:
+                    from src.middleware.compression_engine import compress, CompressLevel
+                    cr = compress(content, tool_name="load_file_content", level=CompressLevel.LIGHT)
+                    content = cr.content
                 results.append(f"📄 {fname}:\n{content}")
             elif url:
                 # 有 URL 但无文本内容（PDF 等）

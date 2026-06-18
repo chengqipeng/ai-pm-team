@@ -771,6 +771,16 @@ except ImportError as exc:
 except Exception as exc:
     logger.warning("链路评测 API 挂载失败: %s", exc)
 
+# ── 挂载 AG-UI 全链路评测 API ──
+try:
+    from src.api.agui_eval_api import router as agui_eval_router
+    app.include_router(agui_eval_router)
+    logger.info("已挂载 AG-UI全链路评测 API: /api/eval/agui/*")
+except ImportError as exc:
+    logger.warning("AG-UI全链路评测 API 未启用: %s", exc)
+except Exception as exc:
+    logger.warning("AG-UI全链路评测 API 挂载失败: %s", exc)
+
 
 # ── 挂载 存档检索评测 API ──
 try:
@@ -2199,6 +2209,16 @@ async def chain_eval_page():
         with open(html_path, encoding="utf-8") as f:
             return f.read()
     return "<h1>Chain Eval — 页面未找到</h1>"
+
+
+@app.get("/eval/agui", response_class=HTMLResponse)
+async def agui_eval_page():
+    """AG-UI 全链路评测页 — 6层分层评测 + 雷达图"""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "agui_eval.html")
+    if os.path.exists(html_path):
+        with open(html_path, encoding="utf-8") as f:
+            return f.read()
+    return "<h1>AG-UI Eval — 页面未找到</h1>"
 
 
 @app.get("/eval/chain/{run_id}", response_class=HTMLResponse)

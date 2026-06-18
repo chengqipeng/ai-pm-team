@@ -977,14 +977,23 @@ def _find_inline_skill_end(messages: list, prompt_return_idx: int) -> int | None
 def _skill_internal_one_liner(tool_name: str, content: str) -> str:
     """Skill 内部工具调用的一行摘要（用于 post_skill_compact）
 
-    改进策略:
-      1. JSON 对象: 提取关键字段 + 金额/日期等精确数字
-      2. JSON 数组: 记录数 + 代表性样本 + 金额聚合统计
-      3. 非 JSON 文本: 提取关键数字（金额/百分比/日期）+ 前 80 字符预览
+    已统一到 CompressionEngine，此函数作为代理入口。
+    使用 AGGRESSIVE 级别压缩（Skill 内部中间步骤可以极致压缩）。
     """
+    try:
+        from src.middleware.compression_engine import compress, CompressLevel
+        result = compress(
+            content, tool_name=tool_name,
+            level=CompressLevel.AGGRESSIVE,
+        )
+        if result.is_compressed:
+            return result.content
+    except Exception:
+        pass  # 降级到旧逻辑
+
+    # 降级：CompressionEngine 不可用时走原有逻辑
     import json as _json
 
-    # JSON 结构化数据 → 按类型分发
     stripped = content.strip()
     if stripped.startswith("{") or stripped.startswith("["):
         try:
@@ -996,7 +1005,6 @@ def _skill_internal_one_liner(tool_name: str, content: str) -> str:
         except _json.JSONDecodeError:
             pass
 
-    # 非 JSON → 提取关键数字 + 前缀预览
     return _one_liner_text(tool_name, content)
 
 

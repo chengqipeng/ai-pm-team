@@ -47,6 +47,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import time
 from typing import Any
 
@@ -211,9 +212,15 @@ class ContextWindowMiddleware(AgentMiddleware):
     核心原则: 不到阈值不压缩。窗口没有压力时历史数据完整保留，
     窗口有压力时统一裁剪，但当前轮次（最后 HumanMessage 之后）始终完整保护。
 
-    wrap_tool_call: 安全网截断（从 token 预算推导阈值）+ Skill 锚点提取
+    wrap_tool_call: CompressionEngine 即时压缩 + 安全网截断 + Skill 锚点提取
     before_model:  Post-Skill Compact + MD5 去重 + 阈值触发压缩
                    （MicroCompact / AutoCompact / FullCompact）
+
+    统一压缩引擎集成（CompressionEngine）：
+    - wrap_tool_call 阶段：工具返回结果即时做内容块压缩（level=LIGHT）
+    - MicroCompact 阶段：历史 ToolMessage 精细压缩（level=STANDARD）
+    - AutoCompact/FullCompact 阶段：先预压缩再送 LLM 摘要（level=STANDARD）
+    - 降级策略：CompressionEngine 不可用时自动降级为 CRM 规则摘要
     """
 
     def __init__(
@@ -235,6 +242,13 @@ class ContextWindowMiddleware(AgentMiddleware):
         safety_cap_chars: int | None = None,
         # Token 预算参数（对齐 Hermes _find_tail_cut_by_tokens）
         tail_token_budget_ratio: float = 0.20,
+        # ── Headroom 压缩引擎参数 ──
+        headroom_enabled: bool = True,
+        headroom_min_chars: int = 500,
+        headroom_max_ratio: float = 0.85,
+        headroom_in_wrap: bool = True,
+        headroom_in_micro: bool = True,
+        headroom_in_auto_precompress: bool = True,
     ):
         super().__init__()
         self._max_tokens = max_tokens
@@ -258,6 +272,29 @@ class ContextWindowMiddleware(AgentMiddleware):
             self._safety_cap = safety_cap_chars
         else:
             self._safety_cap = int(self._tail_token_budget * 0.5 * 2)
+
+        # ── 统一压缩引擎（CompressionEngine 单例）──
+        self._headroom_enabled = headroom_enabled and os.environ.get("HEADROOM_ENABLED", "1") != "0"
+        self._headroom_min_chars = headroom_min_chars
+        self._headroom_max_ratio = headroom_max_ratio
+        self._headroom_in_wrap = headroom_in_wrap
+        self._headroom_in_micro = headroom_in_micro
+        self._headroom_in_auto_precompress = headroom_in_auto_precompress
+        self._compression_engine = None  # 延迟初始化
+
+        if self._headroom_enabled:
+            try:
+                from src.middleware.compression_engine import CompressionEngine
+                self._compression_engine = CompressionEngine.get_instance()
+                logger.info(
+                    "[ContextWindow] 统一压缩引擎已启用 "
+                    "(wrap=%s, micro=%s, auto_precompress=%s, min_chars=%d, max_ratio=%.2f)",
+                    headroom_in_wrap, headroom_in_micro, headroom_in_auto_precompress,
+                    headroom_min_chars, headroom_max_ratio,
+                )
+            except Exception as e:
+                logger.warning("[ContextWindow] CompressionEngine 加载失败: %s", e)
+                self._compression_engine = None
 
         # 真实 token 跟踪（由 LLM 响应后通过 update_real_tokens 回填）
         self._last_real_prompt_tokens: int = 0
@@ -314,13 +351,31 @@ class ContextWindowMiddleware(AgentMiddleware):
         if tool_name in SKIP_COMPACT_TOOLS:
             return result
 
-        # ── 安全网: 仅对超大结果做紧急截断（正常结果完整保留）──
-        # 对齐 Hermes 设计: 当前轮次的工具结果 LLM 需要完整看到
-        # 延迟压缩在 before_model._deferred_compress 中对历史轮次处理
         content = getattr(result, "content", "")
         if not isinstance(content, str):
             content = str(content)
 
+        # ── 统一压缩引擎即时压缩（在安全网之前执行）──
+        # 对当前轮次的超大工具输出做结构保留式压缩
+        # SmartCrusher 处理 JSON、CodeCompressor 处理代码、LogCompressor 处理日志等
+        if (self._compression_engine and self._headroom_in_wrap
+                and len(content) >= self._headroom_min_chars):
+            from src.middleware.compression_engine import CompressLevel
+            cr = self._compression_engine.compress(
+                content=content,
+                tool_name=tool_name,
+                context=self._get_current_user_query(),
+                level=CompressLevel.LIGHT,
+            )
+            if cr.ratio < self._headroom_max_ratio:
+                original_len = len(content)
+                result.content = cr.content
+                content = cr.content  # 更新 content 供后续安全网检查
+                self._record_headroom_span(
+                    tool_name, original_len, cr.compressed_chars, cr.ratio, tool_call_id
+                )
+
+        # ── 安全网: Headroom 压缩后仍超上限时做紧急截断 ──
         if len(content) > self._safety_cap:
             original_len = len(content)
             # 超大结果: 代码提取摘要 → 截断兜底
@@ -340,6 +395,60 @@ class ContextWindowMiddleware(AgentMiddleware):
                                       tool_call_id=tool_call_id)
 
         return result
+
+    def _get_current_user_query(self) -> str:
+        """获取当前用户问题（用于 Headroom 相关性评分）
+
+        从 LangGraph configurable 或 tracing 中获取，降级返回空字符串。
+        """
+        try:
+            from langgraph.config import get_config
+            config = get_config()
+            # 优先从 configurable 中获取（由入口层设置）
+            query = config.get("configurable", {}).get("current_query", "")
+            if query:
+                return query
+        except Exception:
+            pass
+        return ""
+
+    def _record_headroom_span(
+        self, tool_name: str, original_len: int, compressed_len: int,
+        ratio: float, tool_call_id: str = "",
+    ) -> None:
+        """记录 Headroom 压缩 tracing span"""
+        try:
+            from src.middleware.tracing import tracing_middleware
+            tid = tracing_middleware._tid()
+            current_iteration = tracing_middleware._iter_count.get(tid, 0)
+            savings_pct = round((1 - ratio) * 100, 1)
+
+            tracing_middleware._add(
+                "headroom_compress", f"headroom:{tool_name}", 0,
+                metadata={
+                    "tool_name": tool_name,
+                    "tool_call_id": tool_call_id,
+                    "iteration": current_iteration,
+                },
+                input_data={
+                    "tool_name": tool_name,
+                    "original_chars": original_len,
+                    "tool_call_id": tool_call_id,
+                    "iteration": current_iteration,
+                },
+                output_data={
+                    "compressed_chars": compressed_len,
+                    "compression_ratio": f"{ratio:.2f}",
+                    "savings_pct": f"{savings_pct}%",
+                    "action": "headroom_compressed",
+                },
+                detail=(
+                    f"Headroom 压缩: {tool_name} "
+                    f"{original_len}→{compressed_len} chars (节省 {savings_pct}%)"
+                ),
+            )
+        except Exception:
+            pass  # tracing 失败不影响主流程
 
     async def _llm_summarize(self, content: str, tool_name: str, max_words: int) -> str | None:
         """使用辅助 LLM 生成摘要（Phase 1: 路由到 AUXILIARY 模型）"""
@@ -873,15 +982,37 @@ class ContextWindowMiddleware(AgentMiddleware):
         recent = messages[tail_start:]
         modified = False
         compacted = []
+        current_query = self._get_current_user_query()
 
         for msg in old_messages:
             if isinstance(msg, ToolMessage):
                 content = msg.content if isinstance(msg.content, str) else str(msg.content)
                 if len(content) > 200:
-                    # CRM 专用摘要模板（对齐 Hermes _summarize_tool_result）
-                    summary = _crm_tool_summary(msg)
+                    # ── 统一压缩引擎精细压缩（优先）→ 降级到 CRM 一行摘要 ──
+                    compressed_content = None
+
+                    if self._compression_engine and self._headroom_in_micro and len(content) >= self._headroom_min_chars:
+                        from src.middleware.compression_engine import CompressLevel
+                        cr = self._compression_engine.compress(
+                            content=content,
+                            tool_name=getattr(msg, "name", ""),
+                            context=current_query,
+                            level=CompressLevel.STANDARD,
+                        )
+                        if cr.ratio < 0.90:  # 有效压缩
+                            compressed_content = cr.content
+
+                    # 降级：CompressionEngine 不可用 / 内容太短 / 压缩无效 → SUMMARY_ONLY
+                    if compressed_content is None:
+                        from src.middleware.compression_engine import CompressLevel as _CL
+                        fallback_cr = CompressionEngine.get_instance().compress(
+                            content, tool_name=getattr(msg, "name", ""),
+                            level=_CL.SUMMARY_ONLY,
+                        )
+                        compressed_content = fallback_cr.content
+
                     compacted.append(ToolMessage(
-                        content=summary,
+                        content=compressed_content,
                         tool_call_id=getattr(msg, "tool_call_id", ""),
                         name=getattr(msg, "name", ""),
                     ))
@@ -971,11 +1102,20 @@ class ContextWindowMiddleware(AgentMiddleware):
         recent = messages[tail_start:]
 
         # *** 压缩前存档: 将即将被压缩的消息建立索引（供 recall_context 恢复）***
+        # 注意：存档使用原始消息（未经预压缩），确保 recall 时可恢复完整原文
         if self._current_thread_id:
             self._archive.index_messages(to_summarize, self._current_thread_id, base_msg_index=head_end)
 
+        # ── 统一压缩引擎预压缩：减少 LLM 摘要输入 token ──
+        # 目的：降低 50-60% LLM 输入成本
+        # 原始消息已存档到 VDB，预压缩仅影响 LLM 看到的文本
+        if self._compression_engine and self._headroom_in_auto_precompress:
+            to_summarize_for_llm = self._engine_pre_compress(to_summarize)
+        else:
+            to_summarize_for_llm = to_summarize
+
         # 将 middle 区消息格式化为对话文本（供 LLM 摘要）
-        conversation_text = self._format_messages_for_summary(to_summarize)
+        conversation_text = self._format_messages_for_summary(to_summarize_for_llm)
         if not conversation_text.strip():
             return None
 
@@ -1091,6 +1231,40 @@ class ContextWindowMiddleware(AgentMiddleware):
         if not parts:
             return "[历史摘要] 无有效内容"
         return "[历史摘要 — LLM 不可用，行级截断]\n" + "\n".join(parts)
+
+    def _engine_pre_compress(self, messages: list) -> list:
+        """对消息列表中的 ToolMessage 做统一压缩引擎预压缩
+
+        用于 AutoCompact/FullCompact 送入 LLM 摘要前，减少 LLM 输入 token。
+        不修改原始消息列表（创建新列表）。
+
+        策略：
+        - 仅处理 ToolMessage（用户消息和 AI 消息保持完整送入 LLM）
+        - content > 500 字符才压缩（小内容不值得）
+        - 压缩失败时静默跳过（保持原文）
+        """
+        from src.middleware.compression_engine import CompressLevel
+
+        result = []
+        for msg in messages:
+            if isinstance(msg, ToolMessage):
+                content = getattr(msg, "content", "")
+                if isinstance(content, str) and len(content) > 500:
+                    cr = self._compression_engine.compress(
+                        content=content,
+                        tool_name=getattr(msg, "name", ""),
+                        context="",
+                        level=CompressLevel.STANDARD,
+                    )
+                    if cr.ratio < 0.85:
+                        result.append(ToolMessage(
+                            content=cr.content,
+                            tool_call_id=getattr(msg, "tool_call_id", ""),
+                            name=getattr(msg, "name", ""),
+                        ))
+                        continue
+            result.append(msg)
+        return result
 
     def _format_messages_for_summary(self, messages: list) -> str:
         """将消息列表格式化为带 turn_id 标注的对话文本（供 LLM 摘要使用）
@@ -1251,8 +1425,14 @@ class ContextWindowMiddleware(AgentMiddleware):
         if self._current_thread_id and to_summarize:
             self._archive.index_messages(to_summarize, self._current_thread_id, base_msg_index=head_end)
 
+        # ── 统一压缩引擎预压缩（FullCompact 也适用）──
+        if self._compression_engine and self._headroom_in_auto_precompress:
+            to_summarize_for_llm = self._engine_pre_compress(to_summarize)
+        else:
+            to_summarize_for_llm = to_summarize
+
         # 尝试 LLM 结构化摘要
-        conversation_text = self._format_messages_for_summary(to_summarize)
+        conversation_text = self._format_messages_for_summary(to_summarize_for_llm)
         focus_instruction = self._build_focus_topic_instruction()
 
         if conversation_text.strip():

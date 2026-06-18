@@ -83,15 +83,26 @@ class SSHBackend(Backend):
         effective_timeout = timeout or self.config.timeout
         result = await self._run_ssh_command(command, timeout=effective_timeout)
 
-        # 输出截断
+        # 输出截断：通过统一压缩引擎处理
         if len(result.stdout) > self.config.max_output_chars:
-            keep_head = int(self.config.max_output_chars * 0.4)
-            keep_tail = int(self.config.max_output_chars * 0.6)
-            result.stdout = (
-                result.stdout[:keep_head]
-                + "\n\n[OUTPUT TRUNCATED]\n\n"
-                + result.stdout[-keep_tail:]
-            )
+            try:
+                from src.middleware.compression_engine import compress, CompressLevel
+                cr = compress(
+                    result.stdout,
+                    tool_name="terminal",
+                    level=CompressLevel.LIGHT,
+                    max_chars=self.config.max_output_chars,
+                )
+                result.stdout = cr.content
+            except Exception:
+                # 降级：引擎不可用时用原始 head+tail 截断
+                keep_head = int(self.config.max_output_chars * 0.4)
+                keep_tail = int(self.config.max_output_chars * 0.6)
+                result.stdout = (
+                    result.stdout[:keep_head]
+                    + "\n\n[OUTPUT TRUNCATED]\n\n"
+                    + result.stdout[-keep_tail:]
+                )
 
         return result
 
