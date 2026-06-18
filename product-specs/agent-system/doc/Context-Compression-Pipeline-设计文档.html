@@ -45,6 +45,23 @@ tr:nth-child(even) { background: #f8f9fb; }
 .note { background: #f1f8ff; border-left: 4px solid #2d5a8e; padding: 8px 12px; margin: 10px 0; font-size: 12px; }
 .code { font-family: 'JetBrains Mono', monospace; font-size: 11px; background: #f1f3f5; padding: 1px 5px; border-radius: 3px; }
 footer { text-align: center; color: #aaa; font-size: 10px; margin-top: 24px; padding-top: 10px; border-top: 1px solid #eee; }
+pre { background: #1e1e2e; color: #cdd6f4; padding: 12px 16px; border-radius: 6px; margin: 8px 0; overflow-x: auto; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; line-height: 1.5; }
+pre .comment { color: #6c7086; }
+pre .keyword { color: #cba6f7; }
+pre .string { color: #a6e3a1; }
+pre .number { color: #fab387; }
+.algo-block { border: 2px solid #2d5a8e; border-radius: 8px; padding: 14px; margin: 12px 0; background: #fafbfc; }
+.algo-block h4 { color: #2d5a8e; margin: 0 0 8px; font-size: 13px; }
+.path-card { border: 1px solid #dee2e6; border-radius: 6px; padding: 12px 14px; margin: 10px 0; border-left: 4px solid #e63946; }
+.path-card h4 { margin: 0 0 6px; color: #e63946; font-size: 13px; }
+.formula { background: #f8f9fa; border: 1px solid #e8e8e8; border-radius: 4px; padding: 6px 12px; margin: 6px 0; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.note-warn { background: #fff8e1; border-left: 4px solid #ffc107; padding: 8px 12px; margin: 10px 0; font-size: 12px; }
+.note-green { background: #e8f5e9; border-left: 4px solid #4caf50; padding: 8px 12px; margin: 10px 0; font-size: 12px; }
+.flow-box { border: 1px solid #dee2e6; border-radius: 6px; padding: 14px; margin: 10px 0; background: #fdfdfd; }
+.flow-step { display: flex; align-items: flex-start; margin: 6px 0; }
+.flow-num { min-width: 24px; height: 24px; border-radius: 50%; background: #2d5a8e; color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; margin-right: 10px; flex-shrink: 0; }
+.flow-content { flex: 1; font-size: 12px; }
+.flow-arrow { text-align: center; color: #2d5a8e; font-size: 14px; margin: 2px 0; }
 @media print { .page { box-shadow: none; margin: 0; } body { background: white; } }
 </style>
 </head>
@@ -443,6 +460,638 @@ class RecommendationEngine:
 </table>
 
 <footer>Context Compression Pipeline v1.0 — LightKompress vs BERT Kompress 对比分析</footer>
+</div>
+
+<!-- ═══════════════════════════════════════════ PAGE 4 ═══════════════════════════════════════════ -->
+<div class="page">
+<div class="title-bar">
+<h1>LightKompress 详细实现逻辑 — 六阶段压缩流程</h1>
+<p class="subtitle">替代 Headroom Kompress (ModernBERT) 的轻量级文本压缩方案 — 完整算法实现</p>
+</div>
+
+<h2>一、六阶段压缩流程总览</h2>
+<div class="flow-box">
+<div class="flow-step"><div class="flow-num">0</div><div class="flow-content"><strong>前置检查</strong> — 空文本 / 短文本(&lt;100字符) / ≤3句 → 直接返回不压缩</div></div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step"><div class="flow-num">1</div><div class="flow-content"><strong>路径 C: 填充短语预删除</strong> — 扫描全文删除零信息量的填充短语（中英文各30+条），清理多余标点</div></div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step"><div class="flow-num">2</div><div class="flow-content"><strong>智能分句</strong> — 三级降级策略：标点切分 → 逗号降级 → 固定窗口降级（处理无标点/OCR文本）</div></div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step"><div class="flow-num">3</div><div class="flow-content"><strong>六维度评分</strong> — TF-IDF + 位置 + 实体密度 + 上下文相关 + 信息密度 + 技术标识符</div></div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step"><div class="flow-num">4</div><div class="flow-content"><strong>动态选句</strong> — 路径A硬约束保护 + 路径B冗余检测 + 路径D自适应target + 贪心选句</div></div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step"><div class="flow-num">5</div><div class="flow-content"><strong>句内精简</strong> — 对保留的长句(>100字符)做子句级评分选择 + 激进模式词级去冗余</div></div>
+</div>
+
+<h2>二、核心入口参数</h2>
+<table>
+<tr><th>参数</th><th>类型</th><th>默认值</th><th>含义</th></tr>
+<tr><td><code>text</code></td><td>str</td><td>—</td><td>待压缩的文本内容</td></tr>
+<tr><td><code>context</code></td><td>str</td><td>""</td><td>用户当前问题（用于维度4相关性加分）</td></tr>
+<tr><td><code>bias</code></td><td>float</td><td>1.0</td><td>&gt;1 保守保留更多，&lt;1 激进压缩更多</td></tr>
+<tr><td><code>target_ratio</code></td><td>float</td><td>0.5</td><td>目标保留比例（0.5 = 保留50%字符）</td></tr>
+</table>
+<div class="note">
+<strong>bias 推荐值：</strong>LIGHT级=1.2（当前轮次保守），STANDARD级=1.0（历史轮次），AGGRESSIVE级=0.7（Skill内部激进压缩）
+</div>
+
+<h2>三、阶段 1: 填充短语预删除（路径 C）</h2>
+<div class="note" style="background:#f1f8ff">
+<strong>语言学共识：</strong>这些短语永远不承载实质信息，删除不改变事实含义。在分句之前执行可避免它们占据句子配额。
+</div>
+
+<h3>中文填充短语（示例）</h3>
+<table>
+<tr><th>类别</th><th>短语列表</th></tr>
+<tr><td>分析类</td><td><code>经过详细分析</code>、<code>经过详细的分析和研究</code>、<code>经过我们团队长时间的深入研究和全面调研</code></td></tr>
+<tr><td>总结类</td><td><code>总的来说</code>、<code>总体来看</code>、<code>综上所述</code>、<code>综合来看</code></td></tr>
+<tr><td>强调类</td><td><code>值得注意的是</code>、<code>值得一提的是</code>、<code>值得特别关注的是</code></td></tr>
+<tr><td>说明类</td><td><code>需要说明的是</code>、<code>需要指出的是</code>、<code>需要特别说明的是</code></td></tr>
+<tr><td>角度类</td><td><code>从目前的情况来看</code>、<code>从技术角度来看</code>、<code>从长远来看</code>、<code>从宏观层面来看</code></td></tr>
+</table>
+
+<h3>英文填充短语（示例）</h3>
+<table>
+<tr><th>类别</th><th>短语列表</th></tr>
+<tr><td>注释类</td><td><code>it is worth noting that</code>、<code>it should be mentioned that</code>、<code>it is important to note that</code></td></tr>
+<tr><td>常识类</td><td><code>as we all know</code>、<code>as everyone knows</code>、<code>needless to say</code></td></tr>
+<tr><td>营销类</td><td><code>we are extremely pleased to announce</code>、<code>we are absolutely thrilled to present</code></td></tr>
+<tr><td>转述类</td><td><code>in other words</code>、<code>to put it simply</code>、<code>broadly speaking</code></td></tr>
+</table>
+
+<h3>后处理逻辑</h3>
+<pre><span class="comment"># 删除后清理产生的连续标点和空格</span>
+cleaned = re.sub(r<span class="string">'[，,]{2,}'</span>, <span class="string">'，'</span>, cleaned)
+cleaned = re.sub(r<span class="string">'[。]{2,}'</span>, <span class="string">'。'</span>, cleaned)
+cleaned = re.sub(r<span class="string">'\s{2,}'</span>, <span class="string">' '</span>, cleaned)
+<span class="comment"># 如果清理后太短(&lt;100字符)，回退到原文</span></pre>
+
+<h2>四、阶段 2: 智能分句（三级降级策略）</h2>
+<div class="algo-block">
+<h4>Level 1: 标准标点分句</h4>
+<p>按 <code>。！？；\n</code> 和英文 <code>.!?</code> 后空格分割，过滤 &lt;5 字符的碎片</p>
+<div class="formula">正则: <code>([。！？；\n]|(?&lt;=[.!?])\s+)</code></div>
+<p>退出条件：分句结果 &gt; 2 句 → 使用此结果</p>
+</div>
+<div class="algo-block">
+<h4>Level 2: 逗号降级分句</h4>
+<p>按 <code>，,、</code> 分割，合并分隔符到前一个片段</p>
+<div class="formula">触发: Level 1 结果 ≤ 2 句 <strong>且</strong> 平均句长 &gt; 80 字符</div>
+<p>退出条件：分句结果 &gt; 2 句 → 使用此结果</p>
+</div>
+<div class="algo-block">
+<h4>Level 3: 固定窗口分句</h4>
+<p>在 jieba 词边界处按 ~60 字符窗口切割，最后片段 &lt;15 字符则合并到上一段</p>
+<div class="formula">触发: Level 2 后仍 ≤ 2 句 <strong>且</strong> 文本长度 &gt; 150 字符</div>
+<p>退出：切割后 &gt; 2 段 → 使用；否则返回整个文本作为单句</p>
+</div>
+<div class="note">
+<strong>设计意图：</strong>L1 处理标准文本，L2 处理逗号分隔的无句号长段落，L3 兜底处理 OCR/API 返回的无标点纯文本块。
+</div>
+
+<footer>Context Compression Pipeline v1.0 — LightKompress 详细实现 — 第 4 页</footer>
+</div>
+
+<!-- ═══════════════════════════════════════════ PAGE 5 ═══════════════════════════════════════════ -->
+<div class="page">
+<div class="title-bar">
+<h1>LightKompress — 阶段 3: 六维度评分体系</h1>
+<p class="subtitle">对每个句子计算加权重要性分数，决定保留优先级</p>
+</div>
+
+<h2>评分总览</h2>
+<table>
+<tr><th>维度</th><th>权重</th><th>计算方式</th><th>设计目的</th></tr>
+<tr><td>1. TF-IDF 关键词</td><td>×3.0</td><td>Σ(词TF-IDF权重) / √(词数+1)</td><td>识别主题核心句</td></tr>
+<tr><td>2. 位置加权</td><td>+2.5/1.8/1.5/1.0</td><td>首句/次句/末句/前4句 固定加分</td><td>保留开头结论和总结</td></tr>
+<tr><td>3. 实体密度</td><td>×4.0 + base 3.0</td><td>13条正则命中数 × 4 + 3</td><td>保护关键数据不被删除</td></tr>
+<tr><td>4. 上下文相关</td><td>×3.0</td><td>句子与用户问题的内容词交集大小</td><td>保留与当前问题相关的内容</td></tr>
+<tr><td>5. 信息密度</td><td>×2.0</td><td>实词占比 = 非停用词/总词数</td><td>过滤废话/过渡句</td></tr>
+<tr><td>6. 技术标识符</td><td>×2.0 + base 2.0</td><td>技术模式命中数 × 2 + 2</td><td>保护代码/配置/协议等技术细节</td></tr>
+</table>
+
+<h2>维度 1: TF-IDF 关键词密度</h2>
+<div class="algo-block">
+<h4>算法步骤</h4>
+<pre><span class="comment"># 1. 对全文提取 TOP50 关键词及其 TF-IDF 权重</span>
+keywords = jieba.analyse.extract_tags(full_text, topK=<span class="number">50</span>, withWeight=<span class="keyword">True</span>)
+keyword_weights = {word: weight <span class="keyword">for</span> word, weight <span class="keyword">in</span> keywords}
+
+<span class="comment"># 2. 对每个句子计算关键词得分</span>
+<span class="keyword">for</span> i, sent <span class="keyword">in</span> enumerate(sentences):
+    words = jieba.cut(sent)
+    kw_score = sum(keyword_weights.get(w, <span class="number">0</span>) <span class="keyword">for</span> w <span class="keyword">in</span> words)
+    scores[i] += (kw_score / math.sqrt(len(words) + <span class="number">1</span>)) * <span class="number">3.0</span></pre>
+<div class="formula">公式: score_tfidf[i] = ( Σ TF-IDF(word) for word in sentence ) / √(|words| + 1) × 3.0</div>
+<p style="font-size:11px; color:#555">除以 √(词数+1) 的目的：归一化，避免长句因词多而占优</p>
+</div>
+
+<h2>维度 2: 位置加权</h2>
+<div class="algo-block">
+<h4>固定加分规则</h4>
+<table>
+<tr><th>位置</th><th>加分</th><th>理由</th></tr>
+<tr><td>首句 (i=0)</td><td>+2.5</td><td>通常包含核心结论或主题句</td></tr>
+<tr><td>次句 (i=1)</td><td>+1.8</td><td>对首句的补充说明，常含关键数据</td></tr>
+<tr><td>末句 (i=n-1)</td><td>+1.5</td><td>结论/建议/总结句</td></tr>
+<tr><td>前4句 (i≤3)</td><td>+1.0</td><td>前置信息通常较重要</td></tr>
+</table>
+</div>
+
+<h2>维度 3: 实体/数字密度（核心维度）</h2>
+<div class="algo-block">
+<h4>13 条正则保护模式</h4>
+<table>
+<tr><th>#</th><th>模式</th><th>匹配目标</th><th>示例</th></tr>
+<tr><td>1</td><td><code>\d[\d,.]*\s*%</code></td><td>百分比</td><td>23%, 3.2%</td></tr>
+<tr><td>2</td><td><code>[\$¥￥]\s*[\d,.]+[KMB万亿]?</code></td><td>金额</td><td>$12.4M, ¥5,680万</td></tr>
+<tr><td>3</td><td><code>\d{4}[-/]\d{1,2}[-/]\d{1,2}</code></td><td>日期</td><td>2024-09-15</td></tr>
+<tr><td>4</td><td><code>\d+[.:]\d+(?:[.:]\d+)?</code></td><td>时间/版本号</td><td>14:23, 3.2.1</td></tr>
+<tr><td>5</td><td><code>\d[\d,.]+[KMBGTkmbgt]?\w*</code></td><td>数字+单位</td><td>280万, 1000ms</td></tr>
+<tr><td>6</td><td><code>[A-Z][a-z]+(?:[A-Z][a-z]+)+</code></td><td>驼峰标识符</td><td>PreparedStatement</td></tr>
+<tr><td>7</td><td><code>[A-Z][A-Z0-9_]{2,}</code></td><td>全大写标识</td><td>HTTP, RBAC, JWT</td></tr>
+<tr><td>8</td><td><code>https?://\S+</code></td><td>URL</td><td>https://api.example.com</td></tr>
+<tr><td>9</td><td><code>/[a-z0-9][\w/.-]+</code></td><td>URL路径</td><td>/api/v2/dashboard</td></tr>
+<tr><td>10</td><td><code>[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.</code></td><td>邮箱</td><td>admin@company.com</td></tr>
+<tr><td>11</td><td><code>[a-z_]+=[a-zA-Z0-9_.]+</code></td><td>配置参数</td><td>max_connections=500</td></tr>
+<tr><td>12</td><td><code>[a-z_]+:[a-z_]+\([a-z_]+\)</code></td><td>权限表达式</td><td>read:opportunity(own)</td></tr>
+<tr><td>13</td><td><code>[A-Z][\w-]*\.\w+[:]\d+</code></td><td>类.方法:行号</td><td>Dashboard.jsx:47</td></tr>
+</table>
+<div class="formula">score_entity[i] = hits × 4.0 + 3.0 (当 hits &gt; 0 时)</div>
+<p style="font-size:11px; color:#555">每个实体命中贡献 4 分 + 基础分 3，使含数据的句子得分远高于纯叙述句。</p>
+</div>
+
+<footer>Context Compression Pipeline v1.0 — LightKompress 详细实现 — 第 5 页</footer>
+</div>
+
+<!-- ═══════════════════════════════════════════ PAGE 6 ═══════════════════════════════════════════ -->
+<div class="page">
+<div class="title-bar">
+<h1>LightKompress — 维度 4-6 + 综合评分</h1>
+<p class="subtitle">上下文相关性 · 信息密度 · 技术标识符 · 停用词表设计</p>
+</div>
+
+<h2>维度 4: 上下文相关性</h2>
+<div class="algo-block">
+<h4>算法：句子与用户问题的词交集</h4>
+<pre><span class="comment"># 用户问题分词 → 去停用词 → 取长度&gt;1的词</span>
+context_words = set(jieba.cut(context)) - STOP_WORDS
+context_words = {w <span class="keyword">for</span> w <span class="keyword">in</span> context_words <span class="keyword">if</span> len(w) > <span class="number">1</span>}
+
+<span class="comment"># 计算每个句子与问题的词重叠数</span>
+<span class="keyword">for</span> i, sent <span class="keyword">in</span> enumerate(sentences):
+    sent_words = set(jieba.cut(sent))
+    overlap = len(context_words &amp; sent_words)
+    <span class="keyword">if</span> overlap:
+        scores[i] += overlap * <span class="number">3.0</span></pre>
+<div class="formula">score_context[i] = |context_words ∩ sent_words| × 3.0</div>
+<p style="font-size:11px; color:#555">当 context="" 时此维度不生效。当用户问"为什么超时"时，含"超时""错误"的句子获得加分。</p>
+</div>
+
+<h2>维度 5: 信息密度</h2>
+<div class="algo-block">
+<h4>算法：实词占比</h4>
+<pre><span class="comment"># 实词 = 非停用词 且 长度&gt;1 的词</span>
+content_words = [w <span class="keyword">for</span> w <span class="keyword">in</span> words
+                 <span class="keyword">if</span> w.strip() <span class="keyword">and</span> len(w.strip()) > <span class="number">1</span>
+                 <span class="keyword">and</span> w <span class="keyword">not in</span> STOP_WORDS]
+density = len(content_words) / (len(words) + <span class="number">1</span>)
+scores[i] += density * <span class="number">2.0</span></pre>
+<div class="formula">score_density[i] = |content_words| / (|words| + 1) × 2.0</div>
+<p style="font-size:11px; color:#555">废话/过渡句中停用词占比高、实词密度低，得分自然低于信息密集句。</p>
+</div>
+
+<h2>维度 6: 技术标识符密度</h2>
+<div class="algo-block">
+<h4>复合正则匹配模式</h4>
+<table>
+<tr><th>模式</th><th>匹配目标</th><th>示例</th></tr>
+<tr><td><code>[A-Z][A-Z0-9_]{2,}</code></td><td>全大写标识符</td><td>HTTP, RBAC, SAML</td></tr>
+<tr><td><code>[a-z]+_[a-z_]+</code></td><td>snake_case</td><td>max_connections, client_id</td></tr>
+<tr><td><code>[a-z]+\.[a-z]+\(</code></td><td>方法调用</td><td>pool.return(), cache.get(</td></tr>
+<tr><td><code>/[a-z0-9/_-]+(?:\.[a-z]+)?</code></td><td>URL路径</td><td>/api/v2/stats</td></tr>
+<tr><td><code>[A-Z][a-z]+(?:[A-Z][a-z]+)+</code></td><td>CamelCase</td><td>PreparedStatement</td></tr>
+<tr><td><code>\b\d+[A-Z]+\d*[A-Z]*\b</code></td><td>规格标识</td><td>8C32G, 16C64G</td></tr>
+<tr><td><code>(?:v\d+\.?\d*)</code></td><td>版本号</td><td>v2.3, v3.1</td></tr>
+</table>
+<div class="formula">score_tech[i] = tech_hits × 2.0 + 2.0 (当 tech_hits &gt; 0 时)</div>
+</div>
+
+<h2>停用词表</h2>
+<div class="card-grid">
+<div class="card">
+<div class="card-title">中文停用词（68个）</div>
+<p style="font-size:10px; line-height:1.7">
+<code>的 了 在 是 我 有 和 就 不 人 都 一 一个 上 也 很 到 说 要 去 你 会 着 没有 看 好 自己 这 他 她 它 们 那 所以 因为 但是 而且 或者 如果 虽然 不过 其实 然后 这样 那么 可以 已经 还是 只是 值得注意的是 需要指出的是 总的来说 综上所述 对于 关于 通过 进行 以及 同时 目前 其中 主要 根据 由于 为了 能够 应该 比较 非常</code>
+</p>
+</div>
+<div class="card">
+<div class="card-title">英文停用词（51个）</div>
+<p style="font-size:10px; line-height:1.7">
+<code>the a an is are was were be been have has had do does did will would could should may might shall can and or but if then else when at by for with about between through of to in on from that this it not no so as more also very just</code>
+</p>
+</div>
+</div>
+
+<h2>综合得分计算</h2>
+<div class="note-green">
+<strong>最终得分 = </strong>score_tfidf + score_position + score_entity + score_context + score_density + score_tech<br>
+<strong>分数范围：</strong>典型值 0-30。含关键实体的技术句通常 &gt;15 分，纯过渡句通常 &lt;5 分。
+</div>
+
+<footer>Context Compression Pipeline v1.0 — LightKompress 详细实现 — 第 6 页</footer>
+</div>
+
+<!-- ═══════════════════════════════════════════ PAGE 7 ═══════════════════════════════════════════ -->
+<div class="page">
+<div class="title-bar">
+<h1>LightKompress — 阶段 4: 动态选句</h1>
+<p class="subtitle">四条路径协同：硬约束保护 + 冗余检测 + 自适应target + 贪心选句</p>
+</div>
+
+<h2>路径 A: 硬约束保护（不可删句子）</h2>
+<div class="path-card">
+<h4>路径 A — 实体保护前置</h4>
+<p><strong>规则：</strong>含任意正则实体命中的句子，标记为 <code>protected</code>，无条件保留</p>
+<pre><span class="keyword">for</span> i, sent <span class="keyword">in</span> enumerate(sentences):
+    <span class="keyword">if</span> any(pattern.search(sent) <span class="keyword">for</span> pattern <span class="keyword">in</span> MUST_KEEP_PATTERNS):
+        protected_indices.add(i)</pre>
+<div class="note">
+<strong>与维度 3 的区别：</strong>维度 3 是"加分"（让含实体句更可能被选中），路径 A 是"硬约束"（即使分数不够也必须保留）。双重保障确保关键数据零丢失。
+</div>
+</div>
+
+<h2>路径 B: 冗余句检测</h2>
+<div class="path-card">
+<h4>路径 B — Jaccard 相似度去重</h4>
+<p><strong>规则：</strong>相邻 3 句范围内，Jaccard &gt; 0.5 标记后面的为冗余</p>
+<pre><span class="keyword">for</span> i <span class="keyword">in</span> range(len(sentences) - <span class="number">1</span>):
+    words_i = set(jieba.cut(sentences[i])) - STOP_WORDS
+    words_i = {w <span class="keyword">for</span> w <span class="keyword">in</span> words_i <span class="keyword">if</span> len(w) > <span class="number">1</span>}
+    <span class="keyword">for</span> j <span class="keyword">in</span> range(i+<span class="number">1</span>, min(i+<span class="number">3</span>, len(sentences))):
+        words_j = set(jieba.cut(sentences[j])) - STOP_WORDS
+        words_j = {w <span class="keyword">for</span> w <span class="keyword">in</span> words_j <span class="keyword">if</span> len(w) > <span class="number">1</span>}
+        jaccard = len(words_i &amp; words_j) / len(words_i | words_j)
+        <span class="keyword">if</span> jaccard > <span class="number">0.5</span>:
+            redundant.add(j)  <span class="comment"># 删后面的，保前面的</span></pre>
+<div class="formula">Jaccard(i, j) = |words_i ∩ words_j| / |words_i ∪ words_j| &gt; 0.5 → 冗余</div>
+</div>
+
+<h2>路径 D: 自适应 target_ratio</h2>
+<div class="path-card">
+<h4>路径 D — 根据信息密度动态调整压缩目标</h4>
+<pre><span class="comment"># 计算全文信息密度</span>
+all_words = jieba.cut(cleaned_text)
+content_words = [w <span class="keyword">for</span> w <span class="keyword">in</span> all_words <span class="keyword">if</span> len(w)><span class="number">1</span> <span class="keyword">and</span> w <span class="keyword">not in</span> STOP_WORDS]
+info_density = len(content_words) / (len(all_words) + <span class="number">1</span>)
+
+<span class="comment"># 映射到 [0.35, 0.85]：密度高→保留多，密度低→压缩多</span>
+adaptive_ratio = <span class="number">0.35</span> + info_density * <span class="number">0.5</span>
+
+<span class="comment"># 取 adaptive 和 user_target 中更激进（更小）的那个</span>
+effective_target = min(target_ratio * bias, adaptive_ratio)
+effective_target = max(<span class="number">0.30</span>, min(<span class="number">0.85</span>, effective_target))
+target_chars = int(len(cleaned_text) * effective_target)</pre>
+<table>
+<tr><th>文本类型</th><th>info_density</th><th>adaptive_ratio</th><th>实际效果</th></tr>
+<tr><td>高密度技术文档</td><td>~0.7</td><td>0.70</td><td>保留70%，少压缩</td></tr>
+<tr><td>标准业务报告</td><td>~0.5</td><td>0.60</td><td>保留50-60%</td></tr>
+<tr><td>冗余叙述文本</td><td>~0.3</td><td>0.50</td><td>保留35-50%，多压缩</td></tr>
+</table>
+</div>
+
+<h2>贪心选句主逻辑</h2>
+<div class="algo-block">
+<h4>选句算法伪代码</h4>
+<pre><span class="comment"># Step 1: 保护句必选（路径 A）</span>
+kept_indices = protected_indices.copy()
+kept_chars = sum(len(sentences[i]) <span class="keyword">for</span> i <span class="keyword">in</span> protected_indices)
+
+<span class="comment"># Step 2: 非保护句按分数降序排列</span>
+deletable = [(i, scores[i]) <span class="keyword">for</span> i <span class="keyword">if</span> i <span class="keyword">not in</span> protected_indices]
+deletable.sort(key=score, reverse=<span class="keyword">True</span>)  <span class="comment"># 高分优先保留</span>
+
+<span class="comment"># Step 3: 贪心填充到目标字符数</span>
+<span class="keyword">for</span> idx, _ <span class="keyword">in</span> deletable:
+    <span class="keyword">if</span> kept_chars >= target_chars: <span class="keyword">break</span>
+    <span class="keyword">if</span> idx <span class="keyword">in</span> redundant_indices: <span class="keyword">continue</span>  <span class="comment"># 路径B: 跳过冗余句</span>
+    kept_indices.add(idx)
+    kept_chars += len(sentences[idx])
+
+<span class="comment"># Step 4: 保底 — 确保 TOP2 高分句被保留</span>
+top2 = sorted(range(n), key=<span class="keyword">lambda</span> i: scores[i], reverse=<span class="keyword">True</span>)[:<span class="number">2</span>]
+<span class="keyword">for</span> idx <span class="keyword">in</span> top2: kept_indices.add(idx)
+
+<span class="comment"># Step 5: 按原始顺序拼接保留句</span>
+compressed = <span class="string">""</span>.join(sentences[i] <span class="keyword">for</span> i <span class="keyword">in</span> sorted(kept_indices))</pre>
+</div>
+
+<div class="note">
+<strong>顺序保持原则：</strong>选句后按原始位置索引排序拼接，不打乱文本逻辑顺序，确保输出可读性。
+</div>
+
+<footer>Context Compression Pipeline v1.0 — LightKompress 详细实现 — 第 7 页</footer>
+</div>
+
+<!-- ═══════════════════════════════════════════ PAGE 8 ═══════════════════════════════════════════ -->
+<div class="page">
+<div class="title-bar">
+<h1>LightKompress — 阶段 5: 句内精简 + 完整数据流</h1>
+<p class="subtitle">子句级二次压缩 · 端到端数据流图 · 核心设计决策</p>
+</div>
+
+<h2>阶段 5: 句内精简</h2>
+<div class="note-warn">
+<strong>触发条件：</strong>当句子级压缩后的 ratio &gt; effective_target × 0.85 时启动。即句子级选择未达到目标，需在句内进一步压缩。
+</div>
+
+<h3>子句级压缩（对 &gt;100 字符的长句）</h3>
+<div class="algo-block">
+<h4>步骤一：按子句边界分割</h4>
+<table>
+<tr><th>分割符类型</th><th>匹配内容</th></tr>
+<tr><td>标点分隔符</td><td><code>，</code> <code>,</code> <code>；</code> <code>;</code></td></tr>
+<tr><td>中文连接词</td><td><code>而且 但是 因为 虽然 另外 此外 同时 不过 然而</code></td></tr>
+<tr><td>英文连接词</td><td><code>which that and but or because although however moreover furthermore</code></td></tr>
+</table>
+</div>
+
+<div class="algo-block">
+<h4>步骤二：子句评分 + 贪心选择</h4>
+<pre><span class="comment"># 子句评分</span>
+<span class="keyword">for</span> clause <span class="keyword">in</span> merged_clauses:
+    score = <span class="number">0.0</span>
+    score += len(MUST_KEEP_PATTERNS.findall(clause)) * <span class="number">3.0</span>  <span class="comment"># 实体命中</span>
+    score += info_density(clause) * <span class="number">2.0</span>                    <span class="comment"># 信息密度</span>
+    <span class="keyword">if</span> len(clause) &lt; <span class="number">10</span>: score -= <span class="number">1.0</span>                     <span class="comment"># 极短惩罚</span>
+
+<span class="comment"># 贪心选择：始终保留第一个子句（含主语）</span>
+kept = {<span class="number">0</span>}
+target = int(len(sent) * min(target_ratio + <span class="number">0.1</span>, <span class="number">0.8</span>))
+<span class="comment"># 按分数降序加入直到达标</span></pre>
+</div>
+
+<h3>词级去冗余（激进模式: target_ratio &lt; 0.4）</h3>
+<pre><span class="keyword">if</span> target_ratio &lt; <span class="number">0.4</span>:
+    <span class="keyword">for</span> filler <span class="keyword">in</span> filler_phrases:
+        compressed = compressed.replace(filler, <span class="string">""</span>)
+    compressed = re.sub(r<span class="string">'，，+'</span>, <span class="string">'，'</span>, compressed)
+    compressed = re.sub(r<span class="string">'  +'</span>, <span class="string">' '</span>, compressed)</pre>
+
+<h2>完整数据流（端到端）</h2>
+<div class="flow-box" style="font-size:11px; line-height:1.7;">
+<pre style="background:white; color:#1a1a2e; border:none; padding:0; font-size:11px;">compress(text, context, bias=1.0, target_ratio=0.5)
+│
+├─ [Guard] len(text) &lt; 100 → return strategy="too_short"
+├─ [阶段1] 填充短语预删除 → cleaned_text (60+条中英文)
+├─ [阶段2] 智能分句 → sentences[] (L1标点→L2逗号→L3窗口)
+├─ [Guard] len(sentences) ≤ 3 → return "too_few_sentences"
+├─ [阶段3] 六维度评分 → scores[]
+│   ├─ 维度1: TF-IDF(×3) + 维度2: 位置(+2.5/1.8/1.5)
+│   ├─ 维度3: 实体(hits×4+3) + 维度4: 上下文(overlap×3)
+│   └─ 维度5: 密度(×2) + 维度6: 技术标识符(hits×2+2)
+├─ [阶段4] 动态选句
+│   ├─ 路径A: protected (含实体必留)
+│   ├─ 路径B: redundant (Jaccard&gt;0.5标记)
+│   ├─ 路径D: effective_target (自适应密度)
+│   └─ 贪心: protected→高分优先→跳冗余→TOP2保底→原序拼接
+├─ [阶段5] 句内精简 (ratio&gt;target×0.85时触发)
+│   ├─ 长句(&gt;100字符): 子句分割→评分→贪心选择
+│   └─ 激进(ratio&lt;0.4): 词级填充短语删除
+└─ return CompressResult(strategy="tfidf_textrank")</pre>
+</div>
+
+<h2>五大核心设计决策</h2>
+<table>
+<tr><th>#</th><th>设计决策</th><th>原因</th><th>Trade-off</th></tr>
+<tr><td>1</td><td><strong>确定性正则保护 &gt; 概率性模型预测</strong></td><td>关键数据 100% 不丢失</td><td>可能过度保护，降低压缩率</td></tr>
+<tr><td>2</td><td><strong>提取式 &gt; 生成式</strong></td><td>输出是原文子集，忠实度 100%</td><td>压缩率上限不如 LLM 摘要</td></tr>
+<tr><td>3</td><td><strong>三级降级分句</strong></td><td>兼容标准/无标点/超长复合句</td><td>L3 可能在不恰当位置断开</td></tr>
+<tr><td>4</td><td><strong>自适应 target_ratio</strong></td><td>密度高少压缩、废话多多压缩</td><td>增加 ~1ms 计算</td></tr>
+<tr><td>5</td><td><strong>零模型零 GPU</strong></td><td>部署成本为零，延迟确定性 &lt;20ms</td><td>无法做语义理解/同义判断</td></tr>
+</table>
+
+<h2>输出数据结构 CompressResult</h2>
+<table>
+<tr><th>字段</th><th>类型</th><th>含义</th></tr>
+<tr><td>compressed</td><td>str</td><td>压缩后的文本</td></tr>
+<tr><td>original_chars / compressed_chars</td><td>int</td><td>原文/压缩后字符数</td></tr>
+<tr><td>ratio</td><td>float</td><td>压缩比（compressed/original，&lt;1 表示有压缩）</td></tr>
+<tr><td>strategy</td><td>str</td><td>too_short / too_few_sentences / filler_removal / tfidf_textrank</td></tr>
+<tr><td>duration_ms</td><td>float</td><td>处理耗时（毫秒）</td></tr>
+<tr><td>kept_sentences / total_sentences</td><td>int</td><td>保留句数 / 总句数</td></tr>
+<tr><td>savings_pct</td><td>property</td><td>节省百分比字符串，如 "35.2%"</td></tr>
+</table>
+
+<h2>已知限制与演进方向</h2>
+<table>
+<tr><th>限制</th><th>影响</th><th>演进方向</th></tr>
+<tr><td>压缩率上限 ~62%</td><td>不如 BERT 的 80%</td><td>优化 Jaccard 阈值 + 增强路径B</td></tr>
+<tr><td>recall 93.9%（非数字术语可能丢）</td><td>产品名/动词短语可能被删</td><td>扩展正则覆盖 + 自定义词典</td></tr>
+<tr><td>评分权重手动设定</td><td>换场景可能失效</td><td>自适应权重（按文本类型调整）</td></tr>
+<tr><td>无语义理解</td><td>无法识别同义重复</td><td>引入轻量 embedding 句间余弦</td></tr>
+<tr><td>子句分割依赖连接词</td><td>无连接词长句无法细分</td><td>引入依存句法分析</td></tr>
+</table>
+
+<footer>Context Compression Pipeline v1.0 — LightKompress 详细实现 — 第 8 页（完）</footer>
+</div>
+
+<!-- ═══════════════════════════════════════════ PAGE 9 ═══════════════════════════════════════════ -->
+<div class="page">
+<div class="title-bar">
+<h1>LLMLingua-2 语义压缩方案 — 评估与集成设计</h1>
+<p class="subtitle">基于 microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank 的 token 级语义压缩</p>
+</div>
+
+<h2>一、方案概述</h2>
+<div class="note">
+<strong>核心思路：</strong>将 prompt 压缩建模为 token classification 问题，用 BERT multilingual (110M参数) 双向编码后对每个 token 做保留/删除二分类。训练数据由 GPT-4 蒸馏而来（MeetingBank 数据集）。
+</div>
+
+<table>
+<tr><th>维度</th><th>LLMLingua-2 (mBERT-base)</th></tr>
+<tr><td>模型</td><td>bert-base-multilingual-cased (110M params, 709MB)</td></tr>
+<tr><td>论文</td><td>ACL 2024 (Pan et al.) — Data Distillation for Task-Agnostic Prompt Compression</td></tr>
+<tr><td>GitHub</td><td>microsoft/LLMLingua — 5.5k stars，持续维护</td></tr>
+<tr><td>中文支持</td><td>原生覆盖 104 种语言（含中文），预训练数据含中文 Wikipedia</td></tr>
+<tr><td>部署</td><td>CPU 可运行（~145ms/条），MPS/CUDA 更快（~15ms）</td></tr>
+<tr><td>安装</td><td><code>pip install llmlingua torch transformers</code></td></tr>
+</table>
+
+<h2>二、中文适配关键配置</h2>
+<pre>
+<span class="keyword">from</span> llmlingua <span class="keyword">import</span> PromptCompressor
+
+compressor = PromptCompressor(
+    model_name=<span class="string">"./models/llmlingua-2-bert-base-multilingual-cased-meetingbank"</span>,
+    use_llmlingua2=<span class="keyword">True</span>,
+    device_map=<span class="string">"mps"</span>,  <span class="comment"># Mac用mps，Linux用cuda，无GPU用cpu</span>
+)
+
+result = compressor.compress_prompt(
+    text,
+    rate=0.5,
+    force_tokens=[<span class="string">'。','？','！','；','，','\n'</span>,  <span class="comment"># 中文标点（语义边界）</span>
+                  <span class="string">'¥','$','￥'</span>,              <span class="comment"># 货币符号</span>
+                  <span class="string">'万','亿','%'</span>,             <span class="comment"># 金额/百分比单位</span>
+                  <span class="string">'=','/',':'</span>],             <span class="comment"># 配置/路径分隔符</span>
+    chunk_end_tokens=[<span class="string">'。','\n'</span>],
+    force_reserve_digit=<span class="keyword">True</span>,   <span class="comment"># 强制保留含数字的token</span>
+    drop_consecutive=<span class="keyword">True</span>,     <span class="comment"># 避免连续标点</span>
+)
+</pre>
+
+<div class="note">
+<strong>注意：</strong>本地模型目录名必须包含 <code>bert-base-multilingual-cased</code> 字符串，因为 LLMLingua 内部通过字符串匹配决定 tokenizer 处理逻辑。
+</div>
+
+<h2>三、后处理 Pipeline（解决中文空格 + 关键数据回补）</h2>
+<pre>
+<span class="keyword">import</span> re
+
+<span class="comment"># 1. 去除中文字符间多余空格</span>
+compressed = re.sub(r<span class="string">'(?&lt;=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])'</span>, <span class="string">''</span>, compressed)
+compressed = re.sub(r<span class="string">'(?&lt;=[\u4e00-\u9fff])\s+(?=[。？！；，：、])'</span>, <span class="string">''</span>, compressed)
+compressed = re.sub(r<span class="string">'(?&lt;=[。？！；，：、])\s+(?=[\u4e00-\u9fff])'</span>, <span class="string">''</span>, compressed)
+<span class="comment"># 2. 修复数字内部空格: "1, 234" → "1,234"  "3. 2" → "3.2"</span>
+compressed = re.sub(r<span class="string">'(\d)\s*,\s*(\d)'</span>, r<span class="string">'\1,\2'</span>, compressed)
+compressed = re.sub(r<span class="string">'(\d)\s*\.\s*(\d)'</span>, r<span class="string">'\1.\2'</span>, compressed)
+<span class="comment"># 3. 修复货币/单位粘连</span>
+compressed = re.sub(r<span class="string">'([¥$￥])\s*(\d)'</span>, r<span class="string">'\1\2'</span>, compressed)
+compressed = re.sub(r<span class="string">'([¥$￥]\d+)\s+(\d+)'</span>, r<span class="string">'\1\2'</span>, compressed)
+compressed = re.sub(r<span class="string">'(\d)\s+([万亿%条个项家分秒次])'</span>, r<span class="string">'\1\2'</span>, compressed)
+<span class="comment"># 4. 关键数据回补：检查金额/百分比是否丢失，追加到末尾</span>
+key_patterns = [r<span class="string">'[\$¥￥]\s*[\d,]+\.?\d*\s*[万亿KMB]?'</span>, r<span class="string">'\d+\.?\d*\s*%'</span>]
+missing = []
+<span class="keyword">for</span> pat <span class="keyword">in</span> key_patterns:
+    <span class="keyword">for</span> item <span class="keyword">in</span> re.findall(pat, original_text):
+        <span class="keyword">if</span> re.sub(r<span class="string">'\s'</span>,<span class="string">''</span>,item) <span class="keyword">not in</span> re.sub(r<span class="string">'\s'</span>,<span class="string">''</span>,compressed):
+            missing.append(item)
+<span class="keyword">if</span> missing:
+    compressed += <span class="string">" ["</span> + <span class="string">", "</span>.join(dict.fromkeys(missing)[:10]) + <span class="string">"]"</span>
+</pre>
+
+<h2>四、200 条用例评估结果</h2>
+<div class="metric-row">
+<div class="metric"><div class="metric-val">99.5%</div><div class="metric-lbl">通过率 (199/200)</div></div>
+<div class="metric"><div class="metric-val">87.8%</div><div class="metric-lbl">关键信息保留率</div></div>
+<div class="metric"><div class="metric-val">22.7%</div><div class="metric-lbl">平均压缩节省</div></div>
+<div class="metric"><div class="metric-val">145ms</div><div class="metric-lbl">平均延迟 (MPS)</div></div>
+</div>
+
+<table>
+<tr><th>类别</th><th>数量</th><th>通过率</th><th>压缩%</th><th>关键信息保留</th><th>延迟ms</th></tr>
+<tr><td>CRM业务报告</td><td>40</td><td><span class="tag tag-green">100%</span></td><td>24.8%</td><td><strong>100%</strong></td><td>148</td></tr>
+<tr><td>数据分析</td><td>15</td><td><span class="tag tag-green">100%</span></td><td>33.4%</td><td><strong>100%</strong></td><td>144</td></tr>
+<tr><td>会议纪要</td><td>30</td><td><span class="tag tag-green">100%</span></td><td>20.8%</td><td><strong>100%</strong></td><td>145</td></tr>
+<tr><td>长文档 (rate=0.33)</td><td>20</td><td><span class="tag tag-green">100%</span></td><td>54.3%</td><td><strong>100%</strong> (含回补)</td><td>144</td></tr>
+<tr><td>Agent对话</td><td>30</td><td><span class="tag tag-green">100%</span></td><td>16.1%</td><td>80%</td><td>143</td></tr>
+<tr><td>技术故障</td><td>30</td><td><span class="tag tag-green">100%</span></td><td>14.0%</td><td>76%</td><td>144</td></tr>
+<tr><td>客户沟通</td><td>20</td><td>95%</td><td>23.0%</td><td>63%</td><td>144</td></tr>
+<tr><td>系统配置 (短文本)</td><td>15</td><td><span class="tag tag-green">100%</span></td><td>-1.2%</td><td>75%</td><td>143</td></tr>
+</table>
+
+<h2>五、压缩效果示例</h2>
+<div class="example-box" style="border:1px solid #dee2e6; border-radius:6px; padding:12px; margin:10px 0;">
+<div style="font-size:11px; color:#666; margin-bottom:4px;"><strong>原文 (320字符, 316 tokens):</strong></div>
+<p style="font-size:11px; background:#f8f9fa; padding:8px; border-radius:4px;">2024年第三季度CRM系统运营报告总结如下。本季度系统共新增客户1,234家，其中大客户52家，中小客户1,182家。主要客户来源集中在华东和华南地区，华东地区贡献了45%的新增客户。总合同金额达到¥5,680万，同比增长23%，环比增长8%。值得注意的是，新签约的金融行业客户贡献了35%的增量收入……</p>
+<div style="font-size:11px; color:#666; margin:8px 0 4px;"><strong>压缩后 (197字符, 271 tokens, 节省14.2%):</strong></div>
+<p style="font-size:11px; background:#d4edda; padding:8px; border-radius:4px;">2024年三季度CRM系统。新增客户1,234家，大52家，中小1,182家。来源华东华南地区，45%户。合同金额¥5,680万，23%，8%。新金融行业户35%增量收入，Q2金融解方案。流失率，3.2%，4.1%。年合同金额低5万小客户。满意度，NPS评分42提至48分，产品功能满意度高，4.5分5。技术支持响应速度提升33%。</p>
+</div>
+
+<footer>Context Compression Pipeline v1.0 — LLMLingua-2 方案 — 第 9 页</footer>
+</div>
+
+<!-- ═══════════════════════════════════════════ PAGE 10 ═══════════════════════════════════════════ -->
+<div class="page">
+<div class="title-bar">
+<h1>LightKompress vs LLMLingua-2 vs BERT Kompress 三方对比</h1>
+<p class="subtitle">三种压缩方案的全面对比分析 — 能力 · 成本 · 场景适配</p>
+</div>
+
+<h2>一、基础能力对比</h2>
+<table>
+<tr><th>维度</th><th>LightKompress</th><th>LLMLingua-2 (mBERT)</th><th>BERT Kompress (ModernBERT)</th></tr>
+<tr><td>压缩原理</td><td>TF-IDF + 六维评分 + 正则保护</td><td>GPT-4蒸馏 → BERT做token分类</td><td>149M参数逐token预测keep/drop</td></tr>
+<tr><td>压缩粒度</td><td>句子级 + 子句级</td><td><strong>Token 级</strong></td><td><strong>Token 级</strong></td></tr>
+<tr><td>模型大小</td><td><strong>0 (jieba 15MB)</strong></td><td>709MB</td><td>600MB</td></tr>
+<tr><td>GPU 需求</td><td><strong>不需要</strong></td><td>不需要 (CPU可用)</td><td>需要</td></tr>
+<tr><td>推理延迟</td><td><strong>4-20ms</strong></td><td>140-150ms (MPS)</td><td>15-50ms (GPU)</td></tr>
+<tr><td>中文支持</td><td><strong>原生 (jieba)</strong></td><td>良好 (多语言预训练)</td><td>弱 (英文为主)</td></tr>
+<tr><td>关键数据安全</td><td><strong>确定性 (正则)</strong></td><td>概率性 + 后处理回补</td><td>概率性</td></tr>
+<tr><td>输出格式</td><td><strong>完整句子</strong></td><td>token片段 (需后处理去空格)</td><td>token片段</td></tr>
+<tr><td>压缩率 (中文长文本)</td><td>15-62%</td><td>22-55%</td><td><strong>50-80%</strong></td></tr>
+<tr><td>语义理解</td><td>无</td><td><strong>有 (双向attention)</strong></td><td><strong>有</strong></td></tr>
+<tr><td>可训练/微调</td><td>不可</td><td><strong>可（提供完整pipeline）</strong></td><td>可</td></tr>
+<tr><td>生态集成</td><td>自研</td><td><strong>LangChain / LlamaIndex</strong></td><td>自研</td></tr>
+</table>
+
+<h2>二、部署成本对比</h2>
+<table>
+<tr><th>资源</th><th>LightKompress</th><th>LLMLingua-2</th><th>BERT Kompress</th></tr>
+<tr><td>服务器规格</td><td>任意CPU</td><td>2C4G CPU 即可</td><td>GPU 实例 (4GB+ VRAM)</td></tr>
+<tr><td>内存占用</td><td>~80MB</td><td>~2GB</td><td>~2GB</td></tr>
+<tr><td>冷启动</td><td>~1s</td><td>~2s</td><td>~15s</td></tr>
+<tr><td>QPS (单实例)</td><td>~130/s</td><td>~7/s (CPU) / ~100/s (GPU)</td><td>~40/s (GPU)</td></tr>
+<tr><td>年成本 (估)</td><td><strong>$0</strong></td><td>~$0-500 (复用CPU)</td><td>~$3,000-8,000 (GPU)</td></tr>
+</table>
+
+<h2>三、场景适配矩阵</h2>
+<table>
+<tr><th>场景</th><th>推荐方案</th><th>原因</th></tr>
+<tr><td>Agent 上下文压缩（实时路径）</td><td><span class="tag tag-green">LightKompress</span></td><td>延迟要求极低(&lt;20ms)，确定性保证</td></tr>
+<tr><td>RAG 检索结果压缩</td><td><span class="tag tag-blue">LLMLingua-2</span></td><td>语义理解 + LangChain集成 + 效果最优</td></tr>
+<tr><td>离线批量文档压缩</td><td><span class="tag tag-blue">LLMLingua-2</span></td><td>不要求实时，压缩率高</td></tr>
+<tr><td>中文为主 + 数据安全优先</td><td><span class="tag tag-green">LightKompress</span></td><td>正则硬保护零丢失 + 中文原生</td></tr>
+<tr><td>追求极致压缩率 + 有GPU</td><td><span class="tag tag-orange">BERT Kompress</span></td><td>token级80%压缩</td></tr>
+<tr><td>需要自定义训练（领域适配）</td><td><span class="tag tag-blue">LLMLingua-2</span></td><td>提供完整的 GPT-4蒸馏 + 训练代码</td></tr>
+<tr><td>Serverless / 边缘部署</td><td><span class="tag tag-green">LightKompress</span></td><td>零依赖，冷启动1s</td></tr>
+</table>
+
+<h2>四、推荐组合方案</h2>
+<div class="pipeline-box">
+<div class="pipe-row">
+<span class="pipe-input"><strong>实时Agent路径</strong></span>
+<span class="pipe-arrow">→</span>
+<span class="pipe-engine" style="color:#e63946"><strong>LightKompress</strong></span>
+<span class="pipe-desc">延迟&lt;20ms，确定性保护</span>
+</div>
+<div class="pipe-row">
+<span class="pipe-input"><strong>RAG/离线批量</strong></span>
+<span class="pipe-arrow">→</span>
+<span class="pipe-engine" style="color:#2d5a8e"><strong>LLMLingua-2</strong></span>
+<span class="pipe-desc">语义压缩 + 关键数据回补</span>
+</div>
+<div class="pipe-row">
+<span class="pipe-input"><strong>极致压缩(有GPU)</strong></span>
+<span class="pipe-arrow">→</span>
+<span class="pipe-engine" style="color:#457b9d"><strong>BERT Kompress</strong></span>
+<span class="pipe-desc">token级80%压缩率</span>
+</div>
+</div>
+
+<h2>五、LLMLingua-2 已知限制</h2>
+<table>
+<tr><th>限制</th><th>影响</th><th>缓解方案</th></tr>
+<tr><td>输出带空格</td><td>中文字符间插入空格</td><td>后处理正则清理（已实现）</td></tr>
+<tr><td>中文专有名词可能被删</td><td>人名/公司名部分丢失</td><td>用中文语料重训练 / 加入force_tokens</td></tr>
+<tr><td>训练数据偏英文</td><td>中文虚词判断不如英文精准</td><td>用 LCSTS 等中文数据集蒸馏微调</td></tr>
+<tr><td>小数点可能被删</td><td>$0.12 → $012</td><td>关键数据回补兜底</td></tr>
+<tr><td>CPU延迟 140ms</td><td>不适合实时高频路径</td><td>GPU加速 / ONNX导出 / 用LightKompress替代实时路径</td></tr>
+<tr><td>目录名强依赖</td><td>本地路径必须含 bert-base-multilingual-cased</td><td>固定命名规范</td></tr>
+</table>
+
+<h2>六、演进路径</h2>
+<table>
+<tr><th>阶段</th><th>目标</th><th>方案</th></tr>
+<tr><td>当前 (v1.0)</td><td>验证可行性</td><td>直接使用 meetingbank 预训练模型 + 后处理</td></tr>
+<tr><td>v1.1</td><td>中文优化</td><td>用 LCSTS / 自有业务语料 + GPT-4 蒸馏重训练压缩器</td></tr>
+<tr><td>v1.2</td><td>生产部署</td><td>ONNX 导出 + FastAPI 微服务 + 动态 batching</td></tr>
+<tr><td>v2.0</td><td>混合压缩</td><td>LightKompress(实时) + LLMLingua-2(离线) 双模式自动切换</td></tr>
+</table>
+
+<footer>Context Compression Pipeline v1.0 — 三方对比分析 — 第 10 页（完）</footer>
 </div>
 
 </body>
