@@ -123,6 +123,56 @@ LEVEL_BIAS_MULTIPLIER: dict[CompressLevel, float] = {
 
 
 # ═══════════════════════════════════════════════════════════
+# LLMLingua-2 配置
+# ═══════════════════════════════════════════════════════════
+
+# 密度检测模式 — 匹配高信息密度 token（数值+单位、时间、IP、kv 赋值）
+# 密度超过阈值的文本不适合语义压缩
+LLMLINGUA_DENSITY_PATTERNS: list[str] = [
+    r'\d[\d,.]*\s*(?:ms|s|GB|MB|Mi|Gi|%|req/s)',   # 带单位数值
+    r'\d{1,2}:\d{2}',                               # 时间 HH:MM
+    r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}',         # IP 地址
+    r'[a-z_][\w.]*=[^\s,;]+',                       # key=value 赋值
+]
+
+# 密度 → rate 映射阈值
+LLMLINGUA_DENSITY_THRESHOLDS: dict[str, float] = {
+    "skip": 4.0,       # 超过此值 → 跳过压缩
+    "high": 2.5,       # 超过此值 → rate=0.75（保守）
+    "medium": 1.5,     # 超过此值 → rate=0.65（中等）
+    # 低于 medium → rate=0.5（标准）
+}
+
+LLMLINGUA_DENSITY_RATES: dict[str, float] = {
+    "high": 0.75,
+    "medium": 0.65,
+    "low": 0.5,
+}
+
+# 兜底回补模式 — 压缩后若丢失这些模式匹配的数据，则在末尾回补
+LLMLINGUA_RECOVER_PATTERNS: list[str] = [
+    r'[\$¥￥]\s*\d[\d,.]*',                          # 金额
+    r'\d+\.?\d*\s*%',                                 # 百分比
+    r'\d{1,2}:\d{2}(?::\d{2})?',                     # 时间
+    r'\d{4}-\d{2}-\d{2}',                            # 日期
+    r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}',          # IP
+    r'\d[\d,.]*\s*(?:ms|s|GB|MB|Gi|Mi)',             # 带单位数值
+]
+
+# 最多回补项数
+LLMLINGUA_RECOVER_MAX: int = 5
+
+# force_tokens — 压缩时强制保留的 token
+LLMLINGUA_FORCE_TOKENS: list[str] = [
+    '。', '？', '！', '；', '，', '：', '\n',  # 中文标点（语义边界）
+    '=', '_', '-',                              # 技术符号
+]
+
+# chunk 分割标记
+LLMLINGUA_CHUNK_END_TOKENS: list[str] = ['。', '？', '！', '；', '\n']
+
+
+# ═══════════════════════════════════════════════════════════
 # 统一压缩引擎
 # ═══════════════════════════════════════════════════════════
 
@@ -434,36 +484,48 @@ class CompressionEngine:
     def _try_llmlingua(
         self, content: str, context: str, bias: float
     ) -> tuple[str, float, str] | None:
-        """尝试 LLMLingua-2 语义压缩，返回 (compressed, ratio, strategy_name) 或 None
+        """LLMLingua-2 语义压缩 (XLM-RoBERTa-large)
 
-        LLMLingua-2 基于 GPT-4 蒸馏的 mBERT 模型做 token 级 keep/drop 预测，
-        支持 104 种语言（含中文），无需 GPU（CPU 可运行，~140ms/条）。
+        设计原则：
+          1. 密度检测 → 高密度文本跳过或保守压缩
+          2. force_tokens 中文标点保持语义边界
+          3. 兜底回补丢失的关键数值
 
-        已知问题与缓解：
-          - 小数点可能被删（$0.12 → $012）→ 预处理占位符保护 + 后处理校验回补
-          - 中文字符间多余空格 → 后处理正则清理
-          - 数字逗号分隔被切断（1, 234）→ 后处理修复
+        配置项（模块级常量，可按需调整）：
+          - LLMLINGUA_DENSITY_PATTERNS: 密度检测正则
+          - LLMLINGUA_DENSITY_THRESHOLDS: 密度阈值
+          - LLMLINGUA_DENSITY_RATES: 各密度档位对应 rate
+          - LLMLINGUA_FORCE_TOKENS: 强制保留 token
+          - LLMLINGUA_RECOVER_PATTERNS: 兜底回补正则
+          - LLMLINGUA_RECOVER_MAX: 最大回补项数
         """
         compressor = self._ensure_llmlingua()
         if compressor is None:
             return None
 
         try:
-            # bias → rate 映射：bias 越高保留越多
-            # bias=1.2(LIGHT) → rate=0.6, bias=1.0(STANDARD) → rate=0.5, bias=0.7(AGGRESSIVE) → rate=0.35
-            rate = min(0.8, max(0.3, 0.5 * bias))
+            # ── 步骤 1: 内容密度检测 → 动态 rate ──
+            compiled_density = [re.compile(p) for p in LLMLINGUA_DENSITY_PATTERNS]
+            entity_count = sum(len(p.findall(content)) for p in compiled_density)
+            density = entity_count / max(1, len(content) / 100)
 
-            # ── 预处理：保护小数点和关键数值 ──
-            # 将小数点替换为罕见占位符，防止 LLMLingua-2 误删
-            DECIMAL_PLACEHOLDER = "\u2299"  # ⊙ (U+2299)，不会出现在正常文本中
-            protected_content, _decimal_map = self._protect_decimals(content, DECIMAL_PLACEHOLDER)
+            if density > LLMLINGUA_DENSITY_THRESHOLDS["skip"]:
+                return None
+            elif density > LLMLINGUA_DENSITY_THRESHOLDS["high"]:
+                base_rate = LLMLINGUA_DENSITY_RATES["high"]
+            elif density > LLMLINGUA_DENSITY_THRESHOLDS["medium"]:
+                base_rate = LLMLINGUA_DENSITY_RATES["medium"]
+            else:
+                base_rate = LLMLINGUA_DENSITY_RATES["low"]
 
+            rate = min(0.85, max(0.35, base_rate * bias))
+
+            # ── 步骤 2: 调用 LLMLingua-2 ──
             result = compressor.compress_prompt(
-                protected_content,
+                content,
                 rate=rate,
-                force_tokens=['。', '？', '！', '；', '，', '：', '\n', DECIMAL_PLACEHOLDER],
-                chunk_end_tokens=['。', '？', '！', '；', '\n'],
-                force_reserve_digit=True,
+                force_tokens=LLMLINGUA_FORCE_TOKENS,
+                chunk_end_tokens=LLMLINGUA_CHUNK_END_TOKENS,
                 drop_consecutive=True,
             )
 
@@ -471,24 +533,10 @@ class CompressionEngine:
             if not compressed or not compressed.strip():
                 return None
 
-            # ── 后处理 ──
+            # ── 步骤 3: 轻量后处理 ──
+            compressed = re.sub(r'(?<=[。！？；])\s+(?=[\u4e00-\u9fff])', '', compressed)
 
-            # 1. 还原小数点占位符 → 恢复真实小数点
-            compressed = compressed.replace(DECIMAL_PLACEHOLDER, ".")
-
-            # 2. 中文空格清理
-            compressed = re.sub(r'(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])', '', compressed)
-            compressed = re.sub(r'(?<=[\u4e00-\u9fff])\s+(?=[，。？！；：])', '', compressed)
-            compressed = re.sub(r'(?<=[，。？！；：])\s+(?=[\u4e00-\u9fff])', '', compressed)
-
-            # 3. 修复数字/符号间的多余空格
-            compressed = re.sub(r'(\d)\s*,\s*(\d)', r'\1,\2', compressed)
-            compressed = re.sub(r'(\d)\s*\.\s*(\d)', r'\1.\2', compressed)
-            compressed = re.sub(r'(\d)\s*%', r'\1%', compressed)
-            compressed = re.sub(r'(\d)\s+([\u4e00-\u9fff])', r'\1\2', compressed)
-            compressed = re.sub(r'([\u4e00-\u9fff])\s+(\d)', r'\1\2', compressed)
-
-            # 4. 关键数值回补：校验原文中的数值是否在压缩结果中保留
+            # ── 步骤 4: 兜底回补 ──
             compressed = self._recover_missing_numbers(content, compressed)
 
             ratio = len(compressed) / len(content) if len(content) > 0 else 1.0
@@ -503,68 +551,54 @@ class CompressionEngine:
             return None
 
     @staticmethod
-    def _protect_decimals(content: str, placeholder: str) -> tuple[str, list[tuple[str, str]]]:
-        """预处理：将小数点替换为占位符，防止 LLMLingua-2 删除
-
-        匹配：数字.数字 (3.14, 0.12, 99.9, 192.168.1.1, v3.11.9)
-        """
-        decimal_map: list[tuple[str, str]] = []
-
-        def _replace(match):
-            original = match.group(0)
-            replaced = original.replace(".", placeholder)
-            decimal_map.append((original, replaced))
-            return replaced
-
-        protected = re.sub(r'\d+\.\d+(?:\.\d+)*', _replace, content)
-        return protected, decimal_map
-
-    @staticmethod
     def _recover_missing_numbers(original: str, compressed: str) -> str:
-        """后处理：校验原文中的关键数值是否在压缩结果中保留，缺失则回补
+        """兜底回补：检测压缩后丢失的关键数值并追加到末尾
 
-        检测模式：金额($0.12)、小数百分比(3.2%)、千分位(1,234)、普通小数(0.12)
+        使用 LLMLINGUA_RECOVER_PATTERNS 配置回补模式，
+        LLMLINGUA_RECOVER_MAX 控制最大回补项数。
         """
-        number_patterns = [
-            re.compile(r'[\$¥￥]\s*\d+\.\d+'),       # 金额 $0.12, ¥3.50
-            re.compile(r'\d+\.\d+\s*%'),               # 小数百分比 3.2%
-            re.compile(r'\d{1,3}(?:,\d{3})+'),         # 千分位 1,234
-            re.compile(r'\d+\.\d+'),                    # 普通小数 0.12
-        ]
+        compiled_recover = [re.compile(p) for p in LLMLINGUA_RECOVER_PATTERNS]
 
-        missing_numbers: list[str] = []
+        missing: list[str] = []
         normalized_compressed = re.sub(r'\s+', '', compressed)
 
-        for pattern in number_patterns:
+        for pattern in compiled_recover:
             for match in pattern.finditer(original):
                 value = match.group(0).strip()
-                normalized_value = re.sub(r'\s+', '', value)
-                if normalized_value not in normalized_compressed:
-                    missing_numbers.append(value)
+                if len(value) < 2:
+                    continue
+                if re.sub(r'\s+', '', value) not in normalized_compressed:
+                    missing.append(value)
 
-        if missing_numbers:
-            seen: set[str] = set()
-            unique_missing = []
-            for num in missing_numbers:
-                if num not in seen:
-                    seen.add(num)
-                    unique_missing.append(num)
-            if unique_missing:
-                compressed += " [数据回补: " + ", ".join(unique_missing[:10]) + "]"
-                logger.debug(
-                    "[CompressionEngine] LLMLingua-2 数值回补 %d 项: %s",
-                    len(unique_missing), unique_missing[:5],
+        # 去重
+        seen: set[str] = set()
+        unique_missing = []
+        for item in missing:
+            if item not in seen:
+                seen.add(item)
+                unique_missing.append(item)
+
+        if unique_missing:
+            to_recover = unique_missing[:LLMLINGUA_RECOVER_MAX]
+            compressed += " [回补: " + ", ".join(to_recover) + "]"
+            if len(unique_missing) > LLMLINGUA_RECOVER_MAX:
+                logger.warning(
+                    "[CompressionEngine] LLMLingua-2 缺失 %d 项（>%d），"
+                    "该文本数据密度可能过高",
+                    len(unique_missing),
+                    LLMLINGUA_RECOVER_MAX,
                 )
 
         return compressed
 
     def _ensure_llmlingua(self):
-        """延迟初始化 LLMLingua-2 PromptCompressor
+        """延迟初始化 LLMLingua-2 PromptCompressor (XLM-RoBERTa-large)
 
         环境变量：
           LLMLINGUA_ENABLED=1         — 启用 LLMLingua-2（默认关闭）
-          LLMLINGUA_MODEL_PATH=...    — 模型路径（默认 ./models/llmlingua-2-bert-base-multilingual-cased-meetingbank）
+          LLMLINGUA_MODEL_PATH=...    — 模型路径（默认 ./models/llmlingua-2-xlm-roberta-large-meetingbank）
           LLMLINGUA_DEVICE=cpu|mps|cuda — 推理设备（默认 cpu）
+          LLMLINGUA_FP16=1            — 启用 FP16 半精度推理（仅 cuda 设备有效，显存减半+T4 Tensor Core 加速）
         """
         if self._llmlingua_compressor is not None:
             return self._llmlingua_compressor
@@ -582,19 +616,26 @@ class CompressionEngine:
 
                 model_path = os.environ.get(
                     "LLMLINGUA_MODEL_PATH",
-                    "./models/llmlingua-2-bert-base-multilingual-cased-meetingbank",
+                    "./models/llmlingua-2-xlm-roberta-large-meetingbank",
                 )
                 device = os.environ.get("LLMLINGUA_DEVICE", "cpu")
+                use_fp16 = os.environ.get("LLMLINGUA_FP16", "0") == "1"
 
                 self._llmlingua_compressor = PromptCompressor(
                     model_name=model_path,
                     use_llmlingua2=True,
                     device_map=device,
                 )
+
+                # FP16 半精度：仅在 CUDA 设备上启用（T4 Tensor Core 加速约 2x）
+                if use_fp16 and device == "cuda":
+                    self._llmlingua_compressor.model.half()
+                    logger.info("[CompressionEngine] LLMLingua-2 已启用 FP16 半精度")
+
                 self._llmlingua_available = True
                 logger.info(
-                    "[CompressionEngine] LLMLingua-2 初始化成功 (model=%s, device=%s)",
-                    model_path, device,
+                    "[CompressionEngine] LLMLingua-2 初始化成功 (model=%s, device=%s, fp16=%s)",
+                    model_path, device, use_fp16 and device == "cuda",
                 )
                 return self._llmlingua_compressor
 

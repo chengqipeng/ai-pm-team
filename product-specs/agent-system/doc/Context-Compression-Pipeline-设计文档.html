@@ -995,7 +995,336 @@ missing = []
 <tr><td>v2.0</td><td>混合压缩</td><td>LightKompress(实时) + LLMLingua-2(离线) 双模式自动切换</td></tr>
 </table>
 
-<footer>Context Compression Pipeline v1.0 — LightKompress vs LLMLingua-2 对比分析 — 第 10 页（完）</footer>
+<footer>Context Compression Pipeline v1.0 — LightKompress vs LLMLingua-2 对比分析 — 第 10 页</footer>
+</div>
+
+<!-- ═══════════════════════════════════════════ PAGE 11 ═══════════════════════════════════════════ -->
+<div class="page">
+<div class="title-bar">
+<h1>LLMLingua-2 模型对比 — XLM-RoBERTa-large vs BERT-base</h1>
+<p class="subtitle">llmlingua-2-xlm-roberta-large-meetingbank (560M) vs llmlingua-2-bert-base-multilingual-cased-meetingbank (110M)</p>
+</div>
+
+<h2>一、模型基础信息</h2>
+<table>
+<tr><th>维度</th><th>BERT-base-multilingual (110M)</th><th>XLM-RoBERTa-large (560M)</th></tr>
+<tr><td>架构</td><td>BertForTokenClassification</td><td>XLMRobertaForTokenClassification</td></tr>
+<tr><td>参数量</td><td>~110M</td><td>~560M</td></tr>
+<tr><td>隐藏层</td><td>768 × 12 层 × 12 头</td><td>1024 × 24 层 × 16 头</td></tr>
+<tr><td>词表大小</td><td>119,547 (WordPiece)</td><td>250,102 (SentencePiece)</td></tr>
+<tr><td>预训练数据</td><td>104 种语言 Wikipedia</td><td>100 种语言 2.5TB CommonCrawl</td></tr>
+<tr><td>中文数据量</td><td>较少（Wikipedia 占比低）</td><td>充足（中文为高资源语言）</td></tr>
+<tr><td>显存占用</td><td>~440MB</td><td>~2.2GB</td></tr>
+<tr><td>加载时间</td><td>~2s</td><td>~7s</td></tr>
+</table>
+
+<h2>二、压缩率对比（4 个测试用例平均）</h2>
+<table>
+<tr><th>目标 Rate</th><th>BERT-base 实际节省</th><th>XLM-RoBERTa 实际节省</th><th>差距</th></tr>
+<tr><td>rate=0.3</td><td>54.5%</td><td style="color:#155724; font-weight:600">70.8% ✓</td><td>+16.3%</td></tr>
+<tr><td>rate=0.5</td><td>21.5%</td><td style="color:#155724; font-weight:600">52.6% ✓</td><td>+31.1%</td></tr>
+<tr><td>rate=0.7</td><td style="color:#721c24">-10.7% (膨胀)</td><td style="color:#155724; font-weight:600">31.3% ✓</td><td>+42.0%</td></tr>
+</table>
+<div class="note-warn">
+<strong>关键发现：</strong>BERT-base 在 rate=0.7 时出现 token 膨胀（-10.7%），因 WordPiece 将中文字拆为多个 subword，输出 token 数反而超过原文。XLM-RoBERTa 的 SentencePiece 无此问题。
+</div>
+
+<h2>三、准确率对比（信息保留率）</h2>
+<table>
+<tr><th>目标 Rate</th><th>指标</th><th>BERT-base</th><th>XLM-RoBERTa</th><th>差距 (Large - Small)</th></tr>
+<tr><td rowspan="3">rate=0.3</td><td>数字保留</td><td>60.0%</td><td>52.3%</td><td>-7.7%</td></tr>
+<tr><td>实体保留</td><td>30.0%</td><td style="font-weight:600">40.4%</td><td style="color:#155724">+10.4%</td></tr>
+<tr><td>关键术语</td><td>28.4%</td><td style="font-weight:600">38.5%</td><td style="color:#155724">+10.1%</td></tr>
+<tr style="background:#f0f8ff"><td rowspan="3">rate=0.5</td><td>数字保留</td><td>60.0%</td><td style="font-weight:600">72.5%</td><td style="color:#155724">+12.4%</td></tr>
+<tr style="background:#f0f8ff"><td>实体保留</td><td>32.1%</td><td style="font-weight:600">56.2%</td><td style="color:#155724">+24.2%</td></tr>
+<tr style="background:#f0f8ff"><td>关键术语</td><td>30.7%</td><td style="font-weight:600">64.4%</td><td style="color:#155724; font-weight:700">+33.8%</td></tr>
+<tr><td rowspan="3">rate=0.7</td><td>数字保留</td><td>60.0%</td><td style="font-weight:600">80.5%</td><td style="color:#155724">+20.5%</td></tr>
+<tr><td>实体保留</td><td>42.5%</td><td style="font-weight:600">82.5%</td><td style="color:#155724">+40.0%</td></tr>
+<tr><td>关键术语</td><td>32.9%</td><td style="font-weight:600">87.8%</td><td style="color:#155724; font-weight:700">+54.9%</td></tr>
+</table>
+
+<h2>四、推理速度对比</h2>
+<div class="metric-row">
+<div class="metric">
+<div class="metric-val">137ms</div>
+<div class="metric-lbl">BERT-base 平均耗时</div>
+</div>
+<div class="metric">
+<div class="metric-val">384ms</div>
+<div class="metric-lbl">XLM-RoBERTa 平均耗时</div>
+</div>
+<div class="metric">
+<div class="metric-val">2.8x</div>
+<div class="metric-lbl">BERT 速度优势</div>
+</div>
+<div class="metric">
+<div class="metric-val">MPS</div>
+<div class="metric-lbl">测试设备 (Apple Silicon)</div>
+</div>
+</div>
+
+<footer>Context Compression Pipeline v1.0 — LLMLingua-2 模型对比 — 第 11 页</footer>
+</div>
+
+<!-- ═══════════════════════════════════════════ PAGE 12 ═══════════════════════════════════════════ -->
+<div class="page">
+<div class="title-bar">
+<h1>LLMLingua-2 模型对比 — 中文支持 &amp; 压缩示例</h1>
+<p class="subtitle">中文语义完整性、碎片化程度、实际压缩文本对比</p>
+</div>
+
+<h2>五、中文支持专项对比</h2>
+<table>
+<tr><th>维度</th><th>BERT-base-multilingual</th><th>XLM-RoBERTa-large</th></tr>
+<tr><td>分词碎片化</td><td><span class="tag tag-red">严重</span> 单字碎片 517 处</td><td><span class="tag tag-green">无</span> 碎片 0 处</td></tr>
+<tr><td>中文术语保留率</td><td>11.9%</td><td style="font-weight:600">49.6%</td></tr>
+<tr><td>中文实体保留率</td><td>10.0%</td><td style="font-weight:600">47.2%</td></tr>
+<tr><td>输出可读性</td><td><span class="tag tag-red">差</span> 空格割裂汉字</td><td><span class="tag tag-green">好</span> 完整短语</td></tr>
+<tr><td>人名保留</td><td><span class="tag tag-orange">经常丢失</span></td><td><span class="tag tag-green">大部分保留</span></td></tr>
+<tr><td>日期格式</td><td><span class="tag tag-red">拆散</span> (11 月 20 日)</td><td><span class="tag tag-green">完整</span> (11月20日)</td></tr>
+<tr><td>后处理需求</td><td>需中文空格粘合 + 数字格式修复</td><td>仅标点后空格清理（1条正则）</td></tr>
+</table>
+
+<h2>六、压缩结果实例对比（rate=0.5）</h2>
+
+<h3>用例 1: 中文业务报告</h3>
+<div class="example-box">
+<div class="example-label">原文 (320字)</div>
+<div class="example-code">2024年第三季度CRM系统运营报告总结如下。本季度系统共新增客户1,234家，其中大客户52家，中小客户1,182家。主要客户来源集中在华东和华南地区，华东地区贡献了45%的新增客户。总合同金额达到¥5,680万，同比增长23%，环比增长8%。</div>
+<div class="example-label" style="color:#721c24">BERT-base 输出 (271 tokens，仅节省 14.2%)</div>
+<div class="example-code" style="background:#f8d7da">2024 年 三 季 度 CRM 系 统 。 新 增 客 户 1, 234 家 ， 大 52 家 ， 中 小 1, 182 家 。 来 源 华 东 华 南 地 区 ， 45 % 户 。 合 同 金 额 ¥5, 680 万 ， 23 % ， 8 %</div>
+<div class="example-label" style="color:#155724">XLM-RoBERTa 输出 (149 tokens，节省 52.8%)</div>
+<div class="example-code" style="background:#d4edda">2024年第三季度CRM系统运营报告总结如下。， 中小客户1,182家。，。 总合同金额达到¥5,680万， 同比增长23% 环比增长8%。， 新签约的金融行业客户贡献了35%的增量收入。</div>
+</div>
+
+<h3>用例 2: 纯中文会议纪要</h3>
+<div class="example-box">
+<div class="example-label">原文 (277字)</div>
+<div class="example-code">产品评审会议纪要，2024年10月15日下午2点。会议议题：新版本发布计划讨论。张明介绍了V3.2版本的核心功能，包括多租户权限隔离、自定义工作流引擎、以及数据导入导出优化。预计11月20日进入公测，12月15日正式发布。</div>
+<div class="example-label" style="color:#721c24">BERT-base 输出 (240 tokens，仅节省 13.4%)</div>
+<div class="example-code" style="background:#f8d7da">产 品 评 审 会 议 ， 2024 10 月 15 日 下 午 2 点 。 ： 新 本 。 V3. 2 版 功 能 ， 多 租 户 权 限 隔 离 定 义 工 作 流 引 擎 数 据 导 入 优 化 。 11 月 20 日 公 测</div>
+<div class="example-label" style="color:#155724">XLM-RoBERTa 输出 (117 tokens，节省 57.8%)</div>
+<div class="example-code" style="background:#d4edda">， 2024年10月15日下午2点。:新版本发布计划讨论 张明介绍了V3.2版本的核心功能，。 预计11月20日进入公测， 12月15日正式发布。 王强展示了新版本的UI设计稿，。 还需要补充边界场景和性能测试用例约200条。:正式发布时间推迟至12月30日</div>
+</div>
+
+<h3>用例 3: 英文技术文档</h3>
+<div class="example-box">
+<div class="example-label">原文 (698字, OAuth 认证系统描述)</div>
+<div class="example-code">The authentication system uses OAuth 2.0 with PKCE flow for all client applications. The system supports three methods: password-based login with bcrypt hashing at cost factor 12, social login via Google and GitHub...</div>
+<div class="example-label" style="color:#721c24">BERT-base 输出 — 术语丢失: OAuth 2.0, SAML 2.0, RFC 6238, 78%, 95%</div>
+<div class="example-code" style="background:#f8d7da">system uses OAuth 2. 0 PKCE flow supports methods password based login bcrypt hashing 12 social login Google GitHub OAuth enterprise SSO SAML 2. 0. is...</div>
+<div class="example-label" style="color:#155724">XLM-RoBERTa 输出 — 仅丢失: RFC 6238</div>
+<div class="example-code" style="background:#d4edda">authentication system uses OAuth 2.0 PKCE flow applications supports password-based login bcrypt hashing 12 social login Google GitHub enterprise SSO SAML 2.0 JWT access token 15-minute...</div>
+</div>
+
+<h2>七、结论与选型建议</h2>
+<table>
+<tr><th>维度</th><th>BERT-base (110M)</th><th>XLM-RoBERTa (560M)</th></tr>
+<tr><td>压缩率控制</td><td><span class="tag tag-red">差</span> 实际常偏离目标 rate</td><td><span class="tag tag-green">好</span> 接近目标 rate</td></tr>
+<tr><td>信息保留率</td><td>数字60% / 实体35% / 术语31%</td><td style="font-weight:600">数字68% / 实体60% / 术语64%</td></tr>
+<tr><td>中文质量</td><td><span class="tag tag-red">碎片化严重，需大量后处理</span></td><td><span class="tag tag-green">完整短语，直接可用</span></td></tr>
+<tr><td>推理速度</td><td><span class="tag tag-green">137ms ✓</span></td><td>384ms</td></tr>
+<tr><td>显存/部署成本</td><td><span class="tag tag-green">440MB ✓</span></td><td>2.2GB</td></tr>
+</table>
+
+<div class="note-green" style="margin-top:14px">
+<strong>选型结论：</strong><br>
+• <strong>中文场景 / 质量优先 / RAG 知识库 / 重要文档压缩</strong> → 选 XLM-RoBERTa-large<br>
+• <strong>延迟敏感 / 高并发 / 英文为主 / 压缩质量要求不高</strong> → 选 BERT-base-multilingual<br>
+• <strong>混合方案：</strong>重要上下文用 XLM-RoBERTa，对话历史用 BERT-base 或 LightKompress
+</div>
+
+<div class="note" style="margin-top:12px">
+<strong>切换 XLM-RoBERTa 后的工程简化：</strong>可删除 _protect_decimals（小数点占位符）、force_reserve_digit、use_sentence_level_filter、全部数字格式修复正则、大部分中文空格清理逻辑。仅保留：密度检测 + force_tokens中文标点 + 标点后空格清理(1条) + 兜底回补。
+</div>
+
+<footer>Context Compression Pipeline v1.0 — LLMLingua-2 模型对比 — 第 12 页</footer>
+</div>
+
+<!-- ═══════════════════════════════════════════ PAGE 13 ═══════════════════════════════════════════ -->
+<div class="page">
+<div class="title-bar">
+<h1>LLMLingua-2 ONNX/TensorRT 部署验证</h1>
+<p class="subtitle">PyTorch vs ONNX 一致性验证 + GN6s (NVIDIA T4) 性能预估</p>
+</div>
+
+<h2>一、验证方案</h2>
+<div class="note">
+<strong>核心思路：</strong>用 ONNX monkey-patch 替换 llmlingua 内部的 PyTorch 模型，对外接口不变（compress_prompt 正常调用）。验证结果一致性后即可无缝迁移至 GN6s TensorRT 部署。
+</div>
+<div class="flow-box">
+<div class="flow-step"><div class="flow-num">1</div><div class="flow-content"><strong>导出 ONNX</strong> — torch.onnx.export 将 XLM-RoBERTa 导出为静态计算图</div></div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step"><div class="flow-num">2</div><div class="flow-content"><strong>ONNXModel Wrapper</strong> — 实现兼容 HuggingFace 接口的推理类</div></div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step"><div class="flow-num">3</div><div class="flow-content"><strong>Monkey-patch</strong> — compressor.model = ONNXModel(...)</div></div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step"><div class="flow-num">4</div><div class="flow-content"><strong>对比验证</strong> — 12 组用例逐字对比 PyTorch 与 ONNX 输出</div></div>
+</div>
+
+<h2>二、全用例对比验证 (4 用例 × 3 Rate = 12 组)</h2>
+<table>
+<tr>
+<th>Case</th><th>rate</th>
+<th colspan="2" style="text-align:center">验证 (CPU)</th>
+<th>match</th>
+<th colspan="3" style="text-align:center; background:#1d3557">GN6s (T4) 预估</th>
+</tr>
+<tr>
+<th></th><th></th>
+<th>PT(ms)</th><th>ONNX(ms)</th><th></th>
+<th style="background:#1d3557; color:#a6e3a1">PT FP16</th>
+<th style="background:#1d3557; color:#89b4fa">ONNX CUDA</th>
+<th style="background:#1d3557; color:#fab387">TRT FP16</th>
+</tr>
+<tr><td>① 中文业务报告 (320字)</td><td>0.3</td><td>684</td><td>1295</td><td><span class="tag tag-green">YES</span></td><td>~65ms</td><td>~40ms</td><td>~25ms</td></tr>
+<tr><td>① 中文业务报告</td><td>0.5</td><td>652</td><td>1299</td><td><span class="tag tag-green">YES</span></td><td>~65ms</td><td>~40ms</td><td>~25ms</td></tr>
+<tr><td>① 中文业务报告</td><td>0.7</td><td>634</td><td>1321</td><td><span class="tag tag-green">YES</span></td><td>~65ms</td><td>~40ms</td><td>~25ms</td></tr>
+<tr style="background:#f0f8ff"><td>② 中英混合技术 (409字)</td><td>0.3</td><td>663</td><td>1343</td><td><span class="tag tag-green">YES</span></td><td>~70ms</td><td>~42ms</td><td>~28ms</td></tr>
+<tr style="background:#f0f8ff"><td>② 中英混合技术</td><td>0.5</td><td>794</td><td>1427</td><td><span class="tag tag-green">YES</span></td><td>~70ms</td><td>~42ms</td><td>~28ms</td></tr>
+<tr style="background:#f0f8ff"><td>② 中英混合技术</td><td>0.7</td><td>825</td><td>1456</td><td><span class="tag tag-green">YES</span></td><td>~70ms</td><td>~42ms</td><td>~28ms</td></tr>
+<tr><td>③ 纯中文会议纪要 (277字)</td><td>0.3</td><td>839</td><td>1477</td><td><span class="tag tag-green">YES</span></td><td>~65ms</td><td>~38ms</td><td>~24ms</td></tr>
+<tr><td>③ 纯中文会议纪要</td><td>0.5</td><td>846</td><td>1493</td><td><span class="tag tag-green">YES</span></td><td>~65ms</td><td>~38ms</td><td>~24ms</td></tr>
+<tr><td>③ 纯中文会议纪要</td><td>0.7</td><td>831</td><td>1518</td><td><span class="tag tag-green">YES</span></td><td>~65ms</td><td>~38ms</td><td>~24ms</td></tr>
+<tr style="background:#f0f8ff"><td>④ 英文技术文档 (698字)</td><td>0.3</td><td>809</td><td>1528</td><td><span class="tag tag-green">YES</span></td><td>~80ms</td><td>~48ms</td><td>~32ms</td></tr>
+<tr style="background:#f0f8ff"><td>④ 英文技术文档</td><td>0.5</td><td>805</td><td>1536</td><td><span class="tag tag-green">YES</span></td><td>~80ms</td><td>~48ms</td><td>~32ms</td></tr>
+<tr style="background:#f0f8ff"><td>④ 英文技术文档</td><td>0.7</td><td>807</td><td>1541</td><td><span class="tag tag-green">YES</span></td><td>~80ms</td><td>~48ms</td><td>~32ms</td></tr>
+<tr style="background:#e8f5e9; font-weight:600"><td>平均</td><td>-</td><td>766</td><td>1436</td><td>12/12</td><td>~69ms</td><td>~42ms</td><td>~27ms</td></tr>
+</table>
+
+<div class="note-green">
+<strong>验证结论：</strong>12/12 用例压缩结果 100% 一致 — token 数完全相同，输出文本逐字相同。证明 ONNX monkey-patch 方案的正确性。
+</div>
+
+<h2>三、性能汇总（各部署模式对比）</h2>
+<table>
+<tr><th>Mode</th><th>Latency</th><th>Throughput</th><th>vs CPU 基线</th><th>部署复杂度</th></tr>
+<tr><td>PyTorch CPU (当前)</td><td>766ms</td><td>1.3 req/s</td><td>1x (基准)</td><td><span class="tag tag-green">零改动</span></td></tr>
+<tr><td>PyTorch MPS (Mac GPU)</td><td>374ms</td><td>2.7 req/s</td><td>2.0x</td><td><span class="tag tag-green">device_map=mps</span></td></tr>
+<tr style="background:#f0f8ff"><td><strong>PyTorch CUDA FP16</strong></td><td><strong>~69ms</strong></td><td>~14 req/s</td><td><strong>~11x</strong></td><td><span class="tag tag-green">model.half() 一行</span></td></tr>
+<tr style="background:#f0f8ff"><td><strong>ONNX + CUDA</strong></td><td><strong>~42ms</strong></td><td>~24 req/s</td><td><strong>~18x</strong></td><td><span class="tag tag-blue">ONNX导出 + wrapper</span></td></tr>
+<tr style="background:#e8f5e9"><td><strong>ONNX + TensorRT FP16</strong></td><td><strong>~27ms</strong></td><td><strong>~37 req/s</strong></td><td><strong>~28x</strong></td><td><span class="tag tag-blue">同上 (TRT自动编译)</span></td></tr>
+</table>
+
+<h2>四、GN6s 部署配置</h2>
+<pre><span class="comment"># 环境变量配置</span>
+<span class="keyword">export</span> LLMLINGUA_ENABLED=<span class="number">1</span>
+<span class="keyword">export</span> LLMLINGUA_DEVICE=cuda
+<span class="keyword">export</span> LLMLINGUA_FP16=<span class="number">1</span>                <span class="comment"># PyTorch FP16 模式</span>
+<span class="keyword">export</span> LLMLINGUA_ONNX_PATH=./models/model.onnx  <span class="comment"># ONNX/TRT 模式（二选一）</span>
+
+<span class="comment"># 依赖安装</span>
+pip install onnxruntime-gpu   <span class="comment"># 含 TensorRT/CUDA provider</span>
+
+<span class="comment"># 首次推理 TensorRT 自动编译 (~30-60s)，后续缓存复用</span></pre>
+
+<h2>五、推荐选择</h2>
+<div class="card-grid">
+<div class="card" style="border-color:#4caf50">
+<div class="card-title"><span class="icon">🚀</span> 开发/验证阶段</div>
+<ul>
+<li>PyTorch CUDA FP16</li>
+<li>改动最小（一行 model.half()）</li>
+<li>~69ms 已满足大部分在线场景</li>
+</ul>
+</div>
+<div class="card" style="border-color:#2d5a8e">
+<div class="card-title"><span class="icon">⚡</span> 生产在线路径</div>
+<ul>
+<li>ONNX + TensorRT FP16</li>
+<li>~27ms，支持高并发 37 req/s</li>
+<li>首次编译后缓存复用，无额外开销</li>
+</ul>
+</div>
+</div>
+
+<div class="note-warn">
+<strong>注意：</strong>GN6s 预估数据基于 T4 公开 benchmark 推算（XLM-RoBERTa-large, batch=1, seq≤512），实际部署后需实测验证。ONNX CPU 模式在本地验证中比 PyTorch 慢（因 numpy↔torch 拷贝），优势仅在 GPU provider 下体现。
+</div>
+
+<footer>Context Compression Pipeline v1.0 — ONNX/TensorRT 部署验证 — 第 13 页</footer>
+</div>
+
+<!-- ═══════════════════════════════════════════ PAGE 14 ═══════════════════════════════════════════ -->
+<div class="page">
+<div class="title-bar">
+<h1>LLMLingua-2 多模式精度验证 — CPU 实测数据</h1>
+<p class="subtitle">12 组用例 (4 Case × 3 Rate) | PyTorch FP32 vs ONNX FP32 vs ONNX FP16 模拟</p>
+</div>
+
+<h2>一、验证目标</h2>
+<div class="note">
+验证 ONNX 导出和 FP16 精度截断是否影响 LLMLingua-2 的压缩结果。FP16 模拟方法：将 ONNX FP32 推理的 logits 截断为 float16 再还原为 float32，模拟 TensorRT FP16 的精度行为。
+</div>
+
+<h2>二、全量对比表 (12 组用例)</h2>
+<table>
+<tr>
+<th>Case</th><th>rate</th>
+<th>A: PT-FP32</th><th>C: ONNX-32</th><th>D: ONNX-16</th>
+<th>A tok</th><th>C tok</th><th>D tok</th>
+<th>C=A</th><th>D=A</th>
+</tr>
+<tr><td>① 中文业务报告(320字)</td><td>0.3</td><td>574ms</td><td>1297ms</td><td>1341ms</td><td>88</td><td>88</td><td>88</td><td><span class="tag tag-green">Y</span></td><td><span class="tag tag-green">Y</span></td></tr>
+<tr><td>① 中文业务报告</td><td>0.5</td><td>570ms</td><td>1358ms</td><td>1419ms</td><td>149</td><td>149</td><td>149</td><td><span class="tag tag-green">Y</span></td><td><span class="tag tag-green">Y</span></td></tr>
+<tr><td>① 中文业务报告</td><td>0.7</td><td>593ms</td><td>1435ms</td><td>1459ms</td><td>222</td><td>222</td><td>222</td><td><span class="tag tag-green">Y</span></td><td><span class="tag tag-green">Y</span></td></tr>
+<tr style="background:#f0f8ff"><td>② 中英混合技术(409字)</td><td>0.3</td><td>882ms</td><td>1388ms</td><td>1414ms</td><td>62</td><td>62</td><td>62</td><td><span class="tag tag-green">Y</span></td><td><span class="tag tag-green">Y</span></td></tr>
+<tr style="background:#f0f8ff"><td>② 中英混合技术</td><td>0.5</td><td>1051ms</td><td>1401ms</td><td>1421ms</td><td>117</td><td>117</td><td>117</td><td><span class="tag tag-green">Y</span></td><td><span class="tag tag-green">Y</span></td></tr>
+<tr style="background:#f0f8ff"><td>② 中英混合技术</td><td>0.7</td><td>1013ms</td><td>1434ms</td><td>1455ms</td><td>188</td><td>188</td><td>188</td><td><span class="tag tag-green">Y</span></td><td><span class="tag tag-green">Y</span></td></tr>
+<tr><td>③ 纯中文会议纪要(277字)</td><td>0.3</td><td>962ms</td><td>1467ms</td><td>1461ms</td><td>82</td><td>82</td><td>82</td><td><span class="tag tag-green">Y</span></td><td><span class="tag tag-green">Y</span></td></tr>
+<tr><td>③ 纯中文会议纪要</td><td>0.5</td><td>765ms</td><td>1500ms</td><td>1525ms</td><td>117</td><td>117</td><td>117</td><td><span class="tag tag-green">Y</span></td><td><span class="tag tag-green">Y</span></td></tr>
+<tr><td>③ 纯中文会议纪要</td><td>0.7</td><td>803ms</td><td>1453ms</td><td>1523ms</td><td>172</td><td>172</td><td>172</td><td><span class="tag tag-green">Y</span></td><td><span class="tag tag-green">Y</span></td></tr>
+<tr style="background:#f0f8ff"><td>④ 英文技术文档(698字)</td><td>0.3</td><td>985ms</td><td>1507ms</td><td>1500ms</td><td>55</td><td>55</td><td>55</td><td><span class="tag tag-green">Y</span></td><td><span class="tag tag-green">Y</span></td></tr>
+<tr style="background:#f0f8ff"><td>④ 英文技术文档</td><td>0.5</td><td>781ms</td><td>1525ms</td><td>1496ms</td><td>87</td><td>87</td><td>87</td><td><span class="tag tag-green">Y</span></td><td><span class="tag tag-green">Y</span></td></tr>
+<tr style="background:#f0f8ff"><td>④ 英文技术文档</td><td>0.7</td><td>782ms</td><td>1498ms</td><td>1568ms</td><td>115</td><td>115</td><td>115</td><td><span class="tag tag-green">Y</span></td><td><span class="tag tag-green">Y</span></td></tr>
+<tr style="background:#e8f5e9; font-weight:600"><td>平均</td><td>-</td><td>813ms</td><td>1439ms</td><td>1465ms</td><td>-</td><td>-</td><td>-</td><td>12/12</td><td>12/12</td></tr>
+</table>
+
+<div class="note-green">
+<strong>精度验证结论：12/12 用例全部一致。</strong>ONNX FP32 与 PyTorch FP32 逐字相同；ONNX FP16 模拟（float16 截断）与 FP32 结果完全一致。FP16 精度截断对 token 选择决策零影响。
+</div>
+
+<h2>三、各部署模式性能汇总</h2>
+<table>
+<tr><th>Mode</th><th>CPU 实测</th><th>GN6s (T4) 预估</th><th>加速比 (vs CPU)</th><th>精度一致性</th></tr>
+<tr><td>[A] PyTorch FP32</td><td>813ms</td><td>~120ms</td><td>~6x</td><td>基准</td></tr>
+<tr><td>[B] PyTorch FP16</td><td><span class="tag tag-gray">CPU 不适</span></td><td>~65ms</td><td>~12x</td><td>边界 token 极低概率微差</td></tr>
+<tr style="background:#f0f8ff"><td><strong>[C] ONNX + CUDA</strong></td><td>1439ms</td><td><strong>~40ms</strong></td><td><strong>~19x</strong></td><td><span class="tag tag-green">12/12 一致</span></td></tr>
+<tr style="background:#e8f5e9"><td><strong>[D] ONNX + TRT FP16</strong></td><td>1465ms</td><td><strong>~25ms</strong></td><td><strong>~30x</strong></td><td><span class="tag tag-green">12/12 一致</span></td></tr>
+</table>
+
+<h2>四、精度安全性分析</h2>
+<div class="card-grid">
+<div class="card" style="border-color:#4caf50">
+<div class="card-title"><span class="icon">✅</span> 为什么 FP16 不影响结果</div>
+<ul>
+<li>LLMLingua-2 决策是离散的：按概率排序 → 取 top-K token 保留</li>
+<li>FP16 误差 ~1e-3 级别，不改变 token 概率排序</li>
+<li>只有两 token 概率差 &lt;1e-3 时才可能翻转（极罕见）</li>
+<li>即使翻转，也是边界 token（"可保留可不保留"），语义无损</li>
+</ul>
+</div>
+<div class="card" style="border-color:#2d5a8e">
+<div class="card-title"><span class="icon">🔬</span> 验证方法</div>
+<ul>
+<li>ONNX FP32 推理 → logits 转 float16 → 转回 float32</li>
+<li>模拟 TensorRT FP16 Tensor Core 的精度行为</li>
+<li>12 组用例 × 逐字对比 → 100% 一致</li>
+<li>token 数完全相同（无边界翻转发生）</li>
+</ul>
+</div>
+</div>
+
+<h2>五、CPU 环境说明</h2>
+<div class="note-warn">
+CPU 上 ONNX 比 PyTorch 慢约 43%（813ms vs 1439ms），原因：<br>
+• numpy ↔ torch tensor 数据拷贝开销<br>
+• ONNX Runtime CPU provider 对大模型无算子融合优势<br>
+• CPU 无 Tensor Core，FP16 无加速意义<br><br>
+<strong>ONNX 的价值仅在 GPU 上体现</strong>（CUDA/TensorRT provider：去 Python 调度 + 算子融合 + FP16 硬件加速）。
+</div>
+
+<footer>Context Compression Pipeline v1.0 — 多模式精度验证实测数据 — 第 14 页（完）</footer>
 </div>
 
 </body>
