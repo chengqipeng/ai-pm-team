@@ -376,95 +376,6 @@ class RecommendationEngine:
 <!-- ═══════════════════════════════════════════ PAGE 3 ═══════════════════════════════════════════ -->
 <div class="page">
 <div class="title-bar">
-<h1>LightKompress vs BERT Kompress 对比分析</h1>
-<p class="subtitle">替代方案评估 — 部署成本 · 压缩能力 · 场景覆盖 · 评测数据</p>
-</div>
-
-<h2>一、基础能力对比</h2>
-<table>
-<tr><th>维度</th><th>LightKompress</th><th>BERT Kompress (ModernBERT)</th><th>结论</th></tr>
-<tr><td>压缩原理</td><td>TF-IDF + 六维评分 + 正则实体保护</td><td>149M参数神经网络逐token预测keep/drop</td><td>—</td></tr>
-<tr><td>压缩粒度</td><td>句子级 + 子句级 + 词级</td><td>Token 级（subword粒度）</td><td>BERT更细</td></tr>
-<tr><td>模型大小</td><td><strong>0 (jieba词典15MB)</strong></td><td>600MB (merged.pt)</td><td><span class="tag tag-green">LK 胜</span></td></tr>
-<tr><td>GPU 需求</td><td><strong>不需要</strong></td><td>需要 (推理用CUDA)</td><td><span class="tag tag-green">LK 胜</span></td></tr>
-<tr><td>pip 安装大小</td><td><strong>~20MB</strong></td><td>~2.5GB (torch+transformers+model)</td><td><span class="tag tag-green">LK 胜</span></td></tr>
-<tr><td>推理延迟</td><td><strong>4-20ms</strong></td><td>15-50ms</td><td><span class="tag tag-green">LK 胜</span></td></tr>
-<tr><td>中文支持</td><td><strong>原生 (jieba)</strong></td><td>弱 (英文训练为主)</td><td><span class="tag tag-green">LK 胜</span></td></tr>
-<tr><td>关键数据安全</td><td><strong>确定性 (正则硬保护)</strong></td><td>概率性 (有误删风险)</td><td><span class="tag tag-green">LK 胜</span></td></tr>
-<tr><td>输出可读性</td><td><strong>完整句子</strong></td><td>可能断句不通顺</td><td><span class="tag tag-green">LK 胜</span></td></tr>
-<tr><td>压缩率 (长文本)</td><td>15-62%</td><td><strong>50-80%</strong></td><td><span class="tag tag-blue">BERT 胜</span></td></tr>
-<tr><td>压缩率 (短文本)</td><td>0-15%</td><td><strong>15-30%</strong></td><td><span class="tag tag-blue">BERT 胜</span></td></tr>
-<tr><td>无标点文本</td><td>支持 (降级分句)</td><td><strong>天然支持</strong></td><td><span class="tag tag-blue">BERT 略胜</span></td></tr>
-<tr><td>语义理解</td><td>无 (统计+规则)</td><td><strong>有 (attention权重)</strong></td><td><span class="tag tag-blue">BERT 胜</span></td></tr>
-</table>
-
-<h2>二、场景覆盖对比</h2>
-<table>
-<tr><th>场景</th><th>LightKompress</th><th>BERT Kompress</th><th>谁更好</th></tr>
-<tr><td>中文业务报告（长篇冗余）</td><td><span class="tag tag-green">压缩30%+，中文原生</span></td><td>压缩50%+，但中文tokenize差</td><td><span class="tag tag-green">LK 更好</span></td></tr>
-<tr><td>英文技术文档</td><td><span class="tag tag-green">技术标识符专项保护</span></td><td>压缩率高但不区分术语</td><td><span class="tag tag-green">LK 更好</span></td></tr>
-<tr><td>含关键数字的文本</td><td><span class="tag tag-green">13条正则零丢失保证</span></td><td>概率性，P(误删数字)≈2-5%</td><td><span class="tag tag-green">LK 更好</span></td></tr>
-<tr><td>Query-aware 压缩</td><td><span class="tag tag-green">维度4:上下文相关性加权</span></td><td>context参数相关性评分</td><td>持平</td></tr>
-<tr><td>中英混合内容</td><td><span class="tag tag-green">jieba+空格分词自然处理</span></td><td>tokenizer混合切碎</td><td><span class="tag tag-green">LK 更好</span></td></tr>
-<tr><td>高密度短文本(每句都关键)</td><td><span class="tag tag-orange">句子级无法句内删词</span></td><td><span class="tag tag-blue">token级可删虚词省15%</span></td><td><span class="tag tag-blue">BERT 更好</span></td></tr>
-<tr><td>无标点连续文本</td><td><span class="tag tag-orange">降级分句后可压缩</span></td><td><span class="tag tag-blue">不依赖标点，天然支持</span></td><td><span class="tag tag-blue">BERT 略胜</span></td></tr>
-<tr><td>超长英文复合句内部</td><td><span class="tag tag-orange">子句切分，粗粒度</span></td><td><span class="tag tag-blue">逐token精确删除</span></td><td><span class="tag tag-blue">BERT 更好</span></td></tr>
-<tr><td>语义级去重(同义重复)</td><td><span class="tag tag-red">不支持</span></td><td><span class="tag tag-orange">部分能力</span></td><td><span class="tag tag-blue">BERT 略胜</span></td></tr>
-</table>
-<p style="font-size:12px; color:#555; margin-top:6px"><strong>结论：9类场景中 LightKompress 6类更好/持平，BERT 3类更好。</strong></p>
-
-<h2>三、评测数据对比</h2>
-<table>
-<tr><th>指标</th><th>LightKompress (实测260用例)</th><th>BERT Kompress (论文/基准)</th></tr>
-<tr><td>must_keep recall (关键信息保留)</td><td><strong>93.9%</strong> (确定性正则保护)</td><td>~97% (概率性，数字类可能误删)</td></tr>
-<tr><td>数字/金额/日期 recall</td><td><strong>~99%</strong> (正则硬保护)</td><td>~95% (无专项保护)</td></tr>
-<tr><td>长文本平均压缩</td><td>25.9%</td><td><strong>~60%</strong></td></tr>
-<tr><td>长文本最大压缩</td><td>62.6%</td><td><strong>~80%</strong></td></tr>
-<tr><td>短文本(300字符)压缩</td><td>5-15%</td><td><strong>20-30%</strong></td></tr>
-<tr><td>推理延迟 P50</td><td><strong>5ms</strong></td><td>25ms</td></tr>
-<tr><td>推理延迟 P99</td><td><strong>20ms</strong></td><td>50ms</td></tr>
-<tr><td>吞吐量</td><td><strong>~130次/秒</strong></td><td>~40次/秒</td></tr>
-</table>
-
-<h2>四、部署成本对比</h2>
-<table>
-<tr><th>资源</th><th>LightKompress</th><th>BERT Kompress</th><th>差异</th></tr>
-<tr><td>服务器规格</td><td>任意 CPU 实例</td><td>GPU 实例 (至少 4GB VRAM)</td><td>GPU 实例成本约 5-10x</td></tr>
-<tr><td>模型文件存储</td><td>0</td><td>600MB</td><td>—</td></tr>
-<tr><td>内存占用</td><td>~80MB</td><td>~2GB</td><td>25x</td></tr>
-<tr><td>容器镜像大小</td><td>+50MB</td><td>+2.5GB</td><td>50x</td></tr>
-<tr><td>冷启动时间</td><td>~1秒 (jieba加载)</td><td>~15秒 (模型加载)</td><td>15x</td></tr>
-<tr><td>年度基础设施成本 (估)</td><td>~$0 (复用现有CPU)</td><td>~$3,000-8,000/年 (GPU)</td><td>—</td></tr>
-</table>
-
-<h2>五、实际业务影响估算</h2>
-<div class="note">
-<strong>假设场景：</strong>Agent 单轮工具输出 10,000 tokens，其中 85% 为结构化内容(JSON/代码/日志)，15% 为纯自然语言文本。
-</div>
-<table>
-<tr><th>方案</th><th>结构化压缩(85%)</th><th>文本压缩(15%)</th><th>总节省</th><th>成本</th></tr>
-<tr><td><strong>方案A: 6引擎纯规则(含LightKompress)</strong></td><td>70%节省 → 剩2,550 tok</td><td>26%节省 → 剩1,110 tok</td><td><strong>63.4%</strong></td><td><strong>$0/年</strong></td></tr>
-<tr><td>方案B: 5引擎+BERT Kompress</td><td>70%节省 → 剩2,550 tok</td><td>60%节省 → 剩600 tok</td><td>68.5%</td><td>$3,000-8,000/年</td></tr>
-<tr><td colspan="5" style="text-align:center; color:#555; font-size:11px">两方案总节省差异仅 <strong>5.1%</strong>（63.4% vs 68.5%），但方案A节省 GPU 成本 $3,000-8,000/年</td></tr>
-</table>
-
-<h2>六、适用建议</h2>
-<table>
-<tr><th>场景</th><th>推荐方案</th><th>原因</th></tr>
-<tr><td>成本敏感 / 无GPU环境</td><td><span class="tag tag-green">LightKompress</span></td><td>零部署成本，压缩率够用</td></tr>
-<tr><td>数据安全优先(金融/医疗)</td><td><span class="tag tag-green">LightKompress</span></td><td>正则硬保护，零概率丢数字</td></tr>
-<tr><td>中文为主的业务</td><td><span class="tag tag-green">LightKompress</span></td><td>jieba原生中文，BERT中文弱</td></tr>
-<tr><td>追求极致压缩率(token成本极高)</td><td><span class="tag tag-blue">BERT Kompress</span></td><td>token级可达80%压缩</td></tr>
-<tr><td>大量纯英文短文本</td><td><span class="tag tag-blue">BERT Kompress</span></td><td>英文训练充分，短文本也能压</td></tr>
-<tr><td>有GPU且不差钱</td><td><span class="tag tag-blue">BERT Kompress</span></td><td>压缩率确实更高</td></tr>
-</table>
-
-<footer>Context Compression Pipeline v1.0 — LightKompress vs BERT Kompress 对比分析</footer>
-</div>
-
-<!-- ═══════════════════════════════════════════ PAGE 4 ═══════════════════════════════════════════ -->
-<div class="page">
-<div class="title-bar">
 <h1>LightKompress 详细实现逻辑 — 六阶段压缩流程</h1>
 <p class="subtitle">替代 Headroom Kompress (ModernBERT) 的轻量级文本压缩方案 — 完整算法实现</p>
 </div>
@@ -1006,35 +917,35 @@ missing = []
 <!-- ═══════════════════════════════════════════ PAGE 10 ═══════════════════════════════════════════ -->
 <div class="page">
 <div class="title-bar">
-<h1>LightKompress vs LLMLingua-2 vs BERT Kompress 三方对比</h1>
-<p class="subtitle">三种压缩方案的全面对比分析 — 能力 · 成本 · 场景适配</p>
+<h1>LightKompress vs LLMLingua-2 对比分析</h1>
+<p class="subtitle">两种压缩方案的全面对比分析 — 能力 · 成本 · 场景适配</p>
 </div>
 
 <h2>一、基础能力对比</h2>
 <table>
-<tr><th>维度</th><th>LightKompress</th><th>LLMLingua-2 (mBERT)</th><th>BERT Kompress (ModernBERT)</th></tr>
-<tr><td>压缩原理</td><td>TF-IDF + 六维评分 + 正则保护</td><td>GPT-4蒸馏 → BERT做token分类</td><td>149M参数逐token预测keep/drop</td></tr>
-<tr><td>压缩粒度</td><td>句子级 + 子句级</td><td><strong>Token 级</strong></td><td><strong>Token 级</strong></td></tr>
-<tr><td>模型大小</td><td><strong>0 (jieba 15MB)</strong></td><td>709MB</td><td>600MB</td></tr>
-<tr><td>GPU 需求</td><td><strong>不需要</strong></td><td>不需要 (CPU可用)</td><td>需要</td></tr>
-<tr><td>推理延迟</td><td><strong>4-20ms</strong></td><td>140-150ms (MPS)</td><td>15-50ms (GPU)</td></tr>
-<tr><td>中文支持</td><td><strong>原生 (jieba)</strong></td><td>良好 (多语言预训练)</td><td>弱 (英文为主)</td></tr>
-<tr><td>关键数据安全</td><td><strong>确定性 (正则)</strong></td><td>概率性 + 后处理回补</td><td>概率性</td></tr>
-<tr><td>输出格式</td><td><strong>完整句子</strong></td><td>token片段 (需后处理去空格)</td><td>token片段</td></tr>
-<tr><td>压缩率 (中文长文本)</td><td>15-62%</td><td>22-55%</td><td><strong>50-80%</strong></td></tr>
-<tr><td>语义理解</td><td>无</td><td><strong>有 (双向attention)</strong></td><td><strong>有</strong></td></tr>
-<tr><td>可训练/微调</td><td>不可</td><td><strong>可（提供完整pipeline）</strong></td><td>可</td></tr>
-<tr><td>生态集成</td><td>自研</td><td><strong>LangChain / LlamaIndex</strong></td><td>自研</td></tr>
+<tr><th>维度</th><th>LightKompress</th><th>LLMLingua-2 (mBERT)</th></tr>
+<tr><td>压缩原理</td><td>TF-IDF + 六维评分 + 正则保护</td><td>GPT-4蒸馏 → BERT做token分类</td></tr>
+<tr><td>压缩粒度</td><td>句子级 + 子句级</td><td><strong>Token 级</strong></td></tr>
+<tr><td>模型大小</td><td><strong>0 (jieba 15MB)</strong></td><td>709MB</td></tr>
+<tr><td>GPU 需求</td><td><strong>不需要</strong></td><td>不需要 (CPU可用)</td></tr>
+<tr><td>推理延迟</td><td><strong>4-20ms</strong></td><td>140-150ms (MPS)</td></tr>
+<tr><td>中文支持</td><td><strong>原生 (jieba)</strong></td><td>良好 (多语言预训练)</td></tr>
+<tr><td>关键数据安全</td><td><strong>确定性 (正则)</strong></td><td>概率性 + 后处理回补</td></tr>
+<tr><td>输出格式</td><td><strong>完整句子</strong></td><td>token片段 (需后处理去空格)</td></tr>
+<tr><td>压缩率 (中文长文本)</td><td>15-62%</td><td><strong>22-55%</strong></td></tr>
+<tr><td>语义理解</td><td>无</td><td><strong>有 (双向attention)</strong></td></tr>
+<tr><td>可训练/微调</td><td>不可</td><td><strong>可（提供完整pipeline）</strong></td></tr>
+<tr><td>生态集成</td><td>自研</td><td><strong>LangChain / LlamaIndex</strong></td></tr>
 </table>
 
 <h2>二、部署成本对比</h2>
 <table>
-<tr><th>资源</th><th>LightKompress</th><th>LLMLingua-2</th><th>BERT Kompress</th></tr>
-<tr><td>服务器规格</td><td>任意CPU</td><td>2C4G CPU 即可</td><td>GPU 实例 (4GB+ VRAM)</td></tr>
-<tr><td>内存占用</td><td>~80MB</td><td>~2GB</td><td>~2GB</td></tr>
-<tr><td>冷启动</td><td>~1s</td><td>~2s</td><td>~15s</td></tr>
-<tr><td>QPS (单实例)</td><td>~130/s</td><td>~7/s (CPU) / ~100/s (GPU)</td><td>~40/s (GPU)</td></tr>
-<tr><td>年成本 (估)</td><td><strong>$0</strong></td><td>~$0-500 (复用CPU)</td><td>~$3,000-8,000 (GPU)</td></tr>
+<tr><th>资源</th><th>LightKompress</th><th>LLMLingua-2</th></tr>
+<tr><td>服务器规格</td><td>任意CPU</td><td>2C4G CPU 即可</td></tr>
+<tr><td>内存占用</td><td>~80MB</td><td>~2GB</td></tr>
+<tr><td>冷启动</td><td>~1s</td><td>~2s</td></tr>
+<tr><td>QPS (单实例)</td><td>~130/s</td><td>~7/s (CPU) / ~100/s (GPU)</td></tr>
+<tr><td>年成本 (估)</td><td><strong>$0</strong></td><td>~$0-500 (复用CPU)</td></tr>
 </table>
 
 <h2>三、场景适配矩阵</h2>
@@ -1044,7 +955,6 @@ missing = []
 <tr><td>RAG 检索结果压缩</td><td><span class="tag tag-blue">LLMLingua-2</span></td><td>语义理解 + LangChain集成 + 效果最优</td></tr>
 <tr><td>离线批量文档压缩</td><td><span class="tag tag-blue">LLMLingua-2</span></td><td>不要求实时，压缩率高</td></tr>
 <tr><td>中文为主 + 数据安全优先</td><td><span class="tag tag-green">LightKompress</span></td><td>正则硬保护零丢失 + 中文原生</td></tr>
-<tr><td>追求极致压缩率 + 有GPU</td><td><span class="tag tag-orange">BERT Kompress</span></td><td>token级80%压缩</td></tr>
 <tr><td>需要自定义训练（领域适配）</td><td><span class="tag tag-blue">LLMLingua-2</span></td><td>提供完整的 GPT-4蒸馏 + 训练代码</td></tr>
 <tr><td>Serverless / 边缘部署</td><td><span class="tag tag-green">LightKompress</span></td><td>零依赖，冷启动1s</td></tr>
 </table>
@@ -1062,12 +972,6 @@ missing = []
 <span class="pipe-arrow">→</span>
 <span class="pipe-engine" style="color:#2d5a8e"><strong>LLMLingua-2</strong></span>
 <span class="pipe-desc">语义压缩 + 关键数据回补</span>
-</div>
-<div class="pipe-row">
-<span class="pipe-input"><strong>极致压缩(有GPU)</strong></span>
-<span class="pipe-arrow">→</span>
-<span class="pipe-engine" style="color:#457b9d"><strong>BERT Kompress</strong></span>
-<span class="pipe-desc">token级80%压缩率</span>
 </div>
 </div>
 
@@ -1091,7 +995,7 @@ missing = []
 <tr><td>v2.0</td><td>混合压缩</td><td>LightKompress(实时) + LLMLingua-2(离线) 双模式自动切换</td></tr>
 </table>
 
-<footer>Context Compression Pipeline v1.0 — 三方对比分析 — 第 10 页（完）</footer>
+<footer>Context Compression Pipeline v1.0 — LightKompress vs LLMLingua-2 对比分析 — 第 10 页（完）</footer>
 </div>
 
 </body>

@@ -147,6 +147,10 @@ class CompressionEngine:
         self._headroom_router = None
         self._headroom_available: bool | None = None
         self._init_lock = threading.Lock()
+        # LLMLingua-2 语义压缩器
+        self._llmlingua_compressor = None
+        self._llmlingua_available: bool | None = None
+        self._llmlingua_lock = threading.Lock()
         # 统计
         self._total_calls = 0
         self._total_compressed = 0
@@ -283,6 +287,28 @@ class CompressionEngine:
                     ratio=len(compressed) / original_chars,
                 )
 
+        # ── 路径 1.5: LLMLingua-2 语义压缩（Headroom 失败时的替代路径）──
+        # 仅对 STANDARD/AGGRESSIVE 级别启用（延迟 ~140ms，不适合 LIGHT 实时路径）
+        if (
+            level in (CompressLevel.STANDARD, CompressLevel.AGGRESSIVE)
+            and os.environ.get("LLMLINGUA_ENABLED", "0") == "1"
+            and original_chars >= 200
+        ):
+            llmlingua_result = self._try_llmlingua(content, context, final_bias)
+            if llmlingua_result is not None:
+                compressed, ratio, strategy = llmlingua_result
+                if ratio < 0.95 and compressed and compressed.strip():
+                    if len(compressed) > effective_max:
+                        compressed = self._truncate_smart(compressed, effective_max, tool_name)
+                        strategy = "llmlingua2+truncate"
+                    return CompressedResult(
+                        content=compressed,
+                        original_chars=original_chars,
+                        compressed_chars=len(compressed),
+                        strategy=strategy,
+                        ratio=len(compressed) / original_chars,
+                    )
+
         # ── 路径 2: CRM 规则摘要（降级）──
         if level in (CompressLevel.AGGRESSIVE, CompressLevel.SUMMARY_ONLY):
             summary = self._crm_one_liner(content, tool_name)
@@ -401,6 +427,186 @@ class CompressionEngine:
             except Exception as e:
                 self._headroom_available = False
                 logger.warning("[CompressionEngine] Headroom 初始化失败: %s", e)
+                return None
+
+    # ─── LLMLingua-2 语义压缩路径 ──────────────────────────────
+
+    def _try_llmlingua(
+        self, content: str, context: str, bias: float
+    ) -> tuple[str, float, str] | None:
+        """尝试 LLMLingua-2 语义压缩，返回 (compressed, ratio, strategy_name) 或 None
+
+        LLMLingua-2 基于 GPT-4 蒸馏的 mBERT 模型做 token 级 keep/drop 预测，
+        支持 104 种语言（含中文），无需 GPU（CPU 可运行，~140ms/条）。
+
+        已知问题与缓解：
+          - 小数点可能被删（$0.12 → $012）→ 预处理占位符保护 + 后处理校验回补
+          - 中文字符间多余空格 → 后处理正则清理
+          - 数字逗号分隔被切断（1, 234）→ 后处理修复
+        """
+        compressor = self._ensure_llmlingua()
+        if compressor is None:
+            return None
+
+        try:
+            # bias → rate 映射：bias 越高保留越多
+            # bias=1.2(LIGHT) → rate=0.6, bias=1.0(STANDARD) → rate=0.5, bias=0.7(AGGRESSIVE) → rate=0.35
+            rate = min(0.8, max(0.3, 0.5 * bias))
+
+            # ── 预处理：保护小数点和关键数值 ──
+            # 将小数点替换为罕见占位符，防止 LLMLingua-2 误删
+            DECIMAL_PLACEHOLDER = "\u2299"  # ⊙ (U+2299)，不会出现在正常文本中
+            protected_content, _decimal_map = self._protect_decimals(content, DECIMAL_PLACEHOLDER)
+
+            result = compressor.compress_prompt(
+                protected_content,
+                rate=rate,
+                force_tokens=['。', '？', '！', '；', '，', '：', '\n', DECIMAL_PLACEHOLDER],
+                chunk_end_tokens=['。', '？', '！', '；', '\n'],
+                force_reserve_digit=True,
+                drop_consecutive=True,
+            )
+
+            compressed = result.get("compressed_prompt", "")
+            if not compressed or not compressed.strip():
+                return None
+
+            # ── 后处理 ──
+
+            # 1. 还原小数点占位符 → 恢复真实小数点
+            compressed = compressed.replace(DECIMAL_PLACEHOLDER, ".")
+
+            # 2. 中文空格清理
+            compressed = re.sub(r'(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])', '', compressed)
+            compressed = re.sub(r'(?<=[\u4e00-\u9fff])\s+(?=[，。？！；：])', '', compressed)
+            compressed = re.sub(r'(?<=[，。？！；：])\s+(?=[\u4e00-\u9fff])', '', compressed)
+
+            # 3. 修复数字/符号间的多余空格
+            compressed = re.sub(r'(\d)\s*,\s*(\d)', r'\1,\2', compressed)
+            compressed = re.sub(r'(\d)\s*\.\s*(\d)', r'\1.\2', compressed)
+            compressed = re.sub(r'(\d)\s*%', r'\1%', compressed)
+            compressed = re.sub(r'(\d)\s+([\u4e00-\u9fff])', r'\1\2', compressed)
+            compressed = re.sub(r'([\u4e00-\u9fff])\s+(\d)', r'\1\2', compressed)
+
+            # 4. 关键数值回补：校验原文中的数值是否在压缩结果中保留
+            compressed = self._recover_missing_numbers(content, compressed)
+
+            ratio = len(compressed) / len(content) if len(content) > 0 else 1.0
+
+            if ratio >= 0.95:
+                return None
+
+            return compressed, ratio, "llmlingua2"
+
+        except Exception as e:
+            logger.debug("[CompressionEngine] LLMLingua-2 压缩异常: %s", e)
+            return None
+
+    @staticmethod
+    def _protect_decimals(content: str, placeholder: str) -> tuple[str, list[tuple[str, str]]]:
+        """预处理：将小数点替换为占位符，防止 LLMLingua-2 删除
+
+        匹配：数字.数字 (3.14, 0.12, 99.9, 192.168.1.1, v3.11.9)
+        """
+        decimal_map: list[tuple[str, str]] = []
+
+        def _replace(match):
+            original = match.group(0)
+            replaced = original.replace(".", placeholder)
+            decimal_map.append((original, replaced))
+            return replaced
+
+        protected = re.sub(r'\d+\.\d+(?:\.\d+)*', _replace, content)
+        return protected, decimal_map
+
+    @staticmethod
+    def _recover_missing_numbers(original: str, compressed: str) -> str:
+        """后处理：校验原文中的关键数值是否在压缩结果中保留，缺失则回补
+
+        检测模式：金额($0.12)、小数百分比(3.2%)、千分位(1,234)、普通小数(0.12)
+        """
+        number_patterns = [
+            re.compile(r'[\$¥￥]\s*\d+\.\d+'),       # 金额 $0.12, ¥3.50
+            re.compile(r'\d+\.\d+\s*%'),               # 小数百分比 3.2%
+            re.compile(r'\d{1,3}(?:,\d{3})+'),         # 千分位 1,234
+            re.compile(r'\d+\.\d+'),                    # 普通小数 0.12
+        ]
+
+        missing_numbers: list[str] = []
+        normalized_compressed = re.sub(r'\s+', '', compressed)
+
+        for pattern in number_patterns:
+            for match in pattern.finditer(original):
+                value = match.group(0).strip()
+                normalized_value = re.sub(r'\s+', '', value)
+                if normalized_value not in normalized_compressed:
+                    missing_numbers.append(value)
+
+        if missing_numbers:
+            seen: set[str] = set()
+            unique_missing = []
+            for num in missing_numbers:
+                if num not in seen:
+                    seen.add(num)
+                    unique_missing.append(num)
+            if unique_missing:
+                compressed += " [数据回补: " + ", ".join(unique_missing[:10]) + "]"
+                logger.debug(
+                    "[CompressionEngine] LLMLingua-2 数值回补 %d 项: %s",
+                    len(unique_missing), unique_missing[:5],
+                )
+
+        return compressed
+
+    def _ensure_llmlingua(self):
+        """延迟初始化 LLMLingua-2 PromptCompressor
+
+        环境变量：
+          LLMLINGUA_ENABLED=1         — 启用 LLMLingua-2（默认关闭）
+          LLMLINGUA_MODEL_PATH=...    — 模型路径（默认 ./models/llmlingua-2-bert-base-multilingual-cased-meetingbank）
+          LLMLINGUA_DEVICE=cpu|mps|cuda — 推理设备（默认 cpu）
+        """
+        if self._llmlingua_compressor is not None:
+            return self._llmlingua_compressor
+        if self._llmlingua_available is False:
+            return None
+
+        with self._llmlingua_lock:
+            if self._llmlingua_compressor is not None:
+                return self._llmlingua_compressor
+            if self._llmlingua_available is False:
+                return None
+
+            try:
+                from llmlingua import PromptCompressor
+
+                model_path = os.environ.get(
+                    "LLMLINGUA_MODEL_PATH",
+                    "./models/llmlingua-2-bert-base-multilingual-cased-meetingbank",
+                )
+                device = os.environ.get("LLMLINGUA_DEVICE", "cpu")
+
+                self._llmlingua_compressor = PromptCompressor(
+                    model_name=model_path,
+                    use_llmlingua2=True,
+                    device_map=device,
+                )
+                self._llmlingua_available = True
+                logger.info(
+                    "[CompressionEngine] LLMLingua-2 初始化成功 (model=%s, device=%s)",
+                    model_path, device,
+                )
+                return self._llmlingua_compressor
+
+            except ImportError:
+                self._llmlingua_available = False
+                logger.info(
+                    "[CompressionEngine] llmlingua 未安装，LLMLingua-2 路径不可用"
+                )
+                return None
+            except Exception as e:
+                self._llmlingua_available = False
+                logger.warning("[CompressionEngine] LLMLingua-2 初始化失败: %s", e)
                 return None
 
     # ─── CRM 规则摘要（降级路径）────────────────────────────────
@@ -545,6 +751,7 @@ class CompressionEngine:
         )
         return {
             "headroom_available": bool(self._headroom_available),
+            "llmlingua_available": bool(self._llmlingua_available),
             "total_calls": self._total_calls,
             "total_compressed": self._total_compressed,
             "total_chars_saved": total_saved,
