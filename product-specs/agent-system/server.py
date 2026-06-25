@@ -1123,6 +1123,31 @@ async def chat_stream(req: ChatRequest):
     # 这里只需要传入当前轮的新消息，不要重复传入 history_messages。
     messages = [HumanMessage(content=effective_query)]
 
+    # ── 检测并关闭 pending interrupt（用户跳过确认直接发新消息）──
+    # 如果 checkpoint 中有 pending interrupt，说明上一轮 Skill 调了 ask_user
+    # 但用户没有 resume 而是直接输入了新问题。
+    # 此时必须先 resume(cancelled) 关闭 interrupt，让 skills_tool 正常返回并产生
+    # [SKILL_DONE:] 标记，保证 Skill 边界可被压缩层精确识别。
+    try:
+        _check_config = {"configurable": {"thread_id": thread_id}}
+        _pending_state = agent.get_state(_check_config)
+        if _pending_state and _pending_state.next:
+            # 有 pending interrupt → 以系统身份自动取消
+            from langgraph.types import Command
+            _cancel_value = {"cancelled": True, "_system_auto_cancel": True}
+            logger.info(
+                "[/api/chat] 检测到 pending interrupt，自动取消: thread=%s",
+                thread_id,
+            )
+            # 同步执行 resume(cancel)，等待 skills_tool 返回 [SKILL_DONE:] 标记
+            async for _ in agent.astream_events(
+                Command(resume=_cancel_value), _check_config, version="v2"
+            ):
+                pass  # 消费完所有事件，确保 graph 执行完毕
+            logger.info("[/api/chat] pending interrupt 已自动关闭: thread=%s", thread_id)
+    except Exception as e:
+        logger.warning("[/api/chat] 自动关闭 pending interrupt 失败（降级继续）: %s", e)
+
     # 获取该 thread 的上传文件
     files = _uploaded_files.get(thread_id, [])
 

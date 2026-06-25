@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any
 
@@ -180,6 +181,17 @@ class SkillAwareTailProtection:
           - Fork: ToolMessage(name="skills_tool") 内容以 [SKILL_DONE: 开头
           - Inline: AIMessage 内容含 [INLINE_SKILL_DONE:
 
+        放弃判断（interrupt 被用户跳过）:
+          - Skill 段内有 ask_user 调用（AIMessage.tool_calls 含 ask_user）
+          - 该 ask_user 调用后没有对应的 ToolMessage（按 tool_call_id 精确匹配）
+          - 但后续出现了 HumanMessage（用户发了新消息，跳过了确认）
+          → 视为已放弃，返回 False
+
+        并行 tool_calls 处理:
+          - 用 tool_call_id 集合跟踪所有未响应的 ask_user 调用
+          - ToolMessage 通过 tool_call_id 精确消除对应的 pending 记录
+          - 避免并行场景下其他工具的 ToolMessage 误清除 ask_user 状态
+
         注意: inline 模式的 prompt 返回也是 ToolMessage(name="skills_tool")，
         但内容不以 [SKILL_DONE: 开头 → 不视为终止。
 
@@ -189,23 +201,48 @@ class SkillAwareTailProtection:
 
         Returns:
             True = 正在执行中（没有终止标记）
-            False = 已完成
+            False = 已完成或已放弃
         """
+        # 跟踪所有未响应的 ask_user 调用的 tool_call_id
+        pending_ask_user_ids: set[str] = set()
+
         for i in range(skill_start_idx + 1, len(messages)):
             msg = messages[i]
             if isinstance(msg, ToolMessage):
                 tool_name = getattr(msg, "name", "") or ""
                 if tool_name == "skills_tool":
                     content = getattr(msg, "content", "") or ""
-                    # 只有 [SKILL_DONE: 开头才是 Fork 终止标记
-                    # inline prompt 返回也是 name="skills_tool" 但内容不是 SKILL_DONE
                     if content.strip().startswith("[SKILL_DONE:"):
                         return False
+                # 通过 tool_call_id 精确消除对应的 pending ask_user
+                tc_id = getattr(msg, "tool_call_id", "") or ""
+                if tc_id and tc_id in pending_ask_user_ids:
+                    pending_ask_user_ids.discard(tc_id)
+
             elif isinstance(msg, AIMessage):
                 content = getattr(msg, "content", "") or ""
-                # Inline 终止标记
                 if "[INLINE_SKILL_DONE:" in content:
                     return False
+                # 收集所有 ask_user 调用的 tool_call_id
+                tool_calls = getattr(msg, "tool_calls", None)
+                if tool_calls:
+                    for tc in tool_calls:
+                        if tc.get("name") == "ask_user":
+                            tc_id = tc.get("id", "")
+                            if tc_id:
+                                pending_ask_user_ids.add(tc_id)
+
+            elif isinstance(msg, HumanMessage):
+                # 出现 HumanMessage 且有未响应的 ask_user → Skill 被放弃
+                if pending_ask_user_ids:
+                    logger.debug(
+                        "[SkillTailProtect] Skill(start=%d) 有 %d 个 ask_user 未响应"
+                        "(ids=%s)，用户发送新消息(idx=%d)，视为已放弃",
+                        skill_start_idx, len(pending_ask_user_ids),
+                        pending_ask_user_ids, i,
+                    )
+                    return False
+
         return True  # 未找到任何终止标记 → 正在执行中
 
     def _find_enclosing_skill_start(
@@ -539,6 +576,7 @@ def post_skill_compact(
     skill_end_idx: int,
     min_skill_messages: int = 8,
     max_skill_tokens: int = 4000,
+    user_query: str = "",
 ) -> list:
     """Skill 执行完成后的即时内部压缩
 
@@ -550,15 +588,15 @@ def post_skill_compact(
       2. Skill 内部估算 token 总量 > max_skill_tokens（默认 4000）
          — 覆盖"少轮次但单条结果巨大"的场景
 
+    压缩策略（按优先级）:
+      1. LLMLingua-2 段级语义压缩（纯文本部分，LLMLINGUA_ENABLED=1 时启用）
+      2. CRM 规则摘要（结构化 JSON 数据 + LLMLingua-2 降级兜底）
+
     保留:
       - Skill 启动: AIMessage(tool_calls=[skills_tool]) — 第1条
       - Skill 启动确认: ToolMessage (skill 启动) — 第2条（如果有）
       - 最后 N 轮内部工具调用（最近的推理上下文）
       - Skill 最终结果: ToolMessage(name="skills_tool") — 最后1条
-
-    压缩:
-      - 中间工具调用 → CRM 信息一行摘要（零 LLM 成本）
-      - 去掉冗长的中间 AIMessage 规划文本
 
     Args:
         messages: 完整消息列表
@@ -566,6 +604,7 @@ def post_skill_compact(
         skill_end_idx: Skill 最终结果的 ToolMessage index（inclusive）
         min_skill_messages: Skill 内部消息数低于此值时按条数不触发
         max_skill_tokens: Skill 内部 token 总量超过此值时强制触发（覆盖少轮大内容场景）
+        user_query: 用户当前问题（用于 LLMLingua-2 密度检测和上下文信号）
 
     Returns:
         压缩后的完整消息列表（原地替换 Skill 内部部分）
@@ -598,48 +637,19 @@ def post_skill_compact(
             return _inplace_compress_skill(messages, skill_start_idx, skill_end_idx)
         return messages
 
-    # 中间区域做信息摘要替换
-    compacted_middle: list = []
     middle_start = protect_head
     middle_end = n - protect_tail
 
-    for i in range(middle_start, middle_end):
-        msg = skill_messages[i]
+    # ═══ 优先尝试 LLMLingua-2 段级压缩 ═══
+    compacted_middle = _llmlingua_skill_compress(
+        skill_messages, middle_start, middle_end,
+        user_query=user_query,
+        target_max_chars=2000,
+    )
 
-        if isinstance(msg, ToolMessage):
-            content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            if len(content) > 150:
-                # 压缩为一行摘要
-                tool_name = getattr(msg, "name", "") or ""
-                summary = _skill_internal_one_liner(tool_name, content)
-                compacted_middle.append(ToolMessage(
-                    content=summary,
-                    tool_call_id=getattr(msg, "tool_call_id", ""),
-                    name=tool_name,
-                ))
-                continue
-
-        elif isinstance(msg, AIMessage):
-            content = msg.content if isinstance(msg.content, str) else ""
-            tool_calls = getattr(msg, "tool_calls", None)
-
-            if tool_calls:
-                # 保留 tool_calls 结构但截断规划文本
-                short_content = content[:80] + "..." if len(content) > 80 else content
-                compacted_middle.append(AIMessage(
-                    content=short_content,
-                    tool_calls=tool_calls,
-                ))
-                continue
-            elif len(content) > 200:
-                # 纯文本规划 → 截断
-                compacted_middle.append(AIMessage(
-                    content=content[:100] + f"...[已压缩，原{len(content)}字]"
-                ))
-                continue
-
-        # 其他情况保留原样
-        compacted_middle.append(msg)
+    # LLMLingua-2 不可用或效果不佳 → 降级到原有逐条压缩
+    if compacted_middle is None:
+        compacted_middle = _per_message_compact(skill_messages, middle_start, middle_end)
 
     # 组装结果
     result = (
@@ -667,6 +677,292 @@ def post_skill_compact(
     return result
 
 
+def _per_message_compact(skill_messages: list, middle_start: int, middle_end: int) -> list:
+    """逐条压缩中间消息 — 原有 CRM 规则逻辑（作为 LLMLingua-2 的降级路径）"""
+    compacted_middle: list = []
+
+    for i in range(middle_start, middle_end):
+        msg = skill_messages[i]
+
+        if isinstance(msg, ToolMessage):
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            if len(content) > 150:
+                tool_name = getattr(msg, "name", "") or ""
+                summary = _skill_internal_one_liner(tool_name, content)
+                compacted_middle.append(ToolMessage(
+                    content=summary,
+                    tool_call_id=getattr(msg, "tool_call_id", ""),
+                    name=tool_name,
+                ))
+                continue
+
+        elif isinstance(msg, AIMessage):
+            content = msg.content if isinstance(msg.content, str) else ""
+            tool_calls = getattr(msg, "tool_calls", None)
+
+            if tool_calls:
+                short_content = content[:80] + "..." if len(content) > 80 else content
+                compacted_middle.append(AIMessage(
+                    content=short_content,
+                    tool_calls=tool_calls,
+                ))
+                continue
+            elif len(content) > 200:
+                compacted_middle.append(AIMessage(
+                    content=content[:100] + f"...[已压缩，原{len(content)}字]"
+                ))
+                continue
+
+        compacted_middle.append(msg)
+
+    return compacted_middle
+
+
+# ═══════════════════════════════════════════════════════════
+# LLMLingua-2 段级 Skill 压缩
+# ═══════════════════════════════════════════════════════════
+
+
+def _llmlingua_skill_compress(
+    skill_messages: list,
+    middle_start: int,
+    middle_end: int,
+    user_query: str = "",
+    target_max_chars: int = 2000,
+) -> list | None:
+    """使用 LLMLingua-2 对 Skill 中间消息做语义压缩
+
+    与逐条 _skill_internal_one_liner 的区别：
+      1. 非结构化文本拼接后整体压缩（跨条上下文感知）
+      2. token-level 保留预测（非暴力截断）
+      3. 压缩 rate 由目标字符数倒推（自适应）
+
+    降级条件（返回 None）：
+      - LLMLingua-2 未启用 / 初始化失败
+      - 中间段纯文本内容 < 500 字（太短不值得调用模型）
+      - 压缩后 ratio ≥ 0.9（压缩效果不显著）
+
+    Args:
+        skill_messages: Skill 段的完整消息列表
+        middle_start: 中间区域起始 index (相对于 skill_messages)
+        middle_end: 中间区域结束 index (exclusive)
+        user_query: 用户当前问题（用于密度检测和上下文信号）
+        target_max_chars: 中间区域压缩后的目标最大字符数
+
+    Returns:
+        压缩后的中间消息列表，或 None（降级到逐条压缩）
+    """
+    if os.environ.get("LLMLINGUA_ENABLED", "0") != "1":
+        return None
+
+    try:
+        from src.middleware.compression_engine import (
+            CompressionEngine,
+            CompressLevel,
+            LLMLINGUA_DENSITY_PATTERNS,
+            LLMLINGUA_DENSITY_THRESHOLDS,
+            LLMLINGUA_FORCE_TOKENS,
+            LLMLINGUA_CHUNK_END_TOKENS,
+        )
+    except ImportError:
+        return None
+
+    engine = CompressionEngine.get_instance()
+
+    # ═══ Phase 1: 分流 — 区分结构化 vs 纯文本 ═══
+    structured_indices: list[int] = []    # JSON 内容 → CRM 规则处理
+    text_segments: list[tuple[int, str, str]] = []  # (index, role_tag, content)
+
+    for i in range(middle_start, middle_end):
+        msg = skill_messages[i]
+        content = getattr(msg, "content", "") or ""
+        if isinstance(content, list):
+            content = str(content)
+
+        if isinstance(msg, ToolMessage):
+            stripped = content.strip()
+            if stripped.startswith(("{", "[")) and len(content) > 150:
+                # JSON 结构化 → 走 CRM 规则
+                structured_indices.append(i)
+            elif len(content) > 100:
+                # 纯文本 ToolMessage → 加入 LLMLingua 批次
+                tool_name = getattr(msg, "name", "") or "tool"
+                text_segments.append((i, f"[{tool_name}]", content))
+
+        elif isinstance(msg, AIMessage):
+            tool_calls = getattr(msg, "tool_calls", None)
+            if tool_calls:
+                # 有 tool_calls → content 部分是规划文本
+                if len(content) > 100:
+                    text_segments.append((i, "[reasoning]", content))
+            elif len(content) > 100:
+                # 纯文本 AIMessage → 加入批次
+                text_segments.append((i, "[plan]", content))
+
+    # ═══ 前置检查：纯文本内容是否足够长 ═══
+    total_text_chars = sum(len(seg[2]) for seg in text_segments)
+    if total_text_chars < 500:
+        return None  # 太短，LLMLingua-2 开销不值得
+
+    # ═══ Phase 2: 拼接 + LLMLingua-2 批量压缩 ═══
+
+    # 拼接为带分隔标记的文本块
+    SEPARATOR = "\n§§§\n"
+    combined_text = SEPARATOR.join(
+        f"{tag} {content}" for _, tag, content in text_segments
+    )
+
+    # 计算目标 rate：根据结构化部分已占用的空间，倒推文本部分的预算
+    structured_budget = len(structured_indices) * 150  # 每条结构化摘要约 150 字
+    text_budget = max(500, target_max_chars - structured_budget)
+    target_rate = min(0.7, max(0.25, text_budget / max(total_text_chars, 1)))
+
+    # 获取 LLMLingua-2 压缩器
+    compressor = engine._ensure_llmlingua()
+    if compressor is None:
+        return None
+
+    try:
+        # 密度检测 — 高密度文本保守压缩
+        compiled_density = [re.compile(p) for p in LLMLINGUA_DENSITY_PATTERNS]
+        entity_count = sum(len(p.findall(combined_text)) for p in compiled_density)
+        density = entity_count / max(1, len(combined_text) / 100)
+
+        if density > LLMLINGUA_DENSITY_THRESHOLDS["skip"]:
+            return None  # 全是数据密集内容，不适合语义压缩
+
+        # 密度越高 rate 越保守
+        if density > LLMLINGUA_DENSITY_THRESHOLDS["high"]:
+            target_rate = max(target_rate, 0.7)
+        elif density > LLMLINGUA_DENSITY_THRESHOLDS["medium"]:
+            target_rate = max(target_rate, 0.55)
+
+        # 小数点保护预处理
+        DECIMAL_PLACEHOLDER = "\u2299"
+        protected_text, decimal_map = _protect_decimals(combined_text, DECIMAL_PLACEHOLDER)
+
+        # 执行压缩 — 保护分隔符 token
+        separator_token = "§§§"
+        force_tokens = list(LLMLINGUA_FORCE_TOKENS) + [separator_token]
+
+        result = compressor.compress_prompt(
+            protected_text,
+            rate=target_rate,
+            force_tokens=force_tokens,
+            chunk_end_tokens=list(LLMLINGUA_CHUNK_END_TOKENS),
+            force_reserve_digit=True,
+            drop_consecutive=True,
+        )
+
+        compressed = result.get("compressed_prompt", "")
+        if not compressed or not compressed.strip():
+            return None
+
+        # 还原小数点
+        for placeholder_str, original_str in decimal_map:
+            compressed = compressed.replace(placeholder_str, original_str)
+
+        # 后处理：清理多余空格
+        compressed = re.sub(r'(?<=[。！？；])\s+(?=[\u4e00-\u9fff])', '', compressed)
+
+        # 兜底回补丢失的关键数值
+        compressed = engine._recover_missing_numbers(combined_text, compressed)
+
+        ratio = len(compressed) / total_text_chars if total_text_chars > 0 else 1.0
+        if ratio >= 0.9:
+            return None  # 压缩效果不显著
+
+    except Exception as e:
+        logger.debug("[PostSkillCompact] LLMLingua-2 段级压缩异常: %s", e)
+        return None
+
+    # ═══ Phase 3: 拆分回消息结构 + 组装结果 ═══
+
+    # 按分隔符拆回各段
+    compressed_parts = compressed.split(separator_token)
+
+    # 构建压缩后的消息列表
+    compacted_middle: list = []
+    text_seg_idx = 0
+
+    for i in range(middle_start, middle_end):
+        msg = skill_messages[i]
+
+        if i in structured_indices:
+            # 结构化数据走 CRM 规则（不变）
+            content = getattr(msg, "content", "") or ""
+            tool_name = getattr(msg, "name", "") or ""
+            summary = _skill_internal_one_liner(tool_name, content)
+            compacted_middle.append(ToolMessage(
+                content=summary,
+                tool_call_id=getattr(msg, "tool_call_id", ""),
+                name=tool_name,
+            ))
+
+        elif any(seg[0] == i for seg in text_segments):
+            # 纯文本 — 用 LLMLingua-2 压缩后的内容替换
+            if text_seg_idx < len(compressed_parts):
+                compressed_content = compressed_parts[text_seg_idx].strip()
+                text_seg_idx += 1
+            else:
+                # 分隔符被 LLMLingua-2 部分删除时的兜底
+                compressed_content = "[已压缩]"
+
+            # 去掉 role_tag 前缀（[tool_name] / [reasoning] / [plan]）
+            compressed_content = re.sub(r'^\[[\w_]+\]\s*', '', compressed_content)
+
+            if not compressed_content:
+                compressed_content = "[已压缩]"
+
+            if isinstance(msg, ToolMessage):
+                compacted_middle.append(ToolMessage(
+                    content=compressed_content,
+                    tool_call_id=getattr(msg, "tool_call_id", ""),
+                    name=getattr(msg, "name", ""),
+                ))
+            elif isinstance(msg, AIMessage):
+                tool_calls = getattr(msg, "tool_calls", None)
+                if tool_calls:
+                    compacted_middle.append(AIMessage(
+                        content=compressed_content,
+                        tool_calls=tool_calls,
+                    ))
+                else:
+                    compacted_middle.append(AIMessage(content=compressed_content))
+        else:
+            # 短内容 / 其他类型 → 保留原样
+            compacted_middle.append(msg)
+
+    logger.info(
+        "[PostSkillCompact] LLMLingua-2 段级压缩: "
+        "文本部分 %d→%d 字符 (target_rate=%.2f, 实际ratio=%.2f), "
+        "结构化 %d 条走规则",
+        total_text_chars, len(compressed), target_rate, ratio,
+        len(structured_indices),
+    )
+
+    return compacted_middle
+
+
+def _protect_decimals(content: str, placeholder: str) -> tuple[str, list[tuple[str, str]]]:
+    """保护小数点，防止 LLMLingua-2 将 3.14 压缩为 314
+
+    将 数字.数字 中的小数点替换为罕见占位符，压缩后还原。
+    匹配：3.14, 0.12, 99.9, 192.168.1.1, v3.11.9 等。
+    """
+    decimal_map: list[tuple[str, str]] = []
+    pattern = re.compile(r'(\d+)\.(\d+)')
+
+    def replacer(m: re.Match) -> str:
+        original = m.group(0)
+        replaced = m.group(1) + placeholder + m.group(2)
+        decimal_map.append((replaced, original))
+        return replaced
+
+    protected = pattern.sub(replacer, content)
+    return protected, decimal_map
+
+
 def _inplace_compress_skill(
     messages: list, skill_start_idx: int, skill_end_idx: int
 ) -> list:
@@ -674,8 +970,14 @@ def _inplace_compress_skill(
 
     不删除任何条目，而是对每条消息的 content 做就地压缩:
       - 保留第一条（skills_tool 调用）和最后一条（最终结果）完整
-      - 中间的 ToolMessage > 500 字 → 一行摘要替换
-      - 中间的 AIMessage > 300 字 → 截断到 150 字
+      - 中间的 ToolMessage > 500 字:
+          - 结构化 JSON → CRM 规则摘要
+          - 纯文本 ≥ 1000 字 + LLMLingua-2 启用 → 语义压缩
+          - 其他 → CRM 规则摘要
+      - 中间的 AIMessage:
+          - 有 tool_calls 且 > 150 字 → 截断规划文本
+          - 纯文本 ≥ 800 字 + LLMLingua-2 启用 → 语义压缩
+          - 纯文本 > 300 字 → 截断到 150 字
 
     适用场景: Skill 只调了 3-5 次工具，但某些工具返回了 5K-15K 字符的结果。
     """
@@ -689,7 +991,36 @@ def _inplace_compress_skill(
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
             if len(content) > 500:
                 tool_name = getattr(msg, "name", "") or ""
-                summary = _skill_internal_one_liner(tool_name, content)
+                stripped = content.strip()
+
+                # 结构化 JSON → CRM 规则摘要
+                if stripped.startswith(("{", "[")):
+                    summary = _skill_internal_one_liner(tool_name, content)
+                # 纯文本 ≥ 1000 字 + LLMLingua-2 启用 → 语义压缩
+                elif (
+                    len(content) >= 1000
+                    and os.environ.get("LLMLINGUA_ENABLED", "0") == "1"
+                ):
+                    try:
+                        from src.middleware.compression_engine import (
+                            CompressionEngine, CompressLevel,
+                        )
+                        engine = CompressionEngine.get_instance()
+                        compress_result = engine.compress(
+                            content=content,
+                            tool_name=tool_name,
+                            level=CompressLevel.AGGRESSIVE,
+                        )
+                        summary = (
+                            compress_result.content
+                            if compress_result.is_compressed
+                            else _skill_internal_one_liner(tool_name, content)
+                        )
+                    except Exception:
+                        summary = _skill_internal_one_liner(tool_name, content)
+                else:
+                    summary = _skill_internal_one_liner(tool_name, content)
+
                 result[i] = ToolMessage(
                     content=summary,
                     tool_call_id=getattr(msg, "tool_call_id", ""),
@@ -704,9 +1035,35 @@ def _inplace_compress_skill(
                 short_content = content[:150] + "..."
                 result[i] = AIMessage(content=short_content, tool_calls=tool_calls)
             elif not tool_calls and len(content) > 300:
-                result[i] = AIMessage(
-                    content=content[:150] + f"...[已压缩，原{len(content)}字]"
-                )
+                # 长规划文本 ≥ 800 字 + LLMLingua-2 启用 → 语义压缩
+                if (
+                    len(content) >= 800
+                    and os.environ.get("LLMLINGUA_ENABLED", "0") == "1"
+                ):
+                    try:
+                        from src.middleware.compression_engine import (
+                            CompressionEngine, CompressLevel,
+                        )
+                        engine = CompressionEngine.get_instance()
+                        compress_result = engine.compress(
+                            content=content,
+                            tool_name="",
+                            level=CompressLevel.AGGRESSIVE,
+                        )
+                        if compress_result.is_compressed:
+                            result[i] = AIMessage(content=compress_result.content)
+                        else:
+                            result[i] = AIMessage(
+                                content=content[:150] + f"...[已压缩，原{len(content)}字]"
+                            )
+                    except Exception:
+                        result[i] = AIMessage(
+                            content=content[:150] + f"...[已压缩，原{len(content)}字]"
+                        )
+                else:
+                    result[i] = AIMessage(
+                        content=content[:150] + f"...[已压缩，原{len(content)}字]"
+                    )
 
     # 日志
     original_tokens = sum(

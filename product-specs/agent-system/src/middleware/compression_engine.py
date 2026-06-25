@@ -455,7 +455,7 @@ class CompressionEngine:
                 config = ContentRouterConfig(
                     enable_smart_crusher=True,
                     enable_code_aware=True,
-                    enable_kompress=os.environ.get("HEADROOM_KOMPRESS_ENABLED", "1") != "0",
+                    enable_kompress=False,  # 禁用：Kompress 依赖 ModernBERT，项目不引入该模型
                     enable_search_compressor=True,
                     enable_log_compressor=True,
                     enable_html_extractor=True,
@@ -594,11 +594,18 @@ class CompressionEngine:
     def _ensure_llmlingua(self):
         """延迟初始化 LLMLingua-2 PromptCompressor (XLM-RoBERTa-large)
 
+        支持三种推理模式（通过环境变量切换）：
+          1. PyTorch FP32:  默认模式
+          2. PyTorch FP16:  LLMLINGUA_FP16=1 (仅 cuda)
+          3. ONNX+TRT FP16: LLMLINGUA_ONNX_PATH=path/to/model.onnx
+
         环境变量：
           LLMLINGUA_ENABLED=1         — 启用 LLMLingua-2（默认关闭）
           LLMLINGUA_MODEL_PATH=...    — 模型路径（默认 ./models/llmlingua-2-xlm-roberta-large-meetingbank）
           LLMLINGUA_DEVICE=cpu|mps|cuda — 推理设备（默认 cpu）
-          LLMLINGUA_FP16=1            — 启用 FP16 半精度推理（仅 cuda 设备有效，显存减半+T4 Tensor Core 加速）
+          LLMLINGUA_FP16=1            — 启用 PyTorch FP16（仅 cuda）
+          LLMLINGUA_ONNX_PATH=...     — ONNX 模型路径（设置后启用 ONNX/TRT 模式，优先级高于 FP16）
+          LLMLINGUA_TRT_CACHE=...     — TensorRT engine 缓存目录（默认 ./models/trt_cache/）
         """
         if self._llmlingua_compressor is not None:
             return self._llmlingua_compressor
@@ -620,6 +627,7 @@ class CompressionEngine:
                 )
                 device = os.environ.get("LLMLINGUA_DEVICE", "cpu")
                 use_fp16 = os.environ.get("LLMLINGUA_FP16", "0") == "1"
+                onnx_path = os.environ.get("LLMLINGUA_ONNX_PATH", "")
 
                 self._llmlingua_compressor = PromptCompressor(
                     model_name=model_path,
@@ -627,15 +635,25 @@ class CompressionEngine:
                     device_map=device,
                 )
 
-                # FP16 半精度：仅在 CUDA 设备上启用（T4 Tensor Core 加速约 2x）
-                if use_fp16 and device == "cuda":
+                # 模式选择（优先级: ONNX > FP16 > FP32）
+                if onnx_path:
+                    # ONNX/TRT 模式：monkey-patch 替换内部模型
+                    self._llmlingua_compressor.model = self._create_onnx_model(
+                        onnx_path, device
+                    )
+                    logger.info(
+                        "[CompressionEngine] LLMLingua-2 ONNX 模式 (provider=%s)",
+                        self._llmlingua_compressor.model.provider_name,
+                    )
+                elif use_fp16 and device == "cuda":
+                    # PyTorch FP16 模式
                     self._llmlingua_compressor.model.half()
-                    logger.info("[CompressionEngine] LLMLingua-2 已启用 FP16 半精度")
+                    logger.info("[CompressionEngine] LLMLingua-2 PyTorch FP16 模式")
 
                 self._llmlingua_available = True
                 logger.info(
-                    "[CompressionEngine] LLMLingua-2 初始化成功 (model=%s, device=%s, fp16=%s)",
-                    model_path, device, use_fp16 and device == "cuda",
+                    "[CompressionEngine] LLMLingua-2 初始化成功 (model=%s, device=%s)",
+                    model_path, device,
                 )
                 return self._llmlingua_compressor
 
@@ -649,6 +667,88 @@ class CompressionEngine:
                 self._llmlingua_available = False
                 logger.warning("[CompressionEngine] LLMLingua-2 初始化失败: %s", e)
                 return None
+
+    @staticmethod
+    def _create_onnx_model(onnx_path: str, device: str):
+        """创建 ONNX/TRT 推理引擎（兼容 HuggingFace model 接口）
+
+        CUDA 设备: TensorrtExecutionProvider (FP16) > CUDAExecutionProvider > CPU
+        CPU 设备: CPUExecutionProvider
+
+        首次推理 TensorRT 会 JIT 编译 engine (~30-60s)，后续从缓存加载 (<1s)。
+        """
+        import numpy as np
+        import onnxruntime as ort
+        from dataclasses import dataclass
+
+        trt_cache = os.environ.get("LLMLINGUA_TRT_CACHE", "./models/trt_cache/")
+
+        # 根据设备选择 provider
+        if device == "cuda":
+            os.makedirs(trt_cache, exist_ok=True)
+            providers = [
+                ("TensorrtExecutionProvider", {
+                    "trt_max_workspace_size": 2 << 30,
+                    "trt_fp16_enable": True,
+                    "trt_engine_cache_enable": True,
+                    "trt_engine_cache_path": trt_cache,
+                    "trt_builder_optimization_level": 3,
+                }),
+                "CUDAExecutionProvider",
+                "CPUExecutionProvider",
+            ]
+        else:
+            providers = ["CPUExecutionProvider"]
+
+        sess_options = ort.SessionOptions()
+        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+        session = ort.InferenceSession(
+            onnx_path, sess_options=sess_options, providers=providers
+        )
+        active_provider = session.get_providers()[0]
+
+        @dataclass
+        class _FakeOutput:
+            logits: "torch.Tensor"
+            loss: None = None
+
+        class _ONNXModel:
+            """ONNX 推理引擎 — 兼容 HuggingFace model(input_ids, attention_mask) 接口"""
+
+            def __init__(self):
+                self._session = session
+                self.provider_name = active_provider
+
+            def __call__(self, input_ids, attention_mask, **kwargs):
+                import torch
+                ids_np = input_ids.cpu().numpy().astype(np.int64)
+                mask_np = attention_mask.cpu().numpy().astype(np.int64)
+                logits_np = self._session.run(
+                    ["logits"],
+                    {"input_ids": ids_np, "attention_mask": mask_np},
+                )[0]
+                return _FakeOutput(
+                    logits=torch.from_numpy(logits_np).to(input_ids.device)
+                )
+
+            def half(self):
+                return self
+
+            def to(self, *args, **kwargs):
+                return self
+
+            def eval(self):
+                return self
+
+            def parameters(self):
+                return iter([])
+
+            @property
+            def training(self):
+                return False
+
+        return _ONNXModel()
 
     # ─── CRM 规则摘要（降级路径）────────────────────────────────
 

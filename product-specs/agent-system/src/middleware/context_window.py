@@ -527,6 +527,9 @@ class ContextWindowMiddleware(AgentMiddleware):
         if not boundaries:
             return messages
 
+        # 获取当前用户问题（传给 LLMLingua-2 做密度检测和上下文信号）
+        user_query = self._get_current_user_query()
+
         # 从后向前压缩，避免 index 偏移
         for start_idx, end_idx in reversed(boundaries):
             skill_msg_count = end_idx - start_idx + 1
@@ -542,6 +545,7 @@ class ContextWindowMiddleware(AgentMiddleware):
                     messages, start_idx, end_idx,
                     min_skill_messages=self._post_skill_compact_threshold,
                     max_skill_tokens=self._post_skill_compact_token_budget,
+                    user_query=user_query,
                 )
 
         return messages

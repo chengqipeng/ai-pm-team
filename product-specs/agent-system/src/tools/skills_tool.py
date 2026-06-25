@@ -58,7 +58,16 @@ class SkillsTool(BaseTool):
             _parent_config = None
 
         arguments = self._normalize_arguments(arguments)
-        result = await self.skill_executor.execute(skill_name, arguments, self.parent_thread_id)
+
+        # ═══ 确保任何退出路径都产生 [SKILL_DONE:] 标记 ═══
+        # 包括: 执行超时、内部异常、用户取消等非正常退出
+        try:
+            result = await self.skill_executor.execute(skill_name, arguments, self.parent_thread_id)
+        except Exception as e:
+            # 异常退出 → 仍然输出终止标记，确保压缩层能正确识别边界
+            error_msg = str(e)[:200]
+            logger.warning("[SkillsTool] %s 执行异常: %s", skill_name, error_msg)
+            return f"[SKILL_DONE:error] {skill_name} 执行失败: {error_msg}"
 
         # 判断 Skill 的 context 模式
         skill = self.skill_executor._registry.get(skill_name)
