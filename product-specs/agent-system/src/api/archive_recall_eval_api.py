@@ -74,13 +74,9 @@ def _get_vdb():
 
 
 def _get_embedding():
-    """获取 Embedding 客户端"""
-    from langchain_openai import OpenAIEmbeddings
-    return OpenAIEmbeddings(
-        model=_EMBED_MODEL,
-        openai_api_key=_EMBED_API_KEY,
-        openai_api_base=_EMBED_API_BASE,
-    )
+    """获取 Embedding 客户端 — 使用本地 Qwen3-Embedding-0.6B"""
+    from src.embedding import LocalEmbedding
+    return LocalEmbedding()
 
 
 # ═══════════════════════════════════════════════════════════

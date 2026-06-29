@@ -246,7 +246,7 @@ pre .number { color: #fab387; }
 <style>
 .example-box { border: 1px solid #dee2e6; border-radius: 6px; padding: 14px; margin: 12px 0; }
 .example-label { font-size: 11px; font-weight: 600; color: #495057; margin: 4px 0; }
-.example-code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 4px; padding: 8px 10px; margin: 4px 0; white-space: pre-wrap; word-break: break-all; line-height: 1.5; overflow: hidden; max-height: 120px; }
+.example-code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 4px; padding: 8px 10px; margin: 4px 0; white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
 .example-meta { font-size: 11px; color: #2d5a8e; font-weight: 500; margin-top: 6px; }
 </style>
 
@@ -1117,6 +1117,84 @@ missing = []
 <div class="example-code" style="background:#d4edda">authentication system uses OAuth 2.0 PKCE flow applications supports password-based login bcrypt hashing 12 social login Google GitHub enterprise SSO SAML 2.0 JWT access token 15-minute...</div>
 </div>
 
+<h3>用例 4: 长文本 — 技术架构评审 (712字)</h3>
+<div class="example-box">
+<div class="example-label">原文 (712字, 502 tokens)</div>
+<div class="example-code">## API Gateway服务
+部署规格：8C16G x 5节点，当前QPS=2800，P99延迟=45ms，错误率=0.12%。
+依赖服务：Auth Service、CRM Core。最近告警：连接池耗尽。
+优化建议：水平扩容至8节点。SLA目标：可用性99.95%，P99&lt;100ms。
+
+## Auth Service服务
+部署规格：4C8G x 3节点，当前QPS=1500，P99延迟=28ms，错误率=0.05%。
+依赖服务：Cache、CRM Core。最近告警：无告警。
+优化建议：增加缓存层。SLA目标：可用性99.99%，P99&lt;50ms。
+
+## CRM Core服务
+部署规格：16C32G x 6节点，当前QPS=3500，P99延迟=120ms，错误率=0.35%。
+依赖服务：Billing、Analytics。最近告警：GC停顿&gt;200ms。
+优化建议：数据库读写分离。SLA目标：可用性99.9%，P99&lt;200ms。
+
+## Billing服务
+部署规格：8C16G x 4节点，当前QPS=800，P99延迟=85ms，错误率=0.08%。
+依赖服务：CRM Core、Notification。最近告警：磁盘IO延迟高。
+优化建议：异步化处理。SLA目标：可用性99.95%，P99&lt;150ms。
+
+## Analytics服务
+部署规格：16C32G x 3节点，当前QPS=500，P99延迟=350ms，错误率=0.42%。
+依赖服务：Search、Cache。最近告警：内存使用率超85%。
+优化建议：限流降级+批处理优化。SLA目标：可用性99.9%，P99&lt;500ms。</div>
+<div class="example-label" style="color:#155724">XLM-RoBERTa FP16 压缩后 (248 tokens, 节省 51%, 延迟 36ms)</div>
+<div class="example-code" style="background:#d4edda">API :8C16G 5节点， P99延迟=45ms，=0.12%。 Service、CRM Core。。 SLA目标.95%， P99&lt;100ms。 Auth :4C8G x 3节点，=1500， P99延迟=28ms，=0.05%。 Core。。 SLA目标.99%， P99&lt;50ms。 CRM x 6节点， P99延迟=120ms，=0.35%。。&gt;200ms。:数据库读写分离。.9%， P99&lt;200ms。 Billing :8C16G x 4节点，=800， P99延迟=85ms，=0.08%。 Core、Notification。:磁盘IO延迟高。:异步化处理。.95%， P99&lt;150ms。 Analytics :16C32G x 3节点，=500， P99延迟=350ms，=0.42%。 Search、Cache。:内存使用率超85%。:限流降级+批处理优化。.9%， P99&lt;500ms。</div>
+<div class="example-meta">压缩率: 51% | 延迟: 36ms | 保留: 全部服务名、P99延迟值、错误率、SLA目标、优化建议</div>
+</div>
+
+<h3>用例 5: 长文本 — Agent 多轮对话历史 (932字)</h3>
+<div class="example-box">
+<div class="example-label">原文 (932字, 629 tokens) — 5轮工具调用记录</div>
+<div class="example-code">[Turn 1] 用户: 帮我查询本季度华东地区的销售数据。
+[Turn 1] Agent: 执行query_data，查询Opportunity表，过滤region='华东' AND close_date&gt;='2024-07-01'。返回328条记录，总金额¥4,580万，平均单价¥14万。耗时230ms，消耗850tokens。
+
+[Turn 2] 用户: 对比上季度的数据，分析增长趋势。
+[Turn 2] Agent: 执行analyze_data，对比Q2 vs Q3华东地区数据。Q2: 285条/¥3,920万；Q3: 328条/¥4,580万。环比增长：客户数+15.1%，金额+16.8%。Top增长行业：金融(+32%)、制造(+18%)、医疗(+12%)。耗时450ms，消耗1200tokens。
+
+[Turn 3] 用户: 金融行业的具体客户列表呢？
+[Turn 3] Agent: 执行query_data，过滤industry='金融' AND region='华东'。返回52条记录，金额¥1,850万。Top5客户：招商银行¥380万、平安保险¥290万、中信证券¥220万、交通银行¥180万、浦发银行¥150万。耗时180ms，消耗650tokens。
+
+[Turn 4] 用户: 招商银行这个项目的详细进展？
+[Turn 4] Agent: 执行query_data，查询opportunity_id='OPP-2024-HE-0892'。项目名称：招商银行数字化营销平台。阶段：Negotiation→Closed Won（9月15日签约）。决策人：李明（CTO）。实施周期：6个月。技术栈：微服务架构+K8s部署。竞品：Salesforce（已淘汰）。耗时120ms，消耗480tokens。
+
+[Turn 5] 用户: 导出华东金融行业的完整报表。
+[Turn 5] Agent: 执行analyze_data生成报表，包含52条记录的详细字段。报表已生成，格式Excel，大小2.3MB，下载链接有效期24小时。总金额¥1,850万，平均合同周期4.2个月，续约率92%。耗时380ms，消耗1500tokens。</div>
+<div class="example-label" style="color:#155724">XLM-RoBERTa FP16 压缩后 (331 tokens, 节省 47%, 延迟 59ms)</div>
+<div class="example-code" style="background:#d4edda">1。 Agent_data，='华东 close_date='2024-07-01'。 返回328条记录， 总金额¥4,580万 平均单价¥14万。，。 2，。 _data， vs Q3华东地区数据。 Q2/¥3,920万;Q3 328条/¥4,580万。:客户数+15.1%，+16.8%。 Top增长行业:金融(+32%)、制造(+18%)、医疗(+12%)。，。 3_data，='金融 region='华东'。 返回52条记录，¥1,850万。 Top5客户:招商银行¥380万、平安保险¥290万、中信证券¥220万、交通银行¥180万、浦发银行¥150万。，。 4_data，='OPP-2024-HE-0892'。:招商银行数字化营销平台。:Negotiation→Closed Won（9月15日签约）。:李明（CTO）。:6个月。:微服务架构+K8s部署。:Salesforce（已淘汰）。，。 5_data生成报表，。，2.3MB，24小时。 总金额¥1,850万， 平均合同周期4.2个月， 续约率92%。，。</div>
+<div class="example-meta">压缩率: 47% | 延迟: 59ms | 保留: 全部金额、客户名、百分比、项目关键信息</div>
+</div>
+
+<h3>用例 6: 长文本 — 系统日志分析 (1583字)</h3>
+<div class="example-box">
+<div class="example-label">原文 (1583字, 540 tokens) — 故障发生→恢复全过程日志</div>
+<div class="example-code">2024-10-15 08:00:01 [INFO] [API Gateway] Server started on port 8080, workers=16
+2024-10-15 08:00:03 [INFO] [Auth Service] Health check: OK (uptime=720h)
+2024-10-15 08:00:05 [INFO] [CRM Core] Connection pool initialized: 200/200 available
+2024-10-15 08:15:22 [ERROR] [CRM Core] Connection pool exhausted: 0/200 available, 45 requests queuing
+2024-10-15 08:15:23 [ERROR] [CRM Core] Query timeout: SELECT * FROM opportunity WHERE close_date&gt;='2024-01-01' - exceeded 30s threshold
+2024-10-15 08:15:24 [WARN] [API Gateway] Circuit breaker OPEN for CRM Core: 5 failures in 60s window
+2024-10-15 08:15:25 [ERROR] [API Gateway] HTTP 504 Gateway Timeout: /api/v2/opportunities - upstream response timeout
+2024-10-15 08:15:26 [WARN] [Billing] Slow query detected: 12500ms on invoice table (full scan, missing index on customer_id)
+2024-10-15 08:15:30 [INFO] [Analytics] Cache hit ratio dropped: 95% -&gt; 62% (cache eviction due to memory pressure)
+2024-10-15 08:18:00 [INFO] [CRM Core] Auto-recovery: added B-tree index on close_date column
+2024-10-15 08:18:15 [INFO] [CRM Core] Connection pool recovered: 180/200 available
+2024-10-15 08:18:30 [INFO] [API Gateway] Circuit breaker CLOSED: CRM Core healthy
+2024-10-15 08:20:00 [INFO] [Monitoring] Incident resolved: duration=4m38s, affected_users=350, error_count=128
+2024-10-15 08:20:01 [INFO] [Notification] Sent post-mortem notification to ops-team@company.com
+2024-10-15 08:30:00 [INFO] [Analytics] Memory usage normalized: 72% (was 92%)
+2024-10-15 09:00:00 [INFO] [All Services] Hourly health check: all 5 services healthy, avg_latency=45ms</div>
+<div class="example-label" style="color:#155724">XLM-RoBERTa FP16 压缩后 (234 tokens, 节省 57%, 延迟 60ms)</div>
+<div class="example-code" style="background:#d4edda">2024-10-15 08:00:01 Gateway Server started port 8080 workers=16 08:00:03 Service Health check OK=720h 08:00:05 Core Connection pool initialized 200/200 available 08:15:22 Connection pool exhausted 0/200 available 45 requests queuing 08:15:23 Query timeout SELECT opportunity close_date='2024-01-01' exceeded 30s 08:15:24 Circuit breaker OPEN CRM Core 5 failures 60s 08:15:25 HTTP 504 Gateway Timeout /api/v2/opportunities 08:15:26 Slow query 12500ms invoice table missing index customer_id 08:15:30 Cache hit ratio 95% 62% memory pressure 08:18:00 Auto-recovery B-tree index close_date 08:18:15 Connection pool recovered 180/200 08:18:30 Circuit breaker CLOSED CRM Core healthy 08:20:00 Incident resolved duration=4m38s affected_users=350 error_count=128 08:20:01 Notification ops-team@company.com 08:30:00 Memory usage 72% was 92% 09:00:00 all 5 services healthy avg_latency=45ms</div>
+<div class="example-meta">压缩率: 57% | 延迟: 60ms | 保留: 全部时间戳、ERROR级别信息、关键指标数值、恢复状态</div>
+</div>
+
 <h2>七、结论与选型建议</h2>
 <table>
 <tr><th>维度</th><th>BERT-base (110M)</th><th>XLM-RoBERTa (560M)</th></tr>
@@ -1142,110 +1220,6 @@ missing = []
 </div>
 
 <!-- ═══════════════════════════════════════════ PAGE 13 ═══════════════════════════════════════════ -->
-<div class="page">
-<div class="title-bar">
-<h1>LLMLingua-2 ONNX/TensorRT 部署验证</h1>
-<p class="subtitle">PyTorch vs ONNX 一致性验证 + GN6s (NVIDIA T4) 性能预估</p>
-</div>
-
-<h2>一、验证方案</h2>
-<div class="note">
-<strong>核心思路：</strong>用 ONNX monkey-patch 替换 llmlingua 内部的 PyTorch 模型，对外接口不变（compress_prompt 正常调用）。验证结果一致性后即可无缝迁移至 GN6s TensorRT 部署。
-</div>
-<div class="flow-box">
-<div class="flow-step"><div class="flow-num">1</div><div class="flow-content"><strong>导出 ONNX</strong> — torch.onnx.export 将 XLM-RoBERTa 导出为静态计算图</div></div>
-<div class="flow-arrow">↓</div>
-<div class="flow-step"><div class="flow-num">2</div><div class="flow-content"><strong>ONNXModel Wrapper</strong> — 实现兼容 HuggingFace 接口的推理类</div></div>
-<div class="flow-arrow">↓</div>
-<div class="flow-step"><div class="flow-num">3</div><div class="flow-content"><strong>Monkey-patch</strong> — compressor.model = ONNXModel(...)</div></div>
-<div class="flow-arrow">↓</div>
-<div class="flow-step"><div class="flow-num">4</div><div class="flow-content"><strong>对比验证</strong> — 12 组用例逐字对比 PyTorch 与 ONNX 输出</div></div>
-</div>
-
-<h2>二、全用例对比验证 (4 用例 × 3 Rate = 12 组)</h2>
-<table>
-<tr>
-<th>Case</th><th>rate</th>
-<th colspan="2" style="text-align:center">验证 (CPU)</th>
-<th>match</th>
-<th colspan="3" style="text-align:center; background:#1d3557">GN6s (T4) 预估</th>
-</tr>
-<tr>
-<th></th><th></th>
-<th>PT(ms)</th><th>ONNX(ms)</th><th></th>
-<th style="background:#1d3557; color:#a6e3a1">PT FP16</th>
-<th style="background:#1d3557; color:#89b4fa">ONNX CUDA</th>
-<th style="background:#1d3557; color:#fab387">TRT FP16</th>
-</tr>
-<tr><td>① 中文业务报告 (320字)</td><td>0.3</td><td>684</td><td>1295</td><td><span class="tag tag-green">YES</span></td><td>~65ms</td><td>~40ms</td><td>~25ms</td></tr>
-<tr><td>① 中文业务报告</td><td>0.5</td><td>652</td><td>1299</td><td><span class="tag tag-green">YES</span></td><td>~65ms</td><td>~40ms</td><td>~25ms</td></tr>
-<tr><td>① 中文业务报告</td><td>0.7</td><td>634</td><td>1321</td><td><span class="tag tag-green">YES</span></td><td>~65ms</td><td>~40ms</td><td>~25ms</td></tr>
-<tr style="background:#f0f8ff"><td>② 中英混合技术 (409字)</td><td>0.3</td><td>663</td><td>1343</td><td><span class="tag tag-green">YES</span></td><td>~70ms</td><td>~42ms</td><td>~28ms</td></tr>
-<tr style="background:#f0f8ff"><td>② 中英混合技术</td><td>0.5</td><td>794</td><td>1427</td><td><span class="tag tag-green">YES</span></td><td>~70ms</td><td>~42ms</td><td>~28ms</td></tr>
-<tr style="background:#f0f8ff"><td>② 中英混合技术</td><td>0.7</td><td>825</td><td>1456</td><td><span class="tag tag-green">YES</span></td><td>~70ms</td><td>~42ms</td><td>~28ms</td></tr>
-<tr><td>③ 纯中文会议纪要 (277字)</td><td>0.3</td><td>839</td><td>1477</td><td><span class="tag tag-green">YES</span></td><td>~65ms</td><td>~38ms</td><td>~24ms</td></tr>
-<tr><td>③ 纯中文会议纪要</td><td>0.5</td><td>846</td><td>1493</td><td><span class="tag tag-green">YES</span></td><td>~65ms</td><td>~38ms</td><td>~24ms</td></tr>
-<tr><td>③ 纯中文会议纪要</td><td>0.7</td><td>831</td><td>1518</td><td><span class="tag tag-green">YES</span></td><td>~65ms</td><td>~38ms</td><td>~24ms</td></tr>
-<tr style="background:#f0f8ff"><td>④ 英文技术文档 (698字)</td><td>0.3</td><td>809</td><td>1528</td><td><span class="tag tag-green">YES</span></td><td>~80ms</td><td>~48ms</td><td>~32ms</td></tr>
-<tr style="background:#f0f8ff"><td>④ 英文技术文档</td><td>0.5</td><td>805</td><td>1536</td><td><span class="tag tag-green">YES</span></td><td>~80ms</td><td>~48ms</td><td>~32ms</td></tr>
-<tr style="background:#f0f8ff"><td>④ 英文技术文档</td><td>0.7</td><td>807</td><td>1541</td><td><span class="tag tag-green">YES</span></td><td>~80ms</td><td>~48ms</td><td>~32ms</td></tr>
-<tr style="background:#e8f5e9; font-weight:600"><td>平均</td><td>-</td><td>766</td><td>1436</td><td>12/12</td><td>~69ms</td><td>~42ms</td><td>~27ms</td></tr>
-</table>
-
-<div class="note-green">
-<strong>验证结论：</strong>12/12 用例压缩结果 100% 一致 — token 数完全相同，输出文本逐字相同。证明 ONNX monkey-patch 方案的正确性。
-</div>
-
-<h2>三、性能汇总（各部署模式对比）</h2>
-<table>
-<tr><th>Mode</th><th>Latency</th><th>Throughput</th><th>vs CPU 基线</th><th>部署复杂度</th></tr>
-<tr><td>PyTorch CPU (当前)</td><td>766ms</td><td>1.3 req/s</td><td>1x (基准)</td><td><span class="tag tag-green">零改动</span></td></tr>
-<tr><td>PyTorch MPS (Mac GPU)</td><td>374ms</td><td>2.7 req/s</td><td>2.0x</td><td><span class="tag tag-green">device_map=mps</span></td></tr>
-<tr style="background:#f0f8ff"><td><strong>PyTorch CUDA FP16</strong></td><td><strong>~69ms</strong></td><td>~14 req/s</td><td><strong>~11x</strong></td><td><span class="tag tag-green">model.half() 一行</span></td></tr>
-<tr style="background:#f0f8ff"><td><strong>ONNX + CUDA</strong></td><td><strong>~42ms</strong></td><td>~24 req/s</td><td><strong>~18x</strong></td><td><span class="tag tag-blue">ONNX导出 + wrapper</span></td></tr>
-<tr style="background:#e8f5e9"><td><strong>ONNX + TensorRT FP16</strong></td><td><strong>~27ms</strong></td><td><strong>~37 req/s</strong></td><td><strong>~28x</strong></td><td><span class="tag tag-blue">同上 (TRT自动编译)</span></td></tr>
-</table>
-
-<h2>四、GN6s 部署配置</h2>
-<pre><span class="comment"># 环境变量配置</span>
-<span class="keyword">export</span> LLMLINGUA_ENABLED=<span class="number">1</span>
-<span class="keyword">export</span> LLMLINGUA_DEVICE=cuda
-<span class="keyword">export</span> LLMLINGUA_FP16=<span class="number">1</span>                <span class="comment"># PyTorch FP16 模式</span>
-<span class="keyword">export</span> LLMLINGUA_ONNX_PATH=./models/model.onnx  <span class="comment"># ONNX/TRT 模式（二选一）</span>
-
-<span class="comment"># 依赖安装</span>
-pip install onnxruntime-gpu   <span class="comment"># 含 TensorRT/CUDA provider</span>
-
-<span class="comment"># 首次推理 TensorRT 自动编译 (~30-60s)，后续缓存复用</span></pre>
-
-<h2>五、推荐选择</h2>
-<div class="card-grid">
-<div class="card" style="border-color:#4caf50">
-<div class="card-title"><span class="icon">🚀</span> 开发/验证阶段</div>
-<ul>
-<li>PyTorch CUDA FP16</li>
-<li>改动最小（一行 model.half()）</li>
-<li>~69ms 已满足大部分在线场景</li>
-</ul>
-</div>
-<div class="card" style="border-color:#2d5a8e">
-<div class="card-title"><span class="icon">⚡</span> 生产在线路径</div>
-<ul>
-<li>ONNX + TensorRT FP16</li>
-<li>~27ms，支持高并发 37 req/s</li>
-<li>首次编译后缓存复用，无额外开销</li>
-</ul>
-</div>
-</div>
-
-<div class="note-warn">
-<strong>注意：</strong>GN6s 预估数据基于 T4 公开 benchmark 推算（XLM-RoBERTa-large, batch=1, seq≤512），实际部署后需实测验证。ONNX CPU 模式在本地验证中比 PyTorch 慢（因 numpy↔torch 拷贝），优势仅在 GPU provider 下体现。
-</div>
-
-<footer>Context Compression Pipeline v1.0 — ONNX/TensorRT 部署验证 — 第 13 页</footer>
-</div>
-
-<!-- ═══════════════════════════════════════════ PAGE 14 ═══════════════════════════════════════════ -->
 <div class="page">
 <div class="title-bar">
 <h1>LLMLingua-2 四模式 GPU 实测数据</h1>
@@ -1312,6 +1286,58 @@ pip install onnxruntime-gpu   <span class="comment"># 含 TensorRT/CUDA provider
 
 <div class="note-green" style="margin-top:12px">
 <strong>最终推荐：fp16 模式。</strong>性能与 trt_fp16 几乎无差（1ms），但部署简单、一致率更高、运维成本更低。trt_fp16 仅在极端高并发或需要单请求 &lt;15ms 时才有考虑价值。
+</div>
+
+<h2>六、各模式部署详解</h2>
+
+<h3>6.1 模型文件来源（所有模式共用）</h3>
+<div class="flow-box">
+<div class="flow-step"><div class="flow-num">1</div><div class="flow-content"><strong>下载模型</strong> — 所有模式共用同一份 HuggingFace 预训练权重<br>
+<code style="font-size:11px">git lfs install<br>git clone https://huggingface.co/microsoft/llmlingua-2-xlm-roberta-large-meetingbank ./models/xlm-roberta/</code><br>
+产出：<code>model.safetensors</code> (FP32, 2.2GB) + <code>config.json</code> + <code>tokenizer.json</code></div></div>
+</div>
+
+<div class="note">
+<strong>model.safetensors 是 FP32 精度的原始权重文件。</strong>fp16/trt_fp16 不需要提前转换文件格式——FP16 转换发生在运行时（加载到 GPU 显存时截断为半精度），磁盘上始终保存 FP32 原始文件。
+</div>
+
+<h3>6.2 各模式显存占用</h3>
+<table>
+<tr><th>模式</th><th>模型显存</th><th>Runtime 显存</th><th>推理时峰值</th><th>T4 16GB 剩余</th></tr>
+<tr><td>fp32</td><td>2.2GB (FP32 权重)</td><td>~0.5GB (PyTorch)</td><td>~3.2GB</td><td>~12.8GB</td></tr>
+<tr style="background:#e8f5e9"><td><strong>fp16 (推荐)</strong></td><td><strong>1.1GB (FP16 权重)</strong></td><td>~0.5GB (PyTorch)</td><td><strong>~2.0GB</strong></td><td><strong>~14.0GB</strong></td></tr>
+<tr><td>trt_fp32</td><td>~2.2GB (TRT engine)</td><td>~0.3GB (ONNX Runtime)</td><td>~3.0GB</td><td>~13.0GB</td></tr>
+<tr><td>trt_fp16</td><td>~1.1GB (TRT FP16 engine)</td><td>~0.3GB (ONNX Runtime)</td><td>~1.8GB</td><td>~14.2GB</td></tr>
+</table>
+<p style="font-size:11px; color:#555">推理时峰值 = 模型权重 + runtime 开销 + 中间激活值 (batch=1, seq=512)。T4 共 16GB GDDR6。</p>
+
+<h3>6.3 模型更新流程</h3>
+<div class="card-grid">
+<div class="card" style="border-color:#4caf50">
+<div class="card-title"><span class="icon">✅</span> fp16 更新（推荐）</div>
+<ul>
+<li>替换 <code>model.safetensors</code></li>
+<li>重启服务</li>
+<li>完成（2 步，~10s）</li>
+</ul>
+</div>
+</div>
+
+<h3>6.5 文件目录结构</h3>
+<pre>models/xlm-roberta/
+├── model.safetensors    # HuggingFace 下载 (FP32, 2.2GB) — fp16/fp32 直接使用
+├── config.json          # 模型架构配置
+├── tokenizer.json       # SentencePiece 分词器
+└── model.onnx           # 从 safetensors 导出 (仅 trt 模式需要)
+
+models/trt_cache/
+└── *.engine             # TRT 编译产物 (仅 trt 模式, 首次推理自动生成, GPU 型号绑定)</pre>
+
+<div class="note-warn">
+<strong>注意事项：</strong><br>
+• TRT engine 与 GPU 型号绑定 — 从 T4 迁移到 A10G 需删除 trt_cache 重新编译<br>
+• fp16 模式无此限制 — 任何 CUDA GPU 上直接启动即可<br>
+• 磁盘上的 safetensors 始终是 FP32 — FP16 转换仅发生在显存中，不产生额外文件
 </div>
 
 <footer>Context Compression Pipeline v1.0 — 四模式 GPU 实测数据 — 第 14 页（完）</footer>

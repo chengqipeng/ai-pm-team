@@ -599,19 +599,12 @@ class ContextArchive:
             return None
 
     def _ensure_embedding(self):
-        """延迟初始化 embedding"""
+        """延迟初始化 embedding — 使用本地 Qwen3-Embedding-0.6B"""
         if self._embedding is not None:
             return self._embedding
         try:
-            import os
-            from langchain_openai import OpenAIEmbeddings
-            self._embedding = OpenAIEmbeddings(
-                model=os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small"),
-                openai_api_key=(os.environ.get("AGENT_API_KEY")
-                                or os.environ.get("DEEPSEEK_API_KEY", "")),
-                openai_api_base=os.environ.get("AGENT_API_BASE",
-                                               "https://tokenhub.tencentmaas.com/v1"),
-            )
+            from src.embedding import LocalEmbedding
+            self._embedding = LocalEmbedding()
             return self._embedding
         except Exception as e:
             logger.debug("[ContextArchive] Embedding 初始化失败: %s", e)

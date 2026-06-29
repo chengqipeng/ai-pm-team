@@ -38,7 +38,7 @@ class MemorySettings(BaseModel):
     mem0_config: dict[str, Any] = Field(default_factory=dict)
     mem0_custom_instructions: str = ""
     mem0_model: str = "deepseek-v4-flash"
-    mem0_embedding_model: str = "doubao-embedding-text-240715"
+    mem0_embedding_model: str = "Qwen3-Embedding-0.6B"
     # 腾讯云向量数据库配置（mem0 通过 LangChain 桥接）
     tencent_vdb_url: str = ""
     tencent_vdb_key: str = ""

@@ -42,16 +42,12 @@ class EmbeddingClient:
 
     @staticmethod
     def _create_default(model_name: str, api_key: str, api_base: str) -> Embeddings:
+        """默认使用本地 Qwen3-Embedding-0.6B"""
         try:
-            from langchain_openai import OpenAIEmbeddings
-            kwargs = {"model": model_name, "check_embedding_ctx_length": False}
-            if api_key:
-                kwargs["api_key"] = api_key
-            if api_base:
-                kwargs["base_url"] = api_base
-            return OpenAIEmbeddings(**kwargs)
+            from src.embedding import LocalEmbedding
+            return LocalEmbedding()
         except ImportError:
-            raise ImportError("langchain_openai 未安装")
+            raise ImportError("src.embedding 模块未找到")
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         if not texts:

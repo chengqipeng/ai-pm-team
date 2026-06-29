@@ -8,7 +8,7 @@
 设计原则:
   - 零 Mock：直接调用真实 VDB hybrid_search + 真实大模型改写
   - VDB: 腾讯向量库 (collection: archive_recall_eval)
-  - Embedding: doubao-embedding-text-240715 (2560维)
+  - Embedding: Qwen3-Embedding-0.6B (1024维, 本地)
   - LLM Rewrite: deepseek-v4-flash (via tokenhub)
   - 与 memory_eval_runner 相同的 SSE 流式模式
 """
@@ -36,11 +36,8 @@ _VDB_USER = os.environ.get("TENCENT_VDB_USERNAME", "root")
 _VDB_DB = os.environ.get("TENCENT_VDB_DATABASE", "viking_memory")
 _VDB_COLLECTION = "archive_recall_eval"
 
-_EMBED_MODEL = os.environ.get("EMBEDDING_MODEL", "doubao-embedding-text-240715")
-_EMBED_API_KEY = os.environ.get("EMBEDDING_API_KEY") or os.environ.get(
-    "DOUBAO_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"
-)
-_EMBED_API_BASE = os.environ.get("EMBEDDING_API_BASE", "https://ark.cn-beijing.volces.com/api/v3/")
+_EMBED_MODEL = "Qwen3-Embedding-0.6B"
+# doubao API 配置已移除，使用本地 Qwen3 模型
 
 _LLM_MODEL = os.environ.get("OPENAI_MODEL_NAME") or os.environ.get("AGENT_MODEL", "deepseek-v4-flash")
 _LLM_API_KEY = os.environ.get("OPENAI_API_KEY") or os.environ.get(
@@ -385,7 +382,7 @@ class RealVDBArchiveEngine:
       - Collection: archive_recall_eval
       - 混合检索: dense 0.6 + BM25 sparse 0.4
       - Score 阈值: 0.35（过滤低分噪声）
-      - Embedding: doubao-embedding-text-240715 (2560维)
+      - Embedding: Qwen3-Embedding-0.6B (1024维, 本地)
     """
 
     SCORE_THRESHOLD = 0.35  # 低分截断（过滤无关查询）
@@ -405,14 +402,9 @@ class RealVDBArchiveEngine:
 
     @staticmethod
     def _init_embedding():
-        """初始化 Embedding"""
-        from langchain_openai import OpenAIEmbeddings
-        return OpenAIEmbeddings(
-            model=_EMBED_MODEL,
-            api_key=_EMBED_API_KEY,
-            base_url=_EMBED_API_BASE,
-            check_embedding_ctx_length=False,  # 禁用 tiktoken 分词，直接发送原始字符串
-        )
+        """初始化 Embedding — 本地 Qwen3-Embedding-0.6B"""
+        from src.embedding import LocalEmbedding
+        return LocalEmbedding()
 
     @property
     def record_count(self) -> int:

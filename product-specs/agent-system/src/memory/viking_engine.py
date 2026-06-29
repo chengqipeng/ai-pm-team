@@ -749,14 +749,8 @@ class VikingMemoryEngine(MemoryEngine):
 
     @staticmethod
     def _default_embedding():
-        from langchain_openai import OpenAIEmbeddings
-        api_key = os.environ.get("EMBEDDING_API_KEY", os.environ.get("DEEPSEEK_API_KEY", "651621e7-e495-4728-93ef-ed380e9ddcd1"))
-        return OpenAIEmbeddings(
-            model=os.environ.get("EMBEDDING_MODEL", "doubao-embedding-text-240715"),
-            api_key=api_key,
-            base_url=os.environ.get("EMBEDDING_API_BASE", "https://ark.cn-beijing.volces.com/api/v3/"),
-            check_embedding_ctx_length=False,
-        )
+        from src.embedding import LocalEmbedding
+        return LocalEmbedding()
 
     # ── MemoryEngine 接口 ──
 
