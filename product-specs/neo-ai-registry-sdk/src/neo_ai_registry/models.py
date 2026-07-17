@@ -101,29 +101,3 @@ class MiddlewareDefinition(BaseModel):
         description="依赖的 Feature 开关（全部满足才加载）",
     )
 
-
-# ═══════════════════════════════════════════════════════════
-# MCP Server 定义（供 MCP Service 使用）
-# ═══════════════════════════════════════════════════════════
-
-class McpServerDefinition(BaseModel):
-    """MCP Server 注册定义"""
-
-    api_key: str = Field(..., description="MCP Server 唯一标识")
-    name: str = Field(..., description="Server 显示名称")
-    description: str = Field("", description="功能描述")
-    domain: str = Field("", description="所属业务域（crm/knowledge/metadata/platform/sandbox）")
-
-    # 连接配置
-    transport: str = Field("streamable_http", description="传输协议（streamable_http/stdio）")
-    endpoint: str = Field("", description="Server 连接地址")
-    auth_type: str = Field("jwt", description="认证方式（jwt/oauth2/api_key/none）")
-    auth_config: dict[str, Any] = Field(default_factory=dict, description="认证配置")
-
-    # 工具列表（可选预注册）
-    tools: list[str] = Field(default_factory=list, description="预注册工具名列表")
-
-    # 控制
-    enabled_flg: bool = Field(True, description="是否启用")
-    tenant_isolation: bool = Field(True, description="是否租户隔离")
-    max_connections: int = Field(10, description="最大连接数")

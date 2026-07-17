@@ -25,7 +25,6 @@ Usage:
 from neo_ai_registry.feign.client import (
     ToolFeignClient,
     MiddlewareFeignClient,
-    FeignClientConfig,
     ServiceResolver,
 )
 from neo_ai_registry.feign.transport import Transport, HttpxTransport
@@ -33,7 +32,6 @@ from neo_ai_registry.feign.transport import Transport, HttpxTransport
 __all__ = [
     "ToolFeignClient",
     "MiddlewareFeignClient",
-    "FeignClientConfig",
     "ServiceResolver",
     "Transport",
     "HttpxTransport",

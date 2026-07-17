@@ -8,7 +8,6 @@ from neo_ai_registry.registry import Registry
 from neo_ai_registry.models import (
     ToolDefinition,
     MiddlewareDefinition,
-    McpServerDefinition,
     ToolType,
     MiddlewareHook,
 )
@@ -19,7 +18,6 @@ __all__ = [
     "Registry",
     "ToolDefinition",
     "MiddlewareDefinition",
-    "McpServerDefinition",
     "ToolType",
     "MiddlewareHook",
 ]

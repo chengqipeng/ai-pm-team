@@ -5,13 +5,12 @@
     - 开发环境: HttpxTransport（基于 httpx，直连无依赖）
 
 路由规范：
-    - Tool:       POST /v1/tools/{api_key}/execute  → execute_tool
-    - Middleware:  POST /v1/middlewares/{api_key}/execute → execute_middleware
+    - Tool:       POST /v2/tools/{api_key}/execute  → execute_tool
+    - Middleware:  POST /v2/middlewares/{api_key}/execute → execute_middleware
 """
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -66,19 +65,6 @@ class ServiceResolver:
         if self._k8s_namespace:
             return f"http://{app_name}.{self._k8s_namespace}.svc.cluster.local:{self._k8s_port}"
         return f"http://{app_name}:{self._k8s_port}"
-
-
-# ═══════════════════════════════════════════════════════════
-# FeignClientConfig
-# ═══════════════════════════════════════════════════════════
-
-@dataclass
-class FeignClientConfig:
-    """FeignClient 通用配置（已废弃，保留兼容。推荐直接传 transport）"""
-    app_name: str = ""
-    resolver: ServiceResolver | None = None
-    timeout_s: float = 10.0
-    headers: dict[str, str] = field(default_factory=dict)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -155,7 +141,7 @@ class ToolFeignClient:
 
         return self._transport.invoke(
             app_name=self._app_name,
-            service=f"/v1/tools/{api_key}/execute",
+            service=f"/v2/tools/{api_key}/execute",
             method="POST",
             data=payload,
         )
@@ -222,7 +208,7 @@ class MiddlewareFeignClient:
 
         return self._transport.invoke(
             app_name=self._app_name,
-            service=f"/v1/middlewares/{api_key}/execute",
+            service=f"/v2/middlewares/{api_key}/execute",
             method="POST",
             data=request_data,
         )
