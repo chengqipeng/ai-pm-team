@@ -1,6 +1,6 @@
 """neo-ai-registry-sdk — Agent 切面注册器
 
-提供 Tool / Middleware 的定义与加载能力。
+提供 Tool / Middleware / MCP 的定义与调用能力。
 业务域服务使用 Registry 内置数据，Agent 运行时通过 FeignClient 远程调用。
 """
 
