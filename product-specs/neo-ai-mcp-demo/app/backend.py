@@ -1,47 +1,44 @@
-"""Backend 调用层 — 按 Server 路由到不同后端服务
+"""Backend 调用层 — 通过 NeoApiTransport 调用 Provider 服务
 
-生产环境中不同 MCP Server 对应不同的后端微服务：
-    crm-data-mcp    → neo-ai-salescloud-service
-    knowledge-mcp   → neo-ai-knowledge-service
-    metadata-mcp    → neo-ai-metadata-service
-
-每个 Server 有独立的 FeignClient，根据 tool_name 路由到对应后端。
+使用 NeoApiTransport（基于 NeoApiClient），自动传递上下文和 trace 链路。
+服务名和地址从 config/servers.yaml 读取。
 """
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from neo_ai_registry.feign import ToolFeignClient, ServiceResolver
-from neo_ai_registry.feign.transport import HttpxTransport
+from neo_ai_registry.feign import ToolFeignClient
+from neo_ai_registry.feign.transport import NeoApiTransport
 
 logger = logging.getLogger(__name__)
 
 # server_api_key → FeignClient 映射
 _clients: dict[str, ToolFeignClient] = {}
 
-# tool_name → server_api_key 映射（由 config_loader 构建）
+# tool_name → server_api_key 映射
 _tool_server_map: dict[str, str] = {}
+
+# NeoApiTransport 单例（共享 NeoApiClient）
+_transport = NeoApiTransport()
 
 
 def init_backend(server_backends: dict[str, dict[str, str]]):
-    """初始化所有 Server 的 Backend FeignClient
+    """初始化所有 Server 的 Backend FeignClient（使用 NeoApiTransport）
 
     Args:
         server_backends: server_api_key → {"service_name": "...", "url": "..."} 映射。
-                         来自 config/servers.yaml 每个 server 的 backend 段。
     """
     for server_key, cfg in server_backends.items():
         service_name = cfg.get("service_name", "")
-        url = cfg.get("url", "")
-        if not service_name or not url:
-            logger.warning("Server '%s' backend 配置不完整，跳过: %s", server_key, cfg)
+        if not service_name:
+            logger.warning("Server '%s' backend 缺少 service_name，跳过", server_key)
             continue
 
-        resolver = ServiceResolver(static_map={service_name: url})
-        transport = HttpxTransport(resolver=resolver)
-        _clients[server_key] = ToolFeignClient(app_name=service_name, transport=transport)
-        logger.info("[Backend] %s → %s (%s)", server_key, service_name, url)
+        # NeoApiTransport 通过 NeoApiClient + Eureka 解析 service_name
+        # 无需手动设置 URL（Eureka 自动发现）
+        _clients[server_key] = ToolFeignClient(app_name=service_name, transport=_transport)
+        logger.info("[Backend] %s → %s (NeoApiTransport)", server_key, service_name)
 
 
 def register_tool_server(tool_name: str, server_api_key: str):
@@ -54,9 +51,7 @@ async def call_provider_tool(
     arguments: dict[str, Any],
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """调用后端 Provider 服务
-
-    根据 tool_name 找到对应 Server 的 FeignClient，调用对应后端。
+    """调用后端 Provider 服务（通过 NeoApiTransport 自动传递上下文+trace）
 
     Args:
         api_key: Tool 唯一标识。
@@ -71,5 +66,5 @@ async def call_provider_tool(
     if not client:
         raise RuntimeError(f"Server '{server_key}' 的 Backend 未初始化")
 
-    logger.info("[MCP→Backend] %s → %s", api_key, server_key)
+    logger.info("[MCP→Backend] %s → %s (NeoApiTransport)", api_key, server_key)
     return client.execute_tool(api_key, arguments, context)

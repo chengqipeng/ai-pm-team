@@ -11,7 +11,7 @@ import logging
 from typing import Any
 
 from neo_ai_registry.feign import ToolFeignClient, MiddlewareFeignClient, ServiceResolver
-from neo_ai_registry.feign.transport import HttpxTransport
+from neo_ai_registry.feign.transport import NeoApiTransport
 
 from app.config_loader import load_registry_config, RegistryConfig, ToolConfig, MiddlewareConfig
 
@@ -46,10 +46,9 @@ class AgentLoader:
         """
         self._config = load_registry_config(self._config_path)
 
-        # 构建 Transport
-        resolver = ServiceResolver(static_map=self._config.services)
-        self._transport = HttpxTransport(resolver=resolver)
-        logger.info("[AgentLoader] 服务映射: %s", self._config.services)
+        # 构建 Transport（NeoApiTransport — 通过 NeoApiClient + Eureka 自动发现服务）
+        self._transport = NeoApiTransport()
+        logger.info("[AgentLoader] 使用 NeoApiTransport（NeoApiClient + Eureka）")
 
         # 构建 Tool 映射
         for tool in self._config.tools:
