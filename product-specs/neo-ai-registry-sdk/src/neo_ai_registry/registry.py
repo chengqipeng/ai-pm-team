@@ -2,14 +2,9 @@
 
 业务域服务在代码中手动注册 Tool / Middleware 定义及其 handler，
 通过 Provider 接口暴露 HTTP API 供 Agent 运行时远程调用。
-
-Tool 和 Middleware 均采用远程回调模式：
-    - Agent 运行时按服务名调用 → FeignClient → HTTP → Registry.execute_*()
-    - 与 v1 NeoApiClient 调用模式一致
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any, Callable, Awaitable
 
@@ -55,21 +50,22 @@ class Registry(ToolProvider, MiddlewareProvider):
 
         Args:
             tool: Tool 定义对象（ToolDefinition 实例）。
-            handler: Tool 执行函数。签名为：
+            handler: Tool 执行函数（必须提供，否则调用时报错）。签名为：
                      async def handler(input_data: dict, context: dict) -> dict
                      或同步版本 def handler(input_data: dict, context: dict) -> dict。
-                     Agent FeignClient 调用 execute_tool 时路由到此函数。
 
         Raises:
             RegistryValidationError: auto_validate=True 且定义不合法时抛出。
+            ValueError: handler 为 None 时抛出。
         """
         if self._auto_validate:
             validate_tool(tool)
+        if handler is None:
+            raise ValueError(f"Tool '{tool.api_key}' 注册时必须提供 handler")
         if not tool.domain:
             tool.domain = self._domain
         self._tools[tool.api_key] = tool
-        if handler:
-            self._tool_handlers[tool.api_key] = handler
+        self._tool_handlers[tool.api_key] = handler
         logger.info("[Registry:%s] Tool 注册: %s", self._domain, tool.api_key)
 
     def register_middleware(
@@ -81,41 +77,40 @@ class Registry(ToolProvider, MiddlewareProvider):
 
         Args:
             mw: Middleware 定义对象（MiddlewareDefinition 实例）。
-            handler: Middleware 执行函数。签名为：
+            handler: Middleware 执行函数（必须提供）。签名为：
                      async def handler(hook: str, payload: dict, context: dict) -> dict
-                     或同步版本 def handler(hook: str, payload: dict, context: dict) -> dict。
 
-                     参数说明：
-                     - hook: 生命周期钩子名（before_agent/after_agent/before_model/after_model/wrap_tool_call）
-                     - payload: 钩子入参（messages/state/model_output/tool_name 等）
-                     - context: 执行上下文（tenant_id/user_id/trace_id/thread_id/agent_name）
-
-                     返回值：
+                     返回值约定：
                      - {"action": "continue"} — 不修改，继续
                      - {"action": "modify", "patch": {...}} — 修改 state
                      - {"action": "abort", "message": "..."} — 中止流程
 
         Raises:
             RegistryValidationError: auto_validate=True 且定义不合法时抛出。
+            ValueError: handler 为 None 时抛出。
         """
         if self._auto_validate:
             validate_middleware(mw)
+        if handler is None:
+            raise ValueError(f"Middleware '{mw.api_key}' 注册时必须提供 handler")
         self._middlewares[mw.api_key] = mw
-        if handler:
-            self._middleware_handlers[mw.api_key] = handler
+        self._middleware_handlers[mw.api_key] = handler
         logger.info("[Registry:%s] Middleware 注册: %s", self._domain, mw.api_key)
 
     # ═══════════════════════════════════════════════════════════
     # ToolProvider 实现
     # ═══════════════════════════════════════════════════════════
 
-    def execute_tool(
+    async def execute_tool(
         self,
         api_key: str,
         input_data: dict[str, Any],
         context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """根据 api_key 执行已注册的 Tool handler
+
+        本方法为 async，可安全在 FastAPI 等异步框架中直接 await 调用。
+        支持 async handler 和 sync handler。
 
         Args:
             api_key: Tool 唯一标识。
@@ -132,15 +127,17 @@ class Registry(ToolProvider, MiddlewareProvider):
             raise KeyError(f"Tool '{api_key}' 不存在，已注册: {list(self._tool_handlers.keys())}")
         handler = self._tool_handlers[api_key]
         ctx = context or {}
-        if asyncio.iscoroutinefunction(handler):
-            return asyncio.run(handler(input_data, ctx))
-        return handler(input_data, ctx)
+        result = handler(input_data, ctx)
+        # 如果 handler 返回协程，await 它
+        if hasattr(result, "__await__"):
+            return await result
+        return result
 
     # ═══════════════════════════════════════════════════════════
     # MiddlewareProvider 实现
     # ═══════════════════════════════════════════════════════════
 
-    def execute_middleware(
+    async def execute_middleware(
         self,
         api_key: str,
         hook: str,
@@ -149,9 +146,11 @@ class Registry(ToolProvider, MiddlewareProvider):
     ) -> dict[str, Any]:
         """根据 api_key 执行已注册的 Middleware handler
 
+        本方法为 async，可安全在 FastAPI 等异步框架中直接 await 调用。
+
         Args:
             api_key: Middleware 唯一标识。
-            hook: 生命周期钩子名称（before_agent/after_agent/before_model/after_model/wrap_tool_call）。
+            hook: 生命周期钩子名称。
             payload: 钩子入参字典。
             context: 执行上下文（可选）。
 
@@ -165,28 +164,57 @@ class Registry(ToolProvider, MiddlewareProvider):
             raise KeyError(f"Middleware '{api_key}' 不存在，已注册: {list(self._middleware_handlers.keys())}")
         handler = self._middleware_handlers[api_key]
         ctx = context or {}
-        if asyncio.iscoroutinefunction(handler):
-            return asyncio.run(handler(hook, payload, ctx))
-        return handler(hook, payload, ctx)
+        result = handler(hook, payload, ctx)
+        if hasattr(result, "__await__"):
+            return await result
+        return result
+
+    # ═══════════════════════════════════════════════════════════
+    # 查询方法（供路由层使用）
+    # ═══════════════════════════════════════════════════════════
+
+    def get_tool_handler(self, api_key: str) -> ToolHandler:
+        """获取 Tool handler 函数（供路由层直接 await 调用）
+
+        Args:
+            api_key: Tool 唯一标识。
+
+        Returns:
+            handler 函数。
+
+        Raises:
+            KeyError: api_key 未注册时抛出。
+        """
+        if api_key not in self._tool_handlers:
+            raise KeyError(f"Tool '{api_key}' 不存在，已注册: {list(self._tool_handlers.keys())}")
+        return self._tool_handlers[api_key]
+
+    def get_middleware_handler(self, api_key: str) -> MiddlewareHandler:
+        """获取 Middleware handler 函数（供路由层直接 await 调用）
+
+        Args:
+            api_key: Middleware 唯一标识。
+
+        Returns:
+            handler 函数。
+
+        Raises:
+            KeyError: api_key 未注册时抛出。
+        """
+        if api_key not in self._middleware_handlers:
+            raise KeyError(f"Middleware '{api_key}' 不存在，已注册: {list(self._middleware_handlers.keys())}")
+        return self._middleware_handlers[api_key]
 
     # ═══════════════════════════════════════════════════════════
     # 辅助方法
     # ═══════════════════════════════════════════════════════════
 
     def has_tool(self, api_key: str) -> bool:
-        """检查 Tool handler 是否已注册
-
-        Args:
-            api_key: Tool 唯一标识。
-        """
+        """检查 Tool 是否已注册"""
         return api_key in self._tool_handlers
 
     def has_middleware(self, api_key: str) -> bool:
-        """检查 Middleware handler 是否已注册
-
-        Args:
-            api_key: Middleware 唯一标识。
-        """
+        """检查 Middleware 是否已注册"""
         return api_key in self._middleware_handlers
 
     def summary(self) -> dict[str, int]:
