@@ -116,35 +116,47 @@ class ToolFeignClient:
         self,
         api_key: str,
         input_data: dict[str, Any],
-        context: dict[str, Any] | None = None,
+        state: Any = None,
     ) -> dict[str, Any]:
-        """远程执行 Tool
-
-        通过 Transport 层发起调用：
-        - NeoApiTransport: 自动注入 GlobalContext headers + SkyWalking trace
-        - HttpxTransport: 直连，context 放在 body 中传递
+        """远程执行 Tool（支持 state 双向传递）
 
         Args:
             api_key: Tool 唯一标识。
-            input_data: Tool 入参字典（LLM Function Calling 生成）。
-            context: 执行上下文（tenant_id/user_id/thread_id/message_id/trace_id）。
+            input_data: Tool 入参字典。
+            state: ToolState 实例或 dict。Provider 可通过 state.set() 回写数据，
+                   返回值中 state_patch 包含回写的增量，Agent 侧可 merge。
 
         Returns:
-            Tool 执行结果字典。
-
-        Raises:
-            httpx.HTTPStatusError / Exception: 远程调用失败时抛出。
+            {"result": Tool执行结果, "state_patch": Provider回写的状态增量}
         """
-        payload: dict[str, Any] = {"input": input_data}
-        if context:
-            payload["context"] = context
+        from neo_ai_registry.state import ToolState
 
-        return self._transport.invoke(
+        # 序列化 state
+        if isinstance(state, ToolState):
+            state_dict = state.to_dict()
+        elif isinstance(state, dict):
+            state_dict = state
+        else:
+            state_dict = {}
+
+        payload: dict[str, Any] = {"input": input_data}
+        if state_dict:
+            payload["state"] = state_dict
+
+        response = self._transport.invoke(
             app_name=self._app_name,
             service=f"/v2/tools/{api_key}/execute",
             method="POST",
             data=payload,
         )
+
+        # 如果 Agent 传入了 ToolState 实例，自动 merge 回写
+        if isinstance(state, ToolState) and isinstance(response, dict):
+            patch = response.get("state_patch", {})
+            if patch:
+                state.merge_patch(patch)
+
+        return response
 
 
 # ═══════════════════════════════════════════════════════════
@@ -182,33 +194,45 @@ class MiddlewareFeignClient:
         api_key: str,
         hook: str,
         payload: dict[str, Any],
-        context: dict[str, Any] | None = None,
+        state: Any = None,
     ) -> dict[str, Any]:
-        """远程执行 Middleware 钩子
-
-        通过 Transport 层发起调用：
-        - NeoApiTransport: 自动注入上下文+trace
-        - HttpxTransport: 直连
+        """远程执行 Middleware 钩子（支持 state 双向传递）
 
         Args:
             api_key: Middleware 唯一标识。
-            hook: 生命周期钩子名称（before_agent/after_agent/before_model/after_model/wrap_tool_call）。
+            hook: 生命周期钩子名称。
             payload: 钩子入参字典。
-            context: 执行上下文。
+            state: ToolState 实例或 dict。
 
         Returns:
-            Middleware 执行结果（action + patch/message）。
+            {"result": Middleware执行结果, "state_patch": Provider回写的状态增量}
         """
+        from neo_ai_registry.state import ToolState
+
+        if isinstance(state, ToolState):
+            state_dict = state.to_dict()
+        elif isinstance(state, dict):
+            state_dict = state
+        else:
+            state_dict = {}
+
         request_data: dict[str, Any] = {
             "hook": hook,
             "payload": payload,
         }
-        if context:
-            request_data["context"] = context
+        if state_dict:
+            request_data["state"] = state_dict
 
-        return self._transport.invoke(
+        response = self._transport.invoke(
             app_name=self._app_name,
             service=f"/v2/middlewares/{api_key}/execute",
             method="POST",
             data=request_data,
         )
+
+        if isinstance(state, ToolState) and isinstance(response, dict):
+            patch = response.get("state_patch", {})
+            if patch:
+                state.merge_patch(patch)
+
+        return response

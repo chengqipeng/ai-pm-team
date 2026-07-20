@@ -7,7 +7,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from neo_ai_registry.models import MiddlewareDefinition
+from neo_ai_registry.state import ToolState
 
 
 class ToolProvider(ABC):
@@ -18,17 +18,17 @@ class ToolProvider(ABC):
         self,
         api_key: str,
         input_data: dict[str, Any],
-        context: dict[str, Any] | None = None,
+        state: ToolState | None = None,
     ) -> dict[str, Any]:
         """根据 api_key 执行指定 Tool
 
         Args:
             api_key: Tool 唯一标识。
             input_data: Tool 入参字典。
-            context: 执行上下文（tenant_id/user_id/thread_id/message_id/trace_id）。
+            state: 执行状态（双向传递）。Provider 可通过 state.set() 回写数据。
 
         Returns:
-            Tool 执行结果字典。
+            Tool 执行结果字典。包含 result + state_patch。
         """
         ...
 
@@ -42,17 +42,17 @@ class MiddlewareProvider(ABC):
         api_key: str,
         hook: str,
         payload: dict[str, Any],
-        context: dict[str, Any] | None = None,
+        state: ToolState | None = None,
     ) -> dict[str, Any]:
         """根据 api_key 执行指定 Middleware 的生命周期钩子
 
         Args:
             api_key: Middleware 唯一标识。
-            hook: 钩子名称（before_agent/after_agent/before_model/after_model/wrap_tool_call）。
+            hook: 钩子名称。
             payload: 钩子入参字典。
-            context: 执行上下文。
+            state: 执行状态（双向传递）。
 
         Returns:
-            执行结果（action: continue/modify/abort + patch/message）。
+            执行结果（action: continue/modify/abort + state_patch）。
         """
         ...

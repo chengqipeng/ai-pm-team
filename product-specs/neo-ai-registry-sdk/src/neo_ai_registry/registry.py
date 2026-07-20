@@ -10,13 +10,14 @@ from typing import Any, Callable, Awaitable
 
 from .models import ToolDefinition, MiddlewareDefinition
 from .providers.base import ToolProvider, MiddlewareProvider
+from .state import ToolState
 from .validator import validate_tool, validate_middleware
 
 logger = logging.getLogger(__name__)
 
-# Handler 类型定义
-ToolHandler = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any] | Awaitable[dict[str, Any]]]
-MiddlewareHandler = Callable[[str, dict[str, Any], dict[str, Any]], dict[str, Any] | Awaitable[dict[str, Any]]]
+# Handler 类型定义（state 替代 context）
+ToolHandler = Callable[[dict[str, Any], ToolState], dict[str, Any] | Awaitable[dict[str, Any]]]
+MiddlewareHandler = Callable[[str, dict[str, Any], ToolState], dict[str, Any] | Awaitable[dict[str, Any]]]
 
 
 class Registry(ToolProvider, MiddlewareProvider):
@@ -105,20 +106,17 @@ class Registry(ToolProvider, MiddlewareProvider):
         self,
         api_key: str,
         input_data: dict[str, Any],
-        context: dict[str, Any] | None = None,
+        state: ToolState | None = None,
     ) -> dict[str, Any]:
         """根据 api_key 执行已注册的 Tool handler
-
-        本方法为 async，可安全在 FastAPI 等异步框架中直接 await 调用。
-        支持 async handler 和 sync handler。
 
         Args:
             api_key: Tool 唯一标识。
             input_data: Tool 入参字典。
-            context: 执行上下文（可选）。
+            state: 执行状态（双向传递）。Provider 可通过 state.set() 回写。
 
         Returns:
-            handler 返回值（dict）。
+            {"result": handler返回值, "state_patch": Provider回写的状态增量}
 
         Raises:
             KeyError: api_key 未注册时抛出。
@@ -126,12 +124,12 @@ class Registry(ToolProvider, MiddlewareProvider):
         if api_key not in self._tool_handlers:
             raise KeyError(f"Tool '{api_key}' 不存在，已注册: {list(self._tool_handlers.keys())}")
         handler = self._tool_handlers[api_key]
-        ctx = context or {}
-        result = handler(input_data, ctx)
-        # 如果 handler 返回协程，await 它
+        s = state or ToolState()
+        result = handler(input_data, s)
         if hasattr(result, "__await__"):
-            return await result
-        return result
+            result = await result
+        # 返回 result + state_patch
+        return {"result": result, "state_patch": s.patch}
 
     # ═══════════════════════════════════════════════════════════
     # MiddlewareProvider 实现
@@ -142,20 +140,18 @@ class Registry(ToolProvider, MiddlewareProvider):
         api_key: str,
         hook: str,
         payload: dict[str, Any],
-        context: dict[str, Any] | None = None,
+        state: ToolState | None = None,
     ) -> dict[str, Any]:
         """根据 api_key 执行已注册的 Middleware handler
-
-        本方法为 async，可安全在 FastAPI 等异步框架中直接 await 调用。
 
         Args:
             api_key: Middleware 唯一标识。
             hook: 生命周期钩子名称。
             payload: 钩子入参字典。
-            context: 执行上下文（可选）。
+            state: 执行状态（双向传递）。
 
         Returns:
-            handler 返回值（dict），包含 action + patch/message。
+            {"result": handler返回值, "state_patch": Provider回写的状态增量}
 
         Raises:
             KeyError: api_key 未注册时抛出。
@@ -163,11 +159,11 @@ class Registry(ToolProvider, MiddlewareProvider):
         if api_key not in self._middleware_handlers:
             raise KeyError(f"Middleware '{api_key}' 不存在，已注册: {list(self._middleware_handlers.keys())}")
         handler = self._middleware_handlers[api_key]
-        ctx = context or {}
-        result = handler(hook, payload, ctx)
+        s = state or ToolState()
+        result = handler(hook, payload, s)
         if hasattr(result, "__await__"):
-            return await result
-        return result
+            result = await result
+        return {"result": result, "state_patch": s.patch}
 
     # ═══════════════════════════════════════════════════════════
     # 查询方法（供路由层使用）

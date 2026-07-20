@@ -1,0 +1,188 @@
+# MCP Tool 模拟数据 — 替代 MySQL 数据库的底层调用
+# 生产环境：Tool handler 通过 NeoApiClient 调用后端服务（数据来自 MySQL）
+# Demo 环境：Tool handler 从本配置文件读取模拟数据
+
+# ═══════════════════════════════════════════════════════════
+# CRM 数据域
+# ═══════════════════════════════════════════════════════════
+crm:
+  accounts:
+    - id: acc_001
+      name: 仁科互动科技有限公司
+      industry: 互联网
+      owner: 张三
+      revenue: 5000000
+      stage: 活跃客户
+      created_at: "2023-06-15"
+    - id: acc_002
+      name: 华创数据科技
+      industry: 大数据
+      owner: 李四
+      revenue: 3200000
+      stage: 活跃客户
+      created_at: "2023-09-20"
+    - id: acc_003
+      name: 蓝海云服务
+      industry: 云计算
+      owner: 张三
+      revenue: 8500000
+      stage: 潜在客户
+      created_at: "2024-01-10"
+
+  opportunities:
+    - id: opp_001
+      name: 仁科CRM升级项目
+      account: 仁科互动科技有限公司
+      stage: 商务谈判
+      amount: 500000
+      owner: 张三
+      close_date: "2024-06-30"
+    - id: opp_002
+      name: 华创大数据平台采购
+      account: 华创数据科技
+      stage: 需求分析
+      amount: 320000
+      owner: 李四
+      close_date: "2024-08-15"
+    - id: opp_003
+      name: 蓝海混合云部署
+      account: 蓝海云服务
+      stage: 方案报价
+      amount: 1200000
+      owner: 王五
+      close_date: "2024-09-30"
+
+  contacts:
+    - id: con_001
+      name: 陈总
+      account: 仁科互动科技有限公司
+      title: CEO
+      phone: "13800138001"
+      email: chen@renke.com
+    - id: con_002
+      name: 刘经理
+      account: 华创数据科技
+      title: 采购总监
+      phone: "13800138002"
+      email: liu@huachuang.com
+
+# ═══════════════════════════════════════════════════════════
+# 知识库域
+# ═══════════════════════════════════════════════════════════
+knowledge:
+  knowledge_bases:
+    - id: kb_001
+      name: 产品文档库
+      doc_count: 156
+      description: 销售易全产品线操作手册与配置指南
+    - id: kb_002
+      name: 销售话术库
+      doc_count: 42
+      description: B2B 销售各阶段标准话术与异议处理
+    - id: kb_003
+      name: 培训材料库
+      doc_count: 89
+      description: 新员工培训、产品培训、技术培训资料
+
+  documents:
+    - doc_title: CRM 审批流配置指南
+      knowledge_base: kb_001
+      chunks:
+        - content: "审批流配置步骤：1.进入设置→流程管理→审批流；2.点击新建审批流；3.选择触发对象；4.设置审批条件和审批人。"
+          score: 0.95
+        - content: "审批流支持的条件类型：字段值判断、角色判断、部门判断、金额范围判断。可设置多级审批和会签审批。"
+          score: 0.88
+    - doc_title: 工作流自动化操作手册
+      knowledge_base: kb_001
+      chunks:
+        - content: "工作流触发条件包括：记录创建时、记录更新时、定时触发、手动触发。支持条件分支和并行执行。"
+          score: 0.92
+        - content: "工作流动作类型：字段更新、发送邮件、发送通知、调用 API、创建记录、审批提交。"
+          score: 0.85
+    - doc_title: 商机阶段推进最佳实践
+      knowledge_base: kb_002
+      chunks:
+        - content: "商机从需求确认推进到方案报价阶段，关键动作：1.确认决策链完整；2.完成技术验证POC；3.获取预算确认。"
+          score: 0.90
+
+# ═══════════════════════════════════════════════════════════
+# 元数据域
+# ═══════════════════════════════════════════════════════════
+metadata:
+  entities:
+    - api_key: account
+      label: 客户
+      field_count: 45
+      description: B2B 客户主数据
+    - api_key: opportunity
+      label: 商机
+      field_count: 38
+      description: 销售商机管理
+    - api_key: contact
+      label: 联系人
+      field_count: 28
+      description: 客户联系人
+    - api_key: lead
+      label: 线索
+      field_count: 22
+      description: 营销线索
+    - api_key: activity
+      label: 活动记录
+      field_count: 15
+      description: 拜访/电话/邮件记录
+    - api_key: order
+      label: 订单
+      field_count: 32
+      description: 销售订单
+    - api_key: product
+      label: 产品
+      field_count: 18
+      description: 产品目录
+    - api_key: quote
+      label: 报价
+      field_count: 25
+      description: 报价单
+
+  fields:
+    account:
+      - api_key: name
+        label: 客户名称
+        type: text
+        required: true
+      - api_key: owner
+        label: 负责人
+        type: lookup
+        required: true
+      - api_key: industry
+        label: 行业
+        type: picklist
+        required: false
+      - api_key: revenue
+        label: 年收入
+        type: currency
+        required: false
+      - api_key: stage
+        label: 客户阶段
+        type: picklist
+        required: false
+    opportunity:
+      - api_key: name
+        label: 商机名称
+        type: text
+        required: true
+      - api_key: account
+        label: 所属客户
+        type: lookup
+        required: true
+      - api_key: stage
+        label: 商机阶段
+        type: picklist
+        required: true
+      - api_key: amount
+        label: 金额
+        type: currency
+        required: false
+      - api_key: close_date
+        label: 预计成交日期
+        type: date
+        required: false
