@@ -1,0 +1,90 @@
+# Agent 运行时注册配置
+# services 静态映射到各 Demo 服务
+
+services:
+  neo-ai-provider-demo: "http://localhost:8002"
+  neo-ai-mcp-demo: "http://localhost:8003"
+
+# Tool 注册表
+tools:
+  - api_key: query_customer
+    name: 查询客户
+    description: 根据客户名称、行业等条件查询 CRM 客户信息，返回客户档案。
+    domain: sales
+    type: remote
+    service: neo-ai-provider-demo
+    input_schema:
+      type: object
+      properties:
+        customer_name:
+          type: string
+          description: 客户名称（模糊匹配）
+        industry:
+          type: string
+          description: 行业
+      required:
+        - customer_name
+    timeout_ms: 5000
+    category: crm
+    tags: [客户, 查询]
+
+  - api_key: update_opportunity
+    name: 更新商机
+    description: 更新商机阶段、金额、预计成交日期等信息。
+    domain: sales
+    type: remote
+    service: neo-ai-provider-demo
+    input_schema:
+      type: object
+      properties:
+        opportunity_id:
+          type: string
+          description: 商机 ID
+        stage:
+          type: string
+          description: 商机阶段
+        amount:
+          type: number
+          description: 金额
+      required:
+        - opportunity_id
+    read_only_flg: false
+    timeout_ms: 5000
+    category: crm
+    tags: [商机, 更新]
+
+  - api_key: analyze_pipeline
+    name: 分析销售管道
+    description: 对销售管道数据进行多维度聚合分析。
+    domain: sales
+    type: remote
+    service: neo-ai-provider-demo
+    input_schema:
+      type: object
+      properties:
+        group_by:
+          type: string
+          description: 分组维度（stage/owner/month）
+        date_range:
+          type: string
+          description: 时间范围
+    timeout_ms: 10000
+    category: analytics
+    tags: [分析, 管道]
+
+# Middleware 注册表
+middlewares:
+  - api_key: crm_query_state
+    name: CRM 查询状态管理
+    description: 维护 CRM 查询 Agent 的查询状态，跟踪实体识别和 XOQL 生成过程。
+    service: neo-ai-provider-demo
+    hooks: [before_agent, after_model]
+    sort_num: 50
+
+  - api_key: sales_context_inject
+    name: 销售上下文注入
+    description: 在模型调用前注入当前用户的销售上下文。
+    service: neo-ai-provider-demo
+    hooks: [before_model]
+    sort_num: 30
+    required_features: [memory_enabled]
