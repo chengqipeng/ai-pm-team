@@ -5,9 +5,13 @@
 - 内部 REST 接口供 Agent FeignClient 调用
 - 所有 Tool handler 自动调下游 Provider
 """
+import os
+from pathlib import Path
+
 from neo_ai_registry.mcp.fastapi import create_mcp_app
 
-app = create_mcp_app(config_path="config/servers.yaml")
+_BASE_DIR = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+app = create_mcp_app(config_path=str(_BASE_DIR / "config" / "servers.yaml"))
 
 if __name__ == "__main__":
     import uvicorn
