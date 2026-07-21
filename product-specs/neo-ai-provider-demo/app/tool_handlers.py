@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any, TYPE_CHECKING
 
 from neo_ai_registry.state import set_state, get_state
+from app.data_store import data_store
 
 if TYPE_CHECKING:
     from neo_ai_registry.state import ToolState
@@ -22,6 +23,10 @@ async def query_customer(input_data: dict[str, Any], state: "ToolState") -> dict
     """查询客户"""
     customer_name = input_data.get("customer_name", "")
 
+    # 从 mock_data.yaml 查询
+    conditions = {"name": customer_name} if customer_name else {}
+    records = data_store.query("crm", "accounts", conditions, limit=10)
+
     # 回写 state（自动传递回 Agent Runtime）
     set_state("last_query_entity", "account")
     set_state("last_query_keyword", customer_name)
@@ -29,16 +34,8 @@ async def query_customer(input_data: dict[str, Any], state: "ToolState") -> dict
 
     return {
         "status": "success",
-        "records": [
-            {
-                "id": "acc_001",
-                "name": f"{customer_name}科技有限公司",
-                "industry": "互联网",
-                "owner": "张三",
-                "revenue": 5000000,
-            }
-        ],
-        "total": 1,
+        "records": records,
+        "total": len(records),
     }
 
 
@@ -72,3 +69,32 @@ async def analyze_pipeline(input_data: dict[str, Any], state: "ToolState") -> di
             {"label": "赢单", "count": 5, "amount": 2100000},
         ],
     }
+
+
+async def query_customer_stream(input_data: dict[str, Any], state: "ToolState") -> Any:
+    """查询客户（SSE 流式返回） — 逐条返回记录
+
+    返回 AsyncGenerator，SDK 自动转为 SSE 流式响应。
+    """
+    import asyncio
+    customer_name = input_data.get("customer_name", "")
+
+    # 从 mock_data.yaml 查询
+    conditions = {"name": customer_name} if customer_name else {}
+    records = data_store.query("crm", "accounts", conditions, limit=10)
+
+    set_state("last_query_entity", "account")
+    set_state("last_query_keyword", customer_name)
+    set_state("query_count", get_state("query_count", 0) + 1)
+
+    async def stream():
+        # 先发 meta
+        yield {"type": "meta", "total": len(records)}
+        # 逐条发送记录
+        for record in records:
+            await asyncio.sleep(0.3)  # 模拟延迟
+            yield {"type": "record", "data": record}
+        # 最后发 summary
+        yield {"type": "summary", "text": f"共找到 {len(records)} 条 {customer_name} 相关客户"}
+
+    return stream()

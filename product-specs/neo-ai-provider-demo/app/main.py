@@ -7,7 +7,7 @@
 """
 from neo_ai_registry.fastapi import create_provider_app
 
-from app.tool_handlers import query_customer, update_opportunity, analyze_pipeline
+from app.tool_handlers import query_customer, update_opportunity, analyze_pipeline, query_customer_stream
 from app.mcp_tool_handlers import (
     query_records, get_record_details, create_record,
     search_knowledge, list_knowledge_bases,
@@ -17,10 +17,10 @@ from app.middleware_handlers import crm_query_state_handler, sales_context_injec
 
 app = create_provider_app(
     domain="sales",
-    config_path="config/tools.yaml",
     handler_map={
         # Agent 直接调用
         "query_customer": query_customer,
+        "query_customer_stream": query_customer_stream,
         "update_opportunity": update_opportunity,
         "analyze_pipeline": analyze_pipeline,
         # MCP 回调
@@ -37,3 +37,7 @@ app = create_provider_app(
         "sales_context_inject": sales_context_inject_handler,
     },
 )
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8002, reload=True)
