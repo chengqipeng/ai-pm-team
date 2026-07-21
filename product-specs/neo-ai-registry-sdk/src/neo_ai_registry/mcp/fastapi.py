@@ -87,24 +87,19 @@ def create_mcp_app(
 def _build_from_config(raw: dict) -> tuple[dict, dict, dict]:
     """从 YAML 配置构建内部数据结构
 
-    服务发现策略：
-    - 开发环境：从 service_discovery 读取静态映射
-    - 生产环境：ServiceResolver 自动通过 Eureka/K8s DNS 解析
+    通过 NeoApiTransport（基于 neo-ai-infr-eureka）实现：
+    - Eureka 服务发现
+    - 上下文 + trace 自动传递
 
     Returns:
         servers: {server_api_key: {name, domain, tools: {tool_name: {desc, schema}}}}
         tool_index: {tool_name: server_api_key}
         clients: {server_api_key: ToolFeignClient}
     """
-    from neo_ai_registry.feign import ToolFeignClient, ServiceResolver
-    from neo_ai_registry.feign.transport import HttpxTransport
+    from neo_ai_registry.feign import ToolFeignClient
+    from neo_ai_registry.feign.transport import NeoApiTransport
 
-    # 读取服务发现静态映射（开发环境）
-    static_map = raw.get("service_discovery", {}) or {}
-
-    # 构建统一的 ServiceResolver（所有 server 共用）
-    resolver = ServiceResolver(static_map=static_map) if static_map else ServiceResolver()
-    transport = HttpxTransport(resolver=resolver)
+    transport = NeoApiTransport()
 
     servers: dict[str, dict[str, Any]] = {}
     tool_index: dict[str, str] = {}
@@ -114,7 +109,7 @@ def _build_from_config(raw: dict) -> tuple[dict, dict, dict]:
         server_key = server_cfg["api_key"]
         backend = server_cfg.get("backend", {})
 
-        # 通过 service_name 构建 FeignClient（无需 url）
+        # 通过 service_name 构建 FeignClient
         service_name = backend.get("service_name", "")
         if service_name:
             clients[server_key] = ToolFeignClient(app_name=service_name, transport=transport)
@@ -143,14 +138,14 @@ def _build_from_config(raw: dict) -> tuple[dict, dict, dict]:
 
 
 async def _call_backend(clients: dict, tool_index: dict, tool_name: str, arguments: dict) -> dict:
-    """调用下游 Provider"""
+    """调用下游 Provider（异步 — 通过 NeoApiClient/Eureka）"""
     server_key = tool_index.get(tool_name)
     if not server_key:
         raise KeyError(f"MCP Tool '{tool_name}' 未注册，可用: {list(tool_index.keys())}")
     client = clients.get(server_key)
     if not client:
         raise RuntimeError(f"Server '{server_key}' 无 Backend 客户端")
-    return client.execute_tool(tool_name, arguments)
+    return await client.async_execute_tool(tool_name, arguments)
 
 
 # ═══════════════════════════════════════════════════════════

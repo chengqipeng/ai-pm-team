@@ -45,7 +45,7 @@ def validate_tool(tool: ToolDefinition) -> None:
     校验规则：
     - api_key 不能为空
     - name 不能为空
-    - type=remote 时 endpoint 必须是合法 HTTP URL
+    - type=remote 时 service 不能为空
     - input_schema 如果提供必须包含 type 字段
 
     Args:
@@ -63,12 +63,9 @@ def validate_tool(tool: ToolDefinition) -> None:
         errors.append("name 不能为空")
 
     if tool.type == ToolType.REMOTE:
-        if not tool.endpoint or not tool.endpoint.strip():
-            # endpoint 在 Provider 侧注册时可选（handler 直接绑定）
-            # 在 Agent 侧通过 FeignClient 调用时由 ServiceResolver 拼接
+        if not tool.service or not tool.service.strip():
+            # service 在 Provider 侧注册时可选（handler 直接绑定）
             pass
-        if tool.endpoint and not tool.endpoint.startswith(("http://", "https://")):
-            errors.append("endpoint 必须是合法的 HTTP URL")
 
     if tool.input_schema:
         if "type" not in tool.input_schema:

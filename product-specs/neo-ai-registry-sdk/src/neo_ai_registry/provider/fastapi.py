@@ -21,7 +21,7 @@ Usage（自定义方式 — 分步控制）:
 
     from neo_ai_registry.fastapi import create_provider_router
 
-    registry = Registry(domain="sales")
+    registry = ProviderRegistry(domain="sales")
     registry.register_tool(..., handler=...)
     router = create_provider_router(registry)
     app.include_router(router)
@@ -34,7 +34,7 @@ from typing import Any, Callable
 from fastapi import FastAPI, APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from neo_ai_registry.registry import Registry
+from neo_ai_registry.provider.registry import ProviderRegistry
 from neo_ai_registry.models import ToolDefinition, MiddlewareDefinition, ToolType
 from neo_ai_registry.state import ToolState, _init_state_context, _collect_state_patch
 
@@ -165,7 +165,7 @@ def create_provider_app(
             },
         )
     """
-    registry = Registry(domain=domain)
+    registry = ProviderRegistry(domain=domain)
 
     # 从 handler_map 直接注册 Tool
     for api_key, handler in handler_map.items():
@@ -174,7 +174,7 @@ def create_provider_app(
 
     # 从 middleware_handler_map 注册 Middleware
     for api_key, handler in (middleware_handler_map or {}).items():
-        mw_def = MiddlewareDefinition(api_key=api_key, name=api_key, module_path="", class_name="")
+        mw_def = MiddlewareDefinition(api_key=api_key, name=api_key)
         registry.register_middleware(mw_def, handler=handler)
 
     # 创建 FastAPI app

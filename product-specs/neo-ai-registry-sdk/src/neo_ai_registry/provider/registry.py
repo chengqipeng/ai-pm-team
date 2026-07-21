@@ -8,10 +8,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Awaitable
 
-from .models import ToolDefinition, MiddlewareDefinition
-from .providers.base import ToolProvider, MiddlewareProvider
-from .state import ToolState
-from .validator import validate_tool, validate_middleware
+from neo_ai_registry.models import ToolDefinition, MiddlewareDefinition
+from neo_ai_registry.state import ToolState
+from neo_ai_registry.validator import validate_tool, validate_middleware
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,7 @@ ToolHandler = Callable[[dict[str, Any], ToolState], dict[str, Any] | Awaitable[d
 MiddlewareHandler = Callable[[str, dict[str, Any], ToolState], dict[str, Any] | Awaitable[dict[str, Any]]]
 
 
-class Registry(ToolProvider, MiddlewareProvider):
+class ProviderRegistry:
     """内存注册表 — 手动内置数据，实现 Provider 接口
 
     业务域服务创建 Registry 实例，手动注册 Tool/Middleware 定义及 handler，
@@ -67,7 +66,7 @@ class Registry(ToolProvider, MiddlewareProvider):
             tool.domain = self._domain
         self._tools[tool.api_key] = tool
         self._tool_handlers[tool.api_key] = handler
-        logger.info("[Registry:%s] Tool 注册: %s", self._domain, tool.api_key)
+        logger.info("[ProviderRegistry:%s] Tool 注册: %s", self._domain, tool.api_key)
 
     def register_middleware(
         self,
@@ -96,7 +95,7 @@ class Registry(ToolProvider, MiddlewareProvider):
             raise ValueError(f"Middleware '{mw.api_key}' 注册时必须提供 handler")
         self._middlewares[mw.api_key] = mw
         self._middleware_handlers[mw.api_key] = handler
-        logger.info("[Registry:%s] Middleware 注册: %s", self._domain, mw.api_key)
+        logger.info("[ProviderRegistry:%s] Middleware 注册: %s", self._domain, mw.api_key)
 
     # ═══════════════════════════════════════════════════════════
     # ToolProvider 实现
@@ -123,7 +122,7 @@ class Registry(ToolProvider, MiddlewareProvider):
         if api_key not in self._tool_handlers:
             raise KeyError(f"Tool '{api_key}' 不存在，已注册: {list(self._tool_handlers.keys())}")
 
-        from .state import _init_state_context, _collect_state_patch
+        from neo_ai_registry.state import _init_state_context, _collect_state_patch
 
         handler = self._tool_handlers[api_key]
         s = state or ToolState()
@@ -166,7 +165,7 @@ class Registry(ToolProvider, MiddlewareProvider):
         if api_key not in self._middleware_handlers:
             raise KeyError(f"Middleware '{api_key}' 不存在，已注册: {list(self._middleware_handlers.keys())}")
 
-        from .state import _init_state_context, _collect_state_patch
+        from neo_ai_registry.state import _init_state_context, _collect_state_patch
 
         handler = self._middleware_handlers[api_key]
         s = state or ToolState()
