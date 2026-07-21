@@ -11,7 +11,7 @@ import logging
 from typing import Any
 
 from neo_ai_registry.feign import ToolFeignClient, MiddlewareFeignClient, ServiceResolver
-from neo_ai_registry.feign.transport import NeoApiTransport
+from neo_ai_registry.feign.transport import HttpxTransport
 
 from app.config_loader import load_registry_config, RegistryConfig, ToolConfig, MiddlewareConfig
 
@@ -46,9 +46,10 @@ class AgentLoader:
         """
         self._config = load_registry_config(self._config_path)
 
-        # 构建 Transport（NeoApiTransport — 通过 NeoApiClient + Eureka 自动发现服务）
-        self._transport = NeoApiTransport()
-        logger.info("[AgentLoader] 使用 NeoApiTransport（NeoApiClient + Eureka）")
+        # 构建 Transport
+        resolver = ServiceResolver(static_map=self._config.services)
+        self._transport = HttpxTransport(resolver=resolver)
+        logger.info("[AgentLoader] 服务映射: %s", self._config.services)
 
         # 构建 Tool 映射
         for tool in self._config.tools:
@@ -85,32 +86,45 @@ class AgentLoader:
         self,
         api_key: str,
         input_data: dict[str, Any],
-        context: dict[str, Any] | None = None,
+        agent_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """根据 api_key 远程执行 Tool
+        """根据 api_key 远程执行 Tool（集成 AgentState 转换）
 
-        从配置中查找 Tool 对应的服务名，通过 FeignClient 远程调用。
+        完整链路：
+            AgentState → ToolState（from_agent_state）
+            → FeignClient 远程调用
+            → Provider set_state 回写
+            → ToolState write_back → AgentState 更新
 
         Args:
             api_key: Tool 唯一标识。
             input_data: Tool 入参字典。
-            context: 执行上下文（tenant_id/user_id/thread_id 等）。
+            agent_state: LangGraph AgentState dict（可变引用，会被 write_back 修改）。
 
         Returns:
-            Tool 执行结果。
-
-        Raises:
-            KeyError: api_key 未在配置中注册时抛出。
+            Tool 执行结果（result 字段）。
         """
+        from neo_ai_registry.state import ToolState
+
         tool_config = self._tool_map.get(api_key)
         if not tool_config:
-            raise KeyError(
-                f"Tool '{api_key}' 未注册，已配置: {list(self._tool_map.keys())}"
-            )
+            raise KeyError(f"Tool '{api_key}' 未注册，已配置: {list(self._tool_map.keys())}")
 
+        # AgentState → ToolState
+        tool_state = ToolState.from_agent_state(agent_state or {})
+
+        # 远程调用（FeignClient 自动 merge state_patch 到 tool_state）
         client = self._get_tool_client(tool_config.service)
-        logger.info("[AgentLoader] execute_tool: %s → %s", api_key, tool_config.service)
-        return client.execute_tool(api_key, input_data, context)
+        response = client.execute_tool(api_key, input_data, state=tool_state)
+
+        # ToolState write_back → AgentState
+        if agent_state is not None:
+            patch = tool_state.write_back(agent_state)
+            if patch:
+                logger.info("[AgentLoader] state write_back: %s", patch)
+
+        # 返回 Tool 结果
+        return response.get("result", response)
 
     def execute_middleware(
         self,

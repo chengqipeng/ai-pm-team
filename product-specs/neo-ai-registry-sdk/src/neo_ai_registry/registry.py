@@ -110,26 +110,34 @@ class Registry(ToolProvider, MiddlewareProvider):
     ) -> dict[str, Any]:
         """根据 api_key 执行已注册的 Tool handler
 
+        自动初始化线程隔离的 state 上下文，handler 中通过 set_state() 回写。
+
         Args:
             api_key: Tool 唯一标识。
             input_data: Tool 入参字典。
-            state: 执行状态（双向传递）。Provider 可通过 state.set() 回写。
+            state: 执行状态（只读传递给 handler）。
 
         Returns:
-            {"result": handler返回值, "state_patch": Provider回写的状态增量}
-
-        Raises:
-            KeyError: api_key 未注册时抛出。
+            {"result": handler返回值, "state_patch": set_state写入的增量}
         """
         if api_key not in self._tool_handlers:
             raise KeyError(f"Tool '{api_key}' 不存在，已注册: {list(self._tool_handlers.keys())}")
+
+        from .state import _init_state_context, _collect_state_patch
+
         handler = self._tool_handlers[api_key]
         s = state or ToolState()
+
+        # 初始化线程隔离的 state 上下文
+        _init_state_context(s.to_dict())
+
         result = handler(input_data, s)
         if hasattr(result, "__await__"):
             result = await result
-        # 返回 result + state_patch
-        return {"result": result, "state_patch": s.patch}
+
+        # 收集 set_state 写入的 patch
+        state_patch = _collect_state_patch()
+        return {"result": result, "state_patch": state_patch}
 
     # ═══════════════════════════════════════════════════════════
     # MiddlewareProvider 实现
@@ -144,26 +152,33 @@ class Registry(ToolProvider, MiddlewareProvider):
     ) -> dict[str, Any]:
         """根据 api_key 执行已注册的 Middleware handler
 
+        自动初始化线程隔离的 state 上下文，handler 中通过 set_state() 回写。
+
         Args:
             api_key: Middleware 唯一标识。
             hook: 生命周期钩子名称。
             payload: 钩子入参字典。
-            state: 执行状态（双向传递）。
+            state: 执行状态（只读传递给 handler）。
 
         Returns:
-            {"result": handler返回值, "state_patch": Provider回写的状态增量}
-
-        Raises:
-            KeyError: api_key 未注册时抛出。
+            {"result": handler返回值, "state_patch": set_state写入的增量}
         """
         if api_key not in self._middleware_handlers:
             raise KeyError(f"Middleware '{api_key}' 不存在，已注册: {list(self._middleware_handlers.keys())}")
+
+        from .state import _init_state_context, _collect_state_patch
+
         handler = self._middleware_handlers[api_key]
         s = state or ToolState()
+
+        _init_state_context(s.to_dict())
+
         result = handler(hook, payload, s)
         if hasattr(result, "__await__"):
             result = await result
-        return {"result": result, "state_patch": s.patch}
+
+        state_patch = _collect_state_patch()
+        return {"result": result, "state_patch": state_patch}
 
     # ═══════════════════════════════════════════════════════════
     # 查询方法（供路由层使用）

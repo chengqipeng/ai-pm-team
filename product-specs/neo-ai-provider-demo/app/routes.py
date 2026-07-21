@@ -24,15 +24,15 @@ class ToolExecuteRequest(BaseModel):
         description="Tool 入参字典，字段由 ToolDefinition.input_schema 约束",
         json_schema_extra={"example": {"customer_name": "仁科", "industry": "互联网"}},
     )
-    context: dict[str, Any] = Field(
+    state: dict[str, Any] = Field(
         default_factory=dict,
-        description="执行上下文（tenant_id/user_id/thread_id/message_id/trace_id）",
+        description="执行状态（双向传递）：Agent 传入完整 state，Provider 可通过 set() 回写",
         json_schema_extra={"example": {
             "tenant_id": 1,
             "user_id": 100,
             "thread_id": "th_abc123",
-            "message_id": "msg_001",
-            "trace_id": "trace_xxx",
+            "user_input": "查询仁科的商机",
+            "query_count": 0,
         }},
     )
 
@@ -188,13 +188,20 @@ async def execute_tool(api_key: str, request: ToolExecuteRequest):
     if not registry.has_tool(api_key):
         raise HTTPException(status_code=404, detail=f"Tool '{api_key}' not found")
 
-    from neo_ai_registry.state import ToolState
+    from neo_ai_registry.state import ToolState, _init_state_context, _collect_state_patch
     handler = registry.get_tool_handler(api_key)
-    tool_state = ToolState.from_dict(request.context)  # context 字段承载 state dict
+
+    # 初始化当前请求的 state 上下文（线程隔离）
+    _init_state_context(request.state)
+    tool_state = ToolState.from_dict(request.state)
+
     result = handler(request.input, tool_state)
     if hasattr(result, "__await__"):
         result = await result
-    return {"code": 0, "data": {"result": result, "state_patch": tool_state.patch}}
+
+    # 收集 handler 中 set_state 写入的 patch
+    state_patch = _collect_state_patch()
+    return {"code": 0, "data": {"result": result, "state_patch": state_patch}}
 
 
 # ═══════════════════════════════════════════════════════════

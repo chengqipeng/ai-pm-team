@@ -11,7 +11,7 @@ from neo_ai_registry.models import (
     ToolType,
     MiddlewareHook,
 )
-from neo_ai_registry.state import ToolState
+from neo_ai_registry.state import ToolState, set_state, get_state
 
 __version__ = "0.1.0"
 
@@ -22,4 +22,6 @@ __all__ = [
     "ToolType",
     "MiddlewareHook",
     "ToolState",
+    "set_state",
+    "get_state",
 ]

@@ -24,15 +24,27 @@ def health():
 
 @app.post("/v1/agent/execute-tool")
 async def execute_tool(request: dict):
-    """Agent 执行 Tool"""
+    """Agent 执行 Tool — 演示完整 AgentState ↔ ToolState 转换
+
+    请求体：{"api_key": "query_customer", "input": {"customer_name": "仁科"}, "user_input": "查仁科"}
+    """
+    from app.agent_state import create_agent_state
+
     api_key = request.get("api_key", "")
     input_data = request.get("input", {})
-    context = request.get("context", {})
+    user_input = request.get("user_input", "")
+
+    # 创建 AgentState（模拟 LangGraph 运行时）
+    agent_state = create_agent_state(user_input=user_input)
+
     try:
-        result = agent_loader.execute_tool(api_key, input_data, context)
+        result = agent_loader.execute_tool(api_key, input_data, agent_state=agent_state)
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=404, detail=str(e))
-    return {"code": 0, "data": result}
+
+    # 返回结果 + Provider write_back 写入的字段
+    written_keys = [k for k in agent_state if k not in ("messages", "interrupt_event")]
+    return {"code": 0, "data": {"result": result, "agent_state": {k: agent_state[k] for k in written_keys}}}
 
 
 @app.post("/v1/agent/execute-middleware")

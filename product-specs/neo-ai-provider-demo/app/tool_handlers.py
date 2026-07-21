@@ -8,15 +8,16 @@ from typing import Any
 
 
 async def query_customer(input_data: dict[str, Any], state: Any) -> dict[str, Any]:
-    """查询客户 — 模拟 CRM API 调用 + state 回写"""
-    from neo_ai_registry.state import ToolState
+    """查询客户 — 使用 set_state/get_state 回写（线程隔离）"""
+    from neo_ai_registry.state import set_state, get_state
     customer_name = input_data.get("customer_name", "")
-    # 通过 state 回写跨服务参数
-    if isinstance(state, ToolState):
-        state.set("last_query_entity", "account")
-        state.set("last_query_keyword", customer_name)
-        prev_count = state.get("query_count", 0)
-        state.set("query_count", prev_count + 1)
+
+    # 通过 set_state 回写（线程隔离，自动返回给 Runtime）
+    set_state("last_query_entity", "account")
+    set_state("last_query_keyword", customer_name)
+    prev_count = get_state("query_count", 0)
+    set_state("query_count", prev_count + 1)
+
     return {
         "status": "success",
         "records": [
