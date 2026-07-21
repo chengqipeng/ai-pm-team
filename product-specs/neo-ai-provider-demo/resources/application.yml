@@ -1,5 +1,0 @@
-server:
-  name: neo-ai-provider-demo
-  port: 8002
-apiClient:
-  connectionTimeout: 30
