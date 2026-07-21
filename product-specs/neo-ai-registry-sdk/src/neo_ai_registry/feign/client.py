@@ -25,14 +25,19 @@ class ToolFeignClient:
 
         if isinstance(state, ToolState):
             state_dict = state.to_dict()
+            configurable = state.configurable
         elif isinstance(state, dict):
             state_dict = state
+            configurable = {}
         else:
             state_dict = {}
+            configurable = {}
 
         payload: dict[str, Any] = {"input": input_data}
         if state_dict:
             payload["state"] = state_dict
+        if configurable:
+            payload["configurable"] = configurable
 
         response = self._transport.invoke(
             app_name=self._app_name,
@@ -54,14 +59,19 @@ class ToolFeignClient:
 
         if isinstance(state, ToolState):
             state_dict = state.to_dict()
+            configurable = state.configurable
         elif isinstance(state, dict):
             state_dict = state
+            configurable = {}
         else:
             state_dict = {}
+            configurable = {}
 
         payload: dict[str, Any] = {"input": input_data}
         if state_dict:
             payload["state"] = state_dict
+        if configurable:
+            payload["configurable"] = configurable
 
         if hasattr(self._transport, "async_invoke"):
             response = await self._transport.async_invoke(

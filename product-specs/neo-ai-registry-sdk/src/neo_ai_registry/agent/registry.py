@@ -144,19 +144,15 @@ class AgentRegistry:
         api_key: str,
         input_data: dict[str, Any],
         agent_state: dict[str, Any] | None = None,
+        configurable: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """执行 Tool — 异步入口
-
-        builtin: 直接 await execute()
-        remote: await FeignClient（通过 Transport → Eureka/HTTP）
 
         Args:
             api_key: Tool 唯一标识。
             input_data: Tool 入参。
-            agent_state: AgentState dict（remote 模式自动转换 ToolState 并 write_back）。
-
-        Returns:
-            执行结果 dict。
+            agent_state: 图 state dict（remote 时可读写，write_back 回写变化）。
+            configurable: 请求上下文（只读，传递给 Provider 但不可修改）。
         """
         tool = self._tools.get(api_key)
         if not tool:
@@ -164,17 +160,20 @@ class AgentRegistry:
 
         if tool.is_builtin():
             context = dict(agent_state or {})
+            if configurable:
+                context["_configurable"] = configurable
             return await tool.execute(input_data, context)
         else:
-            return await self._async_remote_tool(tool, input_data, agent_state)
+            return await self._async_remote_tool(tool, input_data, agent_state, configurable)
 
     def execute_tool(
         self,
         api_key: str,
         input_data: dict[str, Any],
         agent_state: dict[str, Any] | None = None,
+        configurable: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """执行 Tool — 同步入口（兼容非 async 场景）"""
+        """执行 Tool — 同步入口"""
         import asyncio
 
         tool = self._tools.get(api_key)
@@ -183,6 +182,8 @@ class AgentRegistry:
 
         if tool.is_builtin():
             context = dict(agent_state or {})
+            if configurable:
+                context["_configurable"] = configurable
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
@@ -194,18 +195,18 @@ class AgentRegistry:
             return asyncio.run(tool.execute(input_data, context))
         else:
             from neo_ai_registry.state import ToolState
-            tool_state = ToolState.from_agent_state(agent_state or {})
+            tool_state = ToolState.from_agent_state(agent_state or {}, configurable=configurable)
             client = self._get_tool_client(tool.service)
             response = client.execute_tool(tool.api_key, input_data, state=tool_state)
             if agent_state is not None:
                 tool_state.write_back(agent_state)
             return response.get("result", response)
 
-    async def _async_remote_tool(self, tool: ToolDefinition, input_data: dict, agent_state: dict | None) -> dict:
-        """异步远程调用 Tool（FeignClient + ToolState 双向传递）"""
+    async def _async_remote_tool(self, tool: ToolDefinition, input_data: dict, agent_state: dict | None, configurable: dict | None = None) -> dict:
+        """异步远程调用 Tool"""
         from neo_ai_registry.state import ToolState
 
-        tool_state = ToolState.from_agent_state(agent_state or {})
+        tool_state = ToolState.from_agent_state(agent_state or {}, configurable=configurable)
         client = self._get_tool_client(tool.service)
         response = await client.async_execute_tool(tool.api_key, input_data, state=tool_state)
 

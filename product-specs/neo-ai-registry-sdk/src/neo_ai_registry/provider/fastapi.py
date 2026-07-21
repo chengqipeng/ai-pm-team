@@ -48,14 +48,16 @@ logger = logging.getLogger(__name__)
 class ToolExecuteRequest(BaseModel):
     """Tool 执行请求体"""
     input: dict[str, Any] = Field(..., description="Tool 入参字典")
-    state: dict[str, Any] = Field(default_factory=dict, description="AgentState 数据（双向传递）")
+    state: dict[str, Any] = Field(default_factory=dict, description="图 state 数据（可读写，Provider 可通过 set_state 回写）")
+    configurable: dict[str, Any] = Field(default_factory=dict, description="请求上下文（只读，Provider 只能读取）")
 
 
 class MiddlewareExecuteRequest(BaseModel):
     """Middleware 执行请求体"""
     hook: str = Field(..., description="生命周期钩子名称")
     payload: dict[str, Any] = Field(..., description="钩子入参")
-    state: dict[str, Any] = Field(default_factory=dict, description="AgentState 数据（双向传递）")
+    state: dict[str, Any] = Field(default_factory=dict, description="图 state 数据（可读写）")
+    configurable: dict[str, Any] = Field(default_factory=dict, description="请求上下文（只读）")
 
 
 # ═══════════════════════════════════════════════════════════
@@ -84,7 +86,7 @@ def create_provider_router(registry: Registry) -> APIRouter:
 
         handler = registry.get_tool_handler(api_key)
         _init_state_context(request.state)
-        tool_state = ToolState.from_dict(request.state)
+        tool_state = ToolState.from_dict(request.state, configurable=request.configurable)
 
         result = handler(request.input, tool_state)
         if hasattr(result, "__await__"):
@@ -115,7 +117,7 @@ def create_provider_router(registry: Registry) -> APIRouter:
 
         handler = registry.get_middleware_handler(api_key)
         _init_state_context(request.state)
-        tool_state = ToolState.from_dict(request.state)
+        tool_state = ToolState.from_dict(request.state, configurable=request.configurable)
 
         result = handler(request.hook, request.payload, tool_state)
         if hasattr(result, "__await__"):

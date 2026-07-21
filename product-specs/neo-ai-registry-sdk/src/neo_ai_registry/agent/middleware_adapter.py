@@ -39,18 +39,16 @@ def _remote_call_sync(self, hook: str, state: Any) -> dict[str, Any] | None:
 
     链路：AgentState → ToolState(from_agent_state) → 远程调用 → state_patch → write_back(AgentState)
     """
-    # 1. AgentState → ToolState
     state_dict = dict(state) if isinstance(state, dict) else {}
     tool_state = ToolState.from_agent_state(state_dict)
 
-    # 2. 构造请求
     request_data = {
         "hook": hook,
         "payload": tool_state.to_dict(),
         "state": tool_state.to_dict(),
+        "configurable": tool_state.configurable,
     }
 
-    # 3. 远程调用
     try:
         response = self._transport.invoke(
             app_name=self._mw_service,
@@ -62,16 +60,12 @@ def _remote_call_sync(self, hook: str, state: Any) -> dict[str, Any] | None:
         logger.warning("[RemoteMiddleware] %s/%s 调用失败: %s", self._mw_api_key, hook, e)
         return None
 
-    # 4. state_patch → merge 到 ToolState → write_back 到 AgentState
     if isinstance(response, dict):
         state_patch = response.get("state_patch", {})
         if state_patch:
             tool_state.merge_patch(state_patch)
-            # write_back: 将变化写回 AgentState（和 Tool 调用完全一致的逻辑）
             if isinstance(state, dict):
                 tool_state.write_back(state)
-
-        # 返回 result 中的 patch 给 LangGraph（middleware 可修改 state）
         result = response.get("result", {})
         if isinstance(result, dict) and result.get("action") == "modify":
             return result.get("patch")
@@ -80,10 +74,7 @@ def _remote_call_sync(self, hook: str, state: Any) -> dict[str, Any] | None:
 
 
 async def _remote_call_async(self, hook: str, state: Any) -> dict[str, Any] | None:
-    """异步远程调用 Provider middleware
-
-    链路同 _remote_call_sync，但使用 async_invoke。
-    """
+    """异步远程调用 Provider middleware"""
     state_dict = dict(state) if isinstance(state, dict) else {}
     tool_state = ToolState.from_agent_state(state_dict)
 
@@ -91,6 +82,7 @@ async def _remote_call_async(self, hook: str, state: Any) -> dict[str, Any] | No
         "hook": hook,
         "payload": tool_state.to_dict(),
         "state": tool_state.to_dict(),
+        "configurable": tool_state.configurable,
     }
 
     try:
@@ -118,7 +110,6 @@ async def _remote_call_async(self, hook: str, state: Any) -> dict[str, Any] | No
             tool_state.merge_patch(state_patch)
             if isinstance(state, dict):
                 tool_state.write_back(state)
-
         result = response.get("result", {})
         if isinstance(result, dict) and result.get("action") == "modify":
             return result.get("patch")
