@@ -1,13 +1,39 @@
-"""业务域服务 Provider Demo — 主入口"""
-from fastapi import FastAPI
+"""业务域服务 Provider Demo — 使用 SDK create_provider_app 一行创建
 
-from app.registry_setup import registry
-from app.routes import router
+新建 Provider 只需：
+1. config/tools.yaml — 定义 Tool/Middleware 列表
+2. handler 文件 — 实现业务逻辑
+3. main.py — 一行创建 app
+"""
+from neo_ai_registry.fastapi import create_provider_app
 
-app = FastAPI(title="Neo AI Provider Demo (Sales Domain)", version="0.1.0")
-app.include_router(router)
+from app.tool_handlers import query_customer, update_opportunity, analyze_pipeline
+from app.mcp_tool_handlers import (
+    query_records, get_record_details, create_record,
+    search_knowledge, list_knowledge_bases,
+    list_entities, get_entity_fields,
+)
+from app.middleware_handlers import crm_query_state_handler, sales_context_inject_handler
 
-
-@app.get("/health")
-def health():
-    return {"status": "ok", "domain": registry.domain, "registered": registry.summary()}
+app = create_provider_app(
+    domain="sales",
+    config_path="config/tools.yaml",
+    handler_map={
+        # Agent 直接调用
+        "query_customer": query_customer,
+        "update_opportunity": update_opportunity,
+        "analyze_pipeline": analyze_pipeline,
+        # MCP 回调
+        "query_records": query_records,
+        "get_record_details": get_record_details,
+        "create_record": create_record,
+        "search_knowledge": search_knowledge,
+        "list_knowledge_bases": list_knowledge_bases,
+        "list_entities": list_entities,
+        "get_entity_fields": get_entity_fields,
+    },
+    middleware_handler_map={
+        "crm_query_state": crm_query_state_handler,
+        "sales_context_inject": sales_context_inject_handler,
+    },
+)

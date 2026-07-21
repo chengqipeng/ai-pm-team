@@ -3,15 +3,13 @@
 统一 handler 签名：
     async def handler(hook: str, payload: dict, state: ToolState) -> dict
 
-返回值约定：
-    - {"action": "continue"}
-    - {"action": "modify", "patch": {...}}
-    - {"action": "abort", "message": "..."}
+使用 MiddlewareHook 枚举判断钩子类型（避免硬编码字符串）。
 """
 from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
+from neo_ai_registry import MiddlewareHook
 from neo_ai_registry.state import set_state, get_state
 
 if TYPE_CHECKING:
@@ -20,7 +18,7 @@ if TYPE_CHECKING:
 
 async def crm_query_state_handler(hook: str, payload: dict[str, Any], state: "ToolState") -> dict[str, Any]:
     """CRM 查询状态管理"""
-    if hook == "before_agent":
+    if hook == MiddlewareHook.BEFORE_AGENT:
         set_state("crm_query_initialized", True)
         return {
             "action": "modify",
@@ -32,7 +30,7 @@ async def crm_query_state_handler(hook: str, payload: dict[str, Any], state: "To
                 }
             },
         }
-    elif hook == "after_model":
+    elif hook == MiddlewareHook.AFTER_MODEL:
         tool_calls = payload.get("model_output", {}).get("tool_calls", [])
         if any(tc.get("name") == "extract_entity" for tc in tool_calls):
             return {
@@ -44,7 +42,7 @@ async def crm_query_state_handler(hook: str, payload: dict[str, Any], state: "To
 
 async def sales_context_inject_handler(hook: str, payload: dict[str, Any], state: "ToolState") -> dict[str, Any]:
     """销售上下文注入"""
-    if hook == "before_model":
+    if hook == MiddlewareHook.BEFORE_MODEL:
         set_state("context_injected", True)
         return {
             "action": "modify",
