@@ -93,3 +93,8 @@ async def list_mcp_servers():
 def list_registry():
     """查看注册数据"""
     return {"code": 0, "data": {"tools": agent_loader.tool_keys, "middlewares": agent_loader.middleware_keys}}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8001, reload=True)
