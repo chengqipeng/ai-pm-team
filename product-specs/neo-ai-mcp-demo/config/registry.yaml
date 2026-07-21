@@ -1,0 +1,109 @@
+# MCP Server 注册配置
+# 每个 Server 通过 service_name 做服务发现，由 FeignClient 路由到下游 Provider
+# 生产环境：ServiceResolver 通过 Eureka/K8s DNS 解析 service_name → 实际地址
+# 开发环境：ServiceResolver 通过 static_map 配置静态映射
+
+# 服务发现静态映射（仅开发环境使用，生产环境由 Eureka 自动发现）
+service_discovery:
+  neo-ai-salescloud-service: "http://localhost:8002"
+  neo-ai-knowledge-service: "http://localhost:8002"
+  neo-ai-metadata-service: "http://localhost:8002"
+
+# MCP Server 列表（按业务域划分）
+servers:
+  - api_key: crm-data-mcp
+    name: CRM 数据服务
+    description: CRM 业务数据查询与操作（客户/商机/联系人/订单）
+    domain: crm
+    backend:
+      service_name: "neo-ai-salescloud-service"
+    tools:
+      - name: query_records
+        description: 查询 CRM 数据记录
+        input_schema:
+          type: object
+          properties:
+            entity:
+              type: string
+              description: 实体名（account/opportunity/contact）
+            conditions:
+              type: object
+              description: 查询条件
+            limit:
+              type: integer
+              description: 返回数量限制
+          required: [entity]
+
+      - name: get_record_details
+        description: 获取单条记录详情
+        input_schema:
+          type: object
+          properties:
+            entity:
+              type: string
+            record_id:
+              type: string
+          required: [entity, record_id]
+
+      - name: create_record
+        description: 创建 CRM 数据记录
+        input_schema:
+          type: object
+          properties:
+            entity:
+              type: string
+            data:
+              type: object
+          required: [entity, data]
+
+  - api_key: knowledge-mcp
+    name: 知识库检索服务
+    description: 企业知识库语义检索与管理
+    domain: knowledge
+    backend:
+      service_name: "neo-ai-knowledge-service"
+    tools:
+      - name: search_knowledge
+        description: 语义检索知识库文档
+        input_schema:
+          type: object
+          properties:
+            query:
+              type: string
+              description: 检索关键词
+            knowledge_base_id:
+              type: string
+              description: 知识库 ID（可选）
+            top_k:
+              type: integer
+              description: 返回条数
+          required: [query]
+
+      - name: list_knowledge_bases
+        description: 列出可用知识库
+        input_schema:
+          type: object
+          properties: {}
+
+  - api_key: metadata-mcp
+    name: 元数据查询服务
+    description: aPaaS 元数据查询（实体/字段/关联，只读）
+    domain: metadata
+    backend:
+      service_name: "neo-ai-metadata-service"
+    tools:
+      - name: list_entities
+        description: 列出所有业务实体
+        input_schema:
+          type: object
+          properties: {}
+
+      - name: get_entity_fields
+        description: 获取实体字段列表
+        input_schema:
+          type: object
+          properties:
+            entity_api_key:
+              type: string
+              description: 实体 API Key
+          required: [entity_api_key]
