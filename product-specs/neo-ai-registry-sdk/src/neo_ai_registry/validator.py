@@ -79,25 +79,11 @@ def validate_tool(tool: ToolDefinition) -> None:
 
 
 def validate_middleware(mw: MiddlewareDefinition) -> None:
-    """校验 Middleware 定义合法性
-
-    校验规则：
-    - api_key 不能为空
-    - module_path 和 class_name 至少提供一个（用于动态实例化）
-
-    Args:
-        mw: 待校验的 MiddlewareDefinition 实例。
-
-    Raises:
-        RegistryValidationError: 校验失败时抛出，包含所有错误详情。
-    """
+    """校验 Middleware 定义合法性"""
     errors: list[str] = []
 
     if not mw.api_key or not mw.api_key.strip():
         errors.append("api_key 不能为空")
-
-    if not mw.module_path and not mw.class_name:
-        errors.append("module_path 和 class_name 至少提供一个")
 
     if errors:
         raise RegistryValidationError("Middleware", mw.api_key, errors)

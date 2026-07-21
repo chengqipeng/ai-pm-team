@@ -117,17 +117,19 @@ class ToolFeignClient:
         api_key: str,
         input_data: dict[str, Any],
         state: Any = None,
-    ) -> dict[str, Any]:
-        """远程执行 Tool（支持 state 双向传递）
+        stream: bool = False,
+    ) -> dict[str, Any] | Any:
+        """远程执行 Tool（支持 state 双向传递 + SSE 流式）
 
         Args:
             api_key: Tool 唯一标识。
             input_data: Tool 入参字典。
-            state: ToolState 实例或 dict。Provider 可通过 state.set() 回写数据，
-                   返回值中 state_patch 包含回写的增量，Agent 侧可 merge。
+            state: ToolState 实例或 dict。
+            stream: 是否请求 SSE 流式响应。为 True 时返回 generator。
 
         Returns:
-            {"result": Tool执行结果, "state_patch": Provider回写的状态增量}
+            stream=False: {"result": ..., "state_patch": ...}
+            stream=True: generator，逐 chunk yield dict
         """
         from neo_ai_registry.state import ToolState
 
@@ -143,6 +145,9 @@ class ToolFeignClient:
         if state_dict:
             payload["state"] = state_dict
 
+        if stream:
+            return self._stream_invoke(api_key, payload, state)
+
         response = self._transport.invoke(
             app_name=self._app_name,
             service=f"/v2/tools/{api_key}/execute",
@@ -157,6 +162,47 @@ class ToolFeignClient:
                 state.merge_patch(patch)
 
         return response
+
+    def _stream_invoke(self, api_key: str, payload: dict, state: Any):
+        """SSE 流式调用 — 返回 generator"""
+        import httpx
+        from neo_ai_registry.state import ToolState
+
+        # 需要直接用 httpx 发 SSE 请求（Transport 不支持流式）
+        from neo_ai_registry.feign.client import ServiceResolver
+        if hasattr(self._transport, '_resolver'):
+            base_url = self._transport._resolver.resolve(self._app_name)
+        else:
+            base_url = f"http://{self._app_name}:8080"
+
+        url = f"{base_url}/v2/tools/{api_key}/execute"
+
+        def stream_generator():
+            import json
+            with httpx.stream("POST", url, json=payload, headers={"Content-Type": "application/json"}, timeout=60) as resp:
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    if line.startswith("event: state_patch"):
+                        # 下一行是 state_patch data
+                        continue
+                    if line.startswith("event: done"):
+                        break
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        try:
+                            chunk = json.loads(data_str)
+                            # 检查是否是 state_patch
+                            if isinstance(chunk, dict) and "last_query_entity" in chunk:
+                                # state_patch event
+                                if isinstance(state, ToolState):
+                                    state.merge_patch(chunk)
+                            else:
+                                yield chunk
+                        except json.JSONDecodeError:
+                            pass
+
+        return stream_generator()
 
 
 # ═══════════════════════════════════════════════════════════

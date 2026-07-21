@@ -29,15 +29,13 @@ Usage（自定义方式 — 分步控制）:
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
 from typing import Any, Callable
 
 from fastapi import FastAPI, APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from neo_ai_registry.registry import Registry
-from neo_ai_registry.models import ToolDefinition, MiddlewareDefinition, ToolType, MiddlewareHook
+from neo_ai_registry.models import ToolDefinition, MiddlewareDefinition, ToolType
 from neo_ai_registry.state import ToolState, _init_state_context, _collect_state_patch
 
 logger = logging.getLogger(__name__)
@@ -92,6 +90,21 @@ def create_provider_router(registry: Registry) -> APIRouter:
         if hasattr(result, "__await__"):
             result = await result
 
+        # 如果 handler 返回 AsyncGenerator → SSE 流式响应
+        if hasattr(result, "__aiter__"):
+            from fastapi.responses import StreamingResponse
+            import json as _json
+
+            async def sse_stream():
+                async for chunk in result:
+                    yield f"data: {_json.dumps(chunk, ensure_ascii=False)}\n\n"
+                # 流结束后发送 state_patch
+                patch = _collect_state_patch()
+                yield f"event: state_patch\ndata: {_json.dumps(patch, ensure_ascii=False)}\n\n"
+                yield "event: done\ndata: {}\n\n"
+
+            return StreamingResponse(sse_stream(), media_type="text/event-stream")
+
         state_patch = _collect_state_patch()
         return {"code": 0, "data": {"result": result, "state_patch": state_patch}}
 
@@ -121,61 +134,48 @@ def create_provider_router(registry: Registry) -> APIRouter:
 def create_provider_app(
     domain: str,
     handler_map: dict[str, Callable],
-    config_path: str = "",
     middleware_handler_map: dict[str, Callable] | None = None,
     title: str = "",
     version: str = "0.1.0",
 ) -> FastAPI:
     """一行代码创建完整 Provider FastAPI 应用
 
-    自动处理：
-    - 从 YAML 配置文件加载 Tool/Middleware 定义
-    - 匹配 handler_map 中的函数
-    - 注册到 Registry
-    - 生成标准路由（/v2/tools/... + /v2/middlewares/...）
-    - 创建 /health 端点
+    直接从 handler_map 注册 Tool，无需配置文件。
 
     Args:
         domain: 业务域标识（如 "sales" / "marketing" / "basic"）。
         handler_map: api_key → handler 函数映射。
                      handler 签名：async def handler(input_data: dict, state: ToolState) -> dict
-        config_path: Tool/Middleware 配置文件路径。
-                     为空时在当前目录查找 config/tools.yaml。
         middleware_handler_map: api_key → middleware handler 映射（可选）。
                                handler 签名：async def handler(hook: str, payload: dict, state: ToolState) -> dict
         title: FastAPI 应用标题。为空自动生成。
         version: 应用版本号。
 
     Returns:
-        完整配置的 FastAPI 应用实例（可直接 uvicorn 启动）。
+        完整配置的 FastAPI 应用实例。
 
     Usage:
         from neo_ai_registry.fastapi import create_provider_app
 
         app = create_provider_app(
             domain="marketing",
-            config_path="config/tools.yaml",
             handler_map={
                 "create_lead": create_lead,
                 "send_campaign": send_campaign,
             },
-            middleware_handler_map={
-                "marketing_context": marketing_context_handler,
-            },
         )
-        # uvicorn main:app --port 8002
     """
-    # 解析配置路径
-    if not config_path:
-        config_path = os.path.join(os.getcwd(), "config", "tools.yaml")
+    registry = Registry(domain=domain)
 
-    # 加载配置 + 注册
-    registry = _load_registry_from_config(
-        config_path=config_path,
-        domain=domain,
-        handler_map=handler_map,
-        middleware_handler_map=middleware_handler_map or {},
-    )
+    # 从 handler_map 直接注册 Tool
+    for api_key, handler in handler_map.items():
+        tool_def = ToolDefinition(api_key=api_key, name=api_key, type=ToolType.REMOTE)
+        registry.register_tool(tool_def, handler=handler)
+
+    # 从 middleware_handler_map 注册 Middleware
+    for api_key, handler in (middleware_handler_map or {}).items():
+        mw_def = MiddlewareDefinition(api_key=api_key, name=api_key, module_path="", class_name="")
+        registry.register_middleware(mw_def, handler=handler)
 
     # 创建 FastAPI app
     app_title = title or f"Neo AI Provider ({domain})"
@@ -191,66 +191,3 @@ def create_provider_app(
         return {"status": "ok", "domain": domain, "registered": registry.summary()}
 
     return app
-
-
-def _load_registry_from_config(
-    config_path: str,
-    domain: str,
-    handler_map: dict[str, Callable],
-    middleware_handler_map: dict[str, Callable],
-) -> Registry:
-    """从配置文件加载 Tool/Middleware 定义并匹配 handler"""
-    import yaml
-
-    path = Path(config_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Provider 配置文件不存在: {path}")
-
-    with open(path, encoding="utf-8") as f:
-        raw = yaml.safe_load(f) or {}
-
-    registry = Registry(domain=domain)
-
-    # 注册 Tool
-    for item in raw.get("tools", []):
-        api_key = item["api_key"]
-        handler = handler_map.get(api_key)
-        if not handler:
-            logger.warning("Tool '%s' 无对应 handler，跳过", api_key)
-            continue
-
-        tool_def = ToolDefinition(
-            api_key=api_key,
-            name=item.get("name", ""),
-            description=item.get("description", ""),
-            type=ToolType(item.get("type", "remote")),
-            category=item.get("category", ""),
-            tags=item.get("tags", []),
-            timeout_ms=item.get("timeout_ms", 5000),
-            read_only_flg=item.get("read_only_flg", True),
-            input_schema=item.get("input_schema", {}),
-        )
-        registry.register_tool(tool_def, handler=handler)
-
-    # 注册 Middleware
-    for item in raw.get("middlewares", []):
-        api_key = item["api_key"]
-        handler = middleware_handler_map.get(api_key)
-        if not handler:
-            logger.warning("Middleware '%s' 无对应 handler，跳过", api_key)
-            continue
-
-        mw_def = MiddlewareDefinition(
-            api_key=api_key,
-            name=item.get("name", ""),
-            description=item.get("description", ""),
-            hooks=[MiddlewareHook(h) for h in item.get("hooks", [])],
-            module_path=item.get("module_path", ""),
-            class_name=item.get("class_name", ""),
-            sort_num=item.get("sort_num", 0),
-            required_features=item.get("required_features", []),
-        )
-        registry.register_middleware(mw_def, handler=handler)
-
-    logger.info("Provider app 加载完成 [%s]: %s", domain, registry.summary())
-    return registry
