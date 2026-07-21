@@ -86,9 +86,10 @@ def create_provider_router(registry: Registry) -> APIRouter:
 
         handler = registry.get_tool_handler(api_key)
         _init_state_context(request.state)
-        tool_state = ToolState.from_dict(request.state, configurable=request.configurable)
+        tool_state = ToolState.from_dict(request.state)
+        configurable = request.configurable
 
-        result = handler(request.input, tool_state)
+        result = handler(request.input, tool_state, configurable)
         if hasattr(result, "__await__"):
             result = await result
 
@@ -117,9 +118,10 @@ def create_provider_router(registry: Registry) -> APIRouter:
 
         handler = registry.get_middleware_handler(api_key)
         _init_state_context(request.state)
-        tool_state = ToolState.from_dict(request.state, configurable=request.configurable)
+        tool_state = ToolState.from_dict(request.state)
+        configurable = request.configurable
 
-        result = handler(request.hook, request.payload, tool_state)
+        result = handler(request.hook, request.payload, tool_state, configurable)
         if hasattr(result, "__await__"):
             result = await result
 

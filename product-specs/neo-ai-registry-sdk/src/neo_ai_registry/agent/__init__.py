@@ -3,6 +3,7 @@
 from neo_ai_registry.agent.registry import AgentRegistry
 from neo_ai_registry.agent.discover import discover_tools, discover_middlewares
 from neo_ai_registry.agent.middleware_adapter import create_remote_middleware, create_remote_middlewares
+from neo_ai_registry.agent.tool_adapter import create_base_tool, create_base_tools
 
 __all__ = [
     "AgentRegistry",
@@ -10,4 +11,6 @@ __all__ = [
     "discover_middlewares",
     "create_remote_middleware",
     "create_remote_middlewares",
+    "create_base_tool",
+    "create_base_tools",
 ]

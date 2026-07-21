@@ -19,19 +19,16 @@ class ToolFeignClient:
         self._app_name = app_name
         self._transport = transport
 
-    def execute_tool(self, api_key: str, input_data: dict[str, Any], state: Any = None) -> dict[str, Any]:
+    def execute_tool(self, api_key: str, input_data: dict[str, Any], state: Any = None, configurable: dict[str, Any] | None = None) -> dict[str, Any]:
         """同步执行 Tool"""
         from neo_ai_registry.state import ToolState
 
         if isinstance(state, ToolState):
             state_dict = state.to_dict()
-            configurable = state.configurable
         elif isinstance(state, dict):
             state_dict = state
-            configurable = {}
         else:
             state_dict = {}
-            configurable = {}
 
         payload: dict[str, Any] = {"input": input_data}
         if state_dict:
@@ -53,19 +50,16 @@ class ToolFeignClient:
 
         return response
 
-    async def async_execute_tool(self, api_key: str, input_data: dict[str, Any], state: Any = None) -> dict[str, Any]:
+    async def async_execute_tool(self, api_key: str, input_data: dict[str, Any], state: Any = None, configurable: dict[str, Any] | None = None) -> dict[str, Any]:
         """异步执行 Tool"""
         from neo_ai_registry.state import ToolState
 
         if isinstance(state, ToolState):
             state_dict = state.to_dict()
-            configurable = state.configurable
         elif isinstance(state, dict):
             state_dict = state
-            configurable = {}
         else:
             state_dict = {}
-            configurable = {}
 
         payload: dict[str, Any] = {"input": input_data}
         if state_dict:

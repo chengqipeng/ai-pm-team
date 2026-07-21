@@ -35,18 +35,22 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════
 
 def _remote_call_sync(self, hook: str, state: Any) -> dict[str, Any] | None:
-    """同步远程调用 Provider middleware
+    """同步远程调用 Provider middleware"""
+    from langgraph.config import get_config
 
-    链路：AgentState → ToolState(from_agent_state) → 远程调用 → state_patch → write_back(AgentState)
-    """
     state_dict = dict(state) if isinstance(state, dict) else {}
     tool_state = ToolState.from_agent_state(state_dict)
+
+    try:
+        configurable = get_config().get("configurable", {})
+    except Exception:
+        configurable = {}
 
     request_data = {
         "hook": hook,
         "payload": tool_state.to_dict(),
         "state": tool_state.to_dict(),
-        "configurable": tool_state.configurable,
+        "configurable": configurable,
     }
 
     try:
@@ -75,14 +79,21 @@ def _remote_call_sync(self, hook: str, state: Any) -> dict[str, Any] | None:
 
 async def _remote_call_async(self, hook: str, state: Any) -> dict[str, Any] | None:
     """异步远程调用 Provider middleware"""
+    from langgraph.config import get_config
+
     state_dict = dict(state) if isinstance(state, dict) else {}
     tool_state = ToolState.from_agent_state(state_dict)
+
+    try:
+        configurable = get_config().get("configurable", {})
+    except Exception:
+        configurable = {}
 
     request_data = {
         "hook": hook,
         "payload": tool_state.to_dict(),
         "state": tool_state.to_dict(),
-        "configurable": tool_state.configurable,
+        "configurable": configurable,
     }
 
     try:

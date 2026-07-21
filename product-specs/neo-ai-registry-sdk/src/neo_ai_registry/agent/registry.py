@@ -53,8 +53,10 @@ class AgentRegistry:
         """
         self._transport = transport
 
-        # Tool 注册表
-        self._tools: dict[str, ToolDefinition] = {}
+        # Builtin Tools（BaseTool 实例）
+        self._builtin_tools: list = []
+        # Remote Tools（ToolDefinition）
+        self._remote_tool_defs: list[ToolDefinition] = []
 
         # Middleware
         self._builtin_middlewares: list = []
@@ -72,14 +74,13 @@ class AgentRegistry:
         """
         root = project_root or os.getcwd()
 
-        # 1. 扫描 Builtin Tools
+        # 1. 扫描 Builtin Tools（BaseTool 子类）
         tools_dir = os.path.join(root, config.scan.tools_dir)
-        builtin_tools = discover_tools(tools_dir)
-        self._tools.update(builtin_tools)
+        self._builtin_tools = discover_tools(tools_dir)
 
-        # 2. 注册 Remote Tools
+        # 2. 注册 Remote Tools（ToolDefinition）
         for tool_cfg in config.tools:
-            self._tools[tool_cfg.api_key] = ToolDefinition(
+            self._remote_tool_defs.append(ToolDefinition(
                 api_key=tool_cfg.api_key,
                 name=tool_cfg.name,
                 description=tool_cfg.description,
@@ -91,7 +92,7 @@ class AgentRegistry:
                 read_only_flg=tool_cfg.read_only_flg,
                 category=tool_cfg.category,
                 tags=tool_cfg.tags,
-            )
+            ))
 
         # 3. 扫描 Builtin Middlewares（AgentMiddleware 子类）
         middlewares_dir = os.path.join(root, config.scan.middlewares_dir)
@@ -112,10 +113,27 @@ class AgentRegistry:
         logger.info(
             "[AgentRegistry] 加载完成: tools=%d (builtin=%d, remote=%d), "
             "middlewares=%d (builtin=%d, remote=%d)",
-            len(self._tools), len(builtin_tools), len(config.tools),
+            len(self._builtin_tools) + len(self._remote_tool_defs),
+            len(self._builtin_tools), len(self._remote_tool_defs),
             len(self._builtin_middlewares) + len(self._remote_middleware_defs),
             len(self._builtin_middlewares), len(self._remote_middleware_defs),
         )
+
+    # ═══════════════════════════════════════════════════════════
+    # Tool — 返回 BaseTool 列表
+    # ═══════════════════════════════════════════════════════════
+
+    def get_base_tools(self) -> list:
+        """获取所有 BaseTool 列表（供 create_agent(tools=[...]) 使用）
+
+        - Builtin tools: 直接返回（已经是 BaseTool）
+        - Remote tools: 通过 ToolDefinition.to_base_tool() 转换
+
+        Returns:
+            BaseTool 实例列表。
+        """
+        remote_base_tools = ToolDefinition.to_base_tools(self._remote_tool_defs, self._transport)
+        return self._builtin_tools + remote_base_tools
 
     # ═══════════════════════════════════════════════════════════
     # Middleware — 返回 AgentMiddleware 列表
@@ -124,11 +142,8 @@ class AgentRegistry:
     def get_middlewares(self) -> list:
         """获取完整的 AgentMiddleware 列表（builtin + remote 已转换）
 
-        Remote middleware 通过 MiddlewareDefinition.to_agent_middleware() 转换，
-        只覆写 hooks 中声明的方法。
-
         Returns:
-            AgentMiddleware 实例列表（builtin 在前，remote 按 sort_num 排序在后）。
+            AgentMiddleware 实例列表。
         """
         remote_mws = MiddlewareDefinition.to_agent_middlewares(
             self._remote_middleware_defs, self._transport
@@ -136,110 +151,20 @@ class AgentRegistry:
         return self._builtin_middlewares + remote_mws
 
     # ═══════════════════════════════════════════════════════════
-    # Tool 执行
-    # ═══════════════════════════════════════════════════════════
-
-    async def async_execute_tool(
-        self,
-        api_key: str,
-        input_data: dict[str, Any],
-        agent_state: dict[str, Any] | None = None,
-        configurable: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """执行 Tool — 异步入口
-
-        Args:
-            api_key: Tool 唯一标识。
-            input_data: Tool 入参。
-            agent_state: 图 state dict（remote 时可读写，write_back 回写变化）。
-            configurable: 请求上下文（只读，传递给 Provider 但不可修改）。
-        """
-        tool = self._tools.get(api_key)
-        if not tool:
-            raise KeyError(f"Tool '{api_key}' 未注册，已配置: {list(self._tools.keys())}")
-
-        if tool.is_builtin():
-            context = dict(agent_state or {})
-            if configurable:
-                context["_configurable"] = configurable
-            return await tool.execute(input_data, context)
-        else:
-            return await self._async_remote_tool(tool, input_data, agent_state, configurable)
-
-    def execute_tool(
-        self,
-        api_key: str,
-        input_data: dict[str, Any],
-        agent_state: dict[str, Any] | None = None,
-        configurable: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """执行 Tool — 同步入口"""
-        import asyncio
-
-        tool = self._tools.get(api_key)
-        if not tool:
-            raise KeyError(f"Tool '{api_key}' 未注册，已配置: {list(self._tools.keys())}")
-
-        if tool.is_builtin():
-            context = dict(agent_state or {})
-            if configurable:
-                context["_configurable"] = configurable
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-            if loop and loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    return pool.submit(asyncio.run, tool.execute(input_data, context)).result()
-            return asyncio.run(tool.execute(input_data, context))
-        else:
-            from neo_ai_registry.state import ToolState
-            tool_state = ToolState.from_agent_state(agent_state or {}, configurable=configurable)
-            client = self._get_tool_client(tool.service)
-            response = client.execute_tool(tool.api_key, input_data, state=tool_state)
-            if agent_state is not None:
-                tool_state.write_back(agent_state)
-            return response.get("result", response)
-
-    async def _async_remote_tool(self, tool: ToolDefinition, input_data: dict, agent_state: dict | None, configurable: dict | None = None) -> dict:
-        """异步远程调用 Tool"""
-        from neo_ai_registry.state import ToolState
-
-        tool_state = ToolState.from_agent_state(agent_state or {}, configurable=configurable)
-        client = self._get_tool_client(tool.service)
-        response = await client.async_execute_tool(tool.api_key, input_data, state=tool_state)
-
-        if agent_state is not None:
-            patch = tool_state.write_back(agent_state)
-            if patch:
-                logger.info("[AgentRegistry] state write_back: %s", patch)
-
-        return response.get("result", response)
-
-    # ═══════════════════════════════════════════════════════════
     # 查询
     # ═══════════════════════════════════════════════════════════
 
-    def get_tools(self) -> list[ToolDefinition]:
-        """获取所有 Tool 定义列表"""
-        return list(self._tools.values())
-
-    def get_tool(self, api_key: str) -> ToolDefinition | None:
-        """按 api_key 获取单个 Tool"""
-        return self._tools.get(api_key)
-
     @property
     def tool_keys(self) -> list[str]:
-        return list(self._tools.keys())
+        builtin_keys = [getattr(t, "name", "?") for t in self._builtin_tools]
+        remote_keys = [d.api_key for d in self._remote_tool_defs]
+        return builtin_keys + remote_keys
 
     def summary(self) -> dict[str, Any]:
         """注册数据汇总"""
-        builtin_t = [k for k, v in self._tools.items() if v.is_builtin()]
-        remote_t = [k for k, v in self._tools.items() if not v.is_builtin()]
         return {
-            "builtin_tools": builtin_t,
-            "remote_tools": remote_t,
+            "builtin_tools": [getattr(t, "name", "?") for t in self._builtin_tools],
+            "remote_tools": [d.api_key for d in self._remote_tool_defs],
             "builtin_middlewares": [getattr(m, "name", "?") for m in self._builtin_middlewares],
             "remote_middlewares": [d.api_key for d in self._remote_middleware_defs],
         }

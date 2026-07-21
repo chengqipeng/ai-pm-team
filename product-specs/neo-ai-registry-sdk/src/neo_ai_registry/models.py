@@ -79,28 +79,44 @@ class ToolDefinition(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-    async def execute(self, input_data: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
-        """执行工具逻辑（Builtin Tool 覆盖此方法）
-
-        默认实现抛出 NotImplementedError，表示此 Tool 应走远程调用路径。
-        子类覆盖此方法即表示 builtin 模式。
-
-        Args:
-            input_data: 工具入参。
-            context: 执行上下文（tenant_id/user_id/thread_id/agent_state 等）。
-
-        Returns:
-            执行结果字典。
-        """
-        raise NotImplementedError(f"Tool '{self.api_key}' 未实现 execute()，应走远程调用")
-
     def has_execute(self) -> bool:
-        """判断是否有本地执行能力（子类覆盖了 execute 方法）"""
-        return type(self).execute is not ToolDefinition.execute
+        """判断是否有本地执行能力（已废弃，builtin tool 直接继承 BaseTool）"""
+        return False
 
     def is_builtin(self) -> bool:
         """判断是否为 builtin 类型"""
-        return self.type == ToolType.BUILTIN or self.has_execute()
+        return self.type == ToolType.BUILTIN
+
+    def to_base_tool(self, transport: Any) -> Any:
+        """转换为 LangChain BaseTool 实例（类比 MiddlewareDefinition.to_agent_middleware）
+
+        动态生成 BaseTool 子类：
+        - args_schema 从 input_schema 生成（含 InjectedState）
+        - builtin: _arun 调 execute()
+        - remote: _arun 通过 FeignClient 远程调用
+
+        Args:
+            transport: Transport 实例。
+
+        Returns:
+            BaseTool 实例。
+        """
+        from neo_ai_registry.agent.tool_adapter import create_base_tool
+        return create_base_tool(self, transport)
+
+    @staticmethod
+    def to_base_tools(definitions: list["ToolDefinition"], transport: Any) -> list:
+        """批量转换为 BaseTool 列表
+
+        Args:
+            definitions: ToolDefinition 列表。
+            transport: Transport 实例。
+
+        Returns:
+            BaseTool 实例列表。
+        """
+        from neo_ai_registry.agent.tool_adapter import create_base_tools
+        return create_base_tools(definitions, transport)
 
 
 # ═══════════════════════════════════════════════════════════
