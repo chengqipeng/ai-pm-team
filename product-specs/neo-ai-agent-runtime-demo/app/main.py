@@ -29,25 +29,40 @@ def health():
 
 @app.post("/v1/agent/execute-tool")
 async def execute_tool(request: dict):
-    """Agent 执行 Tool — 演示 AgentState ↔ ToolState 转换
+    """Agent 执行 Tool — 演示 state + configurable 分离传递
 
     请求体：{"api_key": "query_customer", "input": {"customer_name": "仁科"}, "user_input": "查仁科"}
     """
-    from app.agent_state import create_agent_state
+    from app.agent_state import create_thread_state, create_configurable
 
     api_key = request.get("api_key", "")
     input_data = request.get("input", {})
     user_input = request.get("user_input", "")
 
-    agent_state = create_agent_state(user_input=user_input)
+    # 创建图 state（可读写）
+    graph_state = create_thread_state(user_input=user_input)
+    # 创建 configurable（只读）
+    configurable = create_configurable()
 
     try:
-        result = await agent_loader.async_execute_tool(api_key, input_data, agent_state=agent_state)
+        result = await agent_loader.async_execute_tool(
+            api_key, input_data,
+            agent_state=graph_state,
+            configurable=configurable,
+        )
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    written_keys = [k for k in agent_state if k not in ("messages", "interrupt_event")]
-    return {"code": 0, "data": {"result": result, "agent_state": {k: agent_state[k] for k in written_keys}}}
+    # state 中 write_back 的变化
+    state_keys = [k for k in graph_state if k not in ("messages",)]
+    return {
+        "code": 0,
+        "data": {
+            "result": result,
+            "state": {k: graph_state[k] for k in state_keys},
+            "configurable": configurable,
+        },
+    }
 
 
 @app.post("/v1/agent/call-mcp-tool")

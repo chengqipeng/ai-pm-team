@@ -49,13 +49,13 @@ class AgentLoader:
         """获取 AgentMiddleware 列表（传给 create_agent）"""
         return self._registry.get_middlewares()
 
-    async def async_execute_tool(self, api_key: str, input_data: dict, agent_state: dict | None = None) -> dict:
+    async def async_execute_tool(self, api_key: str, input_data: dict, agent_state: dict | None = None, configurable: dict | None = None) -> dict:
         """执行 Tool（异步）"""
-        return await self._registry.async_execute_tool(api_key, input_data, agent_state)
+        return await self._registry.async_execute_tool(api_key, input_data, agent_state, configurable)
 
-    def execute_tool(self, api_key: str, input_data: dict, agent_state: dict | None = None) -> dict:
+    def execute_tool(self, api_key: str, input_data: dict, agent_state: dict | None = None, configurable: dict | None = None) -> dict:
         """执行 Tool（同步）"""
-        return self._registry.execute_tool(api_key, input_data, agent_state)
+        return self._registry.execute_tool(api_key, input_data, agent_state, configurable)
 
     # ── MCP（项目特有） ──
 
