@@ -89,9 +89,19 @@ def create_base_tool(definition: ToolDefinition, transport: Any) -> Any:
         kwargs.pop("config", None)  # LangChain 传入的 config，已通过 get_config() 获取
         input_data = {k: v for k, v in kwargs.items() if v is not None}
 
-        # 获取 configurable
+        # 获取 configurable（过滤 LangGraph 内部字段 + 不可序列化对象）
         try:
-            configurable = get_config().get("configurable", {})
+            raw_configurable = get_config().get("configurable", {})
+            configurable = {}
+            for k, v in raw_configurable.items():
+                if k.startswith("__"):
+                    continue
+                try:
+                    import json as _json
+                    _json.dumps(v, default=str)
+                    configurable[k] = v
+                except (TypeError, ValueError):
+                    pass
         except Exception:
             configurable = {}
 
@@ -158,11 +168,8 @@ def create_base_tools(definitions: list[ToolDefinition], transport: Any) -> list
 
     Returns:
         BaseTool 实例列表。
+
+    Raises:
+        Exception: 任何转换失败直接抛出。
     """
-    tools = []
-    for d in definitions:
-        try:
-            tools.append(create_base_tool(d, transport))
-        except Exception as e:
-            logger.warning("[ToolAdapter] 转换失败: %s — %s", d.api_key, e)
-    return tools
+    return [create_base_tool(d, transport) for d in definitions]

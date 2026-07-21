@@ -41,10 +41,17 @@ def _remote_call_sync(self, hook: str, state: Any) -> dict[str, Any] | None:
     state_dict = dict(state) if isinstance(state, dict) else {}
     tool_state = ToolState.from_agent_state(state_dict)
 
-    try:
-        configurable = get_config().get("configurable", {})
-    except Exception:
-        configurable = {}
+    raw_cfg = get_config().get("configurable", {})
+    configurable = {}
+    for k, v in raw_cfg.items():
+        if k.startswith("__"):
+            continue
+        try:
+            import json as _json
+            _json.dumps(v, default=str)
+            configurable[k] = v
+        except (TypeError, ValueError):
+            pass
 
     request_data = {
         "hook": hook,
@@ -53,16 +60,12 @@ def _remote_call_sync(self, hook: str, state: Any) -> dict[str, Any] | None:
         "configurable": configurable,
     }
 
-    try:
-        response = self._transport.invoke(
-            app_name=self._mw_service,
-            service=f"/v2/middlewares/{self._mw_api_key}/execute",
-            method="POST",
-            data=request_data,
-        )
-    except Exception as e:
-        logger.warning("[RemoteMiddleware] %s/%s 调用失败: %s", self._mw_api_key, hook, e)
-        return None
+    response = self._transport.invoke(
+        app_name=self._mw_service,
+        service=f"/v2/middlewares/{self._mw_api_key}/execute",
+        method="POST",
+        data=request_data,
+    )
 
     if isinstance(response, dict):
         state_patch = response.get("state_patch", {})
@@ -84,10 +87,17 @@ async def _remote_call_async(self, hook: str, state: Any) -> dict[str, Any] | No
     state_dict = dict(state) if isinstance(state, dict) else {}
     tool_state = ToolState.from_agent_state(state_dict)
 
-    try:
-        configurable = get_config().get("configurable", {})
-    except Exception:
-        configurable = {}
+    raw_cfg = get_config().get("configurable", {})
+    configurable = {}
+    for k, v in raw_cfg.items():
+        if k.startswith("__"):
+            continue
+        try:
+            import json as _json
+            _json.dumps(v, default=str)
+            configurable[k] = v
+        except (TypeError, ValueError):
+            pass
 
     request_data = {
         "hook": hook,
@@ -96,24 +106,20 @@ async def _remote_call_async(self, hook: str, state: Any) -> dict[str, Any] | No
         "configurable": configurable,
     }
 
-    try:
-        if hasattr(self._transport, "async_invoke"):
-            response = await self._transport.async_invoke(
-                app_name=self._mw_service,
-                service=f"/v2/middlewares/{self._mw_api_key}/execute",
-                method="POST",
-                data=request_data,
-            )
-        else:
-            response = self._transport.invoke(
-                app_name=self._mw_service,
-                service=f"/v2/middlewares/{self._mw_api_key}/execute",
-                method="POST",
-                data=request_data,
-            )
-    except Exception as e:
-        logger.warning("[RemoteMiddleware] %s/%s 异步调用失败: %s", self._mw_api_key, hook, e)
-        return None
+    if hasattr(self._transport, "async_invoke"):
+        response = await self._transport.async_invoke(
+            app_name=self._mw_service,
+            service=f"/v2/middlewares/{self._mw_api_key}/execute",
+            method="POST",
+            data=request_data,
+        )
+    else:
+        response = self._transport.invoke(
+            app_name=self._mw_service,
+            service=f"/v2/middlewares/{self._mw_api_key}/execute",
+            method="POST",
+            data=request_data,
+        )
 
     if isinstance(response, dict):
         state_patch = response.get("state_patch", {})
