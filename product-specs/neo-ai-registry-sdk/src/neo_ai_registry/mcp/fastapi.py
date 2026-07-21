@@ -8,7 +8,7 @@
 Usage:
     from neo_ai_registry.mcp.fastapi import create_mcp_app
 
-    app = create_mcp_app(config_path="config/servers.yaml")
+    app = create_mcp_app(config_path="config/registry.yaml")
 """
 from __future__ import annotations
 
@@ -25,20 +25,20 @@ logger = logging.getLogger(__name__)
 
 
 def create_mcp_app(
-    config_path: str = "config/servers.yaml",
+    config_path: str = "config/registry.yaml",
     title: str = "Neo AI MCP Service",
     version: str = "0.1.0",
 ) -> FastAPI:
     """一行代码创建完整 MCP Service 应用
 
     自动处理：
-    - 从 YAML 加载 Server/Tool 定义 + Backend 地址
+    - 从 YAML 加载 Server/Tool 定义 + 服务发现配置
     - 为每个 Tool 自动生成 handler（FeignClient 调下游 Provider）
     - 生成按域划分的 StreamableHTTP 对外接口（/mcp/v2.0/{domain}）
     - 生成内部 REST 接口（/v2/mcp/tools/call + /v2/mcp/tools + /v2/mcp/servers）
 
     Args:
-        config_path: servers.yaml 配置文件路径。
+        config_path: registry.yaml 配置文件路径。
         title: FastAPI 标题。
         version: 版本号。
 
@@ -87,6 +87,10 @@ def create_mcp_app(
 def _build_from_config(raw: dict) -> tuple[dict, dict, dict]:
     """从 YAML 配置构建内部数据结构
 
+    服务发现策略：
+    - 开发环境：从 service_discovery 读取静态映射
+    - 生产环境：ServiceResolver 自动通过 Eureka/K8s DNS 解析
+
     Returns:
         servers: {server_api_key: {name, domain, tools: {tool_name: {desc, schema}}}}
         tool_index: {tool_name: server_api_key}
@@ -94,6 +98,13 @@ def _build_from_config(raw: dict) -> tuple[dict, dict, dict]:
     """
     from neo_ai_registry.feign import ToolFeignClient, ServiceResolver
     from neo_ai_registry.feign.transport import HttpxTransport
+
+    # 读取服务发现静态映射（开发环境）
+    static_map = raw.get("service_discovery", {}) or {}
+
+    # 构建统一的 ServiceResolver（所有 server 共用）
+    resolver = ServiceResolver(static_map=static_map) if static_map else ServiceResolver()
+    transport = HttpxTransport(resolver=resolver)
 
     servers: dict[str, dict[str, Any]] = {}
     tool_index: dict[str, str] = {}
@@ -103,12 +114,9 @@ def _build_from_config(raw: dict) -> tuple[dict, dict, dict]:
         server_key = server_cfg["api_key"]
         backend = server_cfg.get("backend", {})
 
-        # 构建 FeignClient
+        # 通过 service_name 构建 FeignClient（无需 url）
         service_name = backend.get("service_name", "")
-        url = backend.get("url", "")
-        if service_name and url:
-            resolver = ServiceResolver(static_map={service_name: url})
-            transport = HttpxTransport(resolver=resolver)
+        if service_name:
             clients[server_key] = ToolFeignClient(app_name=service_name, transport=transport)
 
         # 解析 Tools

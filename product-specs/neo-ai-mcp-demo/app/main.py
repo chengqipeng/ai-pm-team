@@ -11,7 +11,7 @@ from pathlib import Path
 from neo_ai_registry.mcp.fastapi import create_mcp_app
 
 _BASE_DIR = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-app = create_mcp_app(config_path=str(_BASE_DIR / "config" / "servers.yaml"))
+app = create_mcp_app(config_path=str(_BASE_DIR / "config" / "registry.yaml"))
 
 if __name__ == "__main__":
     import uvicorn
