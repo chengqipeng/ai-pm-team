@@ -84,8 +84,9 @@ def create_base_tool(definition: ToolDefinition, transport: Any) -> Any:
         """动态生成的 _arun — builtin 本地执行 / remote FeignClient 调用"""
         from langgraph.config import get_config
 
-        # 分离 state 和业务参数
+        # 分离 state、config 和业务参数
         injected_state = kwargs.pop("state", None) or {}
+        kwargs.pop("config", None)  # LangChain 传入的 config，已通过 get_config() 获取
         input_data = {k: v for k, v in kwargs.items() if v is not None}
 
         # 获取 configurable
@@ -122,6 +123,7 @@ def create_base_tool(definition: ToolDefinition, transport: Any) -> Any:
     def _run(**kwargs) -> str:
         """同步兜底"""
         import asyncio
+        kwargs.pop("config", None)
         return asyncio.run(_arun(**kwargs))
 
     # 3. 构建 description（追加 enum 提示）

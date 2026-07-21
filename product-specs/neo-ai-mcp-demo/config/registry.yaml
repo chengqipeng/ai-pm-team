@@ -10,7 +10,7 @@ servers:
     description: CRM 业务数据查询与操作（客户/商机/联系人/订单）
     domain: crm
     backend:
-      service_name: "neo-ai-salescloud-service"
+      service_name: "neo-ai-provider-demo"
     tools:
       - name: query_records
         description: 查询 CRM 数据记录
@@ -55,7 +55,7 @@ servers:
     description: 企业知识库语义检索与管理
     domain: knowledge
     backend:
-      service_name: "neo-ai-knowledge-service"
+      service_name: "neo-ai-provider-demo"
     tools:
       - name: search_knowledge
         description: 语义检索知识库文档
@@ -84,7 +84,7 @@ servers:
     description: aPaaS 元数据查询（实体/字段/关联，只读）
     domain: metadata
     backend:
-      service_name: "neo-ai-metadata-service"
+      service_name: "neo-ai-provider-demo"
     tools:
       - name: list_entities
         description: 列出所有业务实体
