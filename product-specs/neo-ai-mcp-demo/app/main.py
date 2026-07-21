@@ -1,45 +1,14 @@
-"""MCP Service Demo — 按业务域划分独立 MCP StreamableHTTP 接口
+"""MCP Service Demo — 一行代码创建
 
-对外接口（按域划分，MCP 协议标准）：
-    POST /mcp/v2.0/crm          → crm-data-mcp（CRM 数据）
-    POST /mcp/v2.0/knowledge    → knowledge-mcp（知识库）
-    POST /mcp/v2.0/metadata     → metadata-mcp（元数据）
-
-内部接口（Agent FeignClient 调用）：
-    POST /v2/mcp/tools/call
-    GET  /v2/mcp/tools
-    GET  /v2/mcp/servers
-
-MCP Server 列表：
-    ├── crm-data-mcp        → query_records / get_record_details / create_record
-    ├── knowledge-mcp       → search_knowledge / list_knowledge_bases
-    └── metadata-mcp        → list_entities / get_entity_fields
+从 config/servers.yaml 加载，自动生成：
+- 按域划分的 StreamableHTTP 对外接口
+- 内部 REST 接口供 Agent FeignClient 调用
+- 所有 Tool handler 自动调下游 Provider
 """
-from fastapi import FastAPI
+from neo_ai_registry.mcp.fastapi import create_mcp_app
 
-from app.router import router as internal_router
-from app.mcp_endpoint import router as mcp_router
-from app.servers import server_registry
+app = create_mcp_app(config_path="config/servers.yaml")
 
-app = FastAPI(title="Neo AI MCP Service Demo", version="0.1.0")
-
-# 内部接口（Agent FeignClient 调用）
-app.include_router(internal_router)
-
-# 对外 MCP 协议接口（按业务域划分）
-app.include_router(mcp_router)
-
-
-@app.get("/health")
-def health():
-    servers = server_registry.list_servers()
-    return {
-        "status": "ok",
-        "mcp_endpoints": {
-            "crm": "/mcp/v2.0/crm",
-            "knowledge": "/mcp/v2.0/knowledge",
-            "metadata": "/mcp/v2.0/metadata",
-        },
-        "servers": len(servers),
-        "total_tools": sum(s["tool_count"] for s in servers),
-    }
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8003, reload=True)
