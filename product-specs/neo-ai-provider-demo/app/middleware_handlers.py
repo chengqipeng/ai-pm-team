@@ -1,7 +1,7 @@
 """Middleware 处理器 — 业务域自定义中间件
 
 统一 handler 签名：
-    async def handler(hook: str, payload: dict, state: ToolState) -> dict
+    async def handler(hook: str, payload: dict, state: ToolState, configurable: dict) -> dict
 
 使用 MiddlewareHook 枚举判断钩子类型（避免硬编码字符串）。
 """
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from neo_ai_registry.state import ToolState
 
 
-async def crm_query_state_handler(hook: str, payload: dict[str, Any], state: "ToolState") -> dict[str, Any]:
+async def crm_query_state_handler(hook: str, payload: dict[str, Any], state: "ToolState", configurable: dict[str, Any]) -> dict[str, Any]:
     """CRM 查询状态管理"""
     if hook == MiddlewareHook.BEFORE_AGENT:
         set_state("crm_query_initialized", True)
@@ -40,7 +40,7 @@ async def crm_query_state_handler(hook: str, payload: dict[str, Any], state: "To
     return {"action": "continue"}
 
 
-async def sales_context_inject_handler(hook: str, payload: dict[str, Any], state: "ToolState") -> dict[str, Any]:
+async def sales_context_inject_handler(hook: str, payload: dict[str, Any], state: "ToolState", configurable: dict[str, Any]) -> dict[str, Any]:
     """销售上下文注入"""
     if hook == MiddlewareHook.BEFORE_MODEL:
         set_state("context_injected", True)

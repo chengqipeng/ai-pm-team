@@ -1,0 +1,15 @@
+server:
+  port: 8003
+
+spring:
+  application:
+    name: neo-ai-mcp-demo
+
+eureka:
+  client:
+    service-url:
+      defaultZone: https://admin:AdminEureka1234@discovery-dev.ingageapp.com/eureka/
+  instance:
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 30
+    lease-expiration-duration-in-seconds: 90

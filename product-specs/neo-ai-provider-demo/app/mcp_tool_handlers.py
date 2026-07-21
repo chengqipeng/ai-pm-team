@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from neo_ai_registry.state import ToolState
 
 
-async def query_records(input_data: dict[str, Any], state: "ToolState") -> dict[str, Any]:
+async def query_records(input_data: dict[str, Any], state: "ToolState", configurable: dict[str, Any]) -> dict[str, Any]:
     """查询 CRM 数据记录"""
     entity = input_data.get("entity", "accounts")
     limit = input_data.get("limit", 10)
@@ -37,7 +37,7 @@ async def query_records(input_data: dict[str, Any], state: "ToolState") -> dict[
     }
 
 
-async def get_record_details(input_data: dict[str, Any], state: "ToolState") -> dict[str, Any]:
+async def get_record_details(input_data: dict[str, Any], state: "ToolState", configurable: dict[str, Any]) -> dict[str, Any]:
     """获取单条记录详情"""
     entity = input_data.get("entity", "accounts")
     record_id = input_data.get("record_id", "")
@@ -61,7 +61,7 @@ async def get_record_details(input_data: dict[str, Any], state: "ToolState") -> 
     }
 
 
-async def create_record(input_data: dict[str, Any], state: "ToolState") -> dict[str, Any]:
+async def create_record(input_data: dict[str, Any], state: "ToolState", configurable: dict[str, Any]) -> dict[str, Any]:
     """创建 CRM 数据记录（模拟）"""
     entity = input_data.get("entity", "")
     data = input_data.get("data", {})
@@ -77,7 +77,7 @@ async def create_record(input_data: dict[str, Any], state: "ToolState") -> dict[
     }
 
 
-async def search_knowledge(input_data: dict[str, Any], state: "ToolState") -> dict[str, Any]:
+async def search_knowledge(input_data: dict[str, Any], state: "ToolState", configurable: dict[str, Any]) -> dict[str, Any]:
     """语义检索知识库文档"""
     query = input_data.get("query", "")
     top_k = input_data.get("top_k", 5)
@@ -96,7 +96,7 @@ async def search_knowledge(input_data: dict[str, Any], state: "ToolState") -> di
     }
 
 
-async def list_knowledge_bases(input_data: dict[str, Any], state: "ToolState") -> dict[str, Any]:
+async def list_knowledge_bases(input_data: dict[str, Any], state: "ToolState", configurable: dict[str, Any]) -> dict[str, Any]:
     """列出可用知识库"""
     kbs = data_store.list_knowledge_bases()
 
@@ -109,7 +109,7 @@ async def list_knowledge_bases(input_data: dict[str, Any], state: "ToolState") -
     }
 
 
-async def list_entities(input_data: dict[str, Any], state: "ToolState") -> dict[str, Any]:
+async def list_entities(input_data: dict[str, Any], state: "ToolState", configurable: dict[str, Any]) -> dict[str, Any]:
     """列出所有业务实体"""
     entities = data_store.get_entities()
 
@@ -122,7 +122,7 @@ async def list_entities(input_data: dict[str, Any], state: "ToolState") -> dict[
     }
 
 
-async def get_entity_fields(input_data: dict[str, Any], state: "ToolState") -> dict[str, Any]:
+async def get_entity_fields(input_data: dict[str, Any], state: "ToolState", configurable: dict[str, Any]) -> dict[str, Any]:
     """获取实体字段列表"""
     entity_api_key = input_data.get("entity_api_key", "")
     fields = data_store.get_fields(entity_api_key)
