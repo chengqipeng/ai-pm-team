@@ -1,11 +1,13 @@
 # Agent 运行时注册配置
-# services 静态映射到各 Demo 服务
+# Builtin: 通过 scan 配置的目录自动扫描注册
+# Remote: 通过 tools/middlewares 配置声明注册
 
-services:
-  neo-ai-provider-demo: "http://localhost:8002"
-  neo-ai-mcp-demo: "http://localhost:8003"
+# 自动扫描配置
+scan:
+  tools_dir: app/tools
+  middlewares_dir: app/middlewares
 
-# Tool 注册表
+# Tool 注册表（remote）
 tools:
   - api_key: query_customer
     name: 查询客户

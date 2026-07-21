@@ -1,7 +1,10 @@
 """Agent 运行时 Demo — 主入口
 
 从 config/registry.yaml 加载注册数据，
-通过 Transport 层远程调用 Provider(Tool/Middleware) 和 MCP Service。
+启动时通过 neo-ai-infr-eureka 注册到 Eureka。
+
+Tool: 通过 /v1/agent/execute-tool 接口执行（builtin 本地 / remote FeignClient）
+Middleware: 通过 get_middlewares() 返回列表，由 create_agent(middleware=[...]) 传入 LangGraph 图自动调度
 """
 from fastapi import FastAPI, HTTPException
 
@@ -13,7 +16,9 @@ agent_loader = AgentLoader()
 
 @app.on_event("startup")
 async def startup():
-    """启动时加载注册数据"""
+    """启动时：初始化 Eureka Discovery Client + 加载注册数据"""
+    from neo_ai_infr_eureka import EurekaGlobalClient
+    await EurekaGlobalClient().register_eureka()
     agent_loader.load()
 
 
@@ -24,7 +29,7 @@ def health():
 
 @app.post("/v1/agent/execute-tool")
 async def execute_tool(request: dict):
-    """Agent 执行 Tool — 演示完整 AgentState ↔ ToolState 转换
+    """Agent 执行 Tool — 演示 AgentState ↔ ToolState 转换
 
     请求体：{"api_key": "query_customer", "input": {"customer_name": "仁科"}, "user_input": "查仁科"}
     """
@@ -34,31 +39,15 @@ async def execute_tool(request: dict):
     input_data = request.get("input", {})
     user_input = request.get("user_input", "")
 
-    # 创建 AgentState（模拟 LangGraph 运行时）
     agent_state = create_agent_state(user_input=user_input)
 
     try:
-        result = agent_loader.execute_tool(api_key, input_data, agent_state=agent_state)
+        result = await agent_loader.async_execute_tool(api_key, input_data, agent_state=agent_state)
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    # 返回结果 + Provider write_back 写入的字段
     written_keys = [k for k in agent_state if k not in ("messages", "interrupt_event")]
     return {"code": 0, "data": {"result": result, "agent_state": {k: agent_state[k] for k in written_keys}}}
-
-
-@app.post("/v1/agent/execute-middleware")
-async def execute_middleware(request: dict):
-    """Agent 执行 Middleware"""
-    api_key = request.get("api_key", "")
-    hook = request.get("hook", "")
-    payload = request.get("payload", {})
-    context = request.get("context", {})
-    try:
-        result = agent_loader.execute_middleware(api_key, hook, payload, context)
-    except (KeyError, ValueError) as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return {"code": 0, "data": result}
 
 
 @app.post("/v1/agent/call-mcp-tool")
@@ -69,32 +58,28 @@ async def call_mcp_tool(request: dict):
     server_api_key = request.get("server_api_key", "")
     context = request.get("context", {})
     try:
-        result = agent_loader.call_mcp_tool(tool_name, arguments, server_api_key, context)
+        result = await agent_loader.async_call_mcp_tool(tool_name, arguments, server_api_key, context)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"code": 0, "data": result}
 
 
-@app.get("/v1/agent/mcp-tools")
-async def list_mcp_tools(server_api_key: str = ""):
-    """列出 MCP Tool"""
-    tools = agent_loader.list_mcp_tools(server_api_key)
-    return {"code": 0, "data": [t.model_dump() for t in tools]}
-
-
-@app.get("/v1/agent/mcp-servers")
-async def list_mcp_servers():
-    """列出 MCP Server"""
-    servers = agent_loader.list_mcp_servers()
-    return {"code": 0, "data": [s.model_dump() for s in servers]}
-
-
 @app.get("/v1/agent/registry")
 def list_registry():
-    """查看注册数据"""
-    return {"code": 0, "data": {"tools": agent_loader.tool_keys, "middlewares": agent_loader.middleware_keys}}
+    """查看注册数据（tools + middlewares）"""
+    return {"code": 0, "data": agent_loader.summary()}
+
+
+@app.get("/v1/agent/middlewares")
+def list_middlewares():
+    """查看已加载的 AgentMiddleware 列表（供 create_agent 使用）"""
+    mws = agent_loader.get_middlewares()
+    return {
+        "code": 0,
+        "data": [{"name": getattr(m, "name", "?"), "type": type(m).__name__} for m in mws],
+    }
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8001, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

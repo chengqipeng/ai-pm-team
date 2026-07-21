@@ -1,0 +1,8 @@
+server:
+  name: neo-ai-agent-runtime-demo
+  port: 8001
+  metrics_port: 16900
+
+boot:
+  items: eureka
+  health: eureka
