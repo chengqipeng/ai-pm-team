@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
-from neo_ai_registry import MiddlewareHook
+from neo_ai_registry.models import MiddlewareHook
 from neo_ai_registry.state import set_state, get_state
 
 if TYPE_CHECKING:

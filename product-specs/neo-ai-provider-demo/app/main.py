@@ -1,11 +1,8 @@
 """业务域服务 Provider Demo — 使用 SDK create_provider_app 一行创建
 
-新建 Provider 只需：
-1. config/tools.yaml — 定义 Tool/Middleware 列表
-2. handler 文件 — 实现业务逻辑
-3. main.py — 一行创建 app
+启动时通过 neo-ai-infr-eureka 注册到 Eureka。
 """
-from neo_ai_registry.fastapi import create_provider_app
+from neo_ai_registry.provider import create_provider_app
 
 from app.tool_handlers import query_customer, update_opportunity, analyze_pipeline, query_customer_stream
 from app.mcp_tool_handlers import (
@@ -38,6 +35,13 @@ app = create_provider_app(
     },
 )
 
+
+@app.on_event("startup")
+async def startup():
+    from neo_ai_infr_eureka import EurekaGlobalClient
+    await EurekaGlobalClient().register_eureka()
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8002, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8002)

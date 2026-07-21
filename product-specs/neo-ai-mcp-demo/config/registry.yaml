@@ -1,13 +1,7 @@
 # MCP Server 注册配置
 # 每个 Server 通过 service_name 做服务发现，由 FeignClient 路由到下游 Provider
-# 生产环境：ServiceResolver 通过 Eureka/K8s DNS 解析 service_name → 实际地址
-# 开发环境：ServiceResolver 通过 static_map 配置静态映射
-
-# 服务发现静态映射（仅开发环境使用，生产环境由 Eureka 自动发现）
-service_discovery:
-  neo-ai-salescloud-service: "http://localhost:8002"
-  neo-ai-knowledge-service: "http://localhost:8002"
-  neo-ai-metadata-service: "http://localhost:8002"
+# 生产环境：NeoApiTransport 通过 Eureka 自动解析
+# 开发环境：环境变量 EUREKA_URL 或 service_discovery fallback
 
 # MCP Server 列表（按业务域划分）
 servers:
