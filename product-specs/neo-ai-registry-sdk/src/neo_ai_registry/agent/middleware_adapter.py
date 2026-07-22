@@ -48,7 +48,7 @@ def _remote_call_sync(self, hook: str, state: Any) -> dict[str, Any] | None:
             continue
         try:
             import json as _json
-            _json.dumps(v, default=str)
+            _json.dumps(v)
             configurable[k] = v
         except (TypeError, ValueError):
             pass
@@ -94,7 +94,7 @@ async def _remote_call_async(self, hook: str, state: Any) -> dict[str, Any] | No
             continue
         try:
             import json as _json
-            _json.dumps(v, default=str)
+            _json.dumps(v)
             configurable[k] = v
         except (TypeError, ValueError):
             pass

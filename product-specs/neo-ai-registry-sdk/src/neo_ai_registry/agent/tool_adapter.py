@@ -97,7 +97,7 @@ def create_base_tool(definition: ToolDefinition, transport: Any) -> Any:
                 continue
             try:
                 import json as _json
-                _json.dumps(v, default=str)
+                _json.dumps(v)
                 configurable[k] = v
             except (TypeError, ValueError):
                 pass

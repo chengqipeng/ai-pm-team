@@ -71,18 +71,31 @@ def create_runtime_context() -> dict[str, Any]:
     """创建模拟的 AgentRuntimeContext
 
     对齐 neo-apps-ai-agent-service/service/neo_agent_v2/context.py:
-        agent_local: 仅当前 Agent 可见（skill_directive/memory_context）
-        agent_shared: 全链路透传的背景信息
+
+    @dataclass
+    class AgentRuntimeContext:
+        agent_local: dict  — 仅当前 Agent 可见（skill_directive/memory_context）
+        agent_shared: str  — 全链路透传的背景信息
     """
-    return {
-        "agent_local": {
+    from dataclasses import dataclass, field
+
+    @dataclass
+    class AgentRuntimeContext:
+        agent_local: dict = field(default_factory=dict)
+        agent_shared: str = ""
+
+        def for_child(self) -> "AgentRuntimeContext":
+            return AgentRuntimeContext(agent_local={}, agent_shared=self.agent_shared)
+
+    return AgentRuntimeContext(
+        agent_local={
             "memory_context": {
                 "user_profile": "张伟，华东区销售经理，负责仁科等大客户",
                 "agent_rules": "回答简洁，数据使用表格展示",
             },
         },
-        "agent_shared": "",
-    }
+        agent_shared="",
+    )
 
 
 def create_agent_state(

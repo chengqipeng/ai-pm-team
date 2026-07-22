@@ -2,3 +2,5 @@ eureka:
   client:
     service-url:
       defaultZone: ${DISCOVERY_CLUSTER_URL:https://admin:AdminEureka1234@discovery-dev.ingageapp.com/eureka/}
+    renewal-interval-in-secs: 30
+    duration-in-secs: 90
