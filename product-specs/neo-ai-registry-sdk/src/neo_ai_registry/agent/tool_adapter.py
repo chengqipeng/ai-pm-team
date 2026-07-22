@@ -90,20 +90,17 @@ def create_base_tool(definition: ToolDefinition, transport: Any) -> Any:
         input_data = {k: v for k, v in kwargs.items() if v is not None}
 
         # 获取 configurable（过滤 LangGraph 内部字段 + 不可序列化对象）
-        try:
-            raw_configurable = get_config().get("configurable", {})
-            configurable = {}
-            for k, v in raw_configurable.items():
-                if k.startswith("__"):
-                    continue
-                try:
-                    import json as _json
-                    _json.dumps(v, default=str)
-                    configurable[k] = v
-                except (TypeError, ValueError):
-                    pass
-        except Exception:
-            configurable = {}
+        raw_configurable = get_config().get("configurable", {})
+        configurable = {}
+        for k, v in raw_configurable.items():
+            if k.startswith("__"):
+                continue
+            try:
+                import json as _json
+                _json.dumps(v, default=str)
+                configurable[k] = v
+            except (TypeError, ValueError):
+                pass
 
         if is_builtin:
             # Builtin: 直接调用 execute

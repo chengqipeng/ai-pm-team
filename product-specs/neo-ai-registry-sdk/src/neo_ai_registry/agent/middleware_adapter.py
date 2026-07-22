@@ -189,7 +189,6 @@ def _make_aafter_agent():
 def _make_wrap_tool_call():
     def wrap_tool_call(self, request, handler):
         tool_call = request.tool_call if hasattr(request, 'tool_call') else {}
-        # wrap_tool_call 场景：state 是 tool_call 信息
         state_dict = {"tool_name": tool_call.get("name", ""), "args": tool_call.get("args", {})}
         tool_state = ToolState.from_agent_state(state_dict)
         request_data = {
@@ -197,16 +196,12 @@ def _make_wrap_tool_call():
             "payload": state_dict,
             "state": tool_state.to_dict(),
         }
-        try:
-            response = self._transport.invoke(
-                app_name=self._mw_service,
-                service=f"/v2/middlewares/{self._mw_api_key}/execute",
-                method="POST",
-                data=request_data,
-            )
-        except Exception as e:
-            logger.warning("[RemoteMiddleware] %s/wrap_tool_call 调用失败: %s", self._mw_api_key, e)
-            return handler(request)
+        response = self._transport.invoke(
+            app_name=self._mw_service,
+            service=f"/v2/middlewares/{self._mw_api_key}/execute",
+            method="POST",
+            data=request_data,
+        )
         if isinstance(response, dict):
             result = response.get("result", {})
             if isinstance(result, dict) and result.get("action") == "block":
@@ -229,24 +224,20 @@ def _make_awrap_tool_call():
             "payload": state_dict,
             "state": tool_state.to_dict(),
         }
-        try:
-            if hasattr(self._transport, "async_invoke"):
-                response = await self._transport.async_invoke(
-                    app_name=self._mw_service,
-                    service=f"/v2/middlewares/{self._mw_api_key}/execute",
-                    method="POST",
-                    data=request_data,
-                )
-            else:
-                response = self._transport.invoke(
-                    app_name=self._mw_service,
-                    service=f"/v2/middlewares/{self._mw_api_key}/execute",
-                    method="POST",
-                    data=request_data,
-                )
-        except Exception as e:
-            logger.warning("[RemoteMiddleware] %s/wrap_tool_call 异步调用失败: %s", self._mw_api_key, e)
-            return await handler(request)
+        if hasattr(self._transport, "async_invoke"):
+            response = await self._transport.async_invoke(
+                app_name=self._mw_service,
+                service=f"/v2/middlewares/{self._mw_api_key}/execute",
+                method="POST",
+                data=request_data,
+            )
+        else:
+            response = self._transport.invoke(
+                app_name=self._mw_service,
+                service=f"/v2/middlewares/{self._mw_api_key}/execute",
+                method="POST",
+                data=request_data,
+            )
         if isinstance(response, dict):
             result = response.get("result", {})
             if isinstance(result, dict) and result.get("action") == "block":
