@@ -34,7 +34,6 @@ tools:
         - customer_name
     timeout_ms: 5000
     category: crm
-    tags: [客户, 查询]
 
   - api_key: update_opportunity
     name: 更新商机
@@ -56,10 +55,8 @@ tools:
           description: 金额
       required:
         - opportunity_id
-    read_only_flg: false
     timeout_ms: 5000
     category: crm
-    tags: [商机, 更新]
 
   - api_key: analyze_pipeline
     name: 分析销售管道
@@ -78,7 +75,26 @@ tools:
           description: 时间范围
     timeout_ms: 10000
     category: analytics
-    tags: [分析, 管道]
+
+  - api_key: search_crm_record
+    name: 搜索CRM记录
+    description: 搜索 CRM 系统中的客户、商机、联系人等记录。
+    domain: sales
+    type: remote
+    service: neo-apps-salescloud-ai-service
+    input_schema:
+      type: object
+      properties:
+        entity:
+          type: string
+          description: 实体类型（account/opportunity/contact）
+        keyword:
+          type: string
+          description: 搜索关键词
+      required:
+        - keyword
+    timeout_ms: 10000
+    category: crm
 
 # Middleware 注册表
 middlewares:
@@ -87,12 +103,12 @@ middlewares:
     description: 维护 CRM 查询 Agent 的查询状态，跟踪实体识别和 XOQL 生成过程。
     service: neo-ai-provider-demo
     hooks: [before_agent, after_model]
-    sort_num: 50
+    order: 50
 
   - api_key: sales_context_inject
     name: 销售上下文注入
     description: 在模型调用前注入当前用户的销售上下文。
     service: neo-ai-provider-demo
     hooks: [before_model]
-    sort_num: 30
+    order: 30
     required_features: [memory_enabled]
