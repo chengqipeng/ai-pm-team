@@ -1,6 +1,6 @@
 """MCP Service Demo — 一行代码创建
 
-从 config/registry.yaml 加载，自动生成：
+从 config/ 目录加载所有 registry*.yaml 文件，自动生成：
 - 按域划分的 StreamableHTTP 对外接口
 - 内部 REST 接口供 Agent FeignClient 调用
 - 所有 Tool handler 自动调下游 Provider
@@ -13,7 +13,7 @@ from pathlib import Path
 from neo_ai_registry.mcp.fastapi import create_mcp_app
 
 _BASE_DIR = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-app = create_mcp_app(config_path=str(_BASE_DIR / "config" / "registry.yaml"))
+app = create_mcp_app(config_dir=str(_BASE_DIR / "config"))
 
 
 @app.on_event("startup")

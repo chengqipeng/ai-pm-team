@@ -15,6 +15,11 @@ from .tencent_sandbox_backend import (
     TencentSandboxConfig,
     create_tencent_backend_from_env,
 )
+from .aws_agentcore_backend import (
+    AWSAgentCoreSandboxBackend,
+    AWSAgentCoreConfig,
+    create_aws_backend_from_env,
+)
 from .terminal_tool import TerminalTool
 from .file_tools import ReadFileTool, WriteFileTool, SearchFilesTool
 from .code_execution_tool import CodeExecutionTool
@@ -30,6 +35,9 @@ __all__ = [
     "TencentSandboxBackend",
     "TencentSandboxConfig",
     "create_tencent_backend_from_env",
+    "AWSAgentCoreSandboxBackend",
+    "AWSAgentCoreConfig",
+    "create_aws_backend_from_env",
     "create_backend",
     # Tools
     "TerminalTool",
@@ -165,10 +173,18 @@ def create_backend(config_override: dict[str, str] | None = None) -> Backend:
         )
         return SSHBackend(backend_config)
 
+    elif backend_type == "aws":
+        logger.info(
+            "[sandbox] 配置加载: SANDBOX_BACKEND=aws | region=%s | bucket=%s",
+            config.get("AWS_SANDBOX_REGION", "ap-southeast-1"),
+            config.get("AWS_SANDBOX_SYNC_BUCKET", ""),
+        )
+        return create_aws_backend_from_env(config)
+
     else:
         raise ValueError(
             f"不支持的 SANDBOX_BACKEND 值: '{backend_type}'。"
-            f"可选: ssh / tencent"
+            f"可选: ssh / tencent / aws"
         )
 
 

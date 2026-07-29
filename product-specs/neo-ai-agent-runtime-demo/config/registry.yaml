@@ -2,12 +2,6 @@
 # Builtin: 通过 scan 配置的目录自动扫描注册
 # Remote: 通过 tools/middlewares 配置声明注册
 
-# LLM 模型配置
-model:
-  name: deepseek-v4-flash
-  api_key: ${AGENT_API_KEY:sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw}
-  api_base: ${AGENT_API_BASE:https://tokenhub.tencentmaas.com/v1}
-
 # 自动扫描配置
 scan:
   tools_dir: app/tools

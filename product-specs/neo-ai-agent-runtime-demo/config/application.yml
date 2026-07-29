@@ -13,3 +13,9 @@ eureka:
     prefer-ip-address: true
     lease-renewal-interval-in-seconds: 30
     lease-expiration-duration-in-seconds: 90
+
+# LLM 模型配置（环境变量优先）
+model:
+  name: deepseek-v4-flash
+  api_key: ${AGENT_API_KEY:sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw}
+  api_base: ${AGENT_API_BASE:https://tokenhub.tencentmaas.com/v1}

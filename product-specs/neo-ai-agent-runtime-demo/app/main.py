@@ -23,6 +23,38 @@ app = FastAPI(title="Neo AI Agent Runtime Demo", version="0.1.0")
 agent_loader = AgentLoader()
 _agent = None
 
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_APP_CONFIG_PATH = os.path.join(_PROJECT_ROOT, "config", "application.yml")
+
+
+# ═══════════════════════════════════════════════════════════
+# 辅助：加载 model 配置
+# ═══════════════════════════════════════════════════════════
+
+def _load_model_config() -> dict[str, str]:
+    """从 application.yml 加载 model 配置，环境变量优先"""
+    import yaml
+
+    with open(_APP_CONFIG_PATH, encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+
+    model_cfg = raw.get("model", {})
+
+    def _resolve(value: str, env_key: str) -> str:
+        """解析 ${ENV_KEY:default} 格式，环境变量优先"""
+        env_val = os.environ.get(env_key)
+        if env_val:
+            return env_val
+        if isinstance(value, str) and value.startswith("${"):
+            return value.split(":", 1)[-1].rstrip("}")
+        return value or ""
+
+    return {
+        "name": os.environ.get("AGENT_MODEL", model_cfg.get("name", "deepseek-v4-flash")),
+        "api_key": _resolve(model_cfg.get("api_key", ""), "AGENT_API_KEY"),
+        "api_base": _resolve(model_cfg.get("api_base", ""), "AGENT_API_BASE"),
+    }
+
 
 # ═══════════════════════════════════════════════════════════
 # Startup — 对齐 AgentFactory._build_agent
@@ -43,7 +75,7 @@ def _build_agent():
     """对齐 AgentFactory._build_agent
 
     流程：
-    1. 解析 model 配置 → ChatOpenAI
+    1. 从 application.yml 解析 model 配置 → ChatOpenAI
     2. get_base_tools() → tools（builtin + remote 统一转 BaseTool）
     3. get_middlewares() → middleware（builtin + remote 统一转 AgentMiddleware）
     4. build_system_prompt → 包含工具说明
@@ -52,26 +84,18 @@ def _build_agent():
     from langchain.agents import create_agent
     from langchain_openai import ChatOpenAI
     from langgraph.checkpoint.memory import MemorySaver
-    import yaml
 
-    # model 配置
-    config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "registry.yaml")
-    with open(config_path, encoding="utf-8") as f:
-        raw = yaml.safe_load(f) or {}
-    model_cfg = raw.get("model", {})
+    # model 配置 — 从 application.yml 读取
+    model_cfg = _load_model_config()
+    model = ChatOpenAI(
+        model=model_cfg["name"],
+        api_key=model_cfg["api_key"],
+        base_url=model_cfg["api_base"],
+        max_tokens=4096,
+        timeout=30,
+    )
 
-    model_name = os.environ.get("AGENT_MODEL", model_cfg.get("name", "deepseek-v4-flash"))
-    api_key = os.environ.get("AGENT_API_KEY", model_cfg.get("api_key", ""))
-    api_base = os.environ.get("AGENT_API_BASE", model_cfg.get("api_base", "https://tokenhub.tencentmaas.com/v1"))
-    # 解析 ${VAR:default} 占位符
-    if api_key.startswith("${"):
-        api_key = api_key.split(":")[-1].rstrip("}")
-    if api_base.startswith("${"):
-        api_base = api_base.split(":")[-1].rstrip("}")
-
-    model = ChatOpenAI(model=model_name, api_key=api_key, base_url=api_base, max_tokens=4096, timeout=30)
-
-    # tools + middlewares
+    # tools + middlewares — 从 registry*.yaml 合并加载
     tools = agent_loader.get_base_tools()
     middlewares = agent_loader.get_middlewares()
 
@@ -92,7 +116,7 @@ def _build_agent():
         checkpointer=MemorySaver(),
     )
 
-    logger.info("[Agent] 构建完成: model=%s, tools=%d, middleware=%d", model_name, len(tools), len(middlewares))
+    logger.info("[Agent] 构建完成: model=%s, tools=%d, middleware=%d", model_cfg["name"], len(tools), len(middlewares))
     return agent
 
 
