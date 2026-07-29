@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>客户洞察 Skill 产品输出对比</title>
+<style>
+:root{--blue:#2563eb;--green:#059669;--orange:#d97706;--red:#dc2626;--gray:#6b7280;--bg:#f8fafc;--card:#fff;--border:#e2e8f0}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:#1e293b;line-height:1.6;padding:2rem}
+.container{max-width:1400px;margin:0 auto}
+h1{text-align:center;font-size:1.8rem;margin-bottom:.5rem;color:#0f172a}
+.subtitle{text-align:center;color:var(--gray);margin-bottom:2rem;font-size:.9rem}
+.compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:2rem}
+.report-card{background:var(--card);border-radius:12px;border:1px solid var(--border);overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.report-header{padding:1rem 1.5rem;font-weight:700;font-size:1rem;border-bottom:1px solid var(--border)}
+.header-neo{background:linear-gradient(135deg,#eff6ff,#dbeafe);color:var(--blue)}
+.header-pro{background:linear-gradient(135deg,#ecfdf5,#d1fae5);color:var(--green)}
+.report-body{padding:1.5rem;font-size:.88rem}
+.report-body h2{font-size:1rem;margin:1.2rem 0 .5rem;color:#334155;border-bottom:1px solid var(--border);padding-bottom:.3rem}
+.report-body h3{font-size:.92rem;margin:.8rem 0 .4rem;color:#475569}
+.report-body p{margin:.4rem 0;color:#475569}
+.report-body ul,.report-body ol{margin:.3rem 0 .3rem 1.2rem;color:#475569}
+.report-body li{margin:.2rem 0}
+.tag-bar{display:flex;flex-wrap:wrap;gap:.4rem;margin:.5rem 0}
+.tag{background:#f1f5f9;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:.75rem;color:var(--gray)}
+.kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin:.6rem 0}
+.kpi-item{background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:.5rem;text-align:center}
+.kpi-value{font-size:1.1rem;font-weight:700;color:#0f172a}
+.kpi-label{font-size:.7rem;color:var(--gray)}
+.action-table{width:100%;border-collapse:collapse;margin:.5rem 0;font-size:.8rem}
+.action-table th{background:#f1f5f9;padding:.4rem .6rem;text-align:left;font-weight:600;border-bottom:1px solid var(--border)}
+.action-table td{padding:.4rem .6rem;border-bottom:1px solid #f1f5f9}
+.citation{color:var(--blue);font-size:.75rem;font-weight:600}
+.confidence{display:inline-block;padding:1px 6px;border-radius:3px;font-size:.7rem;font-weight:600}
+.conf-confirmed{background:#dcfce7;color:#166534}
+.conf-likely{background:#fef3c7;color:#92400e}
+.conf-conflicting{background:#fee2e2;color:#991b1b}
+.conf-gap{background:#f1f5f9;color:#6b7280}
+.causal-chain{background:#f8fafc;border-left:3px solid var(--green);padding:.6rem 1rem;margin:.6rem 0;border-radius:0 6px 6px 0;font-size:.82rem}
+.causal-chain .arrow{color:var(--green);font-weight:700}
+.contradiction-box{background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:.6rem 1rem;margin:.6rem 0;font-size:.82rem}
+.section-divider{border:none;border-top:2px solid var(--border);margin:2rem 0}
+.eval-section{background:var(--card);border-radius:12px;border:1px solid var(--border);padding:1.5rem;margin-top:1.5rem}
+.eval-section h2{font-size:1.1rem;color:#0f172a;margin-bottom:1rem}
+.eval-table{width:100%;border-collapse:collapse;font-size:.85rem}
+.eval-table th{background:#f1f5f9;padding:.6rem .8rem;text-align:left;font-weight:600;border-bottom:2px solid var(--border)}
+.eval-table td{padding:.6rem .8rem;border-bottom:1px solid #f1f5f9}
+.eval-table tr:hover{background:#f8fafc}
+.score{font-weight:700;font-size:.9rem}
+.score-high{color:var(--green)}
+.score-mid{color:var(--orange)}
+.score-low{color:var(--red)}
+.verdict{background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border:1px solid #bbf7d0;border-radius:8px;padding:1rem 1.5rem;margin-top:1.5rem;font-size:.9rem}
+.verdict strong{color:#166534}
+@media(max-width:900px){.compare-grid{grid-template-columns:1fr}.kpi-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>客户洞察 Skill 输出对比</h1>
+<p class="subtitle">模拟场景：分析客户「广西柳工机械股份有限公司」 · 场景：新客开拓 · 2026-07-24</p>
+
+<div class="compare-grid">
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- neo-apps 报告 -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="report-card">
+<div class="report-header header-neo">�� neo-apps（线上版）输出</div>
+<div class="report-body">
+
+<h1 style="font-size:1.1rem;margin-bottom:.3rem">广西柳工机械股份有限公司</h1>
+<div class="tag-bar">
+<span class="tag">新客户</span>
+<span class="tag">国有企业</span>
+<span class="tag">工程机械制造</span>
+<span class="tag">上交所上市</span>
+<span class="tag">广西柳州</span>
+<span class="tag">行业头部</span>
+<span class="tag">国际化布局</span>
+</div>
+<p style="font-size:.82rem;color:#64748b;margin:.5rem 0">广西柳工机械股份有限公司是中国工程机械行业龙头企业，主营装载机、挖掘机、起重机等工程机械产品的研发、制造与销售，全球市场份额位居前列。<span class="citation">[1][3]</span></p>
+
+<h2>整体洞察结论</h2>
+<p>柳工是一家<strong>处于国际化加速期的工程机械龙头</strong>，2025年营收突破300亿元，海外收入占比已超40%。公司正经历从"产品出海"到"本地化运营"的战略升级，全球化管理体系的数字化需求强烈。</p>
+<p><strong>🔑 我方价值：助力柳工构建全球化销售管理体系，支撑"产品出海→运营出海"战略升级</strong></p>
+
+<h2>一、企业基本面分析</h2>
+<div class="kpi-grid">
+<div class="kpi-item"><div class="kpi-value">326亿</div><div class="kpi-label">2025年营收</div></div>
+<div class="kpi-item"><div class="kpi-value">42%</div><div class="kpi-label">海外收入占比</div></div>
+<div class="kpi-item"><div class="kpi-value">2.8万人</div><div class="kpi-label">全球员工</div></div>
+</div>
+<p>工程机械行业受益于"一带一路"和东南亚基建需求增长，2025-2027年预计保持8-12%增速。柳工在装载机领域全球市场份额约15%，位列第三。<span class="citation">[2][5]</span></p>
+
+<h2>二、竞争格局与IT现状</h2>
+<p>主要竞争对手：三一重工（已用Salesforce）、徐工集团（自建CRM）、中联重科（用纷享销客）。<span class="citation">[4][7]</span></p>
+<p>柳工当前IT系统以SAP ERP为核心，CRM能力散落在ERP的SD模块和Excel中，无独立CRM系统。2025年10月公开招标"全球营销数字化平台"项目。<span class="citation">[6][8]</span></p>
+
+<h2>三、组织与决策链</h2>
+<p>数字化转型由副总裁兼CIO李东春主导，下设信息化管理部（约60人）。海外销售由国际事业部总经理分管，下辖6个区域中心。<span class="citation">[3][9]</span></p>
+
+<h2>四、商机切入分析</h2>
+<p>推荐切入方向：全球化销售管理平台（销售云+国际化模块）。同行业三一重工年CRM投入约800万/年，柳工预估预算500-1000万。关键竞争者为Salesforce（品牌力）和纷享销客（价格优势）。<span class="citation">[4][10]</span></p>
+
+<h2>下一步行动建议</h2>
+<table class="action-table">
+<tr><th>阶段</th><th>行动</th></tr>
+<tr><td>短期（2周内）</td><td>通过行业活动接触CIO李东春团队；准备"工程机械全球化CRM"案例包</td></tr>
+<tr><td>中期（1-2月）</td><td>响应"全球营销数字化平台"招标；安排三一重工案例参观</td></tr>
+<tr><td>长期（3-6月）</td><td>推动POC验证（建议选东南亚区域作为试点）</td></tr>
+</table>
+
+<p style="margin-top:.8rem;font-size:.75rem;color:var(--gray)">参考资料：[1]工商信息 [2]2025年报 [3]官网介绍 [4]行业报告 [5]网络新闻 [6]招标公告 [7]竞品公开信息 [8]招聘信息 [9]LinkedIn [10]同行业客户数据</p>
+
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- accountInsightPro 报告（actionable 层） -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="report-card">
+<div class="report-header header-pro">🎯 accountInsightPro（新设计）输出</div>
+<div class="report-body">
+
+<p style="font-weight:700;font-size:1rem;margin-bottom:.6rem"><strong>柳工正处于"全球化管理体系重建"窗口期，CRM选型已启动，但竞品Salesforce已在接触——我方需要在2个月内建立技术线关系并完成差异化定位</strong> <span class="confidence conf-likely">likely</span></p>
+
+<p style="font-size:.78rem;color:var(--gray);margin-bottom:.8rem">📊 海外营收占比42% | 已公开招标CRM | Salesforce已接触（招聘信号）&nbsp;&nbsp;|&nbsp;&nbsp;增量：首次分析</p>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:.8rem 0">
+
+<h3>🔍 关键洞察</h3>
+
+<p><strong>1. 选型窗口已打开，但时间紧迫</strong> <span class="confidence conf-confirmed">confirmed</span></p>
+<div class="causal-chain">
+<strong>[事实]</strong> 2025年10月发布"全球营销数字化平台"招标公告<br>
+<span class="arrow">↓ 为什么</span><br>
+<strong>[原因]</strong> 海外收入占比从2022年28%升至42%，现有ERP SD模块无法支撑6个区域中心的本地化销售管理<br>
+<span class="arrow">↓ 如果我方不行动</span><br>
+<strong>[推演]</strong> 招标评估期通常3-4个月，若Q4未进入短名单，2026年H1的实施窗口将被锁定<br>
+<span class="arrow">↓ 行动</span><br>
+<strong>[建议]</strong> <strong>销售负责人 · 本周</strong> · 联系柳工信息化管理部确认招标进展和评估节奏
+</div>
+
+<p><strong>2. 竞品Salesforce已在渗透</strong> <span class="confidence conf-likely">likely</span></p>
+<div class="causal-chain">
+<strong>[事实]</strong> 柳工近期招聘"Salesforce顾问"岗位（Boss直聘，2026-06发布）<br>
+<span class="arrow">↓ 意味着</span><br>
+<strong>[推断]</strong> 要么已决定用SF在做实施准备，要么在做POC评估需要内部顾问配合<br>
+<span class="arrow">↓ 如果已锁定SF</span><br>
+<strong>[推演]</strong> 我方只能做备选方案或等二期扩展，错过主合同<br>
+<span class="arrow">↓ 行动</span><br>
+<strong>[建议]</strong> <strong>售前团队 · 2周内</strong> · 确认SF参与程度；准备"国产替代+本地化服务"差异化材料
+</div>
+
+<p><strong>3. "国产替代"是我方最大差异化杠杆</strong> <span class="confidence conf-likely">likely</span></p>
+<div class="causal-chain">
+<strong>[事实]</strong> 柳工为国有控股上市公司，2025年信创政策要求核心系统国产化率达60%<br>
+<span class="arrow">↓ 意味着</span><br>
+<strong>[推断]</strong> Salesforce作为外资SaaS在数据出境和信创合规方面存在天然劣势<br>
+<span class="arrow">↓ 如何利用</span><br>
+<strong>[策略]</strong> 不正面比功能（SF产品力强），而是打"合规+本地化服务+成本"组合拳<br>
+<span class="arrow">↓ 行动</span><br>
+<strong>[建议]</strong> <strong>方案团队 · 1个月内</strong> · 产出"国企信创合规+全球化CRM"专题方案
+</div>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:.8rem 0">
+
+<h3>⚠️ 矛盾与待确认</h3>
+<div class="contradiction-box">
+<strong>矛盾点：</strong>公开招标"全球营销数字化平台"（暗示开放选型）vs 同时招聘"Salesforce顾问"（暗示已有倾向）<br>
+<strong>可能解释：</strong>①招标是合规流程，实际已有意向方；②SF是备选之一，尚未决定；③SF用于海外，国内另选国产方案<br>
+<strong>验证方式：</strong>拜访时直接询问评估范围和决策时间线 <span class="confidence conf-conflicting">conflicting</span>
+</div>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:.8rem 0">
+
+<h3>📋 行动优先级</h3>
+<table class="action-table">
+<tr><th>级别</th><th>行动</th><th>负责人</th><th>时间</th><th>依据</th></tr>
+<tr><td>🔴 P0</td><td>联系信息化部确认招标进展和SF参与程度</td><td>销售负责人</td><td>本周</td><td>洞察#1,#2</td></tr>
+<tr><td>🔴 P0</td><td>准备"国产替代+信创合规"差异化定位材料</td><td>售前/方案</td><td>2周</td><td>洞察#2,#3</td></tr>
+<tr><td>🟡 P1</td><td>产出工程机械行业CRM案例包（含三一对标）</td><td>市场团队</td><td>1月</td><td>洞察#1</td></tr>
+<tr><td>🔵 P2</td><td>争取进入招标短名单，推动POC（东南亚试点）</td><td>销售+售前</td><td>2月</td><td>全局</td></tr>
+</table>
+
+<p style="margin-top:.8rem;font-size:.75rem;color:var(--gray)">置信度：整体 likely（招标信息confirmed，SF渗透程度需确认） | 主要局限：CRM无该客户历史数据，分析基于公开信息</p>
+
+</div>
+</div>
+
+</div><!-- end compare-grid -->
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- 对比评估表 -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="eval-section">
+<h2>📊 产品输出质量评估对比</h2>
+<table class="eval-table">
+<thead>
+<tr>
+<th style="width:22%">评估维度</th>
+<th style="width:33%">neo-apps（线上版）</th>
+<th style="width:33%">accountInsightPro（新设计）</th>
+<th style="width:12%">判定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>核心判断明确度</strong><br><small>看完第一眼是否知道该做什么</small></td>
+<td>有整体结论但偏描述性（"国际化加速期的龙头"），需要读完全文才知道行动</td>
+<td>第一句即给出判断+紧迫度+竞争态势，30秒可决策</td>
+<td><span class="score score-high">Pro 胜</span></td>
+</tr>
+<tr>
+<td><strong>因果逻辑深度</strong><br><small>是否回答"为什么"和"如果不做会怎样"</small></td>
+<td>陈述事实（"海外收入42%"），未解释对我方的含义和不行动的后果</td>
+<td>每条洞察有4层推导链，从事实推到行动，含"不行动后果"</td>
+<td><span class="score score-high">Pro 胜</span></td>
+</tr>
+<tr>
+<td><strong>竞争情报价值</strong><br><small>是否识别到真正的竞争威胁</small></td>
+<td>列出竞品名单和各自用什么系统，但未深入分析竞品与客户的接触状态</td>
+<td>通过招聘信号推断SF已渗透，并给出差异化策略（国产替代杠杆）</td>
+<td><span class="score score-high">Pro 胜</span></td>
+</tr>
+<tr>
+<td><strong>矛盾/风险识别</strong><br><small>是否发现数据间不一致的信号</small></td>
+<td>未发现任何矛盾，所有信息平铺呈现</td>
+<td>主动识别"公开招标 vs 招聘SF顾问"矛盾，并推导3种可能解释</td>
+<td><span class="score score-high">Pro 胜</span></td>
+</tr>
+<tr>
+<td><strong>行动建议可执行度</strong><br><small>WHO/WHAT/WHEN是否具体</small></td>
+<td>有分阶段建议但较笼统（"通过行业活动接触"），缺少具体负责人</td>
+<td>每条含角色+具体动作+时间线，关联到具体洞察发现</td>
+<td><span class="score score-high">Pro 胜</span></td>
+</tr>
+<tr>
+<td><strong>信息全面度</strong><br><small>客户基本面覆盖是否完整</small></td>
+<td>全面覆盖：基本面/财务/行业/组织/竞争/IT现状，信息密度高</td>
+<td>聚焦3条核心洞察，基本面信息未独立展示（作为因果链内证据出现）</td>
+<td><span class="score score-high">Neo 胜</span></td>
+</tr>
+<tr>
+<td><strong>引用可溯源性</strong><br><small>结论是否可追溯到具体出处</small></td>
+<td>[n]编号+引用面板，每条可点击查看原文</td>
+<td>无引用面板，仅标注确定性等级</td>
+<td><span class="score score-high">Neo 胜</span></td>
+</tr>
+<tr>
+<td><strong>格式/渲染一致性</strong><br><small>输出格式是否稳定可预期</small></td>
+<td>固定结构（头部→结论→维度→建议），每次格式一致，前端渲染稳定</td>
+<td>格式由prompt引导，可能存在轻微变化</td>
+<td><span class="score score-high">Neo 胜</span></td>
+</tr>
+<tr>
+<td><strong>确定性透明度</strong><br><small>用户是否知道哪些结论可靠</small></td>
+<td>所有结论语气相同，用户无法区分哪些是事实哪些是推断</td>
+<td>四级标注（confirmed/likely/conflicting/gap），一目了然</td>
+<td><span class="score score-high">Pro 胜</span></td>
+</tr>
+<tr>
+<td><strong>阅读效率</strong><br><small>目标用户能多快消化核心信息</small></td>
+<td>需要3-5分钟读完全文，关键信息分散在各维度中</td>
+<td>actionable层3分钟，executive层30秒，适配不同场景</td>
+<td><span class="score score-high">Pro 胜</span></td>
+</tr>
+<tr>
+<td><strong>重复使用价值</strong><br><small>第二次分析同一客户时的增量</small></td>
+<td>与上次内容基本相同（除非数据变化），无增量标记</td>
+<td>通过记忆对比输出"什么变了"，追踪上次建议执行情况</td>
+<td><span class="score score-high">Pro 胜</span></td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<!-- 总结 -->
+<div class="verdict">
+<h3 style="margin-bottom:.5rem">📝 对比结论</h3>
+<p><strong>neo-apps 更适合</strong>：需要全面客户画像、对输出格式一致性要求高、需要引用溯源证明数据来源、管理层需要配置控制维度的场景。它是一个<strong>稳定可靠的信息汇总引擎</strong>。</p>
+<p style="margin-top:.4rem"><strong>accountInsightPro 更适合</strong>：需要快速做出决策、需要知道"为什么+怎么做"、面对竞争态势需要策略判断、重要客户需要持续追踪的场景。它是一个<strong>有观点的决策辅助引擎</strong>。</p>
+<p style="margin-top:.6rem;font-size:.85rem;color:var(--gray)">评估基于同一模拟客户场景（柳工·新客开拓），按 11 个产品维度打分：Pro 在 8 个维度领先（深度/判断/行动），Neo 在 3 个维度领先（全面/溯源/稳定）。两者定位互补，非替代关系。</p>
+</div>
+
+</div><!-- end container -->
+</body>
+</html>

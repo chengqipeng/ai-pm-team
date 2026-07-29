@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>客户洞察 Skill 执行过程与产出对比</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f8fafc;color:#1e293b;line-height:1.6;font-size:14px}
+.header{background:linear-gradient(135deg,#1e40af,#7c3aed);color:#fff;padding:2.5rem 2rem;text-align:center}
+.header h1{font-size:1.8rem;margin-bottom:.4rem}
+.header p{opacity:.85;font-size:.95rem}
+.container{max-width:1440px;margin:0 auto;padding:1.5rem 1rem}
+.meta{background:#fff;border-radius:10px;padding:1.2rem 1.5rem;margin-bottom:1.5rem;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.meta h3{color:#475569;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.6rem}
+.mg{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.8rem}
+.mi .l{font-size:.72rem;color:#64748b}
+.mi .v{font-size:.9rem;font-weight:600}
+
+/* 一页纸总结 */
+.onepage{background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(124,58,237,.12);margin-bottom:2rem;border:2px solid #c4b5fd}
+.onepage-head{background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem}
+.onepage-head .title{font-weight:700;font-size:1.1rem}
+.onepage-head .sub{font-size:.78rem;opacity:.8}
+.onepage-judgment{padding:1.5rem;border-bottom:1px solid #f1f5f9}
+.onepage-judgment .main{font-size:1.2rem;font-weight:800;color:#1e1b4b;line-height:1.4;margin-bottom:.8rem}
+.onepage-judgment .main .red{color:#dc2626}
+.onepage-tags{display:flex;gap:1rem;flex-wrap:wrap}
+.onepage-tags .t{padding:.5rem 1rem;border-radius:6px;font-weight:600;font-size:.85rem}
+.onepage-tags .t.green{background:#f0fdf4;color:#166534}
+.onepage-tags .t.red{background:#fef2f2;color:#991b1b}
+.onepage-insights{display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid #f1f5f9}
+@media(max-width:900px){.onepage-insights{grid-template-columns:1fr}}
+.onepage-insights .ins{padding:1.2rem;border-right:1px solid #f1f5f9;font-size:.8rem;line-height:1.5;color:#475569}
+.onepage-insights .ins:last-child{border-right:none}
+.onepage-insights .ins .label{font-size:.7rem;color:#6d28d9;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.4rem}
+.onepage-insights .ins .ins-title{font-weight:700;font-size:.9rem;color:#1e293b;margin-bottom:.5rem}
+.onepage-insights .ins b.act-red{color:#dc2626}
+.onepage-insights .ins b.act-green{color:#059669}
+.onepage-bottom{display:grid;grid-template-columns:1fr 2fr}
+@media(max-width:700px){.onepage-bottom{grid-template-columns:1fr}}
+.onepage-bottom .risk{padding:1rem 1.2rem;background:#fefce8;border-right:1px solid #f1f5f9}
+.onepage-bottom .risk .rl{font-size:.72rem;font-weight:700;color:#92400e;margin-bottom:.4rem}
+.onepage-bottom .risk .rd{font-size:.8rem;color:#78350f}
+.onepage-bottom .actions{padding:1rem 1.2rem}
+.onepage-bottom .actions .al{font-size:.72rem;font-weight:700;color:#475569;margin-bottom:.5rem}
+.onepage-bottom .actions .ag{display:grid;grid-template-columns:1fr 1fr;gap:.4rem;font-size:.8rem}
+@media(max-width:700px){.onepage-bottom .actions .ag{grid-template-columns:1fr}}
+.onepage-bottom .actions .ag .ai{padding:.4rem .6rem;border-radius:4px}
+.onepage-bottom .actions .ag .ai.p0{background:#fef2f2}
+.onepage-bottom .actions .ag .ai.p1{background:#fffbeb}
+.onepage-bottom .actions .ag .ai.p2{background:#eff6ff}
+
+/* 对比区 */
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:2rem}
+@media(max-width:1024px){.compare{grid-template-columns:1fr}}
+.card{background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,.05)}
+.ch{padding:1rem 1.2rem;font-weight:700;font-size:.9rem}
+.ch.neo{background:#dbeafe;color:#1e40af;border-bottom:2px solid #3b82f6}
+.ch.pro{background:#ede9fe;color:#6d28d9;border-bottom:2px solid #8b5cf6}
+.cb{padding:1.2rem;font-size:.85rem}
+.cb h2{font-size:.95rem;margin:1.2rem 0 .6rem;color:#1e293b;border-bottom:1px solid #e2e8f0;padding-bottom:.2rem}
+.cb h3{font-size:.85rem;margin:.8rem 0 .4rem;color:#334155}
+.cb p{margin-bottom:.6rem}
+.cb ul{margin:.4rem 0 .8rem 1.3rem}
+.cb li{margin-bottom:.3rem}
+.cb table{width:100%;border-collapse:collapse;margin:.6rem 0;font-size:.8rem}
+.cb th{background:#f1f5f9;padding:.4rem .5rem;text-align:left;border:1px solid #e2e8f0;font-weight:600}
+.cb td{padding:.4rem .5rem;border:1px solid #e2e8f0}
+.step-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.8rem 1rem;margin:.6rem 0}
+.step-label{font-size:.72rem;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.3rem;font-weight:600}
+.tc{background:#eff6ff;border-left:3px solid #3b82f6;padding:.4rem .8rem;margin:.4rem 0;border-radius:0 4px 4px 0;font-family:monospace;font-size:.76rem;color:#1e40af}
+.tc.pro{background:#f5f3ff;border-left-color:#8b5cf6;color:#6d28d9}
+.tr{background:#f0fdf4;border-left:3px solid #22c55e;padding:.4rem .8rem;margin:.3rem 0;border-radius:0 4px 4px 0;font-size:.78rem;color:#166534}
+.tr.warn{background:#fffbeb;border-left-color:#f59e0b;color:#92400e}
+.hbox{background:#faf5ff;border:1px solid #e9d5ff;border-radius:8px;padding:.8rem;margin:.5rem 0}
+.hbox h4{font-size:.8rem;color:#7c3aed;margin-bottom:.3rem}
+.causal{background:#f8fafc;border-left:3px solid #8b5cf6;padding:.8rem;margin:.6rem 0;border-radius:0 6px 6px 0;font-size:.82rem}
+.causal .s{margin-bottom:.3rem}
+.causal .ar{color:#8b5cf6;font-weight:700;margin:.2rem 0;font-size:.78rem}
+.cite{color:#3b82f6;font-size:.7rem;vertical-align:super}
+.conf{font-size:.7rem;padding:.1rem .35rem;border-radius:3px;margin-left:.2rem}
+.cc{background:#dcfce7;color:#166534}
+.cl{background:#fef9c3;color:#854d0e}
+.tags{display:flex;flex-wrap:wrap;gap:.3rem;margin:.4rem 0 .8rem}
+.tag{background:#f1f5f9;color:#475569;padding:.15rem .5rem;border-radius:3px;font-size:.7rem}
+.sum{background:#f0fdf4;border-radius:6px;padding:.8rem;margin:.5rem 0}
+.ebox{background:#faf5ff;border:2px solid #c4b5fd;border-radius:8px;padding:1rem;margin:.8rem 0}
+.ebox .cj{font-size:.95rem;font-weight:700;color:#4c1d95;margin-bottom:.4rem}
+.ebox .kd{color:#6b7280;font-size:.82rem;margin-bottom:.4rem}
+.ebox .ua{background:#fef3c7;padding:.4rem .6rem;border-radius:4px;font-weight:600;font-size:.82rem}
+.cbox{background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:.8rem;margin:.6rem 0}
+.cbox h4{color:#991b1b;font-size:.82rem;margin-bottom:.3rem}
+.p0{color:#dc2626;font-weight:700}
+.p1{color:#d97706;font-weight:700}
+.p2{color:#2563eb;font-weight:700}
+hr.sd{border:none;border-top:2px dashed #e2e8f0;margin:1.5rem 0}
+.ev{background:#fff;border-radius:10px;padding:1.5rem;margin-top:1.5rem;box-shadow:0 2px 6px rgba(0,0,0,.05)}
+.ev h2{font-size:1.1rem;margin-bottom:1rem}
+.et{width:100%;border-collapse:collapse}
+.et th{background:#f8fafc;padding:.6rem;text-align:left;border-bottom:2px solid #e2e8f0;font-size:.78rem;color:#64748b}
+.et td{padding:.6rem;border-bottom:1px solid #f1f5f9;font-size:.82rem}
+.et tr:hover{background:#f8fafc}
+.w{color:#059669;font-weight:600}
+.verdict{background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border:1px solid #86efac;border-radius:10px;padding:1.5rem;margin-top:1.5rem;text-align:center}
+.verdict h2{color:#166534;margin-bottom:.8rem;font-size:1.1rem}
+.verdict p{font-size:.9rem;color:#374151;max-width:700px;margin:0 auto .5rem}
+</style>
+</head>
+<body>
+
+<div class="header">
+<h1>客户洞察 Skill 执行过程与产出对比</h1>
+<p>模拟同一客户（伊顿电气），展示两个Skill每一步执行过程和最终产出差异</p>
+</div>
+
+<div class="container">
+
+<!-- 模拟输入 -->
+<div class="meta">
+<h3>模拟输入</h3>
+<div class="mg">
+<div class="mi"><div class="l">客户</div><div class="v">伊顿（中国）投资有限公司</div></div>
+<div class="mi"><div class="l">行业</div><div class="v">电气设备制造</div></div>
+<div class="mi"><div class="l">已成交</div><div class="v">¥500万/8单</div></div>
+<div class="mi"><div class="l">在跟商机</div><div class="v">3个/¥687万</div></div>
+<div class="mi"><div class="l">合同到期</div><div class="v">82天后</div></div>
+<div class="mi"><div class="l">用户意图</div><div class="v">"帮我深入分析一下伊顿"</div></div>
+</div>
+</div>
+
+<!-- ═══ 一页纸总结 ═══ -->
+<div class="onepage">
+<div class="onepage-head">
+<div class="title">🧠 accountInsightPro — 一页纸洞察总结</div>
+<div class="sub">客户: 伊顿（中国）| 场景: 商机推进 | 置信度: likely | 首次分析</div>
+</div>
+
+<div class="onepage-judgment">
+<div class="main">伊顿是高价值扩张客户，但 ¥600万商机正因<span class="red">内部审批卡点</span>停滞，且<span class="red">经济买家关系空白</span>——不补 EB 线这单大概率丢。</div>
+<div class="onepage-tags">
+<div class="t green">赢率 73%</div>
+<div class="t red">停滞 ¥600万 / 45天</div>
+<div class="t red">决策链缺 EB</div>
+<div class="t green">增购窗口 82天</div>
+</div>
+</div>
+
+<div class="onepage-insights">
+<div class="ins">
+<div class="label">洞察 1 · confirmed</div>
+<div class="ins-title">停滞根因: 审批卡点</div>
+<b>事实:</b> 方案确认停留45天，活动正常，关键词"集团审批""总部签批"<br>
+<b>原因:</b> ¥600万超IT部门审批权限，需集团总部签批<br>
+<b>推演:</b> 超60天冷冻期，丢单率升至40%<br>
+<b class="act-red">→ 本周提供ROI材料帮客户过审批</b>
+</div>
+<div class="ins">
+<div class="label">洞察 2 · confirmed</div>
+<div class="ins-title">EB空白: 结构性天花板</div>
+<b>事实:</b> 8次赢单最高108万（CTO权限内），600万首次需CFO签批<br>
+<b>原因:</b> 历史从未建立CFO/VP级关系<br>
+<b>推演:</b> 不解决=自我限制在100万以下<br>
+<b class="act-red">→ 建立长期高层通道（非一次性引荐）</b>
+</div>
+<div class="ins">
+<div class="label">洞察 3 · confirmed</div>
+<div class="ins-title">增购窗口: 双源确认</div>
+<b>事实:</b> CRM商机+146% + 网络"新建2条产线/投资8亿"<br>
+<b>原因:</b> 业务扩张→新团队→License需求增长<br>
+<b>推演:</b> 合同续约(82天后)是打包谈判最佳窗口<br>
+<b class="act-green">→ 续约时打包增购(现有+扩容+服务云)</b>
+</div>
+</div>
+
+<div class="onepage-bottom">
+<div class="risk">
+<div class="rl">⚠️ 待验证矛盾</div>
+<div class="rd">
+<b>李经理45天未接触</b>（但CTO/Coach活跃）<br>
+可能: 调岗/离职/项目升级CTO直管<br>
+<b>→ 3天内通过Coach确认</b>
+</div>
+</div>
+<div class="actions">
+<div class="al">📋 本周必须完成</div>
+<div class="ag">
+<div class="ai p0"><span class="p0">P0</span> 通过CTO引荐CFO → 罗奇</div>
+<div class="ai p0"><span class="p0">P0</span> 提供ROI材料过审批 → 售前</div>
+<div class="ai p1"><span class="p1">P1</span> 确认李经理状态 → 罗奇/3天</div>
+<div class="ai p2"><span class="p2">P1</span> 准备续约+增购方案 → 售前/2周</div>
+</div>
+</div>
+</div>
+</div>
+<!-- ═══ 一页纸总结结束 ═══ -->
+
+<!-- ═══ 两版对比 ═══ -->
+<div class="compare">
+
+<!-- 左: neo-apps -->
+<div class="card">
+<div class="ch neo">📊 neo-apps 执行过程 + 产出</div>
+<div class="cb">
+
+<h2>Step 1: 客户定位</h2>
+<div class="step-box"><div class="step-label">工具调用</div>
+<div class="tc">data_insight_query_crm(value="伊顿")</div>
+<div class="tr">found | data_id: 88001 | 伊顿（中国）投资有限公司</div>
+</div>
+
+<h2>Step 2: 查重</h2>
+<div class="step-box"><div class="step-label">工具调用</div>
+<div class="tc">get_user_data_insight_content_markdown(data_id=88001)</div>
+<div class="tr">no_existing_insight → 继续</div>
+</div>
+
+<h2>Step 3: 获取洞察模板</h2>
+<div class="step-box"><div class="step-label">工具调用</div>
+<div class="tc">get_insight_template(data_id=88001)</div>
+<div class="tr">success | 模板: 标准客户洞察v3 | 维度: [企业概况, 合作历史, 决策链, 竞争格局, 行动建议] | 数据源: {工商+CRM}</div>
+</div>
+
+<h2>Step 4: 查询结构化数据</h2>
+<div class="step-box"><div class="step-label">工具调用（一次性批量）</div>
+<div class="tc">query_insight_source(data_id=88001)</div>
+<div class="tr">工商(source=1): 全称/法人/经营范围/股东...<br>CRM-商机(source=5): 8赢+3在跟+3丢<br>CRM-联系人: 12人 | CRM-活动: 18条(30天) | CRM-合同: 2份(到期82天)</div>
+<div class="tr warn">中间件: 过滤null→批摘要(含金额保留原文)→替换为LLM精简视图(200K上限)</div>
+</div>
+
+<h2>Step 5: 网络检索（4次）</h2>
+<div class="step-box"><div class="step-label">工具调用</div>
+<div class="tc">insight_search_web("伊顿中国 营收 业绩", time=4)</div>
+<div class="tr">10条 → 批摘要存入</div>
+<div class="tc">insight_search_web("UPS电源 市场规模 2026", time=3)</div>
+<div class="tr">8条 → 存入</div>
+<div class="tc">insight_search_web("伊顿 数据中心 新能源 战略", time=3)</div>
+<div class="tr">6条 → 存入</div>
+<div class="tc">insight_search_web("伊顿 CRM Salesforce", time=5)</div>
+<div class="tr">3条 → 存入</div>
+</div>
+
+<h2>Step 6: 知识库检索</h2>
+<div class="step-box"><div class="step-label">工具调用</div>
+<div class="tc">data_insight_search_documents("电气设备 CRM 案例")</div>
+<div class="tr">4条命中 → 存入search_sources["rag"]</div>
+</div>
+
+<h2>Step 7: 整合引用来源</h2>
+<div class="step-box"><div class="step-label">工具调用</div>
+<div class="tc">integrate_insight_sources()</div>
+<div class="tr">[1]~[23] 共23条 → 去重rerank后18条有效 → 跨源摘要800字</div>
+<div class="tr warn">中间件: 整合后锁定，仅允许output_insight_result</div>
+</div>
+
+<h2>Step 8: 生成报告</h2>
+<div class="step-box"><div class="step-label">工具调用（独立LLM）</div>
+<div class="tc">output_insight_result(query="帮我深入分析一下伊顿")</div>
+<div class="tr">流式Markdown → 下发引用面板 → 并发HTML+JSON → 保存CRM</div>
+</div>
+
+<hr class="sd">
+<h2>📄 最终报告产出</h2>
+
+<p style="font-size:1.1rem;font-weight:700">伊顿（中国）投资有限公司</p>
+<div class="tags"><span class="tag">老客户</span><span class="tag">电气机械及器材制造</span><span class="tag">非上市</span><span class="tag">行业中上</span><span class="tag">UPS电源龙头</span></div>
+
+<h3>整体洞察结论</h3>
+<div class="sum"><p><b>伊顿处于稳健扩张期</b>，业务增速12-15%。已有500万合作基础，3个在跟商机共687万。风险：方案确认转化率50%(行业65%)，EB未覆盖。<span class="cite">[2][5]</span></p>
+<p><b>🔑 我方价值：帮助伊顿实现销售流程标准化和客户资产数字化。</b></p></div>
+
+<h3>维度一：企业概况</h3>
+<p>全球营收$237亿，中国15%。UPS市场850亿，增速12-15%。全球Top3。<span class="cite">[1][3]</span></p>
+
+<h3>维度二：合作历史</h3>
+<table><tr><th>已成交</th><th>在跟</th><th>赢率</th><th>周期</th></tr><tr><td>500万/8单</td><td>687万/3个</td><td>73%</td><td>68天</td></tr></table>
+<p>600万AI项目停留45天(标准20天)。<span class="cite">[5]</span></p>
+
+<h3>维度三：决策链</h3>
+<table><tr><th>角色</th><th>人员</th><th>状态</th></tr><tr><td>TB</td><td>张总/CTO</td><td>✅15天前</td></tr><tr><td>UB</td><td>李经理</td><td>⚠️45天</td></tr><tr><td>Coach</td><td>王工</td><td>✅7天前</td></tr><tr><td>EB</td><td>—</td><td>❌未覆盖</td></tr></table>
+
+<h3>维度四：竞争</h3>
+<p>Salesforce(丢2次)、纷享销客(丢1次)。67%因价格。<span class="cite">[5]</span></p>
+
+<h3>行动建议</h3>
+<ul><li><b>短期:</b> CTO引荐CFO; 停滞商机安排POC</li><li><b>中期:</b> 价格应对方案; 激活李经理</li><li><b>长期:</b> 服务云增购</li></ul>
+
+<p style="margin-top:1rem;font-size:.75rem;color:#64748b"><b>执行统计:</b> 9次工具调用 | 5次搜索 | 3次LLM | ~25秒</p>
+</div>
+</div>
+
+<!-- 右: accountInsightPro -->
+<div class="card">
+<div class="ch pro">🧠 accountInsightPro 执行过程 + 产出</div>
+<div class="cb">
+
+<h2>Step 0: 记忆检索</h2>
+<div class="step-box"><div class="step-label">工具调用</div>
+<div class="tc pro">memory_read(category="account_insight_pro", parent_entity="account:88001")</div>
+<div class="tr">无历史记忆 → 首次分析，走完整流程</div>
+</div>
+
+<h2>Step 1: 基础画像 + 加载因果模式</h2>
+<div class="step-box"><div class="step-label">工具调用</div>
+<div class="tc pro">query_data(action="get", entity_api_key="account", record_id="88001")</div>
+<div class="tr">伊顿 | 电气设备 | 50亿 | A级 | 负责人:罗奇 | 最近活动:15天前</div>
+<div class="tc pro">read_skill_resource("knowledge/causal-patterns/stagnation-causality.md")</div>
+<div class="tr">加载停滞因果链模板（信号+三种模式+严重度表）</div>
+</div>
+
+<h2>Step 2: 形成假设</h2>
+<div class="hbox">
+<h4>场景判断: C(商机推进) | 基于: 老客户+大额停滞商机+用户意图"深入分析"</h4>
+<p><b>H1:</b> "600万停滞是内部审批卡点，非需求问题" — 验证: 活动关键词+阶段时间</p>
+<p><b>H2:</b> "EB未覆盖是结构性问题(历史赢单都在CTO权限内)" — 验证: 金额分布+角色</p>
+<p><b>H3:</b> "外部扩张信号与CRM一致，有增购窗口" — 验证: 商机趋势+外部新闻</p>
+</div>
+
+<h2>Step 3: 验证 H1（停滞根因）</h2>
+<div class="step-box"><div class="step-label">工具调用</div>
+<div class="tc pro">query_data(entity="opportunity", filters={account:88001, status:"active"})</div>
+<div class="tr">AI项目600万/方案确认/45天 + 服务云87万 + BI扩展50万</div>
+<div class="tc pro">query_data(entity="activityrecord", filters={opp:"AI项目", last_30d})</div>
+<div class="tr">6条活动(正常) | 关键词: "集团审批""总部签批""预算审核"出现3次</div>
+</div>
+<div class="step-box"><div class="step-label">验证结论</div>
+<div class="tr"><b>H1 ✅ confirmed</b> — 活动正常+审批关键词明确 → 不是需求/竞品问题</div>
+</div>
+
+<h2>Step 4: 验证 H2（EB结构性）</h2>
+<div class="step-box"><div class="step-label">工具调用</div>
+<div class="tc pro">analyze_data(entity="opportunity", metrics="money", group_by="status", filters={account:88001})</div>
+<div class="tr">赢单分布: 30-50万(3单)/50-100万(4单)/108万(1单) → 全部≤108万</div>
+<div class="tc pro">query_data(entity="contact", filters={account:88001, role:"EB"})</div>
+<div class="tr">0条EB联系人。有TB/UB/Coach，无CFO/VP级</div>
+</div>
+<div class="step-box"><div class="step-label">验证结论</div>
+<div class="tr"><b>H2 ✅ confirmed</b> — 最高108万(CTO权限内)，600万首次超限 → 结构性缺陷</div>
+</div>
+
+<h2>Step 5: 验证 H3 + 矛盾检测</h2>
+<div class="step-box"><div class="step-label">工具调用</div>
+<div class="tc pro">analyze_data(entity="opportunity", metrics="count,sum(money)", group_by="quarter")</div>
+<div class="tr">本季: 3个/787万 | 上季: 2个/320万 → +50%/+146%</div>
+<div class="tc pro">search_web("伊顿电气 2026 数据中心 新产线 扩张")</div>
+<div class="tr">"伊顿2026年新建2条数据中心配电产线，投资约8亿" (经济观察报)</div>
+</div>
+<div class="step-box"><div class="step-label">验证结论 + 矛盾检测</div>
+<div class="tr"><b>H3 ✅ confirmed</b> — CRM(+146%) + 外部(8亿投资) 双源一致</div>
+<div class="tr warn"><b>矛盾发现:</b> 李经理45天未接触 vs CTO/Coach活跃 → 异常信号，待验证</div>
+</div>
+
+<h2>Step 6: 记忆写入</h2>
+<div class="step-box"><div class="step-label">工具调用</div>
+<div class="tc pro">manage_memory(action="upsert", category="account_insight_pro", parent_entity="account:88001")</div>
+<div class="tr">写入: 3假设验证结果 + 3核心发现 + 1矛盾 + 5条行动</div>
+</div>
+
+<hr class="sd">
+<h2>📄 最终报告产出</h2>
+
+<h3>Executive Summary</h3>
+<div class="ebox">
+<div class="cj">伊顿是高价值扩张客户，但600万商机正因内部审批卡点停滞，且EB关系空白——不补EB线这单大概率丢。</div>
+<div class="kd">📊 赢率73% | 停滞600万/45天 | 缺EB</div>
+<div class="ua">⚡ 本周通过CTO引荐CFO，48h建立EB线</div>
+</div>
+
+<h3>洞察 1: 停滞根因 <span class="conf cc">confirmed</span></h3>
+<div class="causal">
+<div class="s"><b>[事实]</b> 停留45天，活动正常，"集团审批"出现3次</div>
+<div class="ar">↓ 为什么？</div>
+<div class="s"><b>[原因]</b> 600万超IT审批权限，需集团签批</div>
+<div class="ar">↓ 不干预？</div>
+<div class="s"><b>[推演]</b> 超60天冷冻，丢单率40%（剩15天窗口）</div>
+<div class="ar">↓ 行动</div>
+<div class="s"><b>[行动]</b> 本周ROI材料 + 高层拜访推动</div>
+</div>
+
+<h3>洞察 2: EB天花板 <span class="conf cc">confirmed</span></h3>
+<div class="causal">
+<div class="s"><b>[事实]</b> 8次赢单≤108万，无CFO/VP联系人</div>
+<div class="ar">↓ 为什么？</div>
+<div class="s"><b>[原因]</b> 历史不需要EB，600万首次触达天花板</div>
+<div class="ar">↓ 意味着</div>
+<div class="s"><b>[推演]</b> 不建立高层通道 = 后续所有大单都卡</div>
+<div class="ar">↓ 行动</div>
+<div class="s"><b>[行动]</b> CTO引荐→战略汇报→季度高层机制</div>
+</div>
+
+<h3>洞察 3: 增购窗口 <span class="conf cc">confirmed</span></h3>
+<div class="causal">
+<div class="s"><b>[事实]</b> CRM+146% + 外部"新产线8亿投资"</div>
+<div class="ar">↓ 双源验证</div>
+<div class="s"><b>[行动]</b> 82天后续约时打包: 续约+扩容+服务云</div>
+</div>
+
+<h3>⚠️ 矛盾</h3>
+<div class="cbox"><h4>李经理45天无接触 vs 其他线活跃</h4><p>可能: 调岗/项目升级/遗漏 → 3天内通过Coach确认</p></div>
+
+<h3>📋 行动</h3>
+<table><tr><th>级别</th><th>行动</th><th>谁</th><th>何时</th></tr>
+<tr><td class="p0">P0</td><td>ROI材料过审批</td><td>售前</td><td>本周</td></tr>
+<tr><td class="p0">P0</td><td>CTO引荐CFO</td><td>罗奇</td><td>本周</td></tr>
+<tr><td class="p1">P1</td><td>确认李经理</td><td>罗奇</td><td>3天</td></tr>
+<tr><td class="p1">P1</td><td>续约+增购方案</td><td>售前</td><td>2周</td></tr></table>
+
+<p style="margin-top:1rem;font-size:.75rem;color:#64748b"><b>执行统计:</b> 8次工具调用 | 1次搜索 | 1次LLM | ~18秒</p>
+</div>
+</div>
+
+</div><!-- end compare -->
+
+<!-- 评估 -->
+<div class="ev">
+<h2>逐步执行对比</h2>
+<table class="et">
+<thead><tr><th>阶段</th><th>neo-apps</th><th>accountInsightPro</th><th>差异</th></tr></thead>
+<tbody>
+<tr><td><b>启动</b></td><td>查客户→查重→获取模板(3步)</td><td>读记忆→基础信息→形成假设(3步)</td><td>neo查重防重复; Pro加载因果模式</td></tr>
+<tr><td><b>数据收集</b></td><td>一次性批量查全部(工商+CRM所有实体)</td><td>仅查与假设相关的数据</td><td>neo全面但冗余; Pro精准高效</td></tr>
+<tr><td><b>搜索</b></td><td>4次web + 1次知识库</td><td>1次web(仅H3需外部验证)</td><td>neo更系统; Pro按需最小化</td></tr>
+<tr><td><b>分析</b></td><td>无中间分析步骤，直接交给报告LLM</td><td>每步验证假设 + 矛盾检测</td><td>Pro在过程中已完成推理</td></tr>
+<tr><td><b>输出</b></td><td>独立LLM生成固定结构报告</td><td>Agent直接输出因果链格式</td><td>neo格式稳定; Pro内容更深</td></tr>
+<tr><td><b>后处理</b></td><td>HTML+JSON+保存CRM+引用面板</td><td>写入客户记忆(供下次增量)</td><td>neo业务闭环; Pro增量能力</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="ev">
+<h2>产出质量对比</h2>
+<table class="et">
+<thead><tr><th>维度</th><th>neo-apps</th><th>accountInsightPro</th><th>判定</th></tr></thead>
+<tbody>
+<tr><td><b>核心判断力</b></td><td>"转化率偏低""EB未覆盖"（陈述事实）</td><td>"不补EB这单大概率丢""首次触达天花板"（给判断）</td><td class="w">Pro胜</td></tr>
+<tr><td><b>因果深度</b></td><td>维度并列，无因果链</td><td>每条3-4层推导</td><td class="w">Pro胜</td></tr>
+<tr><td><b>行动论据</b></td><td>"通过CTO引荐CFO"（有方向无论据）</td><td>"600万超审批权限→结构性缺陷→建立长期机制"</td><td class="w">Pro胜</td></tr>
+<tr><td><b>矛盾发现</b></td><td>未提及李经理异常</td><td>主动发现+3种可能+验证建议</td><td class="w">Pro胜</td></tr>
+<tr><td><b>信息全面性</b></td><td>5个维度全覆盖</td><td>3条核心洞察+1矛盾</td><td class="w">neo胜</td></tr>
+<tr><td><b>引用溯源</b></td><td>[1]~[23] + 可点击面板</td><td>confirmed/likely标注，无面板</td><td class="w">neo胜</td></tr>
+<tr><td><b>格式稳定性</b></td><td>固定结构+卡片渲染</td><td>因果链格式，可能波动</td><td class="w">neo胜</td></tr>
+<tr><td><b>阅读效率</b></td><td>需读完整报告(~5min)</td><td>一页纸30秒 / Executive 5句话</td><td class="w">Pro胜</td></tr>
+<tr><td><b>增量能力</b></td><td>每次相同内容</td><td>第二次告诉你"什么变了"</td><td class="w">Pro胜</td></tr>
+<tr><td><b>执行效率</b></td><td>9次调用 / 5次搜索 / ~25秒</td><td>8次调用 / 1次搜索 / ~18秒</td><td class="w">Pro胜</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="verdict">
+<h2>总结</h2>
+<p><b>neo-apps</b> (3项胜): 信息全面 · 引用溯源 · 格式稳定 → 适合标准化规模运营</p>
+<p><b>accountInsightPro</b> (7项胜): 判断力 · 因果深度 · 行动论据 · 矛盾发现 · 阅读效率 · 增量 · 执行效率 → 适合高价值决策</p>
+<p style="margin-top:.8rem;font-weight:600;color:#166534">产品价值层面 Pro 以 7:3 领先。两者互补：neo做广覆盖日常了解，Pro做深分析关键决策。</p>
+</div>
+
+</div><!-- end container -->
+</body>
+</html>

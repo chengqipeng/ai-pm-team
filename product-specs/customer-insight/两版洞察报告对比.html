@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>客户洞察报告对比 — neo-apps vs accountInsightPro</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #1a1a2e; line-height: 1.6; padding: 40px 20px; }
+.container { max-width: 1400px; margin: 0 auto; }
+h1 { text-align: center; font-size: 1.8rem; margin-bottom: 8px; color: #1a1a2e; }
+.subtitle { text-align: center; color: #64748b; margin-bottom: 40px; font-size: 0.95rem; }
+.comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 48px; }
+@media (max-width: 1000px) { .comparison { grid-template-columns: 1fr; } }
+.report-card { background: #fff; border-radius: 12px; padding: 28px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); border-top: 4px solid #3b82f6; }
+.report-card.pro { border-top-color: #8b5cf6; }
+.report-card h2 { font-size: 1.1rem; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+.report-card .version-tag { font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+.report-card .version-tag.v1 { background: #dbeafe; color: #1d4ed8; }
+.report-card .version-tag.v2 { background: #ede9fe; color: #6d28d9; }
+.report-card .meta { color: #94a3b8; font-size: 0.8rem; margin-bottom: 16px; }
+.report-content { font-size: 0.88rem; line-height: 1.7; }
+.report-content h3 { font-size: 0.95rem; color: #334155; margin: 16px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #f1f5f9; }
+.report-content h4 { font-size: 0.88rem; color: #475569; margin: 12px 0 6px; }
+.report-content p { margin-bottom: 8px; }
+.report-content ul, .report-content ol { margin: 6px 0 10px 20px; }
+.report-content li { margin-bottom: 4px; }
+.tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+.tag { background: #f1f5f9; color: #475569; padding: 2px 10px; border-radius: 12px; font-size: 0.75rem; }
+.kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
+.kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; text-align: center; }
+.kpi-card .value { font-size: 1.2rem; font-weight: 700; color: #1e293b; }
+.kpi-card .label { font-size: 0.7rem; color: #64748b; margin-top: 2px; }
+.causal-chain { background: #faf5ff; border-left: 3px solid #8b5cf6; padding: 12px 16px; margin: 10px 0; border-radius: 0 8px 8px 0; font-size: 0.82rem; }
+.causal-chain .step { margin: 4px 0; }
+.causal-chain .arrow { color: #8b5cf6; font-weight: 600; }
+.confidence { display: inline-block; font-size: 0.7rem; padding: 1px 6px; border-radius: 8px; margin-left: 4px; font-weight: 500; }
+.confidence.confirmed { background: #dcfce7; color: #166534; }
+.confidence.likely { background: #fef9c3; color: #854d0e; }
+.confidence.conflicting { background: #fee2e2; color: #991b1b; }
+.confidence.gap { background: #f1f5f9; color: #64748b; }
+.action-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin: 10px 0; }
+.action-table th { background: #f8fafc; padding: 6px 10px; text-align: left; font-weight: 600; border-bottom: 2px solid #e2e8f0; }
+.action-table td { padding: 6px 10px; border-bottom: 1px solid #f1f5f9; }
+.action-table .priority { font-weight: 600; }
+.action-table .p0 { color: #dc2626; }
+.action-table .p1 { color: #d97706; }
+.action-table .p2 { color: #2563eb; }
+.ref-tag { color: #6366f1; font-weight: 500; font-size: 0.8em; }
+.contradiction-box { background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px; margin: 10px 0; font-size: 0.82rem; }
+.contradiction-box .title { font-weight: 600; color: #991b1b; margin-bottom: 4px; }
+.section-title { font-size: 1.3rem; font-weight: 700; margin: 48px 0 20px; padding-bottom: 8px; border-bottom: 2px solid #e2e8f0; }
+.diff-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin: 16px 0; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+.diff-table th { background: #f8fafc; padding: 10px 14px; text-align: left; font-weight: 600; border-bottom: 2px solid #e2e8f0; }
+.diff-table td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+.diff-table tr:last-child td { border-bottom: none; }
+.winner { color: #059669; font-weight: 600; }
+.loser { color: #dc2626; }
+.neutral { color: #64748b; }
+.executive-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px; margin: 12px 0; }
+.executive-box .judgment { font-size: 1rem; font-weight: 700; color: #166534; margin-bottom: 8px; }
+.executive-box .data-row { font-size: 0.85rem; color: #374151; margin: 4px 0; }
+.executive-box .action-row { font-size: 0.88rem; color: #1e40af; font-weight: 500; margin-top: 8px; }
+.insight-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin: 10px 0; }
+.insight-card .title { font-weight: 600; font-size: 0.9rem; margin-bottom: 6px; }
+.insight-card .find { color: #374151; margin-bottom: 4px; }
+.insight-card .imply { color: #6b21a8; margin-bottom: 4px; font-style: italic; }
+.insight-card .suggest { color: #1d4ed8; font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>客户洞察报告产品效果对比</h1>
+<p class="subtitle">同一客户"伊顿（中国）投资有限公司" — 分别按两套 Skill 逻辑模拟生成的报告内容对比</p>
+
+<!-- ═══════ 两份报告并排 ═══════ -->
+<div class="comparison">
+
+<!-- ══ 左侧：neo-apps 版本 ══ -->
+<div class="report-card">
+<h2><span class="version-tag v1">neo-apps 线上版</span> 智能客户洞察</h2>
+<p class="meta">模板驱动 · 维度填充 · 完整画像</p>
+
+<div class="report-content">
+
+<h3># 伊顿（中国）投资有限公司</h3>
+<div class="tag-row">
+<span class="tag">老客户</span>
+<span class="tag">外资企业</span>
+<span class="tag">电气设备制造</span>
+<span class="tag">非上市</span>
+<span class="tag">江苏常州</span>
+<span class="tag">行业头部</span>
+<span class="tag">全球500强子公司</span>
+</div>
+<p>伊顿（中国）投资有限公司是全球动力管理公司伊顿集团在华投资主体，主营不间断电源（UPS）、配电系统及电气解决方案，服务于数据中心、工业制造等领域，在华拥有超5000名员工。<span class="ref-tag">[1][2]</span></p>
+
+<h3>## 整体洞察结论</h3>
+<p>伊顿中国是一家<strong>稳定增长型的头部制造业客户</strong>，受益于数据中心建设加速和新能源储能需求爆发，业务处于<strong>持续扩张期</strong>。我方已在该客户建立合作基础（已成交¥500万），当前有3个在跟商机（¥687万），Pipeline健康。但方案确认阶段转化率偏低（50% vs 行业65%），且<strong>经济决策人（EB）尚未覆盖</strong>，是推进大额商机的最大阻碍。<span class="ref-tag">[3][5][8]</span></p>
+<p><strong>🔑 我方价值：以"支撑业务快速扩张期的销售流程标准化"为核心价值主张，切入服务云增购。</strong></p>
+
+<h3>## 企业背景分析</h3>
+<h4>行业定位</h4>
+<p>制造业 > 电气设备制造 > UPS电源及配电系统。行业处于快速增长期（增速12-15%），受益于AI算力需求驱动的数据中心建设加速。<span class="ref-tag">[2][4]</span></p>
+<h4>财务概况</h4>
+<p>母公司伊顿集团2025年全球营收约$230亿。中国区年营收估算¥50-80亿（占全球约5-7%），员工规模5000+。在UPS电源细分市场排名前三。<span class="ref-tag">[1][4]</span></p>
+<h4>核心业务</h4>
+<p>三大业务板块：电气（配电+UPS，占比60%）、航空（液压系统，25%）、车辆（传动系统，15%）。中国区以电气为核心。<span class="ref-tag">[1]</span></p>
+
+<h3>## 商机与合作分析</h3>
+<h4>Pipeline全景</h4>
+<div class="kpi-grid">
+<div class="kpi-card"><div class="value">¥500万</div><div class="label">已成交金额</div></div>
+<div class="kpi-card"><div class="value">¥687万</div><div class="label">在跟商机</div></div>
+<div class="kpi-card"><div class="value">73%</div><div class="label">历史赢率</div></div>
+</div>
+<p>当前3个活跃商机：伊顿电气-AI项目（¥600万，方案确认阶段，停滞45天）、伊顿常州服务云（¥47万，商务谈判）、伊顿平顶山拓展（¥40万，需求确认）。<span class="ref-tag">[5]</span></p>
+<h4>成交历史</h4>
+<p>历史8次成交，平均客单价¥62.5万。主要购买销售云（5单）和BI分析（3单）。赢单关键因素：产品功能匹配（4次）、行业案例说服（3次）。<span class="ref-tag">[5][6]</span></p>
+
+<h3>## 决策链分析</h3>
+<p>已识别联系人4人，决策链覆盖75%：</p>
+<ul>
+<li>TB（技术买家）：张总/CTO — ✅ 活跃，15天前接触</li>
+<li>UB（用户买家）：李经理/IT经理 — ⚠️ 45天未接触</li>
+<li>Coach（内线）：王工/技术主管 — ✅ 活跃</li>
+<li>EB（经济买家）：❌ 未识别 — 关键缺口</li>
+</ul>
+<p><span class="ref-tag">[7][8]</span></p>
+
+<h3>## 竞争格局</h3>
+<p>主要竞品：Salesforce（丢单记录出现2次，高威胁）、纷享销客（丢单1次，中威胁）。历史丢单原因67%为价格竞争。<span class="ref-tag">[6][9]</span></p>
+
+<h3>## 下一步行动建议</h3>
+<p><strong>短期（本周）：</strong></p>
+<ul>
+<li>通过CTO张总引荐CFO或VP级别决策人，补齐EB缺口</li>
+<li>对停滞45天的AI项目商机（¥600万）安排高层拜访推动</li>
+</ul>
+<p><strong>中期（本月）：</strong></p>
+<ul>
+<li>准备ROI分析材料，应对价格竞争（历史丢单主因）</li>
+<li>推荐服务云增购（同行业68%客户配置）</li>
+</ul>
+<p><strong>长期（本季度）：</strong></p>
+<ul>
+<li>拓展伊顿电气（平顶山）子公司，利用集团关系</li>
+</ul>
+
+</div>
+</div>
+
+<!-- ══ 右侧：accountInsightPro 版本 ══ -->
+<div class="report-card pro">
+<h2><span class="version-tag v2">accountInsightPro</span> 深度客户洞察</h2>
+<p class="meta">假设驱动 · 因果推导 · actionable 层输出</p>
+
+<div class="report-content">
+
+<div class="executive-box">
+<div class="judgment">伊顿中国有明确增购窗口（服务云），但¥600万AI项目正被内部审批卡住——需在2周内突破EB层，否则竞品将趁停滞期切入</div>
+<div class="data-row">📊 AI项目停滞45天（标准20天）| EB未覆盖 | 同行业68%已购服务云</div>
+<div class="action-row">⚡ 本周通过CTO张总安排与CFO的15分钟电话，议题："AI项目的业务价值量化"</div>
+</div>
+
+<h3>�� 关键洞察</h3>
+
+<div class="insight-card">
+<div class="title">1. AI项目停滞的根因是EB缺位，不是方案问题 <span class="confidence confirmed">[confirmed]</span></div>
+<div class="find"><strong>发现：</strong>¥600万AI项目停留方案确认阶段45天（标准20天），但活动记录显示技术团队评估积极（CTO张总近2周内3次沟通），阶段未推进的原因不在技术层。</div>
+<div class="imply"><strong>意味着：</strong>技术认可已到位 → 但经济决策人未参与（EB空白）→ 没人把方案推到预算审批层 → 商机将持续停滞直到有人"往上捅"。</div>
+<div class="suggest"><strong>建议：</strong>本周请CTO张总引荐CFO/VP（WHO: 客户负责人罗奇发起 | WHAT: 安排15分钟电话 | WHEN: 本周五前）</div>
+</div>
+
+<div class="insight-card">
+<div class="title">2. 服务云增购时机成熟，但需要"先帮用好再推新" <span class="confidence likely">[likely]</span></div>
+<div class="find"><strong>发现：</strong>同行业68%客户已配置服务云（12家中8家），伊顿已购销售云+BI但无服务云。同时BI分析模块实际使用集中度偏高（推测：少数人在用）。</div>
+<div class="imply"><strong>意味着：</strong>增购需求客观存在（行业标配） → 但如果BI还没用好就推新模块，客户会说"现有的都没用完" → 需先推动BI深度采纳作为增购的"入场券"。</div>
+<div class="suggest"><strong>建议：</strong>2周内安排一次BI使用回顾会议（WHO: CSM | WHAT: 展示BI使用数据+对标同行 | WHEN: 下周），为服务云增购铺垫。</div>
+</div>
+
+<div class="insight-card">
+<div class="title">3. 价格竞争是表象，真正丢单原因是"价值未量化" <span class="confidence likely">[likely]</span></div>
+<div class="find"><strong>发现：</strong>历史3次丢单中2次标记"价格竞争"（输给Salesforce和纷享销客），但赢单8次中4次关键因素是"产品功能匹配"——说明功能是赢面，价格是输面。</div>
+<div class="imply"><strong>意味着：</strong>丢单时不是我们贵了，而是没能让客户看到"贵的值" → Salesforce品牌溢价也高但客户买单 → 差距在ROI量化能力不在价格本身。</div>
+<div class="suggest"><strong>建议：</strong>AI项目报价前，准备同行业ROI案例（WHO: 方案经理 | WHAT: 产出"电气设备行业CRM上线后赢率提升XX%"的量化材料 | WHEN: 下周三前）</div>
+</div>
+
+<div class="contradiction-box">
+<div class="title">⚠️ 矛盾发现：活跃度数据与停滞现象不一致</div>
+<p><strong>矛盾点：</strong>CRM活动记录显示近4周接触频次正常（CTO张总3次+王工2次），但AI项目商机阶段45天未推进。</p>
+<p><strong>可能解释：</strong>①技术层面沟通正常但缺乏商务层推动力（EB缺位验证） ②客户内部有并行评估竞品但未对我方透露 ③项目优先级被其他IT项目（如ERP升级）暂时挤压</p>
+<p><strong>验证建议：</strong>下次与Coach王工沟通时，直接询问"AI项目目前内部审批走到哪一步了"</p>
+</div>
+
+<h3>📋 行动优先级</h3>
+<table class="action-table">
+<tr><th>优先级</th><th>行动</th><th>负责人</th><th>时间</th><th>依据</th></tr>
+<tr><td class="priority p0">🔴P0</td><td>通过CTO引荐CFO/VP，电话议题"AI项目业务价值"</td><td>罗奇（客户负责人）</td><td>本周</td><td>洞察#1</td></tr>
+<tr><td class="priority p0">🔴P0</td><td>通过Coach王工了解AI项目内部审批状态</td><td>罗奇</td><td>明天</td><td>矛盾发现</td></tr>
+<tr><td class="priority p1">🟡P1</td><td>安排BI使用回顾会议，展示同行业对标数据</td><td>CSM</td><td>下周</td><td>洞察#2</td></tr>
+<tr><td class="priority p1">🟡P1</td><td>产出"电气设备行业CRM ROI"量化材料</td><td>方案经理</td><td>下周三前</td><td>洞察#3</td></tr>
+<tr><td class="priority p2">🔵P2</td><td>拓展伊顿平顶山子公司（无负责人，年营收约¥XX亿）</td><td>区域销售</td><td>本月</td><td>集团关系</td></tr>
+</table>
+
+<p style="margin-top:12px;font-size:0.8rem;color:#64748b;">置信度：整体 likely（CRM数据充分，但EB层信息靠推断）| 增量：首次分析</p>
+
+</div>
+</div>
+
+</div>
+
+<!-- ═══════ 对比分析部分 ═══════ -->
+<h2 class="section-title">📊 产品效果对比分析</h2>
+
+<table class="diff-table">
+<tr>
+<th style="width:18%">对比维度</th>
+<th style="width:38%">neo-apps 线上版</th>
+<th style="width:38%">accountInsightPro</th>
+<th style="width:6%">判定</th>
+</tr>
+<tr>
+<td><strong>核心判断</strong><br><small>用户看完第一眼得到什么</small></td>
+<td>"稳定增长型的头部制造业客户...Pipeline健康...EB未覆盖是阻碍" — 有判断但埋在段落中间</td>
+<td class="winner">"¥600万AI项目被内部审批卡住——需2周内突破EB层，否则竞品将切入" — 一句话直击行动点</td>
+<td class="winner">Pro</td>
+</tr>
+<tr>
+<td><strong>因果推导</strong><br><small>是否回答了"为什么"</small></td>
+<td>列出事实（停滞45天、EB未覆盖），但不解释为什么停滞 → 用户需自己推导</td>
+<td class="winner">明确推导：技术认可已到位 → EB空白 → 无人推到预算层 → 所以停滞 → 所以要引荐CFO</td>
+<td class="winner">Pro</td>
+</tr>
+<tr>
+<td><strong>矛盾检测</strong><br><small>是否发现数据间的不一致</small></td>
+<td class="loser">未发现"活跃度正常但商机停滞"这一矛盾，两个维度独立陈述</td>
+<td class="winner">主动标记矛盾 + 给出3种可能解释 + 建议验证方式</td>
+<td class="winner">Pro</td>
+</tr>
+<tr>
+<td><strong>行动具体性</strong><br><small>建议是否可直接执行</small></td>
+<td>"通过CTO张总引荐CFO或VP级别决策人" — 有方向但缺 WHO 发起 / WHEN 截止</td>
+<td class="winner">"本周请CTO引荐CFO（WHO: 罗奇发起 | WHAT: 15分钟电话 | WHEN: 本周五前）" — 完整可执行</td>
+<td class="winner">Pro</td>
+</tr>
+<tr>
+<td><strong>行动间的逻辑关系</strong><br><small>多条建议是否串联</small></td>
+<td>短期/中期/长期分类，但各条之间无逻辑关联</td>
+<td class="winner">每条行动关联到具体洞察编号（洞察#1→行动1），形成"发现→行动"闭环</td>
+<td class="winner">Pro</td>
+</tr>
+<tr>
+<td><strong>洞察深度</strong><br><small>"价格竞争"这个问题的分析</small></td>
+<td>"历史丢单67%为价格竞争" — 止步于事实陈述</td>
+<td class="winner">"价格竞争是表象，真正原因是价值未量化" — 追问一层后给出对策（ROI材料）</td>
+<td class="winner">Pro</td>
+</tr>
+<tr>
+<td><strong>信息全面性</strong><br><small>覆盖的维度广度</small></td>
+<td class="winner">覆盖6个维度：行业/财务/商机/决策链/竞争/行动。画像完整</td>
+<td>聚焦3条核心洞察 + 1个矛盾。行业/财务背景未单独展开</td>
+<td class="winner">线上</td>
+</tr>
+<tr>
+<td><strong>引用溯源</strong><br><small>用户能否验证结论来源</small></td>
+<td class="winner">每段带 [1][2][3] 编号，可点击查看引用面板中的原文</td>
+<td>使用 [confirmed]/[likely] 标注确定性，但无编号溯源</td>
+<td class="winner">线上</td>
+</tr>
+<tr>
+<td><strong>确定性区分</strong><br><small>用户是否知道哪些结论可靠</small></td>
+<td class="loser">所有结论语气相同，无法区分"确定的事实"和"推测"</td>
+<td class="winner">每条标注 confirmed/likely/conflicting，用户知道哪些可直接引用</td>
+<td class="winner">Pro</td>
+</tr>
+<tr>
+<td><strong>阅读效率</strong><br><small>销售经理早会30秒能得到什么</small></td>
+<td class="loser">需要读完整篇报告才能提取核心判断（约3-5分钟）</td>
+<td class="winner">顶部 executive box 30秒可消化：1句判断 + 3个数据 + 1条行动</td>
+<td class="winner">Pro</td>
+</tr>
+<tr>
+<td><strong>输出格式稳定性</strong><br><small>每次生成是否结构一致</small></td>
+<td class="winner">固定格式：标题→标签→结论→各维度→行动，前端渲染一致</td>
+<td>依赖LLM遵循模板指令，格式可能有波动</td>
+<td class="winner">线上</td>
+</tr>
+<tr>
+<td><strong>可配置性</strong><br><small>管理员能否控制输出内容</small></td>
+<td class="winner">后台可配模板维度、数据源、展示规则（按行业/角色定制）</td>
+<td class="loser">维度完全由AI自主决定，管理员不可控</td>
+<td class="winner">线上</td>
+</tr>
+<tr>
+<td><strong>增量感知</strong><br><small>第二次看同一客户有什么变化</small></td>
+<td class="loser">内容基本相同（除非底层数据变了），用户无增量感知</td>
+<td class="winner">通过记忆对比输出"什么变了"+"上次建议执行了吗"</td>
+<td class="winner">Pro</td>
+</tr>
+</table>
+
+<h2 class="section-title">📈 产品价值结论</h2>
+
+<table class="diff-table">
+<tr><th style="width:20%">结论维度</th><th>详细说明</th></tr>
+<tr>
+<td><strong>neo-apps 核心价值</strong></td>
+<td>提供<strong>稳定、全面、可溯源、可配置</strong>的客户画像。适合日常快速了解客户，适合管理层要求"每个销售都能看到标准化的客户信息"的场景。是"靠谱的信息服务"。</td>
+</tr>
+<tr>
+<td><strong>Pro 核心价值</strong></td>
+<td>提供<strong>有判断力、有推导逻辑、可追踪执行</strong>的决策支持。适合重要客户/关键节点的深度分析，适合"销售不知道下一步该做什么"的场景。是"有观点的分析师"。</td>
+</tr>
+<tr>
+<td><strong>理想产品形态</strong></td>
+<td>两者不是替代关系而是组合关系：<br>• <strong>日常浏览</strong>用 neo-apps 版（全面画像，30秒了解客户概况）<br>• <strong>关键决策</strong>用 Pro 版（深度判断，告诉你为什么、该怎么做）<br>• Pro 版吸收 neo-apps 的引用溯源 + 格式稳定性 + 可配置性 → 完整产品</td>
+</tr>
+<tr>
+<td><strong>最关键差异</strong></td>
+<td>同样一个"EB未覆盖"的发现：<br>• neo-apps 说："EB未识别 — 关键缺口"（止步于事实）<br>• Pro 说："技术认可已到位但EB空白 → 无人推到预算层 → 所以停滞 → 本周五前请罗奇通过CTO引荐CFO"（事实→原因→行动）<br><br>这个差异决定了用户看完后<strong>是否知道该做什么</strong>。</td>
+</tr>
+</table>
+
+</div>
+</body>
+</html>
