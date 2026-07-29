@@ -1,0 +1,40 @@
+{
+  "type": "MicroReportCard",
+  "description": "长文本折叠卡片，展示标题+状态，点击可在侧边面板查看完整 Markdown 内容。由 <long_text> 标签触发。",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string",
+        "enum": ["pending", "complete"],
+        "description": "卡片状态：pending=加载中, complete=内容就绪"
+      },
+      "title": {
+        "type": "string",
+        "description": "卡片标题（从 <long_text title=\"...\"> 提取）"
+      },
+      "content": {
+        "type": "string",
+        "description": "完整 Markdown 内容（status=complete 时有值）"
+      },
+      "startTime": {
+        "type": "string",
+        "description": "开始时间（可选）"
+      }
+    },
+    "required": ["status", "title"]
+  },
+  "skill_bindings": {
+    "bind": [],
+    "prefer": []
+  },
+  "supported_model_names": [],
+  "preferred_type_keys": ["report"],
+  "supported_type_keys": ["analysis", "summary", "document"],
+  "rendering_hints": {
+    "display_mode": "inline_card",
+    "expandable": true,
+    "expand_target": "side_panel",
+    "pending_skeleton": true
+  }
+}

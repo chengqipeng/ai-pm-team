@@ -1,0 +1,55 @@
+{
+  "type": "CrmDataCard",
+  "description": "CRM 数据卡片，展示查询结果的列表卡片或详情卡片。支持客户/商机/联系人/活动等实体的结构化展示。",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "entity_type": {
+        "type": "string",
+        "enum": ["account", "opportunity", "contact", "activity", "lead"],
+        "description": "业务实体类型"
+      },
+      "display_mode": {
+        "type": "string",
+        "enum": ["list", "detail", "summary"],
+        "description": "展示模式：list=列表, detail=详情, summary=摘要"
+      },
+      "records": {
+        "type": "array",
+        "description": "数据记录列表",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {"type": "string"},
+            "name": {"type": "string"},
+            "fields": {
+              "type": "object",
+              "description": "字段键值对"
+            }
+          }
+        }
+      },
+      "total_count": {
+        "type": "integer",
+        "description": "总记录数（分页时使用）"
+      },
+      "title": {
+        "type": "string",
+        "description": "卡片标题（可选）"
+      }
+    },
+    "required": ["entity_type", "records"]
+  },
+  "skill_bindings": {
+    "bind": ["customer_360", "diagnose"],
+    "prefer": ["data_analysis", "pipeline_analysis"]
+  },
+  "supported_model_names": ["component", "relevantData", "searchResults"],
+  "rendering_hints": {
+    "display_mode": "inline_card",
+    "clickable_records": true,
+    "click_action": "open_detail",
+    "max_visible_records": 5,
+    "show_total_count": true
+  }
+}

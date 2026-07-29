@@ -1,0 +1,269 @@
+{
+  "config": {
+    "seed_count": 84,
+    "case_count": 1000,
+    "top_k": 5,
+    "local_model": "Qwen3-Embedding-0.6B",
+    "grep_engine": "jieba+bigram+field_weight",
+    "grep_v2_engine": "jieba+idf+entity_priority+biz_stops"
+  },
+  "grep": {
+    "total": 1000,
+    "passed": 591,
+    "pass_rate": 0.591,
+    "avg_recall": 0.5303778529803531,
+    "p50_ms": 0.2269744873046875,
+    "p95_ms": 0.4100799560546875,
+    "p99_ms": 0.47779083251953125,
+    "avg_ms": 0.23657464981079102,
+    "by_category": {
+      "决策追踪": {
+        "total": 60,
+        "passed": 37,
+        "rate": 61.7,
+        "avg_recall": 49.4
+      },
+      "变更追踪": {
+        "total": 80,
+        "passed": 48,
+        "rate": 60.0,
+        "avg_recall": 52.2
+      },
+      "否定排除": {
+        "total": 80,
+        "passed": 17,
+        "rate": 21.2,
+        "avg_recall": 22.3
+      },
+      "多跳推理": {
+        "total": 100,
+        "passed": 68,
+        "rate": 68.0,
+        "avg_recall": 57.8
+      },
+      "干扰区分": {
+        "total": 120,
+        "passed": 108,
+        "rate": 90.0,
+        "avg_recall": 82.0
+      },
+      "意图推理": {
+        "total": 100,
+        "passed": 44,
+        "rate": 44.0,
+        "avg_recall": 36.1
+      },
+      "时效性": {
+        "total": 30,
+        "passed": 23,
+        "rate": 76.7,
+        "avg_recall": 76.7
+      },
+      "模糊语义": {
+        "total": 100,
+        "passed": 35,
+        "rate": 35.0,
+        "avg_recall": 24.4
+      },
+      "精确实体": {
+        "total": 120,
+        "passed": 96,
+        "rate": 80.0,
+        "avg_recall": 76.5
+      },
+      "负例验证": {
+        "total": 80,
+        "passed": 34,
+        "rate": 42.5,
+        "avg_recall": 42.5
+      },
+      "跨客户汇总": {
+        "total": 30,
+        "passed": 14,
+        "rate": 46.7,
+        "avg_recall": 32.7
+      },
+      "长尾定位": {
+        "total": 100,
+        "passed": 67,
+        "rate": 67.0,
+        "avg_recall": 66.0
+      }
+    }
+  },
+  "grep_v2": {
+    "total": 1000,
+    "passed": 596,
+    "pass_rate": 0.596,
+    "avg_recall": 0.556578548118548,
+    "p50_ms": 0.1277923583984375,
+    "p95_ms": 0.21409988403320312,
+    "p99_ms": 0.27489662170410156,
+    "avg_ms": 0.13553762435913086,
+    "by_category": {
+      "决策追踪": {
+        "total": 60,
+        "passed": 34,
+        "rate": 56.7,
+        "avg_recall": 52.3
+      },
+      "变更追踪": {
+        "total": 80,
+        "passed": 52,
+        "rate": 65.0,
+        "avg_recall": 56.9
+      },
+      "否定排除": {
+        "total": 80,
+        "passed": 17,
+        "rate": 21.2,
+        "avg_recall": 23.4
+      },
+      "多跳推理": {
+        "total": 100,
+        "passed": 71,
+        "rate": 71.0,
+        "avg_recall": 63.1
+      },
+      "干扰区分": {
+        "total": 120,
+        "passed": 105,
+        "rate": 87.5,
+        "avg_recall": 82.8
+      },
+      "意图推理": {
+        "total": 100,
+        "passed": 42,
+        "rate": 42.0,
+        "avg_recall": 35.1
+      },
+      "时效性": {
+        "total": 30,
+        "passed": 24,
+        "rate": 80.0,
+        "avg_recall": 80.0
+      },
+      "模糊语义": {
+        "total": 100,
+        "passed": 31,
+        "rate": 31.0,
+        "avg_recall": 23.7
+      },
+      "精确实体": {
+        "total": 120,
+        "passed": 100,
+        "rate": 83.3,
+        "avg_recall": 81.3
+      },
+      "负例验证": {
+        "total": 80,
+        "passed": 42,
+        "rate": 52.5,
+        "avg_recall": 52.5
+      },
+      "跨客户汇总": {
+        "total": 30,
+        "passed": 11,
+        "rate": 36.7,
+        "avg_recall": 30.4
+      },
+      "长尾定位": {
+        "total": 100,
+        "passed": 67,
+        "rate": 67.0,
+        "avg_recall": 67.0
+      }
+    }
+  },
+  "grep_improvement": {
+    "pass_rate_delta": 0.5,
+    "recall_delta": 2.62,
+    "gained": 32,
+    "lost": 27,
+    "net": 5
+  },
+  "local": {
+    "total": 1000,
+    "passed": 571,
+    "pass_rate": 0.571,
+    "avg_recall": 0.5158268169249052,
+    "p50_ms": 62.04819679260254,
+    "p95_ms": 85.5112075805664,
+    "p99_ms": 134.80687141418457,
+    "avg_ms": 66.97185063362122,
+    "by_category": {
+      "决策追踪": {
+        "total": 60,
+        "passed": 37,
+        "rate": 61.7,
+        "avg_recall": 54.8
+      },
+      "变更追踪": {
+        "total": 80,
+        "passed": 52,
+        "rate": 65.0,
+        "avg_recall": 57.9
+      },
+      "否定排除": {
+        "total": 80,
+        "passed": 3,
+        "rate": 3.8,
+        "avg_recall": 3.6
+      },
+      "多跳推理": {
+        "total": 100,
+        "passed": 77,
+        "rate": 77.0,
+        "avg_recall": 66.1
+      },
+      "干扰区分": {
+        "total": 120,
+        "passed": 105,
+        "rate": 87.5,
+        "avg_recall": 80.3
+      },
+      "意图推理": {
+        "total": 100,
+        "passed": 51,
+        "rate": 51.0,
+        "avg_recall": 42.3
+      },
+      "时效性": {
+        "total": 30,
+        "passed": 21,
+        "rate": 70.0,
+        "avg_recall": 68.3
+      },
+      "模糊语义": {
+        "total": 100,
+        "passed": 47,
+        "rate": 47.0,
+        "avg_recall": 34.3
+      },
+      "精确实体": {
+        "total": 120,
+        "passed": 97,
+        "rate": 80.8,
+        "avg_recall": 79.2
+      },
+      "负例验证": {
+        "total": 80,
+        "passed": 0,
+        "rate": 0.0,
+        "avg_recall": 0.0
+      },
+      "跨客户汇总": {
+        "total": 30,
+        "passed": 12,
+        "rate": 40.0,
+        "avg_recall": 33.6
+      },
+      "长尾定位": {
+        "total": 100,
+        "passed": 69,
+        "rate": 69.0,
+        "avg_recall": 69.0
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "type": "InterruptConfirmCard",
+  "description": "中断确认-确认/取消：展示确认信息和操作按钮，由 ask_user(type=confirm) 触发",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "interrupt_id": {"type": "string", "description": "中断 ID"},
+      "title": {"type": "string", "description": "标题"},
+      "message": {"type": "string", "description": "确认说明"},
+      "severity": {"type": "string", "enum": ["info", "warning", "danger"], "description": "严重程度"},
+      "confirm_label": {"type": "string", "description": "确认按钮文字"},
+      "cancel_label": {"type": "string", "description": "取消按钮文字"}
+    },
+    "required": ["interrupt_id", "title", "message"]
+  },
+  "skill_bindings": {"bind": [], "prefer": []},
+  "supported_model_names": [],
+  "rendering_hints": {
+    "display_mode": "inline_card",
+    "interactive": true,
+    "single_use": true
+  }
+}

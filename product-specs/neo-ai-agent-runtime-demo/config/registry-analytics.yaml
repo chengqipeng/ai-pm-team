@@ -1,0 +1,48 @@
+# 分析领域扩展注册配置
+
+tools:
+  - api_key: forecast_revenue
+    name: 收入预测
+    description: 基于历史数据和管道数据预测未来收入趋势。
+    domain: analytics
+    type: remote
+    service: neo-ai-analytics-service
+    input_schema:
+      type: object
+      properties:
+        period:
+          type: string
+          description: 预测周期（month/quarter/year）
+        entity_type:
+          type: string
+          description: 实体类型（opportunity/account）
+      required:
+        - period
+    timeout_ms: 15000
+    category: analytics
+
+  - api_key: generate_report
+    name: 生成报表
+    description: 根据数据源和模板生成可视化报表。
+    domain: analytics
+    type: remote
+    service: neo-ai-analytics-service
+    input_schema:
+      type: object
+      properties:
+        template:
+          type: string
+          description: 报表模板名称
+        data_source:
+          type: string
+          description: 数据源标识
+    timeout_ms: 20000
+    category: analytics
+
+middlewares:
+  - api_key: analytics_rate_limiter
+    name: 分析服务限流
+    description: 控制分析类工具的调用频率，防止资源过载。
+    service: neo-ai-analytics-service
+    hooks: [before_tool]
+    order: 10

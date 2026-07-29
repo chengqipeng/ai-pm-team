@@ -1,0 +1,3426 @@
+{
+  "model": "Qwen3-Embedding-0.6B",
+  "device": "mps",
+  "total": 183,
+  "passed": 178,
+  "failed": 5,
+  "pass_rate": 0.9727,
+  "avg_recall": 0.9147,
+  "avg_search_ms": 93.92,
+  "total_duration_ms": 17190.4,
+  "by_category": {
+    "实体精确": {
+      "total": 30,
+      "passed": 30,
+      "failed": 0
+    },
+    "工具检索": {
+      "total": 23,
+      "passed": 23,
+      "failed": 0
+    },
+    "变更追踪": {
+      "total": 25,
+      "passed": 24,
+      "failed": 1
+    },
+    "模糊语义": {
+      "total": 25,
+      "passed": 25,
+      "failed": 0
+    },
+    "负例": {
+      "total": 20,
+      "passed": 20,
+      "failed": 0
+    },
+    "跨任务": {
+      "total": 20,
+      "passed": 17,
+      "failed": 3
+    },
+    "多工具区分": {
+      "total": 20,
+      "passed": 19,
+      "failed": 1
+    },
+    "时序过滤": {
+      "total": 10,
+      "passed": 10,
+      "failed": 0
+    },
+    "边界负例": {
+      "total": 10,
+      "passed": 10,
+      "failed": 0
+    }
+  },
+  "latency_p50_ms": 75.19,
+  "latency_p95_ms": 149.07,
+  "results": [
+    {
+      "case_id": "ER01",
+      "category": "实体精确",
+      "query": "PT Sentosa 客户信息",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        1
+      ],
+      "hit": [
+        1,
+        2,
+        30,
+        6,
+        5
+      ],
+      "search_ms": 506.43
+    },
+    {
+      "case_id": "ER02",
+      "category": "实体精确",
+      "query": "PT Sentosa 商机",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        2
+      ],
+      "hit": [
+        2,
+        1,
+        23,
+        5,
+        26
+      ],
+      "search_ms": 475.7
+    },
+    {
+      "case_id": "ER03",
+      "category": "实体精确",
+      "query": "PT Sentosa 报价",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        3,
+        5,
+        6
+      ],
+      "hit": [
+        5,
+        6,
+        1,
+        2,
+        3
+      ],
+      "search_ms": 226.62
+    },
+    {
+      "case_id": "ER04",
+      "category": "实体精确",
+      "query": "华为科技 客户画像",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        11
+      ],
+      "hit": [
+        11,
+        14,
+        28,
+        16,
+        29
+      ],
+      "search_ms": 125.33
+    },
+    {
+      "case_id": "ER05",
+      "category": "实体精确",
+      "query": "华为科技 BANT",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        12
+      ],
+      "hit": [
+        12,
+        14,
+        11,
+        29,
+        28
+      ],
+      "search_ms": 123.42
+    },
+    {
+      "case_id": "ER06",
+      "category": "实体精确",
+      "query": "华为科技 联系人",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        14
+      ],
+      "hit": [
+        14,
+        11,
+        28,
+        29,
+        27
+      ],
+      "search_ms": 123.17
+    },
+    {
+      "case_id": "ER07",
+      "category": "实体精确",
+      "query": "华为科技 POC",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        15,
+        16
+      ],
+      "hit": [
+        16,
+        15,
+        11,
+        14,
+        28
+      ],
+      "search_ms": 62.06
+    },
+    {
+      "case_id": "ER08",
+      "category": "实体精确",
+      "query": "华为科技 报价",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        27,
+        28,
+        29
+      ],
+      "hit": [
+        29,
+        28,
+        27,
+        13,
+        3
+      ],
+      "search_ms": 123.29
+    },
+    {
+      "case_id": "ER09",
+      "category": "实体精确",
+      "query": "腾讯云 需求",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        17
+      ],
+      "hit": [
+        17,
+        20,
+        19,
+        18,
+        26
+      ],
+      "search_ms": 60.67
+    },
+    {
+      "case_id": "ER10",
+      "category": "实体精确",
+      "query": "腾讯云 技术方案",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        18
+      ],
+      "hit": [
+        18,
+        20,
+        19,
+        17,
+        21
+      ],
+      "search_ms": 66.3
+    },
+    {
+      "case_id": "ER11",
+      "category": "实体精确",
+      "query": "腾讯云 报价",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        19,
+        20,
+        21
+      ],
+      "hit": [
+        19,
+        20,
+        21,
+        18,
+        17
+      ],
+      "search_ms": 149.07
+    },
+    {
+      "case_id": "ER12",
+      "category": "实体精确",
+      "query": "比亚迪 客户信息",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        22
+      ],
+      "hit": [
+        22,
+        24,
+        25,
+        23,
+        30
+      ],
+      "search_ms": 66.55
+    },
+    {
+      "case_id": "ER13",
+      "category": "实体精确",
+      "query": "比亚迪 商机",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        23
+      ],
+      "hit": [
+        23,
+        25,
+        2,
+        22,
+        24
+      ],
+      "search_ms": 83.9
+    },
+    {
+      "case_id": "ER14",
+      "category": "实体精确",
+      "query": "比亚迪 签约",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        24
+      ],
+      "hit": [
+        24,
+        25,
+        30,
+        23,
+        22
+      ],
+      "search_ms": 135.43
+    },
+    {
+      "case_id": "ER15",
+      "category": "实体精确",
+      "query": "opp_001 详情",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        2
+      ],
+      "hit": [
+        24,
+        2,
+        23,
+        26,
+        29
+      ],
+      "search_ms": 60.68
+    },
+    {
+      "case_id": "ER16",
+      "category": "实体精确",
+      "query": "con_005 合同",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        7,
+        10
+      ],
+      "hit": [
+        7,
+        10,
+        24,
+        9,
+        8
+      ],
+      "search_ms": 77.1
+    },
+    {
+      "case_id": "ER17",
+      "category": "实体精确",
+      "query": "Q-001 报价单",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        3,
+        6
+      ],
+      "hit": [
+        3,
+        19,
+        6,
+        29,
+        24
+      ],
+      "search_ms": 230.32
+    },
+    {
+      "case_id": "ER18",
+      "category": "实体精确",
+      "query": "Q-TC-001 报价",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        19,
+        21
+      ],
+      "hit": [
+        19,
+        21,
+        3,
+        18,
+        20
+      ],
+      "search_ms": 76.39
+    },
+    {
+      "case_id": "ER19",
+      "category": "实体精确",
+      "query": "Q-HW-001 报价",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        29
+      ],
+      "hit": [
+        29,
+        3,
+        19,
+        6,
+        15
+      ],
+      "search_ms": 72.78
+    },
+    {
+      "case_id": "ER20",
+      "category": "实体精确",
+      "query": "POC-HW-001",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        15,
+        16
+      ],
+      "hit": [
+        16,
+        15,
+        29,
+        2,
+        24
+      ],
+      "search_ms": 58.05
+    },
+    {
+      "case_id": "ER21",
+      "category": "实体精确",
+      "query": "CON-BYD-001",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        24
+      ],
+      "hit": [
+        24,
+        23,
+        10,
+        7,
+        2
+      ],
+      "search_ms": 62.99
+    },
+    {
+      "case_id": "ER22",
+      "category": "实体精确",
+      "query": "opp_BYD_001",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        23,
+        24
+      ],
+      "hit": [
+        24,
+        23,
+        2,
+        26,
+        29
+      ],
+      "search_ms": 71.39
+    },
+    {
+      "case_id": "ER23",
+      "category": "实体精确",
+      "query": "CV XYZ 合同",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        7
+      ],
+      "hit": [
+        7,
+        10,
+        9,
+        30,
+        24
+      ],
+      "search_ms": 69.39
+    },
+    {
+      "case_id": "ER24",
+      "category": "实体精确",
+      "query": "CV XYZ 续约",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        8,
+        9,
+        10
+      ],
+      "hit": [
+        7,
+        10,
+        8,
+        9,
+        30
+      ],
+      "search_ms": 56.7
+    },
+    {
+      "case_id": "ER25",
+      "category": "实体精确",
+      "query": "张总 华为",
+      "passed": true,
+      "recall": 0.6667,
+      "expected": [
+        12,
+        14,
+        16
+      ],
+      "hit": [
+        14,
+        27,
+        28,
+        30,
+        16
+      ],
+      "search_ms": 77.83
+    },
+    {
+      "case_id": "ER26",
+      "category": "实体精确",
+      "query": "Andi PT Sentosa",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        2
+      ],
+      "hit": [
+        1,
+        2,
+        6,
+        5,
+        30
+      ],
+      "search_ms": 53.69
+    },
+    {
+      "case_id": "ER27",
+      "category": "实体精确",
+      "query": "pipeline 总览",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        25
+      ],
+      "hit": [
+        25,
+        15,
+        30,
+        16,
+        3
+      ],
+      "search_ms": 685.9
+    },
+    {
+      "case_id": "ER28",
+      "category": "实体精确",
+      "query": "风险商机列表",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        26
+      ],
+      "hit": [
+        23,
+        26,
+        2,
+        25,
+        8
+      ],
+      "search_ms": 62.28
+    },
+    {
+      "case_id": "ER29",
+      "category": "实体精确",
+      "query": "REQ-TC-001 API对接",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        17
+      ],
+      "hit": [
+        17,
+        18,
+        21,
+        19,
+        15
+      ],
+      "search_ms": 77.03
+    },
+    {
+      "case_id": "ER30",
+      "category": "实体精确",
+      "query": "TP-TC-001 技术方案",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        18
+      ],
+      "hit": [
+        18,
+        17,
+        19,
+        21,
+        15
+      ],
+      "search_ms": 122.99
+    },
+    {
+      "case_id": "TR01",
+      "category": "工具检索",
+      "query": "上次搜了什么竞品",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        4,
+        13
+      ],
+      "hit": [
+        4,
+        13,
+        8,
+        3,
+        17
+      ],
+      "search_ms": 356.56
+    },
+    {
+      "case_id": "TR02",
+      "category": "工具检索",
+      "query": "网上查的Odoo定价",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        4
+      ],
+      "hit": [
+        4,
+        13,
+        3,
+        20,
+        8
+      ],
+      "search_ms": 66.83
+    },
+    {
+      "case_id": "TR03",
+      "category": "工具检索",
+      "query": "SAP搜索结果",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        13
+      ],
+      "hit": [
+        13,
+        12,
+        16,
+        3,
+        15
+      ],
+      "search_ms": 808.29
+    },
+    {
+      "case_id": "TR04",
+      "category": "工具检索",
+      "query": "查询客户信息的结果",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        1,
+        11,
+        22
+      ],
+      "hit": [
+        22,
+        1,
+        11,
+        16,
+        17
+      ],
+      "search_ms": 71.36
+    },
+    {
+      "case_id": "TR05",
+      "category": "工具检索",
+      "query": "商机查询结果",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        2,
+        23
+      ],
+      "hit": [
+        23,
+        2,
+        25,
+        16,
+        22
+      ],
+      "search_ms": 61.87
+    },
+    {
+      "case_id": "TR06",
+      "category": "工具检索",
+      "query": "联系人查到了什么",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        14
+      ],
+      "hit": [
+        14,
+        22,
+        1,
+        27,
+        16
+      ],
+      "search_ms": 80.53
+    },
+    {
+      "case_id": "TR07",
+      "category": "工具检索",
+      "query": "合同查询结果",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        7
+      ],
+      "hit": [
+        7,
+        10,
+        24,
+        16,
+        9
+      ],
+      "search_ms": 71.46
+    },
+    {
+      "case_id": "TR08",
+      "category": "工具检索",
+      "query": "需求查询返回了什么",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        17
+      ],
+      "hit": [
+        17,
+        16,
+        27,
+        3,
+        22
+      ],
+      "search_ms": 63.25
+    },
+    {
+      "case_id": "TR09",
+      "category": "工具检索",
+      "query": "活动记录查询",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        27
+      ],
+      "hit": [
+        27,
+        17,
+        22,
+        1,
+        16
+      ],
+      "search_ms": 81.91
+    },
+    {
+      "case_id": "TR10",
+      "category": "工具检索",
+      "query": "BANT分析结果",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        12
+      ],
+      "hit": [
+        12,
+        3,
+        16,
+        26,
+        6
+      ],
+      "search_ms": 78.23
+    },
+    {
+      "case_id": "TR11",
+      "category": "工具检索",
+      "query": "pipeline分析结论",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        25
+      ],
+      "hit": [
+        25,
+        16,
+        15,
+        3,
+        12
+      ],
+      "search_ms": 62.04
+    },
+    {
+      "case_id": "TR12",
+      "category": "工具检索",
+      "query": "风险分析结果",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        26
+      ],
+      "hit": [
+        26,
+        12,
+        8,
+        3,
+        25
+      ],
+      "search_ms": 63.77
+    },
+    {
+      "case_id": "TR13",
+      "category": "工具检索",
+      "query": "续约方案分析",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        8
+      ],
+      "hit": [
+        8,
+        3,
+        7,
+        18,
+        12
+      ],
+      "search_ms": 67.75
+    },
+    {
+      "case_id": "TR14",
+      "category": "工具检索",
+      "query": "技术方案生成结果",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        18
+      ],
+      "hit": [
+        18,
+        3,
+        12,
+        26,
+        8
+      ],
+      "search_ms": 67.8
+    },
+    {
+      "case_id": "TR15",
+      "category": "工具检索",
+      "query": "报价生成操作",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        3
+      ],
+      "hit": [
+        3,
+        19,
+        5,
+        8,
+        24
+      ],
+      "search_ms": 83.35
+    },
+    {
+      "case_id": "TR16",
+      "category": "工具检索",
+      "query": "报价更新记录",
+      "passed": true,
+      "recall": 0.6667,
+      "expected": [
+        6,
+        21,
+        29
+      ],
+      "hit": [
+        6,
+        29,
+        3,
+        19,
+        5
+      ],
+      "search_ms": 62.34
+    },
+    {
+      "case_id": "TR17",
+      "category": "工具检索",
+      "query": "合同更新操作",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        10
+      ],
+      "hit": [
+        10,
+        9,
+        7,
+        24,
+        8
+      ],
+      "search_ms": 54.46
+    },
+    {
+      "case_id": "TR18",
+      "category": "工具检索",
+      "query": "POC规划创建",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        15
+      ],
+      "hit": [
+        15,
+        16,
+        2,
+        3,
+        17
+      ],
+      "search_ms": 70.84
+    },
+    {
+      "case_id": "TR19",
+      "category": "工具检索",
+      "query": "签约成交操作",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        24
+      ],
+      "hit": [
+        24,
+        30,
+        25,
+        10,
+        21
+      ],
+      "search_ms": 79.92
+    },
+    {
+      "case_id": "TR20",
+      "category": "工具检索",
+      "query": "腾讯报价创建",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        19
+      ],
+      "hit": [
+        19,
+        3,
+        21,
+        20,
+        29
+      ],
+      "search_ms": 85.9
+    },
+    {
+      "case_id": "TR21",
+      "category": "工具检索",
+      "query": "华为报价更新操作",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        29
+      ],
+      "hit": [
+        29,
+        6,
+        28,
+        3,
+        19
+      ],
+      "search_ms": 62.29
+    },
+    {
+      "case_id": "TR24",
+      "category": "工具检索",
+      "query": "POC结果查询",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        16
+      ],
+      "hit": [
+        16,
+        15,
+        30,
+        25,
+        3
+      ],
+      "search_ms": 58.45
+    },
+    {
+      "case_id": "TR25",
+      "category": "工具检索",
+      "query": "报价单生成analyze_data",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        3
+      ],
+      "hit": [
+        3,
+        8,
+        12,
+        19,
+        5
+      ],
+      "search_ms": 66.2
+    },
+    {
+      "case_id": "CT01",
+      "category": "变更追踪",
+      "query": "PT Sentosa报价金额变化",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        3,
+        5,
+        6
+      ],
+      "hit": [
+        5,
+        6,
+        1,
+        2,
+        3
+      ],
+      "search_ms": 63.87
+    },
+    {
+      "case_id": "CT02",
+      "category": "变更追踪",
+      "query": "CV XYZ合同期限变更",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        7,
+        10
+      ],
+      "hit": [
+        7,
+        10,
+        9,
+        30,
+        8
+      ],
+      "search_ms": 74.57
+    },
+    {
+      "case_id": "CT03",
+      "category": "变更追踪",
+      "query": "腾讯云报价调整历史",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        19,
+        20,
+        21
+      ],
+      "hit": [
+        19,
+        20,
+        5,
+        21,
+        17
+      ],
+      "search_ms": 91.13
+    },
+    {
+      "case_id": "CT04",
+      "category": "变更追踪",
+      "query": "华为报价从多少降到多少",
+      "passed": true,
+      "recall": 0.6667,
+      "expected": [
+        27,
+        28,
+        29
+      ],
+      "hit": [
+        28,
+        5,
+        29,
+        3,
+        19
+      ],
+      "search_ms": 75.67
+    },
+    {
+      "case_id": "CT05",
+      "category": "变更追踪",
+      "query": "$45K后来改成多少",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        3,
+        5,
+        6
+      ],
+      "hit": [
+        3,
+        2,
+        5,
+        6,
+        9
+      ],
+      "search_ms": 82.98
+    },
+    {
+      "case_id": "CT06",
+      "category": "变更追踪",
+      "query": "¥80万最后谈到多少",
+      "passed": false,
+      "recall": 0.0,
+      "expected": [
+        19,
+        20,
+        21
+      ],
+      "hit": [
+        28,
+        5,
+        6,
+        24,
+        29
+      ],
+      "search_ms": 58.4
+    },
+    {
+      "case_id": "CT07",
+      "category": "变更追踪",
+      "query": "¥480万为什么降到¥450万",
+      "passed": true,
+      "recall": 0.6667,
+      "expected": [
+        27,
+        28,
+        29
+      ],
+      "hit": [
+        5,
+        28,
+        6,
+        29,
+        9
+      ],
+      "search_ms": 76.8
+    },
+    {
+      "case_id": "CT08",
+      "category": "变更追踪",
+      "query": "合同期限怎么变的",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        7,
+        10
+      ],
+      "hit": [
+        10,
+        9,
+        7,
+        8,
+        24
+      ],
+      "search_ms": 64.01
+    },
+    {
+      "case_id": "CT09",
+      "category": "变更追踪",
+      "query": "实施周期从12周改到8周",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        28,
+        29
+      ],
+      "hit": [
+        28,
+        29,
+        15,
+        3,
+        30
+      ],
+      "search_ms": 74.74
+    },
+    {
+      "case_id": "CT10",
+      "category": "变更追踪",
+      "query": "腾讯方案砍了哪些功能",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        20,
+        21
+      ],
+      "hit": [
+        30,
+        20,
+        18,
+        21,
+        17
+      ],
+      "search_ms": 75.19
+    },
+    {
+      "case_id": "CT11",
+      "category": "变更追踪",
+      "query": "¥450万是怎么定下来的",
+      "passed": true,
+      "recall": 0.5,
+      "expected": [
+        28,
+        29
+      ],
+      "hit": [
+        5,
+        28,
+        3,
+        6,
+        24
+      ],
+      "search_ms": 82.4
+    },
+    {
+      "case_id": "CT12",
+      "category": "变更追踪",
+      "query": "$40K谁同意的",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        5,
+        6
+      ],
+      "hit": [
+        5,
+        6,
+        9,
+        30,
+        3
+      ],
+      "search_ms": 73.44
+    },
+    {
+      "case_id": "CT13",
+      "category": "变更追踪",
+      "query": "CV XYZ最终选了哪个方案",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        9,
+        10
+      ],
+      "hit": [
+        7,
+        30,
+        10,
+        9,
+        8
+      ],
+      "search_ms": 58.58
+    },
+    {
+      "case_id": "CT14",
+      "category": "变更追踪",
+      "query": "GraphQL保留了吗",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        21
+      ],
+      "hit": [
+        21,
+        20,
+        18,
+        17,
+        29
+      ],
+      "search_ms": 75.86
+    },
+    {
+      "case_id": "CT15",
+      "category": "变更追踪",
+      "query": "日志审计最后怎么处理",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        21
+      ],
+      "hit": [
+        17,
+        21,
+        18,
+        15,
+        12
+      ],
+      "search_ms": 85.64
+    },
+    {
+      "case_id": "CT16",
+      "category": "变更追踪",
+      "query": "比亚迪成交价和最初一样吗",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        23,
+        24
+      ],
+      "hit": [
+        24,
+        25,
+        23,
+        22,
+        30
+      ],
+      "search_ms": 86.03
+    },
+    {
+      "case_id": "CT17",
+      "category": "变更追踪",
+      "query": "PT Sentosa付款条件改没",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        3,
+        6
+      ],
+      "hit": [
+        3,
+        1,
+        2,
+        6,
+        5
+      ],
+      "search_ms": 80.76
+    },
+    {
+      "case_id": "CT18",
+      "category": "变更追踪",
+      "query": "华为POC范围有调整吗",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        15,
+        16
+      ],
+      "hit": [
+        16,
+        15,
+        30,
+        27,
+        5
+      ],
+      "search_ms": 81.39
+    },
+    {
+      "case_id": "CT19",
+      "category": "变更追踪",
+      "query": "Q-001金额变更记录",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        3,
+        6
+      ],
+      "hit": [
+        6,
+        21,
+        29,
+        24,
+        3
+      ],
+      "search_ms": 80.86
+    },
+    {
+      "case_id": "CT20",
+      "category": "变更追踪",
+      "query": "con_005到期日变了吗",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        7,
+        10
+      ],
+      "hit": [
+        7,
+        10,
+        24,
+        30,
+        9
+      ],
+      "search_ms": 58.68
+    },
+    {
+      "case_id": "CT21",
+      "category": "变更追踪",
+      "query": "续约不涨价的原因",
+      "passed": true,
+      "recall": 0.6667,
+      "expected": [
+        8,
+        9,
+        10
+      ],
+      "hit": [
+        9,
+        8,
+        20,
+        7,
+        3
+      ],
+      "search_ms": 83.89
+    },
+    {
+      "case_id": "CT22",
+      "category": "变更追踪",
+      "query": "SLA升级为什么被砍",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        8,
+        9
+      ],
+      "hit": [
+        9,
+        8,
+        5,
+        28,
+        21
+      ],
+      "search_ms": 59.88
+    },
+    {
+      "case_id": "CT23",
+      "category": "变更追踪",
+      "query": "¥60万方案缺什么功能",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        20
+      ],
+      "hit": [
+        3,
+        28,
+        29,
+        20,
+        18
+      ],
+      "search_ms": 60.94
+    },
+    {
+      "case_id": "CT24",
+      "category": "变更追踪",
+      "query": "为什么选里程碑付款",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        19
+      ],
+      "hit": [
+        3,
+        19,
+        30,
+        9,
+        25
+      ],
+      "search_ms": 69.69
+    },
+    {
+      "case_id": "CT25",
+      "category": "变更追踪",
+      "query": "比亚迪全款付的原因",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        24
+      ],
+      "hit": [
+        24,
+        25,
+        22,
+        23,
+        30
+      ],
+      "search_ms": 74.66
+    },
+    {
+      "case_id": "FS01",
+      "category": "模糊语义",
+      "query": "制造业客户有哪些",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        1,
+        22
+      ],
+      "hit": [
+        22,
+        1,
+        11,
+        30,
+        23
+      ],
+      "search_ms": 70.29
+    },
+    {
+      "case_id": "FS02",
+      "category": "模糊语义",
+      "query": "年费二十万的合同",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        7,
+        8,
+        9,
+        10
+      ],
+      "hit": [
+        8,
+        7,
+        9,
+        10,
+        24
+      ],
+      "search_ms": 71.89
+    },
+    {
+      "case_id": "FS03",
+      "category": "模糊语义",
+      "query": "已签约的商机",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        24
+      ],
+      "hit": [
+        25,
+        23,
+        24,
+        2,
+        30
+      ],
+      "search_ms": 83.86
+    },
+    {
+      "case_id": "FS04",
+      "category": "模糊语义",
+      "query": "本月成交了多少",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        24,
+        25
+      ],
+      "hit": [
+        25,
+        24,
+        30,
+        3,
+        2
+      ],
+      "search_ms": 83.44
+    },
+    {
+      "case_id": "FS05",
+      "category": "模糊语义",
+      "query": "涨价方案",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        8
+      ],
+      "hit": [
+        9,
+        3,
+        8,
+        28,
+        5
+      ],
+      "search_ms": 67.04
+    },
+    {
+      "case_id": "FS06",
+      "category": "模糊语义",
+      "query": "API接口需求",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        17
+      ],
+      "hit": [
+        17,
+        18,
+        3,
+        15,
+        21
+      ],
+      "search_ms": 69.22
+    },
+    {
+      "case_id": "FS07",
+      "category": "模糊语义",
+      "query": "多租户架构",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        17,
+        18
+      ],
+      "hit": [
+        17,
+        18,
+        20,
+        21,
+        8
+      ],
+      "search_ms": 52.83
+    },
+    {
+      "case_id": "FS08",
+      "category": "模糊语义",
+      "query": "ERP替换项目",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        12
+      ],
+      "hit": [
+        12,
+        8,
+        15,
+        30,
+        3
+      ],
+      "search_ms": 55.26
+    },
+    {
+      "case_id": "FS09",
+      "category": "模糊语义",
+      "query": "供应链管理模块",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        23
+      ],
+      "hit": [
+        23,
+        29,
+        15,
+        25,
+        17
+      ],
+      "search_ms": 61.89
+    },
+    {
+      "case_id": "FS10",
+      "category": "模糊语义",
+      "query": "折扣优惠",
+      "passed": true,
+      "recall": 0.5,
+      "expected": [
+        3,
+        6
+      ],
+      "hit": [
+        5,
+        3,
+        28,
+        2,
+        20
+      ],
+      "search_ms": 56.71
+    },
+    {
+      "case_id": "FS11",
+      "category": "模糊语义",
+      "query": "付款条件",
+      "passed": true,
+      "recall": 0.3333,
+      "expected": [
+        3,
+        6,
+        19
+      ],
+      "hit": [
+        3,
+        9,
+        30,
+        24,
+        28
+      ],
+      "search_ms": 54.88
+    },
+    {
+      "case_id": "FS12",
+      "category": "模糊语义",
+      "query": "里程碑付款",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        19
+      ],
+      "hit": [
+        3,
+        19,
+        30,
+        25,
+        9
+      ],
+      "search_ms": 53.68
+    },
+    {
+      "case_id": "FS13",
+      "category": "模糊语义",
+      "query": "实施周期",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        3,
+        15,
+        29
+      ],
+      "hit": [
+        28,
+        3,
+        15,
+        29,
+        30
+      ],
+      "search_ms": 55.67
+    },
+    {
+      "case_id": "FS14",
+      "category": "模糊语义",
+      "query": "免费技术支持",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        3
+      ],
+      "hit": [
+        3,
+        17,
+        18,
+        27,
+        20
+      ],
+      "search_ms": 60.72
+    },
+    {
+      "case_id": "FS15",
+      "category": "模糊语义",
+      "query": "竞品对比",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        4,
+        13
+      ],
+      "hit": [
+        4,
+        13,
+        8,
+        3,
+        12
+      ],
+      "search_ms": 89.43
+    },
+    {
+      "case_id": "FS16",
+      "category": "模糊语义",
+      "query": "SAP报价多少",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        13
+      ],
+      "hit": [
+        13,
+        3,
+        19,
+        5,
+        6
+      ],
+      "search_ms": 84.86
+    },
+    {
+      "case_id": "FS17",
+      "category": "模糊语义",
+      "query": "Odoo多少钱",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        4
+      ],
+      "hit": [
+        4,
+        3,
+        20,
+        13,
+        19
+      ],
+      "search_ms": 54.7
+    },
+    {
+      "case_id": "FS18",
+      "category": "模糊语义",
+      "query": "哪些客户砍过价",
+      "passed": true,
+      "recall": 0.5,
+      "expected": [
+        5,
+        9,
+        20,
+        28
+      ],
+      "hit": [
+        22,
+        1,
+        5,
+        9,
+        11
+      ],
+      "search_ms": 76.77
+    },
+    {
+      "case_id": "FS19",
+      "category": "模糊语义",
+      "query": "审批流相关",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        15
+      ],
+      "hit": [
+        15,
+        17,
+        25,
+        30,
+        16
+      ],
+      "search_ms": 76.94
+    },
+    {
+      "case_id": "FS20",
+      "category": "模糊语义",
+      "query": "S级大客户",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        11
+      ],
+      "hit": [
+        22,
+        30,
+        11,
+        9,
+        8
+      ],
+      "search_ms": 79.12
+    },
+    {
+      "case_id": "FS21",
+      "category": "模糊语义",
+      "query": "做POC的客户",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        15,
+        16
+      ],
+      "hit": [
+        16,
+        15,
+        30,
+        26,
+        2
+      ],
+      "search_ms": 81.48
+    },
+    {
+      "case_id": "FS22",
+      "category": "模糊语义",
+      "query": "还在谈判的",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        23
+      ],
+      "hit": [
+        23,
+        30,
+        2,
+        28,
+        9
+      ],
+      "search_ms": 80.28
+    },
+    {
+      "case_id": "FS23",
+      "category": "模糊语义",
+      "query": "Salesforce竞争",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        8
+      ],
+      "hit": [
+        8,
+        13,
+        26,
+        20,
+        2
+      ],
+      "search_ms": 663.44
+    },
+    {
+      "case_id": "FS24",
+      "category": "模糊语义",
+      "query": "VP级决策者",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        12,
+        14
+      ],
+      "hit": [
+        14,
+        12,
+        3,
+        26,
+        15
+      ],
+      "search_ms": 67.12
+    },
+    {
+      "case_id": "FS25",
+      "category": "模糊语义",
+      "query": "本周客户互动",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        27
+      ],
+      "hit": [
+        30,
+        22,
+        27,
+        11,
+        1
+      ],
+      "search_ms": 63.9
+    },
+    {
+      "case_id": "NE01",
+      "category": "负例",
+      "query": "Amazon的客户信息",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        22,
+        1,
+        11,
+        17,
+        30
+      ],
+      "search_ms": 60.74
+    },
+    {
+      "case_id": "NE02",
+      "category": "负例",
+      "query": "Microsoft Teams集成",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        16,
+        18,
+        17,
+        21,
+        20
+      ],
+      "search_ms": 76.54
+    },
+    {
+      "case_id": "NE03",
+      "category": "负例",
+      "query": "阿里巴巴的商机",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        23,
+        2,
+        25,
+        26,
+        17
+      ],
+      "search_ms": 70.39
+    },
+    {
+      "case_id": "NE04",
+      "category": "负例",
+      "query": "Slack渠道配置",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        9,
+        3,
+        18,
+        17,
+        21
+      ],
+      "search_ms": 52.01
+    },
+    {
+      "case_id": "NE05",
+      "category": "负例",
+      "query": "京东物流合同",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        7,
+        10,
+        24,
+        9,
+        21
+      ],
+      "search_ms": 64.21
+    },
+    {
+      "case_id": "NE06",
+      "category": "负例",
+      "query": "Kubernetes部署方案",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        18,
+        17,
+        3,
+        15,
+        21
+      ],
+      "search_ms": 54.46
+    },
+    {
+      "case_id": "NE07",
+      "category": "负例",
+      "query": "AWS Lambda费用",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        20,
+        19,
+        13,
+        21,
+        18
+      ],
+      "search_ms": 51.51
+    },
+    {
+      "case_id": "NE08",
+      "category": "负例",
+      "query": "字节跳动广告",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        23,
+        25,
+        2,
+        24,
+        26
+      ],
+      "search_ms": 75.95
+    },
+    {
+      "case_id": "NE09",
+      "category": "负例",
+      "query": "opp_999不存在的商机",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        23,
+        2,
+        26,
+        25,
+        24
+      ],
+      "search_ms": 81.05
+    },
+    {
+      "case_id": "NE10",
+      "category": "负例",
+      "query": "CON-FAKE-001假合同",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        10,
+        24,
+        7,
+        2,
+        29
+      ],
+      "search_ms": 134.52
+    },
+    {
+      "case_id": "NE11",
+      "category": "负例",
+      "query": "2024年Q1数据",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        3,
+        30,
+        21,
+        6,
+        29
+      ],
+      "search_ms": 79.84
+    },
+    {
+      "case_id": "NE12",
+      "category": "负例",
+      "query": "招聘Java工程师",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        14,
+        16,
+        27,
+        30,
+        21
+      ],
+      "search_ms": 82.9
+    },
+    {
+      "case_id": "NE13",
+      "category": "负例",
+      "query": "公司年会策划",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        30,
+        10,
+        2,
+        3,
+        7
+      ],
+      "search_ms": 69.65
+    },
+    {
+      "case_id": "NE14",
+      "category": "负例",
+      "query": "小红书营销",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        25,
+        23,
+        26,
+        2,
+        20
+      ],
+      "search_ms": 62.37
+    },
+    {
+      "case_id": "NE15",
+      "category": "负例",
+      "query": "特斯拉自动驾驶",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        25,
+        2,
+        18,
+        23,
+        20
+      ],
+      "search_ms": 59.35
+    },
+    {
+      "case_id": "NE16",
+      "category": "负例",
+      "query": "GPT-5发布时间",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        21,
+        18,
+        20,
+        3,
+        7
+      ],
+      "search_ms": 56.93
+    },
+    {
+      "case_id": "NE17",
+      "category": "负例",
+      "query": "NBA季后赛",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        23,
+        30,
+        16,
+        25,
+        24
+      ],
+      "search_ms": 70.69
+    },
+    {
+      "case_id": "NE18",
+      "category": "负例",
+      "query": "iPhone16价格",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        29,
+        5,
+        28,
+        6,
+        24
+      ],
+      "search_ms": 80.6
+    },
+    {
+      "case_id": "NE19",
+      "category": "负例",
+      "query": "Python3.13新特性",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        21,
+        18,
+        17,
+        20,
+        16
+      ],
+      "search_ms": 98.02
+    },
+    {
+      "case_id": "NE20",
+      "category": "负例",
+      "query": "Docker Compose配置",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        18,
+        17,
+        20,
+        15,
+        21
+      ],
+      "search_ms": 62.37
+    },
+    {
+      "case_id": "XT01",
+      "category": "跨任务",
+      "query": "所有报价超过¥100万的客户",
+      "passed": false,
+      "recall": 0.25,
+      "expected": [
+        23,
+        27,
+        28,
+        29
+      ],
+      "hit": [
+        3,
+        19,
+        5,
+        6,
+        29
+      ],
+      "search_ms": 96.26
+    },
+    {
+      "case_id": "XT02",
+      "category": "跨任务",
+      "query": "所有使用web_search的场景",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        4,
+        13
+      ],
+      "hit": [
+        26,
+        13,
+        20,
+        4,
+        12
+      ],
+      "search_ms": 86.21
+    },
+    {
+      "case_id": "XT03",
+      "category": "跨任务",
+      "query": "更新过报价的客户",
+      "passed": true,
+      "recall": 0.6667,
+      "expected": [
+        6,
+        21,
+        29
+      ],
+      "hit": [
+        6,
+        3,
+        29,
+        5,
+        19
+      ],
+      "search_ms": 84.0
+    },
+    {
+      "case_id": "XT04",
+      "category": "跨任务",
+      "query": "成交金额最大的",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        24
+      ],
+      "hit": [
+        24,
+        25,
+        2,
+        30,
+        5
+      ],
+      "search_ms": 70.8
+    },
+    {
+      "case_id": "XT05",
+      "category": "跨任务",
+      "query": "有竞品威胁的客户",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        4,
+        8,
+        13,
+        26
+      ],
+      "hit": [
+        4,
+        13,
+        8,
+        11,
+        26
+      ],
+      "search_ms": 91.64
+    },
+    {
+      "case_id": "XT06",
+      "category": "跨任务",
+      "query": "所有P0需求",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        17
+      ],
+      "hit": [
+        17,
+        15,
+        16,
+        25,
+        3
+      ],
+      "search_ms": 83.89
+    },
+    {
+      "case_id": "XT07",
+      "category": "跨任务",
+      "query": "所有已确认报价",
+      "passed": true,
+      "recall": 0.6667,
+      "expected": [
+        6,
+        21,
+        29
+      ],
+      "hit": [
+        3,
+        6,
+        30,
+        29,
+        19
+      ],
+      "search_ms": 79.91
+    },
+    {
+      "case_id": "XT08",
+      "category": "跨任务",
+      "query": "涉及砍价的轮次",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        5,
+        9,
+        20,
+        28
+      ],
+      "hit": [
+        28,
+        5,
+        20,
+        3,
+        9
+      ],
+      "search_ms": 84.15
+    },
+    {
+      "case_id": "XT09",
+      "category": "跨任务",
+      "query": "所有合同相关操作",
+      "passed": true,
+      "recall": 0.8,
+      "expected": [
+        7,
+        8,
+        9,
+        10,
+        24
+      ],
+      "hit": [
+        10,
+        24,
+        7,
+        9,
+        30
+      ],
+      "search_ms": 57.58
+    },
+    {
+      "case_id": "XT10",
+      "category": "跨任务",
+      "query": "本月forecast",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        25
+      ],
+      "hit": [
+        25,
+        30,
+        8,
+        3,
+        26
+      ],
+      "search_ms": 69.83
+    },
+    {
+      "case_id": "XT11",
+      "category": "跨任务",
+      "query": "涉及技术评估的客户",
+      "passed": true,
+      "recall": 0.5,
+      "expected": [
+        14,
+        16,
+        17,
+        18
+      ],
+      "hit": [
+        15,
+        16,
+        18,
+        11,
+        3
+      ],
+      "search_ms": 91.49
+    },
+    {
+      "case_id": "XT12",
+      "category": "跨任务",
+      "query": "所有周报总结",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        25,
+        30
+      ],
+      "hit": [
+        30,
+        27,
+        3,
+        16,
+        25
+      ],
+      "search_ms": 88.3
+    },
+    {
+      "case_id": "XT13",
+      "category": "跨任务",
+      "query": "negotiation阶段商机",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        23
+      ],
+      "hit": [
+        23,
+        2,
+        26,
+        25,
+        30
+      ],
+      "search_ms": 55.97
+    },
+    {
+      "case_id": "XT14",
+      "category": "跨任务",
+      "query": "3年长期合同",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        10
+      ],
+      "hit": [
+        10,
+        7,
+        9,
+        8,
+        24
+      ],
+      "search_ms": 79.09
+    },
+    {
+      "case_id": "XT15",
+      "category": "跨任务",
+      "query": "自动续约相关",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        7
+      ],
+      "hit": [
+        8,
+        7,
+        9,
+        30,
+        10
+      ],
+      "search_ms": 82.87
+    },
+    {
+      "case_id": "XT16",
+      "category": "跨任务",
+      "query": "本周华为所有操作",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        27,
+        28,
+        29
+      ],
+      "hit": [
+        30,
+        27,
+        29,
+        28,
+        14
+      ],
+      "search_ms": 55.39
+    },
+    {
+      "case_id": "XT17",
+      "category": "跨任务",
+      "query": "最近3轮做了什么",
+      "passed": true,
+      "recall": 0.3333,
+      "expected": [
+        28,
+        29,
+        30
+      ],
+      "hit": [
+        30,
+        27,
+        25,
+        16,
+        21
+      ],
+      "search_ms": 71.39
+    },
+    {
+      "case_id": "XT18",
+      "category": "跨任务",
+      "query": "上周所有砍价谈判",
+      "passed": true,
+      "recall": 0.75,
+      "expected": [
+        5,
+        9,
+        20,
+        28
+      ],
+      "hit": [
+        5,
+        28,
+        23,
+        20,
+        27
+      ],
+      "search_ms": 86.29
+    },
+    {
+      "case_id": "XT19",
+      "category": "跨任务",
+      "query": "涉及¥100万以上的所有客户",
+      "passed": false,
+      "recall": 0.0,
+      "expected": [
+        23,
+        24,
+        27,
+        28,
+        29
+      ],
+      "hit": [
+        22,
+        11,
+        1,
+        30,
+        9
+      ],
+      "search_ms": 68.14
+    },
+    {
+      "case_id": "XT20",
+      "category": "跨任务",
+      "query": "还没签约的客户进展",
+      "passed": false,
+      "recall": 0.25,
+      "expected": [
+        2,
+        23,
+        25,
+        26
+      ],
+      "hit": [
+        30,
+        24,
+        25,
+        10,
+        21
+      ],
+      "search_ms": 93.99
+    },
+    {
+      "case_id": "MT01",
+      "category": "多工具区分",
+      "query": "查PT Sentosa时返回了什么",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        1,
+        2
+      ],
+      "hit": [
+        1,
+        2,
+        6,
+        5,
+        30
+      ],
+      "search_ms": 86.87
+    },
+    {
+      "case_id": "MT02",
+      "category": "多工具区分",
+      "query": "查华为时得到了什么信息",
+      "passed": true,
+      "recall": 0.5,
+      "expected": [
+        11,
+        14,
+        16,
+        27
+      ],
+      "hit": [
+        30,
+        27,
+        1,
+        14,
+        29
+      ],
+      "search_ms": 82.08
+    },
+    {
+      "case_id": "MT03",
+      "category": "多工具区分",
+      "query": "腾讯云的查询结果",
+      "passed": true,
+      "recall": 0.5,
+      "expected": [
+        7,
+        17
+      ],
+      "hit": [
+        17,
+        19,
+        20,
+        30,
+        18
+      ],
+      "search_ms": 60.54
+    },
+    {
+      "case_id": "MT04",
+      "category": "多工具区分",
+      "query": "商机查询结果是什么",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        2,
+        23
+      ],
+      "hit": [
+        23,
+        2,
+        25,
+        16,
+        17
+      ],
+      "search_ms": 71.38
+    },
+    {
+      "case_id": "MT05",
+      "category": "多工具区分",
+      "query": "联系人的查询结果",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        14
+      ],
+      "hit": [
+        14,
+        22,
+        27,
+        16,
+        1
+      ],
+      "search_ms": 76.73
+    },
+    {
+      "case_id": "MT06",
+      "category": "多工具区分",
+      "query": "合同查询返回了什么",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        7
+      ],
+      "hit": [
+        7,
+        10,
+        24,
+        17,
+        16
+      ],
+      "search_ms": 64.99
+    },
+    {
+      "case_id": "MT07",
+      "category": "多工具区分",
+      "query": "需求查到了什么",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        17
+      ],
+      "hit": [
+        17,
+        16,
+        27,
+        23,
+        14
+      ],
+      "search_ms": 60.15
+    },
+    {
+      "case_id": "MT08",
+      "category": "多工具区分",
+      "query": "活动记录查了什么",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        27
+      ],
+      "hit": [
+        27,
+        17,
+        1,
+        16,
+        22
+      ],
+      "search_ms": 71.72
+    },
+    {
+      "case_id": "MT09",
+      "category": "多工具区分",
+      "query": "最近一次查数据是什么",
+      "passed": false,
+      "recall": 0.0,
+      "expected": [
+        27
+      ],
+      "hit": [
+        30,
+        21,
+        3,
+        25,
+        16
+      ],
+      "search_ms": 82.79
+    },
+    {
+      "case_id": "MT10",
+      "category": "多工具区分",
+      "query": "第一次查客户信息得到什么",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        1
+      ],
+      "hit": [
+        22,
+        1,
+        11,
+        30,
+        3
+      ],
+      "search_ms": 62.81
+    },
+    {
+      "case_id": "MT11",
+      "category": "多工具区分",
+      "query": "报价创建操作",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        19
+      ],
+      "hit": [
+        19,
+        3,
+        6,
+        29,
+        5
+      ],
+      "search_ms": 83.95
+    },
+    {
+      "case_id": "MT12",
+      "category": "多工具区分",
+      "query": "报价更新了几次",
+      "passed": true,
+      "recall": 0.6667,
+      "expected": [
+        6,
+        21,
+        29
+      ],
+      "hit": [
+        6,
+        29,
+        3,
+        5,
+        19
+      ],
+      "search_ms": 79.63
+    },
+    {
+      "case_id": "MT13",
+      "category": "多工具区分",
+      "query": "签约成交那次操作",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        24
+      ],
+      "hit": [
+        24,
+        30,
+        25,
+        10,
+        21
+      ],
+      "search_ms": 97.61
+    },
+    {
+      "case_id": "MT14",
+      "category": "多工具区分",
+      "query": "最后一次execute_task做了什么",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        29
+      ],
+      "hit": [
+        21,
+        15,
+        29,
+        24,
+        6
+      ],
+      "search_ms": 72.5
+    },
+    {
+      "case_id": "MT15",
+      "category": "多工具区分",
+      "query": "腾讯的执行操作有几次",
+      "passed": true,
+      "recall": 0.3333,
+      "expected": [
+        10,
+        19,
+        21
+      ],
+      "hit": [
+        30,
+        29,
+        17,
+        21,
+        20
+      ],
+      "search_ms": 85.11
+    },
+    {
+      "case_id": "MT16",
+      "category": "多工具区分",
+      "query": "华为做了什么执行操作",
+      "passed": true,
+      "recall": 0.5,
+      "expected": [
+        15,
+        29
+      ],
+      "hit": [
+        29,
+        30,
+        24,
+        27,
+        28
+      ],
+      "search_ms": 78.32
+    },
+    {
+      "case_id": "MT17",
+      "category": "多工具区分",
+      "query": "BANT分析是什么时候做的",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        12
+      ],
+      "hit": [
+        12,
+        3,
+        26,
+        25,
+        18
+      ],
+      "search_ms": 85.03
+    },
+    {
+      "case_id": "MT18",
+      "category": "多工具区分",
+      "query": "续约方案的分析结果",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        8
+      ],
+      "hit": [
+        8,
+        3,
+        12,
+        7,
+        18
+      ],
+      "search_ms": 60.71
+    },
+    {
+      "case_id": "MT19",
+      "category": "多工具区分",
+      "query": "搜Odoo那次结果",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        4
+      ],
+      "hit": [
+        4,
+        16,
+        25,
+        30,
+        21
+      ],
+      "search_ms": 57.72
+    },
+    {
+      "case_id": "MT20",
+      "category": "多工具区分",
+      "query": "搜SAP定价那次",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        13
+      ],
+      "hit": [
+        13,
+        3,
+        5,
+        9,
+        8
+      ],
+      "search_ms": 65.54
+    },
+    {
+      "case_id": "TF01",
+      "category": "时序过滤",
+      "query": "最近一次和华为的互动",
+      "passed": true,
+      "recall": 0.6667,
+      "expected": [
+        27,
+        28,
+        29
+      ],
+      "hit": [
+        27,
+        30,
+        14,
+        29,
+        16
+      ],
+      "search_ms": 59.27
+    },
+    {
+      "case_id": "TF02",
+      "category": "时序过滤",
+      "query": "上次跟腾讯云谈的什么",
+      "passed": true,
+      "recall": 0.5,
+      "expected": [
+        20,
+        21
+      ],
+      "hit": [
+        19,
+        20,
+        30,
+        17,
+        18
+      ],
+      "search_ms": 77.19
+    },
+    {
+      "case_id": "TF03",
+      "category": "时序过滤",
+      "query": "最后确认的报价是什么",
+      "passed": true,
+      "recall": 0.6667,
+      "expected": [
+        6,
+        21,
+        29
+      ],
+      "hit": [
+        6,
+        29,
+        3,
+        19,
+        5
+      ],
+      "search_ms": 81.48
+    },
+    {
+      "case_id": "TF04",
+      "category": "时序过滤",
+      "query": "第一次接触PT Sentosa是什么时候",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        1
+      ],
+      "hit": [
+        1,
+        2,
+        6,
+        30,
+        5
+      ],
+      "search_ms": 58.75
+    },
+    {
+      "case_id": "TF05",
+      "category": "时序过滤",
+      "query": "最早提出报价是哪次",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        3
+      ],
+      "hit": [
+        3,
+        6,
+        19,
+        5,
+        29
+      ],
+      "search_ms": 90.86
+    },
+    {
+      "case_id": "TF06",
+      "category": "时序过滤",
+      "query": "华为POC前后发生了什么",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        14,
+        15,
+        16
+      ],
+      "hit": [
+        16,
+        15,
+        30,
+        27,
+        14
+      ],
+      "search_ms": 58.08
+    },
+    {
+      "case_id": "TF07",
+      "category": "时序过滤",
+      "query": "腾讯砍价之后做了什么",
+      "passed": true,
+      "recall": 0.5,
+      "expected": [
+        20,
+        21
+      ],
+      "hit": [
+        20,
+        28,
+        5,
+        30,
+        19
+      ],
+      "search_ms": 80.82
+    },
+    {
+      "case_id": "TF08",
+      "category": "时序过滤",
+      "query": "跟PT Sentosa总共互动了几轮",
+      "passed": true,
+      "recall": 0.5,
+      "expected": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "hit": [
+        1,
+        2,
+        27,
+        30,
+        6
+      ],
+      "search_ms": 81.71
+    },
+    {
+      "case_id": "TF09",
+      "category": "时序过滤",
+      "query": "比亚迪从接触到签约用了几轮",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [
+        22,
+        23,
+        24
+      ],
+      "hit": [
+        24,
+        25,
+        30,
+        23,
+        22
+      ],
+      "search_ms": 93.88
+    },
+    {
+      "case_id": "TF10",
+      "category": "时序过滤",
+      "query": "华为报价谈判持续了多久",
+      "passed": true,
+      "recall": 0.6667,
+      "expected": [
+        27,
+        28,
+        29
+      ],
+      "hit": [
+        28,
+        30,
+        3,
+        19,
+        29
+      ],
+      "search_ms": 213.89
+    },
+    {
+      "case_id": "BN01",
+      "category": "边界负例",
+      "query": "华为科技的HR系统项目",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        30,
+        14,
+        27,
+        29,
+        16
+      ],
+      "search_ms": 76.83
+    },
+    {
+      "case_id": "BN02",
+      "category": "边界负例",
+      "query": "腾讯云的自动驾驶项目",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        20,
+        18,
+        19,
+        17,
+        30
+      ],
+      "search_ms": 61.32
+    },
+    {
+      "case_id": "BN03",
+      "category": "边界负例",
+      "query": "比亚迪的AI芯片报价",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        24,
+        3,
+        19,
+        28,
+        29
+      ],
+      "search_ms": 91.02
+    },
+    {
+      "case_id": "BN04",
+      "category": "边界负例",
+      "query": "PT Sentosa员工培训计划",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        1,
+        2,
+        6,
+        30,
+        5
+      ],
+      "search_ms": 78.7
+    },
+    {
+      "case_id": "BN05",
+      "category": "边界负例",
+      "query": "华为张总的生日是哪天",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        27,
+        14,
+        28,
+        12,
+        30
+      ],
+      "search_ms": 82.23
+    },
+    {
+      "case_id": "BN06",
+      "category": "边界负例",
+      "query": "PT Sentosa Andi的学历",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        1,
+        2,
+        6,
+        5,
+        30
+      ],
+      "search_ms": 79.01
+    },
+    {
+      "case_id": "BN07",
+      "category": "边界负例",
+      "query": "Q-002报价单详情",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        3,
+        19,
+        6,
+        24,
+        29
+      ],
+      "search_ms": 100.82
+    },
+    {
+      "case_id": "BN08",
+      "category": "边界负例",
+      "query": "opp_002商机进展",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        23,
+        2,
+        26,
+        24,
+        17
+      ],
+      "search_ms": 62.65
+    },
+    {
+      "case_id": "BN09",
+      "category": "边界负例",
+      "query": "腾讯云去年的合同情况",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        30,
+        19,
+        10,
+        20,
+        7
+      ],
+      "search_ms": 58.46
+    },
+    {
+      "case_id": "BN10",
+      "category": "边界负例",
+      "query": "比亚迪第二次POC结果",
+      "passed": true,
+      "recall": 1.0,
+      "expected": [],
+      "hit": [
+        16,
+        15,
+        25,
+        23,
+        22
+      ],
+      "search_ms": 58.49
+    }
+  ]
+}

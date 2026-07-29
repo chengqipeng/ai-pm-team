@@ -1,0 +1,112 @@
+{
+  "recall_vdb": {
+    "total": 190,
+    "passed": 180,
+    "pass_rate": 0.9474,
+    "avg_recall": 0.8926,
+    "p50_ms": 126.74,
+    "avg_ms": 151.28,
+    "by_category": {
+      "精确实体": {
+        "total": 30,
+        "passed": 30,
+        "rate": 1.0
+      },
+      "模糊语义": {
+        "total": 25,
+        "passed": 24,
+        "rate": 0.96
+      },
+      "变更追踪": {
+        "total": 25,
+        "passed": 24,
+        "rate": 0.96
+      },
+      "工具结果": {
+        "total": 20,
+        "passed": 18,
+        "rate": 0.9
+      },
+      "时间线": {
+        "total": 20,
+        "passed": 19,
+        "rate": 0.95
+      },
+      "跨任务": {
+        "total": 20,
+        "passed": 18,
+        "rate": 0.9
+      },
+      "决策追踪": {
+        "total": 20,
+        "passed": 18,
+        "rate": 0.9
+      },
+      "负例": {
+        "total": 20,
+        "passed": 20,
+        "rate": 1.0
+      },
+      "时效性": {
+        "total": 10,
+        "passed": 9,
+        "rate": 0.9
+      }
+    }
+  },
+  "grep": {
+    "total": 190,
+    "passed": 167,
+    "pass_rate": 0.8789,
+    "avg_recall": 0.8155,
+    "p50_ms": 0.05,
+    "avg_ms": 0.05,
+    "by_category": {
+      "精确实体": {
+        "total": 30,
+        "passed": 29,
+        "rate": 0.9667
+      },
+      "模糊语义": {
+        "total": 25,
+        "passed": 19,
+        "rate": 0.76
+      },
+      "变更追踪": {
+        "total": 25,
+        "passed": 25,
+        "rate": 1.0
+      },
+      "工具结果": {
+        "total": 20,
+        "passed": 11,
+        "rate": 0.55
+      },
+      "时间线": {
+        "total": 20,
+        "passed": 19,
+        "rate": 0.95
+      },
+      "跨任务": {
+        "total": 20,
+        "passed": 18,
+        "rate": 0.9
+      },
+      "决策追踪": {
+        "total": 20,
+        "passed": 16,
+        "rate": 0.8
+      },
+      "负例": {
+        "total": 20,
+        "passed": 20,
+        "rate": 1.0
+      },
+      "时效性": {
+        "total": 10,
+        "passed": 10,
+        "rate": 1.0
+      }
+    }
+  }
+}

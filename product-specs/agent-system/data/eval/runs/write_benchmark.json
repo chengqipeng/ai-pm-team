@@ -1,0 +1,72 @@
+{
+  "test_data": {
+    "count": 30,
+    "source": "build_seed_conversation_data()"
+  },
+  "local": {
+    "single": {
+      "mode": "single",
+      "count": 30,
+      "embed_avg_ms": 306.9,
+      "embed_p50_ms": 242.4,
+      "embed_p95_ms": 820.4,
+      "sqlite_avg_ms": 0.1,
+      "hnsw_avg_ms": 0.12,
+      "storage_avg_ms": 0.22,
+      "total_avg_ms": 307.1,
+      "total_p50_ms": 242.6,
+      "total_p95_ms": 820.5,
+      "total_sum_ms": 9213.0,
+      "throughput": 3.3
+    },
+    "batch": {
+      "mode": "batch",
+      "count": 30,
+      "embed_ms": 5477.3,
+      "embed_per_doc_ms": 182.6,
+      "sqlite_ms": 5.0,
+      "sqlite_per_doc_ms": 0.17,
+      "hnsw_ms": 5.3,
+      "hnsw_per_doc_ms": 0.18,
+      "storage_ms": 10.3,
+      "storage_per_doc_ms": 0.34,
+      "total_ms": 5487.7,
+      "total_per_doc_ms": 182.9,
+      "throughput": 5.5
+    },
+    "model": "Qwen3-Embedding-0.6B",
+    "device": "mps"
+  },
+  "vdb": {
+    "single": {
+      "mode": "single",
+      "count": 30,
+      "embed_avg_ms": 117.3,
+      "embed_p50_ms": 100.5,
+      "embed_p95_ms": 162.6,
+      "storage_avg_ms": 862.0,
+      "storage_p50_ms": 709.9,
+      "storage_p95_ms": 2518.7,
+      "total_avg_ms": 979.3,
+      "total_p50_ms": 835.1,
+      "total_p95_ms": 2612.0,
+      "total_sum_ms": 29379.0,
+      "throughput": 1.0
+    },
+    "batch": {
+      "mode": "batch",
+      "count": 30,
+      "embed_ms": 3721.5,
+      "embed_per_doc_ms": 124.0,
+      "upsert_ms": 22979.6,
+      "upsert_per_doc_ms": 766.0,
+      "storage_ms": 22979.6,
+      "storage_per_doc_ms": 766.0,
+      "total_ms": 26701.1,
+      "total_per_doc_ms": 890.0,
+      "throughput": 1.1
+    },
+    "model": "doubao-embedding-text-240715",
+    "vdb_url": "http://10.60.2.17"
+  }
+}

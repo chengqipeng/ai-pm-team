@@ -1,0 +1,22 @@
+{
+  "type": "InterruptInputCard",
+  "description": "中断确认-文本输入：展示输入框供用户补充信息，由 ask_user(type=input) 触发",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "interrupt_id": {"type": "string", "description": "中断 ID"},
+      "title": {"type": "string", "description": "标题"},
+      "message": {"type": "string", "description": "输入提示"},
+      "placeholder": {"type": "string", "description": "输入框占位文字"},
+      "default_value": {"type": "string", "description": "默认值"}
+    },
+    "required": ["interrupt_id", "title"]
+  },
+  "skill_bindings": {"bind": [], "prefer": []},
+  "supported_model_names": [],
+  "rendering_hints": {
+    "display_mode": "inline_card",
+    "interactive": true,
+    "single_use": true
+  }
+}

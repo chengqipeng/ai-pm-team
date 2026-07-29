@@ -1,0 +1,17 @@
+# 扩展 MCP Server — 验证多文件加载
+servers:
+  - api_key: analytics-mcp
+    name: 数据分析服务
+    description: 销售数据分析与报表生成
+    domain: analytics
+    backend:
+      service_name: "neo-ai-provider-demo"
+    tools:
+      - name: analyze_pipeline
+        description: 分析销售管道数据
+        input_schema:
+          type: object
+          properties:
+            group_by:
+              type: string
+              description: 分组维度

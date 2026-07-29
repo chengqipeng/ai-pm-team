@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWS AgentCore vs 腾讯云 AGS 沙箱功能对比</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #1a1a1a; line-height: 1.6; padding: 40px 20px; }
+.container { max-width: 1200px; margin: 0 auto; }
+h1 { text-align: center; font-size: 28px; margin-bottom: 8px; color: #1a1a1a; }
+.subtitle { text-align: center; color: #666; margin-bottom: 40px; font-size: 14px; }
+.section { background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); margin-bottom: 24px; overflow: hidden; }
+.section-title { background: #f8f9fc; padding: 16px 24px; font-size: 16px; font-weight: 600; border-bottom: 1px solid #e8ecf0; display: flex; align-items: center; gap: 8px; }
+.section-title .icon { font-size: 20px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { background: #f8f9fc; padding: 12px 16px; text-align: left; font-weight: 600; color: #444; border-bottom: 2px solid #e8ecf0; }
+td { padding: 12px 16px; border-bottom: 1px solid #f0f2f5; vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #fafbfd; }
+.col-feature { width: 18%; font-weight: 500; color: #333; }
+.col-tencent { width: 33%; }
+.col-aws { width: 33%; }
+.col-gap { width: 16%; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+.tag-yes { background: #e6f7e9; color: #1a8c3a; }
+.tag-no { background: #fde8e8; color: #c53030; }
+.tag-partial { background: #fef3cd; color: #856404; }
+.tag-equiv { background: #e8f4fd; color: #1a6fb5; }
+.tag-stronger { background: #f0e6ff; color: #6b21a8; }
+.note { font-size: 12px; color: #888; margin-top: 4px; }
+.summary-box { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; border-radius: 12px; padding: 32px; margin-bottom: 24px; }
+.summary-box h2 { font-size: 20px; margin-bottom: 16px; }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+.summary-item { background: rgba(255,255,255,0.15); border-radius: 8px; padding: 16px; text-align: center; }
+.summary-item .num { font-size: 32px; font-weight: 700; }
+.summary-item .label { font-size: 13px; opacity: 0.9; margin-top: 4px; }
+.verdict { display: flex; align-items: center; gap: 6px; }
+.verdict-icon { font-size: 16px; }
+.footer { text-align: center; color: #999; font-size: 12px; margin-top: 32px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>AWS AgentCore vs 腾讯云 AGS 沙箱功能对比</h1>
+<p class="subtitle">基于官方文档 + 真机验证 | 更新时间：2026-07-27</p>
+
+<div class="summary-box">
+<h2>总览</h2>
+<div class="summary-grid">
+<div class="summary-item"><div class="num">8</div><div class="label">腾讯独有能力</div></div>
+<div class="summary-item"><div class="num">4</div><div class="label">AWS 独有优势</div></div>
+<div class="summary-item"><div class="num">12</div><div class="label">功能等价</div></div>
+<div class="summary-item"><div class="num">6</div><div class="label">需适配层弥补</div></div>
+</div>
+</div>
+
+<!-- 1. 生命周期管理 -->
+<div class="section">
+<div class="section-title"><span class="icon">🔄</span> 会话生命周期</div>
+<table>
+<tr><th class="col-feature">功能</th><th class="col-tencent">腾讯云 AGS</th><th class="col-aws">AWS AgentCore CI</th><th class="col-gap">差异</th></tr>
+<tr>
+<td class="col-feature">创建会话</td>
+<td><span class="tag tag-yes">✓</span> Sandbox.create(template, timeout, metadata)</td>
+<td><span class="tag tag-yes">✓</span> ci.start(name, session_timeout_seconds)</td>
+<td><span class="tag tag-equiv">等价</span></td>
+</tr>
+<tr>
+<td class="col-feature">执行命令</td>
+<td><span class="tag tag-yes">✓</span> sandbox.commands.run(cmd)</td>
+<td><span class="tag tag-yes">✓</span> ci.invoke("executeCommand", {command})</td>
+<td><span class="tag tag-equiv">等价</span></td>
+</tr>
+<tr>
+<td class="col-feature">执行代码</td>
+<td><span class="tag tag-yes">✓</span> sandbox.run_code(code, language)</td>
+<td><span class="tag tag-yes">✓</span> ci.invoke("executeCode", {language, code})</td>
+<td><span class="tag tag-equiv">等价</span></td>
+</tr>
+<tr>
+<td class="col-feature">暂停（Pause）</td>
+<td><span class="tag tag-yes">✓</span> sandbox.pause() — 冻结 microVM，停止计费，进程/内存/磁盘全保留</td>
+<td><span class="tag tag-no">✗</span> 不支持，无此 API</td>
+<td><span class="tag tag-no">腾讯独有</span></td>
+</tr>
+<tr>
+<td class="col-feature">恢复（Resume）</td>
+<td><span class="tag tag-yes">✓</span> Sandbox.connect(id) — 瞬时恢复到暂停前状态</td>
+<td><span class="tag tag-no">✗</span> 不支持，只能新建</td>
+<td><span class="tag tag-no">腾讯独有</span></td>
+</tr>
+<tr>
+<td class="col-feature">销毁</td>
+<td><span class="tag tag-yes">✓</span> sandbox.kill()</td>
+<td><span class="tag tag-yes">✓</span> ci.stop()</td>
+<td><span class="tag tag-equiv">等价</span></td>
+</tr>
+<tr>
+<td class="col-feature">状态查询</td>
+<td><span class="tag tag-yes">✓</span> sandbox.get_info() → RUNNING/PAUSED/EXPIRED</td>
+<td><span class="tag tag-yes">✓</span> GetCodeInterpreterSession → ACTIVE/STOPPED</td>
+<td><span class="tag tag-partial">AWS 状态更少</span></td>
+</tr>
+<tr>
+<td class="col-feature">过期自动重建</td>
+<td><span class="tag tag-yes">✓</span> 远端自动重建，响应返回 new_sandbox_id</td>
+<td><span class="tag tag-no">✗</span> 需自行检测+重建（我方已实现）</td>
+<td><span class="tag tag-partial">需适配层</span></td>
+</tr>
+<tr>
+<td class="col-feature">TTL 上限</td>
+<td>最大 8 小时（28800s），最小 300s</td>
+<td>最大 8 小时（28800s），默认 900s</td>
+<td><span class="tag tag-equiv">等价</span></td>
+</tr>
+</table>
+</div>
+
+<!-- 2. 文件操作 -->
+<div class="section">
+<div class="section-title"><span class="icon">📁</span> 文件操作</div>
+<table>
+<tr><th class="col-feature">功能</th><th class="col-tencent">腾讯云 AGS</th><th class="col-aws">AWS AgentCore CI</th><th class="col-gap">差异</th></tr>
+<tr>
+<td class="col-feature">写文件 API</td>
+<td><span class="tag tag-yes">✓</span> sandbox.files.write(path, content) — 原生 API</td>
+<td><span class="tag tag-partial">△</span> 无原生 API，通过 executeCode(python) 模拟</td>
+<td><span class="tag tag-partial">AWS 无原生</span></td>
+</tr>
+<tr>
+<td class="col-feature">读文件 API</td>
+<td><span class="tag tag-yes">✓</span> sandbox.files.read(path) — 原生 API</td>
+<td><span class="tag tag-partial">△</span> 无原生 API，通过 executeCommand(cat) 模拟</td>
+<td><span class="tag tag-partial">AWS 无原生</span></td>
+</tr>
+<tr>
+<td class="col-feature">文件上传到沙箱</td>
+<td><span class="tag tag-yes">✓</span> SDK 直传字节流</td>
+<td><span class="tag tag-partial">△</span> 通过 executeCode 写入或 S3 中转</td>
+<td><span class="tag tag-partial">AWS 间接</span></td>
+</tr>
+<tr>
+<td class="col-feature">大文件支持</td>
+<td>SDK 直传，无明显限制</td>
+<td>受限于 executeCode 的 payload 大小和 stdout 截断（~50KB）</td>
+<td><span class="tag tag-no">腾讯更强</span></td>
+</tr>
+<tr>
+<td class="col-feature">工作目录</td>
+<td>/sandbox/（自定义镜像可控）</td>
+<td>/tmp/（非 root，根目录不可写）</td>
+<td><span class="tag tag-partial">路径不同</span></td>
+</tr>
+</table>
+</div>
+
+<!-- 3. 数据持久化 -->
+<div class="section">
+<div class="section-title"><span class="icon">💾</span> 数据持久化与隔离</div>
+<table>
+<tr><th class="col-feature">功能</th><th class="col-tencent">腾讯云 AGS</th><th class="col-aws">AWS AgentCore CI</th><th class="col-gap">差异</th></tr>
+<tr>
+<td class="col-feature">对象存储挂载</td>
+<td><span class="tag tag-yes">✓</span> COS virtiofs 实时挂载，写入即落盘</td>
+<td><span class="tag tag-no">✗</span> 无挂载到单 session 的能力（S3 Files 挂载无隔离）</td>
+<td><span class="tag tag-no">腾讯独有</span></td>
+</tr>
+<tr>
+<td class="col-feature">写入即持久化</td>
+<td><span class="tag tag-yes">✓</span> 天然（COS 挂载）</td>
+<td><span class="tag tag-partial">△</span> 通过 write_file 即时双写 S3 模拟（我方实现）</td>
+<td><span class="tag tag-partial">需适配层</span></td>
+</tr>
+<tr>
+<td class="col-feature">会话隔离</td>
+<td>COS subPath 挂载隔离（user/conv 级）</td>
+<td><span class="tag tag-stronger">★</span> microVM 级隔离（操作系统级，更强）</td>
+<td><span class="tag tag-stronger">AWS 更强</span></td>
+</tr>
+<tr>
+<td class="col-feature">跨轮数据保持</td>
+<td><span class="tag tag-yes">✓</span> pause 后 resume，数据原样</td>
+<td><span class="tag tag-partial">△</span> 通过 S3 sync/restore 模拟（我方实现）</td>
+<td><span class="tag tag-partial">需适配层</span></td>
+</tr>
+<tr>
+<td class="col-feature">TTL 超时后数据</td>
+<td><span class="tag tag-yes">✓</span> COS 数据永久保留</td>
+<td><span class="tag tag-partial">△</span> 需在超时前 sync 到 S3（我方增量 sync 覆盖）</td>
+<td><span class="tag tag-partial">需适配层</span></td>
+</tr>
+<tr>
+<td class="col-feature">进程状态保持</td>
+<td><span class="tag tag-yes">✓</span> pause 保留进程、内存、环境变量</td>
+<td><span class="tag tag-no">✗</span> stop 后一切归零，无法保留进程状态</td>
+<td><span class="tag tag-no">腾讯独有</span></td>
+</tr>
+<tr>
+<td class="col-feature">数据保留期限</td>
+<td>COS 数据永久（按 COS 生命周期策略）</td>
+<td>会话数据 TTL 30 天（元数据/日志），文件靠 S3 手动管理</td>
+<td><span class="tag tag-partial">机制不同</span></td>
+</tr>
+</table>
+</div>
+
+<!-- 4. 环境与能力 -->
+<div class="section">
+<div class="section-title"><span class="icon">⚙️</span> 运行环境</div>
+<table>
+<tr><th class="col-feature">功能</th><th class="col-tencent">腾讯云 AGS</th><th class="col-aws">AWS AgentCore CI</th><th class="col-gap">差异</th></tr>
+<tr>
+<td class="col-feature">自定义镜像</td>
+<td><span class="tag tag-yes">✓</span> 支持（code-sandbox / all-in-one / 自定义）</td>
+<td><span class="tag tag-no">✗</span> 不支持，仅内置环境</td>
+<td><span class="tag tag-no">腾讯独有</span></td>
+</tr>
+<tr>
+<td class="col-feature">预装语言</td>
+<td>自定义镜像决定（通常 Python + Node）</td>
+<td>Python 3.12 / Node 24 / TypeScript（内置固定）</td>
+<td><span class="tag tag-partial">AWS 不可定制</span></td>
+</tr>
+<tr>
+<td class="col-feature">root 权限</td>
+<td><span class="tag tag-yes">✓</span> 镜像内可控</td>
+<td><span class="tag tag-no">✗</span> 非 root（uid 991），根目录不可写</td>
+<td><span class="tag tag-no">腾讯独有</span></td>
+</tr>
+<tr>
+<td class="col-feature">网络模式</td>
+<td>PUBLIC（默认）</td>
+<td>PUBLIC / SANDBOX（完全断网）/ VPC</td>
+<td><span class="tag tag-stronger">AWS 更灵活</span></td>
+</tr>
+<tr>
+<td class="col-feature">浏览器能力</td>
+<td><span class="tag tag-yes">✓</span> browser-v1 / all-in-one（Chromium + VNC）</td>
+<td><span class="tag tag-yes">✓</span> AgentCore Browser（独立产品，Chrome）</td>
+<td><span class="tag tag-equiv">等价</span></td>
+</tr>
+<tr>
+<td class="col-feature">Shell / AWS CLI</td>
+<td>Shell 命令</td>
+<td>Shell + AWS CLI（内置 boto3、aws cli）</td>
+<td><span class="tag tag-stronger">AWS 有 CLI</span></td>
+</tr>
+<tr>
+<td class="col-feature">资源规格</td>
+<td>不可选（平台分配）</td>
+<td>不可选（平台分配）</td>
+<td><span class="tag tag-equiv">等价</span></td>
+</tr>
+<tr>
+<td class="col-feature">CPU 架构</td>
+<td>x86_64（推测）</td>
+<td>ARM64（aarch64，实测确认）</td>
+<td><span class="tag tag-partial">不同架构</span></td>
+</tr>
+</table>
+</div>
+
+<!-- 5. 额外挂载 / Skill 部署 -->
+<div class="section">
+<div class="section-title"><span class="icon">🔌</span> 额外挂载与 Skill 部署</div>
+<table>
+<tr><th class="col-feature">功能</th><th class="col-tencent">腾讯云 AGS</th><th class="col-aws">AWS AgentCore CI</th><th class="col-gap">差异</th></tr>
+<tr>
+<td class="col-feature">COS/S3 挂载</td>
+<td><span class="tag tag-yes">✓</span> metadata.x-mounts 指定 COS 目录 + subPath</td>
+<td><span class="tag tag-no">✗</span> S3 Files 挂载存在但无 session 隔离（已否决）</td>
+<td><span class="tag tag-no">腾讯独有</span></td>
+</tr>
+<tr>
+<td class="col-feature">只读 Skill 目录</td>
+<td><span class="tag tag-yes">✓</span> extra_mounts 挂载 skills/personal + skills/tenant</td>
+<td><span class="tag tag-partial">△</span> connect 时从资源 API 拉取写入（我方实现）</td>
+<td><span class="tag tag-partial">需适配层</span></td>
+</tr>
+<tr>
+<td class="col-feature">多目录挂载</td>
+<td><span class="tag tag-yes">✓</span> 支持多个 MountSpec</td>
+<td><span class="tag tag-no">✗</span> 不支持</td>
+<td><span class="tag tag-no">腾讯独有</span></td>
+</tr>
+</table>
+</div>
+
+<!-- 6. 安全 -->
+<div class="section">
+<div class="section-title"><span class="icon">🔒</span> 安全与隔离</div>
+<table>
+<tr><th class="col-feature">功能</th><th class="col-tencent">腾讯云 AGS</th><th class="col-aws">AWS AgentCore CI</th><th class="col-gap">差异</th></tr>
+<tr>
+<td class="col-feature">隔离强度</td>
+<td>COS subPath 挂载隔离（文件系统层）</td>
+<td><span class="tag tag-stronger">★</span> 独立 microVM + 内存清理（硬件级）</td>
+<td><span class="tag tag-stronger">AWS 更强</span></td>
+</tr>
+<tr>
+<td class="col-feature">断网模式</td>
+<td>不支持（PUBLIC only）</td>
+<td><span class="tag tag-yes">✓</span> SANDBOX 模式完全断网</td>
+<td><span class="tag tag-stronger">AWS 独有</span></td>
+</tr>
+<tr>
+<td class="col-feature">IAM 权限控制</td>
+<td>API Key 认证</td>
+<td><span class="tag tag-yes">✓</span> IAM Policy 细粒度控制 + 执行角色</td>
+<td><span class="tag tag-stronger">AWS 更强</span></td>
+</tr>
+<tr>
+<td class="col-feature">会话终止后清理</td>
+<td>kill 后 COS 数据保留</td>
+<td>stop 后 microVM 完全终止 + 内存清理</td>
+<td><span class="tag tag-equiv">各有取舍</span></td>
+</tr>
+</table>
+</div>
+
+<!-- 7. 成本与运维 -->
+<div class="section">
+<div class="section-title"><span class="icon">💰</span> 成本与运维</div>
+<table>
+<tr><th class="col-feature">功能</th><th class="col-tencent">腾讯云 AGS</th><th class="col-aws">AWS AgentCore CI</th><th class="col-gap">差异</th></tr>
+<tr>
+<td class="col-feature">镜像维护</td>
+<td>需自行构建和维护自定义镜像</td>
+<td><span class="tag tag-stronger">★</span> 免镜像，开箱即用</td>
+<td><span class="tag tag-stronger">AWS 更省</span></td>
+</tr>
+<tr>
+<td class="col-feature">暂停节费</td>
+<td><span class="tag tag-yes">✓</span> pause 后停止计费</td>
+<td><span class="tag tag-no">✗</span> 无 pause，只能缩短 TTL</td>
+<td><span class="tag tag-no">腾讯独有</span></td>
+</tr>
+<tr>
+<td class="col-feature">按需计费</td>
+<td>会话存活时间计费</td>
+<td>会话存活时间计费</td>
+<td><span class="tag tag-equiv">等价</span></td>
+</tr>
+<tr>
+<td class="col-feature">运维复杂度</td>
+<td>中（需管理镜像 + COS 配置）</td>
+<td>低（免镜像、免存储配置）</td>
+<td><span class="tag tag-stronger">AWS 更简</span></td>
+</tr>
+</table>
+</div>
+
+<!-- 8. 我方适配层 -->
+<div class="section">
+<div class="section-title"><span class="icon">🛠️</span> 我方适配层实现（弥补差距）</div>
+<table>
+<tr><th class="col-feature">腾讯原生能力</th><th class="col-tencent">原生行为</th><th class="col-aws">AWS 适配方案</th><th class="col-gap">验证状态</th></tr>
+<tr>
+<td class="col-feature">写入即持久化</td>
+<td>COS 挂载自动落盘</td>
+<td>write_file 即时异步双写 S3（SyncManager.on_write）</td>
+<td><span class="tag tag-yes">✓ 已验证</span></td>
+</tr>
+<tr>
+<td class="col-feature">命令产出持久化</td>
+<td>COS 挂载自动落盘</td>
+<td>execute 后增量 sync（重定向检测 + 计数器，SyncManager.on_execute）</td>
+<td><span class="tag tag-yes">✓ 已验证</span></td>
+</tr>
+<tr>
+<td class="col-feature">pause/resume</td>
+<td>冻结/恢复 microVM</td>
+<td>disconnect 全量 sync S3 + connect 全量 restore（文件层等价）</td>
+<td><span class="tag tag-yes">✓ 已验证</span></td>
+</tr>
+<tr>
+<td class="col-feature">过期自动重建</td>
+<td>远端返回 new_sandbox_id</td>
+<td>异常检测 + _reconnect() + S3 restore</td>
+<td><span class="tag tag-yes">✓ 已验证</span></td>
+</tr>
+<tr>
+<td class="col-feature">文件读写 API</td>
+<td>sandbox.files.write/read</td>
+<td>executeCode(python) 写 + executeCommand(cat) 读</td>
+<td><span class="tag tag-yes">✓ 已验证</span></td>
+</tr>
+<tr>
+<td class="col-feature">Skill 只读挂载</td>
+<td>COS extra_mounts</td>
+<td>connect 时从资源 API 拉取写入临时目录</td>
+<td><span class="tag tag-yes">✓ 复用现有</span></td>
+</tr>
+</table>
+</div>
+
+<!-- 9. 无法弥补的差距 -->
+<div class="section">
+<div class="section-title"><span class="icon">⚠️</span> 不可弥补的差距（架构性限制）</div>
+<table>
+<tr><th class="col-feature">能力</th><th class="col-tencent">腾讯</th><th class="col-aws">AWS</th><th class="col-gap">影响</th></tr>
+<tr>
+<td class="col-feature">进程状态保持</td>
+<td>pause 保留运行中进程、内存、环境变量</td>
+<td>无法保留（stop 后一切归零）</td>
+<td>跨轮时 cd/export/pip install 不保留</td>
+</tr>
+<tr>
+<td class="col-feature">自定义镜像</td>
+<td>可安装任意系统包、预建工具链</td>
+<td>仅内置 Python/Node，不可定制</td>
+<td>特殊工具链（如 ffmpeg/latex）需运行时安装</td>
+</tr>
+<tr>
+<td class="col-feature">root 权限</td>
+<td>镜像内完全可控</td>
+<td>非 root，某些系统操作受限</td>
+<td>包管理器权限、系统目录写入受限</td>
+</tr>
+<tr>
+<td class="col-feature">实时文件可见性</td>
+<td>COS 挂载写入 0ms 可见</td>
+<td>S3 sync 有 1-3s 延迟</td>
+<td>非阻塞场景可接受，阻塞场景有感知</td>
+</tr>
+</table>
+</div>
+
+<p class="footer">
+数据来源：AWS 官方文档 docs.aws.amazon.com/bedrock-agentcore + 腾讯云 Agent Runtime SDK 文档 + 真机验证（2026-07-02/03/27）<br>
+适配层实现：src/tools/sandbox/aws_agentcore_backend.py + sync_manager.py | 测试：43/43 场景通过
+</p>
+
+</div>
+</body>
+</html>

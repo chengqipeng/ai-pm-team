@@ -1,0 +1,2402 @@
+{
+  "total": 130,
+  "passed": 124,
+  "failed": 6,
+  "pass_rate": 0.9538,
+  "avg_recall_at_5": 0.8394,
+  "top1_hit_rate": 0.5182,
+  "duration_ms": 21412.5,
+  "by_type": {
+    "exact_entity": {
+      "total": 40,
+      "passed": 40,
+      "failed": 0
+    },
+    "fuzzy_semantic": {
+      "total": 30,
+      "passed": 25,
+      "failed": 5
+    },
+    "cross_category": {
+      "total": 20,
+      "passed": 20,
+      "failed": 0
+    },
+    "negative": {
+      "total": 20,
+      "passed": 20,
+      "failed": 0
+    },
+    "multi_dimension": {
+      "total": 20,
+      "passed": 19,
+      "failed": 1
+    }
+  },
+  "enhancements": [
+    "Entity Boost (1.8x)",
+    "Generic Memory Decay (0.55x)",
+    "Multi-field Embedding (merge_key repeat)",
+    "Scoped Search (entity-aware two-path)",
+    "RRF Fusion (k=60)"
+  ],
+  "results": [
+    {
+      "case_id": "exact_01",
+      "query": "华为张伟是什么样的人",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "华为_张伟"
+      ],
+      "actual": [
+        "华为_张伟_风格",
+        "华为_报价策略",
+        "华为_预算收紧",
+        "华为_CRM部署",
+        "华为_ERP项目"
+      ]
+    },
+    {
+      "case_id": "exact_02",
+      "query": "华为李娜好打交道吗",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "华为_李娜"
+      ],
+      "actual": [
+        "华为_李娜_风格",
+        "华为_CRM部署",
+        "华为_报价策略",
+        "华为_ERP项目",
+        "华为_预算收紧"
+      ]
+    },
+    {
+      "case_id": "exact_03",
+      "query": "腾讯王强喜欢什么形式的汇报",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "腾讯_王强"
+      ],
+      "actual": [
+        "腾讯_王强_风格",
+        "腾讯_POC结果",
+        "腾讯_时间窗口",
+        "腾讯_报价策略",
+        "腾讯_赵经理"
+      ]
+    },
+    {
+      "case_id": "exact_04",
+      "query": "招行陈刚最关注什么",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "招行_陈刚"
+      ],
+      "actual": [
+        "招行_陈刚_风格",
+        "招行_风控平台",
+        "招行_数据迁移",
+        "招行_刘总",
+        "招行_培训要求"
+      ]
+    },
+    {
+      "case_id": "exact_05",
+      "query": "比亚迪赵敏的社交偏好是什么",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "比亚迪_赵敏"
+      ],
+      "actual": [
+        "比亚迪_赵敏_偏好",
+        "比亚迪_决策链",
+        "比亚迪_MES预算",
+        "比亚迪_竞品SAP",
+        "比亚迪_工厂部署"
+      ]
+    },
+    {
+      "case_id": "exact_06",
+      "query": "小米林总是什么风格",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "小米_林总"
+      ],
+      "actual": [
+        "小米_林总_风格",
+        "小米_智能工厂",
+        "小米_IoT平台",
+        "小米_预算充足",
+        "小米_技术栈"
+      ]
+    },
+    {
+      "case_id": "exact_07",
+      "query": "字节孙丽做事风格怎么样",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "字节_孙丽"
+      ],
+      "actual": [
+        "字节_孙丽_风格",
+        "字节_试用要求",
+        "字节_合同法务",
+        "字节_广告平台",
+        "字节_技术要求"
+      ]
+    },
+    {
+      "case_id": "exact_08",
+      "query": "华为ERP项目现在什么情况",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "华为_ERP"
+      ],
+      "actual": [
+        "华为_CRM部署",
+        "华为_ERP项目",
+        "华为_安全审计",
+        "华为_预算收紧",
+        "华为_报价策略"
+      ]
+    },
+    {
+      "case_id": "exact_09",
+      "query": "腾讯数据中台项目进展怎么样",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "腾讯_数据中台"
+      ],
+      "actual": [
+        "腾讯_POC结果",
+        "腾讯_时间窗口",
+        "腾讯_数据中台",
+        "腾讯_AI平台",
+        "腾讯_赵经理"
+      ]
+    },
+    {
+      "case_id": "exact_10",
+      "query": "招行风控平台到哪一步了",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "招行_风控"
+      ],
+      "actual": [
+        "招行_风控平台",
+        "招行_数据迁移",
+        "招行_培训要求",
+        "招行_陈刚_风格",
+        "招行_刘总"
+      ]
+    },
+    {
+      "case_id": "exact_11",
+      "query": "比亚迪MES项目还在推进吗",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "比亚迪_MES"
+      ],
+      "actual": [
+        "比亚迪_MES预算",
+        "比亚迪_决策链",
+        "比亚迪_时间表",
+        "比亚迪_工厂部署",
+        "比亚迪_竞品SAP"
+      ]
+    },
+    {
+      "case_id": "exact_12",
+      "query": "小米IoT平台项目什么阶段",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "小米_IoT"
+      ],
+      "actual": [
+        "小米_IoT平台",
+        "小米_智能工厂",
+        "小米_预算充足",
+        "小米_技术栈",
+        "小米_林总_风格"
+      ]
+    },
+    {
+      "case_id": "exact_13",
+      "query": "字节广告平台项目竞争对手是谁",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "字节_广告平台"
+      ],
+      "actual": [
+        "字节_广告平台",
+        "字节_试用要求",
+        "字节_合同法务",
+        "字节_技术要求",
+        "字节_孙丽_风格"
+      ]
+    },
+    {
+      "case_id": "exact_14",
+      "query": "华为安全审计项目什么时候签约",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "华为_安全审计"
+      ],
+      "actual": [
+        "华为_CRM部署",
+        "华为_安全审计",
+        "华为_预算收紧",
+        "华为_报价策略",
+        "华为_ERP项目"
+      ]
+    },
+    {
+      "case_id": "exact_15",
+      "query": "腾讯AI平台项目预算多少",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "腾讯_AI平台"
+      ],
+      "actual": [
+        "腾讯_AI平台",
+        "腾讯_POC结果",
+        "腾讯_时间窗口",
+        "腾讯_报价策略",
+        "腾讯_数据中台"
+      ]
+    },
+    {
+      "case_id": "exact_16",
+      "query": "给华为报价要注意什么",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "华为_报价"
+      ],
+      "actual": [
+        "华为_报价策略",
+        "华为_预算收紧",
+        "华为_安全审计",
+        "华为_CRM部署",
+        "华为_ERP项目"
+      ]
+    },
+    {
+      "case_id": "exact_17",
+      "query": "腾讯对价格敏感吗",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "腾讯_报价"
+      ],
+      "actual": [
+        "腾讯_POC结果",
+        "腾讯_AI平台",
+        "腾讯_报价策略",
+        "腾讯_时间窗口",
+        "腾讯_数据中台"
+      ]
+    },
+    {
+      "case_id": "exact_18",
+      "query": "招行有什么合规要求",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "招行_合规"
+      ],
+      "actual": [
+        "招行_风控平台",
+        "招行_合规要求",
+        "招行_数据迁移",
+        "招行_培训要求",
+        "招行_陈刚_风格"
+      ]
+    },
+    {
+      "case_id": "exact_19",
+      "query": "华为的采购流程是怎样的",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "华为_采购流程"
+      ],
+      "actual": [
+        "华为_预算收紧",
+        "华为_报价策略",
+        "华为_CRM部署",
+        "华为_安全审计",
+        "华为_采购流程"
+      ]
+    },
+    {
+      "case_id": "exact_20",
+      "query": "比亚迪的决策流程是什么样的",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "比亚迪_决策链"
+      ],
+      "actual": [
+        "比亚迪_决策链",
+        "比亚迪_MES预算",
+        "比亚迪_时间表",
+        "比亚迪_竞品SAP",
+        "比亚迪_工厂部署"
+      ]
+    },
+    {
+      "case_id": "exact_21",
+      "query": "华为CRM部署项目谁负责",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "华为_CRM"
+      ],
+      "actual": [
+        "华为_CRM部署",
+        "华为_ERP项目",
+        "华为_报价策略",
+        "华为_安全审计",
+        "华为_预算收紧"
+      ]
+    },
+    {
+      "case_id": "exact_22",
+      "query": "小米智能工厂项目谁在推动",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "小米_智能工厂"
+      ],
+      "actual": [
+        "小米_智能工厂",
+        "小米_IoT平台",
+        "小米_预算充足",
+        "小米_林总_风格",
+        "小米_技术栈"
+      ]
+    },
+    {
+      "case_id": "exact_23",
+      "query": "招行刘总是什么级别的",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "招行_刘总"
+      ],
+      "actual": [
+        "招行_刘总",
+        "招行_风控平台",
+        "招行_培训要求",
+        "招行_数据迁移",
+        "招行_陈刚_风格"
+      ]
+    },
+    {
+      "case_id": "exact_24",
+      "query": "腾讯赵经理负责什么",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "腾讯_赵经理"
+      ],
+      "actual": [
+        "腾讯_赵经理",
+        "腾讯_时间窗口",
+        "腾讯_报价策略",
+        "腾讯_POC结果",
+        "腾讯_AI平台"
+      ]
+    },
+    {
+      "case_id": "exact_25",
+      "query": "腾讯POC结果怎么样",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "腾讯_POC"
+      ],
+      "actual": [
+        "腾讯_POC结果",
+        "腾讯_时间窗口",
+        "腾讯_数据中台",
+        "腾讯_报价策略",
+        "腾讯_AI平台"
+      ]
+    },
+    {
+      "case_id": "exact_26",
+      "query": "招行数据迁移方案准备好了吗",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "招行_数据迁移"
+      ],
+      "actual": [
+        "招行_数据迁移",
+        "招行_风控平台",
+        "招行_培训要求",
+        "招行_陈刚_风格",
+        "招行_合规要求"
+      ]
+    },
+    {
+      "case_id": "exact_27",
+      "query": "比亚迪工厂部署方案是什么",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "比亚迪_工厂部署"
+      ],
+      "actual": [
+        "比亚迪_工厂部署",
+        "比亚迪_时间表",
+        "比亚迪_MES预算",
+        "比亚迪_决策链",
+        "比亚迪_竞品SAP"
+      ]
+    },
+    {
+      "case_id": "exact_28",
+      "query": "字节法务审核严格吗",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "字节_合同法务"
+      ],
+      "actual": [
+        "字节_试用要求",
+        "字节_合同法务",
+        "字节_广告平台",
+        "字节_技术要求",
+        "字节_孙丽_风格"
+      ]
+    },
+    {
+      "case_id": "exact_29",
+      "query": "字节要求先试用再签合同吗",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "字节_试用"
+      ],
+      "actual": [
+        "字节_试用要求",
+        "字节_合同法务",
+        "字节_技术要求",
+        "字节_广告平台",
+        "字节_孙丽_风格"
+      ]
+    },
+    {
+      "case_id": "exact_30",
+      "query": "小米的技术团队有什么偏好",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "小米_技术栈"
+      ],
+      "actual": [
+        "小米_技术栈",
+        "小米_预算充足",
+        "小米_智能工厂",
+        "小米_IoT平台",
+        "小米_林总_风格"
+      ]
+    },
+    {
+      "case_id": "exact_31",
+      "query": "华为今年预算情况怎么样",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "华为_预算"
+      ],
+      "actual": [
+        "华为_预算收紧",
+        "华为_报价策略",
+        "华为_安全审计",
+        "华为_CRM部署",
+        "华为_ERP项目"
+      ]
+    },
+    {
+      "case_id": "exact_32",
+      "query": "小米预算充足吗",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "小米_预算"
+      ],
+      "actual": [
+        "小米_预算充足",
+        "小米_智能工厂",
+        "小米_技术栈",
+        "小米_IoT平台",
+        "小米_林总_风格"
+      ]
+    },
+    {
+      "case_id": "exact_33",
+      "query": "比亚迪之前用过什么系统",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "比亚迪_竞品"
+      ],
+      "actual": [
+        "比亚迪_MES预算",
+        "比亚迪_时间表",
+        "比亚迪_竞品SAP",
+        "比亚迪_工厂部署",
+        "比亚迪_决策链"
+      ]
+    },
+    {
+      "case_id": "exact_34",
+      "query": "比亚迪希望什么时候完成选型",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "比亚迪_时间"
+      ],
+      "actual": [
+        "比亚迪_MES预算",
+        "比亚迪_时间表",
+        "比亚迪_工厂部署",
+        "比亚迪_竞品SAP",
+        "比亚迪_决策链"
+      ]
+    },
+    {
+      "case_id": "exact_35",
+      "query": "招行培训要做几轮",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "招行_培训"
+      ],
+      "actual": [
+        "招行_培训要求",
+        "招行_风控平台",
+        "招行_数据迁移",
+        "招行_陈刚_风格",
+        "招行_合规要求"
+      ]
+    },
+    {
+      "case_id": "exact_36",
+      "query": "字节对技术有什么特殊要求",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "字节_技术要求"
+      ],
+      "actual": [
+        "字节_技术要求",
+        "字节_试用要求",
+        "字节_合同法务",
+        "字节_广告平台",
+        "字节_孙丽_风格"
+      ]
+    },
+    {
+      "case_id": "exact_37",
+      "query": "腾讯王强什么时候有空",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "腾讯_时间窗口"
+      ],
+      "actual": [
+        "腾讯_时间窗口",
+        "腾讯_王强_风格",
+        "腾讯_POC结果",
+        "腾讯_AI平台",
+        "腾讯_报价策略"
+      ]
+    },
+    {
+      "case_id": "exact_38",
+      "query": "明天要去华为开会有什么需要注意的",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "华为"
+      ],
+      "actual": [
+        "华为_安全审计",
+        "华为_预算收紧",
+        "华为_报价策略",
+        "华为_CRM部署",
+        "华为_ERP项目"
+      ]
+    },
+    {
+      "case_id": "exact_39",
+      "query": "腾讯POC比用友快多少",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": true,
+      "expected": [
+        "腾讯_POC",
+        "用友"
+      ],
+      "actual": [
+        "腾讯_POC结果",
+        "腾讯_时间窗口",
+        "腾讯_数据中台",
+        "腾讯_报价策略",
+        "腾讯_赵经理"
+      ]
+    },
+    {
+      "case_id": "exact_40",
+      "query": "比亚迪MES预算被砍了多少",
+      "query_type": "exact_entity",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "比亚迪_MES"
+      ],
+      "actual": [
+        "比亚迪_MES预算",
+        "比亚迪_时间表",
+        "比亚迪_决策链",
+        "比亚迪_工厂部署",
+        "比亚迪_竞品SAP"
+      ]
+    },
+    {
+      "case_id": "fuzzy_01",
+      "query": "哪个客户的联系人说话最直接",
+      "query_type": "fuzzy_semantic",
+      "passed": false,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [
+        "华为_张伟"
+      ],
+      "actual": [
+        "通用_大客户跟进",
+        "招行_风控平台",
+        "通用_报价策略",
+        "profile",
+        "腾讯_报价策略"
+      ]
+    },
+    {
+      "case_id": "fuzzy_02",
+      "query": "有没有喜欢运动的客户联系人",
+      "query_type": "fuzzy_semantic",
+      "passed": false,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [
+        "比亚迪_赵敏"
+      ],
+      "actual": [
+        "通用_互联网方案",
+        "招行_风控平台",
+        "通用_金融方案",
+        "通用_大客户跟进",
+        "通用_报价策略"
+      ]
+    },
+    {
+      "case_id": "fuzzy_03",
+      "query": "谁的邮件必须当天回复",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "字节_孙丽"
+      ],
+      "actual": [
+        "字节_孙丽_风格",
+        "通用_大客户跟进",
+        "招行_风控平台",
+        "招行_数据迁移",
+        "字节_试用要求"
+      ]
+    },
+    {
+      "case_id": "fuzzy_04",
+      "query": "哪个客户追求快速迭代",
+      "query_type": "fuzzy_semantic",
+      "passed": false,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [
+        "小米_林总"
+      ],
+      "actual": [
+        "通用_互联网方案",
+        "招行_风控平台",
+        "小米_预算充足",
+        "profile",
+        "腾讯_报价策略"
+      ]
+    },
+    {
+      "case_id": "fuzzy_05",
+      "query": "谁最注重安全合规",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "招行_陈刚",
+        "招行_合规"
+      ],
+      "actual": [
+        "招行_合规要求",
+        "通用_金融方案",
+        "招行_风控平台",
+        "通用_互联网方案",
+        "招行_陈刚_风格"
+      ]
+    },
+    {
+      "case_id": "fuzzy_06",
+      "query": "哪些项目快要签约了",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "华为_安全审计"
+      ],
+      "actual": [
+        "招行_风控平台",
+        "华为_安全审计",
+        "招行_数据迁移",
+        "通用_报价策略",
+        "字节_合同法务"
+      ]
+    },
+    {
+      "case_id": "fuzzy_07",
+      "query": "有没有客户预算充足的",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "小米_预算"
+      ],
+      "actual": [
+        "小米_预算充足",
+        "华为_预算收紧",
+        "通用_报价策略",
+        "通用_互联网方案",
+        "招行_风控平台"
+      ]
+    },
+    {
+      "case_id": "fuzzy_08",
+      "query": "谁的决策链比较长",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": true,
+      "expected": [
+        "比亚迪_决策链",
+        "华为_采购流程"
+      ],
+      "actual": [
+        "比亚迪_决策链",
+        "招行_风控平台",
+        "腾讯_报价策略",
+        "小米_预算充足",
+        "通用_报价策略"
+      ]
+    },
+    {
+      "case_id": "fuzzy_09",
+      "query": "哪个客户对价格最敏感",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "腾讯_报价"
+      ],
+      "actual": [
+        "通用_报价策略",
+        "腾讯_报价策略",
+        "通用_竞品应对",
+        "通用_互联网方案",
+        "华为_报价策略"
+      ]
+    },
+    {
+      "case_id": "fuzzy_10",
+      "query": "哪些客户需要私有化部署",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "比亚迪_工厂部署"
+      ],
+      "actual": [
+        "通用_互联网方案",
+        "比亚迪_工厂部署",
+        "通用_金融方案",
+        "招行_风控平台",
+        "招行_数据迁移"
+      ]
+    },
+    {
+      "case_id": "fuzzy_11",
+      "query": "谁喜欢看demo不喜欢看PPT",
+      "query_type": "fuzzy_semantic",
+      "passed": false,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [
+        "腾讯_王强"
+      ],
+      "actual": [
+        "通用_互联网方案",
+        "字节_试用要求",
+        "招行_风控平台",
+        "小米_预算充足",
+        "腾讯_POC结果"
+      ]
+    },
+    {
+      "case_id": "fuzzy_12",
+      "query": "有没有客户要求多地部署",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "比亚迪_工厂部署"
+      ],
+      "actual": [
+        "通用_互联网方案",
+        "比亚迪_工厂部署",
+        "招行_风控平台",
+        "通用_制造业方案",
+        "招行_数据迁移"
+      ]
+    },
+    {
+      "case_id": "fuzzy_13",
+      "query": "哪些客户在评估竞品",
+      "query_type": "fuzzy_semantic",
+      "passed": false,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [
+        "腾讯_数据中台",
+        "字节_广告平台"
+      ],
+      "actual": [
+        "通用_竞品应对",
+        "比亚迪_竞品SAP",
+        "通用_报价策略",
+        "通用_互联网方案",
+        "腾讯_报价策略"
+      ]
+    },
+    {
+      "case_id": "fuzzy_14",
+      "query": "谁的采购流程最复杂",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "华为_采购流程"
+      ],
+      "actual": [
+        "招行_风控平台",
+        "招行_刘总",
+        "通用_报价策略",
+        "华为_采购流程",
+        "腾讯_报价策略"
+      ]
+    },
+    {
+      "case_id": "fuzzy_15",
+      "query": "最近需要跟进哪些客户",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "通用_大客户跟进"
+      ],
+      "actual": [
+        "通用_大客户跟进",
+        "招行_风控平台",
+        "通用_报价策略",
+        "profile",
+        "通用_金融方案"
+      ]
+    },
+    {
+      "case_id": "fuzzy_16",
+      "query": "做金融客户要注意什么",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "通用_金融方案"
+      ],
+      "actual": [
+        "通用_金融方案",
+        "招行_风控平台",
+        "通用_互联网方案",
+        "通用_大客户跟进",
+        "招行_培训要求"
+      ]
+    },
+    {
+      "case_id": "fuzzy_17",
+      "query": "互联网客户有什么特点",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "通用_互联网方案"
+      ],
+      "actual": [
+        "通用_互联网方案",
+        "招行_风控平台",
+        "通用_金融方案",
+        "招行_数据迁移",
+        "字节_合同法务"
+      ]
+    },
+    {
+      "case_id": "fuzzy_18",
+      "query": "遇到竞品怎么应对",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "通用_竞品应对"
+      ],
+      "actual": [
+        "通用_竞品应对",
+        "比亚迪_竞品SAP",
+        "通用_报价策略",
+        "通用_互联网方案",
+        "腾讯_报价策略"
+      ]
+    },
+    {
+      "case_id": "fuzzy_19",
+      "query": "报价的通用策略是什么",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "通用_报价策略"
+      ],
+      "actual": [
+        "华为_报价策略",
+        "腾讯_报价策略",
+        "通用_互联网方案",
+        "通用_报价策略",
+        "通用_竞品应对"
+      ]
+    },
+    {
+      "case_id": "fuzzy_20",
+      "query": "合同谈判要注意什么条款",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "通用_合同谈判"
+      ],
+      "actual": [
+        "字节_合同法务",
+        "通用_合同谈判",
+        "通用_报价策略",
+        "招行_风控平台",
+        "腾讯_报价策略"
+      ]
+    },
+    {
+      "case_id": "fuzzy_21",
+      "query": "POC标准流程是什么",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "通用_POC流程"
+      ],
+      "actual": [
+        "腾讯_POC结果",
+        "通用_POC流程",
+        "招行_风控平台",
+        "通用_互联网方案",
+        "通用_金融方案"
+      ]
+    },
+    {
+      "case_id": "fuzzy_22",
+      "query": "制造业客户关注什么",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "通用_制造业方案"
+      ],
+      "actual": [
+        "通用_互联网方案",
+        "通用_制造业方案",
+        "通用_金融方案",
+        "通用_大客户跟进",
+        "通用_报价策略"
+      ]
+    },
+    {
+      "case_id": "fuzzy_23",
+      "query": "哪个客户的技术要求最高",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "字节_技术要求"
+      ],
+      "actual": [
+        "招行_培训要求",
+        "通用_互联网方案",
+        "字节_技术要求",
+        "通用_金融方案",
+        "小米_技术栈"
+      ]
+    },
+    {
+      "case_id": "fuzzy_24",
+      "query": "谁要求先试用再签约",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "字节_试用"
+      ],
+      "actual": [
+        "字节_试用要求",
+        "字节_合同法务",
+        "招行_风控平台",
+        "腾讯_报价策略",
+        "招行_培训要求"
+      ]
+    },
+    {
+      "case_id": "fuzzy_25",
+      "query": "有没有客户之前用过竞品体验不好的",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "比亚迪_竞品"
+      ],
+      "actual": [
+        "比亚迪_竞品SAP",
+        "通用_竞品应对",
+        "通用_互联网方案",
+        "通用_报价策略",
+        "通用_金融方案"
+      ]
+    },
+    {
+      "case_id": "fuzzy_26",
+      "query": "哪些客户偏好微服务架构",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "小米_技术栈"
+      ],
+      "actual": [
+        "小米_技术栈",
+        "比亚迪_赵敏_偏好",
+        "通用_互联网方案",
+        "招行_风控平台",
+        "通用_金融方案"
+      ]
+    },
+    {
+      "case_id": "fuzzy_27",
+      "query": "谁对数据迁移有顾虑",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "招行_数据迁移"
+      ],
+      "actual": [
+        "招行_数据迁移",
+        "通用_互联网方案",
+        "招行_风控平台",
+        "通用_金融方案",
+        "小米_预算充足"
+      ]
+    },
+    {
+      "case_id": "fuzzy_28",
+      "query": "哪些客户对安全要求高",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": false,
+      "expected": [
+        "招行_合规",
+        "招行_陈刚"
+      ],
+      "actual": [
+        "通用_金融方案",
+        "通用_互联网方案",
+        "招行_风控平台",
+        "招行_合规要求",
+        "招行_数据迁移"
+      ]
+    },
+    {
+      "case_id": "fuzzy_29",
+      "query": "之前哪个客户说预算不够",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": true,
+      "expected": [
+        "华为_预算",
+        "比亚迪_MES"
+      ],
+      "actual": [
+        "华为_预算收紧",
+        "小米_预算充足",
+        "通用_报价策略",
+        "招行_风控平台",
+        "通用_互联网方案"
+      ]
+    },
+    {
+      "case_id": "fuzzy_30",
+      "query": "哪些项目金额超过1000万",
+      "query_type": "fuzzy_semantic",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": false,
+      "expected": [
+        "腾讯_AI平台",
+        "字节_广告平台"
+      ],
+      "actual": [
+        "招行_风控平台",
+        "招行_数据迁移",
+        "腾讯_AI平台",
+        "通用_报价策略",
+        "通用_金融方案"
+      ]
+    },
+    {
+      "case_id": "cross_01",
+      "query": "华为的整体情况怎么样",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "华为"
+      ],
+      "actual": [
+        "华为_预算收紧",
+        "华为_报价策略",
+        "华为_CRM部署",
+        "华为_安全审计",
+        "华为_ERP项目"
+      ]
+    },
+    {
+      "case_id": "cross_02",
+      "query": "准备去腾讯拜访要了解什么",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 0.6667,
+      "top1_hit": false,
+      "expected": [
+        "腾讯_王强",
+        "腾讯_数据中台",
+        "腾讯_时间"
+      ],
+      "actual": [
+        "腾讯_时间窗口",
+        "腾讯_POC结果",
+        "腾讯_报价策略",
+        "腾讯_数据中台",
+        "腾讯_AI平台"
+      ]
+    },
+    {
+      "case_id": "cross_03",
+      "query": "招行项目的全部信息",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "招行_陈刚",
+        "招行_风控",
+        "招行_合规"
+      ],
+      "actual": [
+        "招行_风控平台",
+        "招行_数据迁移",
+        "招行_培训要求",
+        "招行_陈刚_风格",
+        "招行_合规要求"
+      ]
+    },
+    {
+      "case_id": "cross_04",
+      "query": "比亚迪项目的人和事",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": true,
+      "expected": [
+        "比亚迪_赵敏",
+        "比亚迪_MES"
+      ],
+      "actual": [
+        "比亚迪_MES预算",
+        "比亚迪_时间表",
+        "比亚迪_决策链",
+        "比亚迪_工厂部署",
+        "比亚迪_竞品SAP"
+      ]
+    },
+    {
+      "case_id": "cross_05",
+      "query": "字节我们都知道什么",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "字节_孙丽",
+        "字节_广告平台"
+      ],
+      "actual": [
+        "字节_试用要求",
+        "字节_合同法务",
+        "字节_技术要求",
+        "字节_广告平台",
+        "字节_孙丽_风格"
+      ]
+    },
+    {
+      "case_id": "cross_06",
+      "query": "小米那边项目和人的情况",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "小米_林总",
+        "小米_IoT"
+      ],
+      "actual": [
+        "小米_智能工厂",
+        "小米_预算充足",
+        "小米_IoT平台",
+        "小米_林总_风格",
+        "小米_技术栈"
+      ]
+    },
+    {
+      "case_id": "cross_07",
+      "query": "华为的人和项目分别怎么样",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": false,
+      "expected": [
+        "华为_张伟",
+        "华为_ERP"
+      ],
+      "actual": [
+        "华为_预算收紧",
+        "华为_CRM部署",
+        "华为_安全审计",
+        "华为_报价策略",
+        "华为_ERP项目"
+      ]
+    },
+    {
+      "case_id": "cross_08",
+      "query": "大客户销售的通用方法论",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "通用_大客户跟进",
+        "通用_报价策略",
+        "通用_竞品应对"
+      ],
+      "actual": [
+        "通用_大客户跟进",
+        "通用_互联网方案",
+        "通用_竞品应对",
+        "通用_报价策略",
+        "通用_金融方案"
+      ]
+    },
+    {
+      "case_id": "cross_09",
+      "query": "腾讯报价和竞品情况",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "腾讯_报价",
+        "腾讯_数据中台"
+      ],
+      "actual": [
+        "腾讯_报价策略",
+        "腾讯_POC结果",
+        "腾讯_数据中台",
+        "腾讯_AI平台",
+        "腾讯_时间窗口"
+      ]
+    },
+    {
+      "case_id": "cross_10",
+      "query": "我是做什么的有什么客户",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "profile"
+      ],
+      "actual": [
+        "通用_互联网方案",
+        "招行_风控平台",
+        "通用_金融方案",
+        "profile",
+        "通用_报价策略"
+      ]
+    },
+    {
+      "case_id": "cross_11",
+      "query": "金融和互联网客户的区别",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "通用_金融方案",
+        "通用_互联网方案"
+      ],
+      "actual": [
+        "通用_互联网方案",
+        "通用_金融方案",
+        "招行_风控平台",
+        "招行_数据迁移",
+        "profile"
+      ]
+    },
+    {
+      "case_id": "cross_12",
+      "query": "华为的报价和采购流程",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": true,
+      "expected": [
+        "华为_报价",
+        "华为_采购流程"
+      ],
+      "actual": [
+        "华为_报价策略",
+        "华为_预算收紧",
+        "华为_安全审计",
+        "华为_CRM部署",
+        "华为_ERP项目"
+      ]
+    },
+    {
+      "case_id": "cross_13",
+      "query": "招行的人和合规要求",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "招行_陈刚",
+        "招行_合规"
+      ],
+      "actual": [
+        "招行_风控平台",
+        "招行_合规要求",
+        "招行_数据迁移",
+        "招行_培训要求",
+        "招行_陈刚_风格"
+      ]
+    },
+    {
+      "case_id": "cross_14",
+      "query": "各客户的预算情况汇总",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 0.6667,
+      "top1_hit": true,
+      "expected": [
+        "华为_预算",
+        "小米_预算",
+        "比亚迪_MES"
+      ],
+      "actual": [
+        "华为_预算收紧",
+        "通用_报价策略",
+        "招行_风控平台",
+        "小米_预算充足",
+        "通用_互联网方案"
+      ]
+    },
+    {
+      "case_id": "cross_15",
+      "query": "各客户技术偏好对比",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": false,
+      "expected": [
+        "小米_技术栈",
+        "字节_技术要求"
+      ],
+      "actual": [
+        "通用_互联网方案",
+        "比亚迪_赵敏_偏好",
+        "小米_预算充足",
+        "字节_技术要求",
+        "通用_金融方案"
+      ]
+    },
+    {
+      "case_id": "cross_16",
+      "query": "华为和招行的签约流程对比",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": true,
+      "expected": [
+        "华为_采购流程",
+        "招行_风控"
+      ],
+      "actual": [
+        "招行_风控平台",
+        "招行_数据迁移",
+        "招行_培训要求",
+        "华为_安全审计",
+        "华为_预算收紧"
+      ]
+    },
+    {
+      "case_id": "cross_17",
+      "query": "给新入职的同事介绍一下手上的客户",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "profile"
+      ],
+      "actual": [
+        "通用_金融方案",
+        "招行_风控平台",
+        "通用_大客户跟进",
+        "profile",
+        "通用_报价策略"
+      ]
+    },
+    {
+      "case_id": "cross_18",
+      "query": "比亚迪的竞品和时间安排",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "比亚迪_竞品",
+        "比亚迪_时间"
+      ],
+      "actual": [
+        "比亚迪_时间表",
+        "比亚迪_竞品SAP",
+        "比亚迪_MES预算",
+        "比亚迪_赵敏_偏好",
+        "比亚迪_决策链"
+      ]
+    },
+    {
+      "case_id": "cross_19",
+      "query": "腾讯POC和后续合同节奏",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "腾讯_POC",
+        "腾讯_时间"
+      ],
+      "actual": [
+        "腾讯_POC结果",
+        "腾讯_时间窗口",
+        "腾讯_数据中台",
+        "腾讯_赵经理",
+        "腾讯_报价策略"
+      ]
+    },
+    {
+      "case_id": "cross_20",
+      "query": "字节的人和技术要求",
+      "query_type": "cross_category",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "字节_孙丽",
+        "字节_技术要求"
+      ],
+      "actual": [
+        "字节_技术要求",
+        "字节_试用要求",
+        "字节_合同法务",
+        "字节_广告平台",
+        "字节_孙丽_风格"
+      ]
+    },
+    {
+      "case_id": "neg_01",
+      "query": "今天北京天气怎么样",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "招行_风控平台",
+        "招行_数据迁移",
+        "小米_预算充足",
+        "字节_试用要求",
+        "通用_互联网方案"
+      ]
+    },
+    {
+      "case_id": "neg_02",
+      "query": "Python编程入门教程",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "通用_互联网方案",
+        "字节_试用要求",
+        "招行_风控平台",
+        "字节_合同法务",
+        "小米_预算充足"
+      ]
+    },
+    {
+      "case_id": "neg_03",
+      "query": "公司年会节目推荐",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "通用_互联网方案",
+        "招行_风控平台",
+        "通用_金融方案",
+        "字节_合同法务",
+        "字节_试用要求"
+      ]
+    },
+    {
+      "case_id": "neg_04",
+      "query": "电脑蓝屏死机怎么修",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "通用_互联网方案",
+        "小米_预算充足",
+        "招行_风控平台",
+        "招行_数据迁移",
+        "字节_试用要求"
+      ]
+    },
+    {
+      "case_id": "neg_05",
+      "query": "如何申请ISO9001质量体系认证",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "通用_互联网方案",
+        "招行_风控平台",
+        "通用_金融方案",
+        "招行_合规要求",
+        "招行_培训要求"
+      ]
+    },
+    {
+      "case_id": "neg_06",
+      "query": "上海明天天气怎么样",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "招行_风控平台",
+        "招行_数据迁移",
+        "通用_互联网方案",
+        "小米_预算充足",
+        "比亚迪_时间表"
+      ]
+    },
+    {
+      "case_id": "neg_07",
+      "query": "帮我写一首诗",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "招行_风控平台",
+        "通用_互联网方案",
+        "字节_试用要求",
+        "招行_数据迁移",
+        "通用_报价策略"
+      ]
+    },
+    {
+      "case_id": "neg_08",
+      "query": "周杰伦最新专辑什么时候出",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "招行_风控平台",
+        "小米_预算充足",
+        "字节_试用要求",
+        "比亚迪_时间表",
+        "招行_数据迁移"
+      ]
+    },
+    {
+      "case_id": "neg_09",
+      "query": "怎么做西红柿炒鸡蛋",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "招行_风控平台",
+        "通用_互联网方案",
+        "小米_预算充足",
+        "招行_数据迁移",
+        "字节_试用要求"
+      ]
+    },
+    {
+      "case_id": "neg_10",
+      "query": "量子计算的基本原理是什么",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "通用_互联网方案",
+        "招行_风控平台",
+        "小米_预算充足",
+        "腾讯_数据中台",
+        "小米_IoT平台"
+      ]
+    },
+    {
+      "case_id": "neg_11",
+      "query": "北京到上海高铁多久",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "招行_风控平台",
+        "比亚迪_时间表",
+        "小米_预算充足",
+        "招行_数据迁移",
+        "通用_互联网方案"
+      ]
+    },
+    {
+      "case_id": "neg_12",
+      "query": "如何学好英语口语",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "通用_互联网方案",
+        "通用_报价策略",
+        "招行_风控平台",
+        "字节_试用要求",
+        "小米_预算充足"
+      ]
+    },
+    {
+      "case_id": "neg_13",
+      "query": "推荐一款降噪耳机",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "小米_预算充足",
+        "华为_预算收紧",
+        "招行_风控平台",
+        "通用_互联网方案",
+        "字节_试用要求"
+      ]
+    },
+    {
+      "case_id": "neg_14",
+      "query": "春节假期几天",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "招行_风控平台",
+        "字节_试用要求",
+        "字节_合同法务",
+        "招行_数据迁移",
+        "比亚迪_时间表"
+      ]
+    },
+    {
+      "case_id": "neg_15",
+      "query": "对",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "招行_风控平台",
+        "通用_互联网方案",
+        "招行_数据迁移",
+        "字节_试用要求",
+        "通用_金融方案"
+      ]
+    },
+    {
+      "case_id": "neg_16",
+      "query": "好的",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "招行_风控平台",
+        "通用_互联网方案",
+        "字节_试用要求",
+        "小米_预算充足",
+        "通用_金融方案"
+      ]
+    },
+    {
+      "case_id": "neg_17",
+      "query": "嗯",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "招行_风控平台",
+        "通用_互联网方案",
+        "字节_试用要求",
+        "小米_预算充足",
+        "招行_数据迁移"
+      ]
+    },
+    {
+      "case_id": "neg_18",
+      "query": "你好",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "招行_风控平台",
+        "通用_互联网方案",
+        "字节_试用要求",
+        "招行_数据迁移",
+        "小米_预算充足"
+      ]
+    },
+    {
+      "case_id": "neg_19",
+      "query": "谢谢",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "招行_风控平台",
+        "通用_互联网方案",
+        "字节_试用要求",
+        "小米_预算充足",
+        "招行_数据迁移"
+      ]
+    },
+    {
+      "case_id": "neg_20",
+      "query": "继续",
+      "query_type": "negative",
+      "passed": true,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [],
+      "actual": [
+        "招行_风控平台",
+        "通用_互联网方案",
+        "字节_试用要求",
+        "招行_数据迁移",
+        "小米_预算充足"
+      ]
+    },
+    {
+      "case_id": "multi_01",
+      "query": "准备华为开会材料需要注意的所有事项",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 0.3333,
+      "top1_hit": false,
+      "expected": [
+        "华为_张伟",
+        "华为_报价",
+        "华为_采购流程"
+      ],
+      "actual": [
+        "华为_预算收紧",
+        "华为_报价策略",
+        "华为_安全审计",
+        "华为_CRM部署",
+        "华为_ERP项目"
+      ]
+    },
+    {
+      "case_id": "multi_02",
+      "query": "给腾讯做方案要考虑什么",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 0.6667,
+      "top1_hit": false,
+      "expected": [
+        "腾讯_王强",
+        "腾讯_报价",
+        "腾讯_数据中台"
+      ],
+      "actual": [
+        "腾讯_POC结果",
+        "腾讯_时间窗口",
+        "腾讯_报价策略",
+        "腾讯_数据中台",
+        "腾讯_AI平台"
+      ]
+    },
+    {
+      "case_id": "multi_03",
+      "query": "招行项目推进需要注意的人和流程",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 0.6667,
+      "top1_hit": false,
+      "expected": [
+        "招行_陈刚",
+        "招行_合规",
+        "招行_刘总"
+      ],
+      "actual": [
+        "招行_风控平台",
+        "招行_数据迁移",
+        "招行_培训要求",
+        "招行_刘总",
+        "招行_陈刚_风格"
+      ]
+    },
+    {
+      "case_id": "multi_04",
+      "query": "比亚迪项目的关键风险点",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "比亚迪_MES",
+        "比亚迪_决策链",
+        "比亚迪_时间"
+      ],
+      "actual": [
+        "比亚迪_MES预算",
+        "比亚迪_竞品SAP",
+        "比亚迪_决策链",
+        "比亚迪_时间表",
+        "比亚迪_工厂部署"
+      ]
+    },
+    {
+      "case_id": "multi_05",
+      "query": "如何打赢字节广告平台这个单",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "字节_孙丽",
+        "字节_广告平台",
+        "字节_技术要求"
+      ],
+      "actual": [
+        "字节_广告平台",
+        "字节_试用要求",
+        "字节_合同法务",
+        "字节_技术要求",
+        "字节_孙丽_风格"
+      ]
+    },
+    {
+      "case_id": "multi_06",
+      "query": "小米项目的机会和挑战",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "小米_林总",
+        "小米_预算",
+        "小米_技术栈"
+      ],
+      "actual": [
+        "小米_智能工厂",
+        "小米_预算充足",
+        "小米_IoT平台",
+        "小米_林总_风格",
+        "小米_技术栈"
+      ]
+    },
+    {
+      "case_id": "multi_07",
+      "query": "本季度最有可能签约的项目有哪些",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": true,
+      "expected": [
+        "华为_安全审计",
+        "招行_风控"
+      ],
+      "actual": [
+        "招行_风控平台",
+        "通用_报价策略",
+        "通用_大客户跟进",
+        "字节_合同法务",
+        "通用_互联网方案"
+      ]
+    },
+    {
+      "case_id": "multi_08",
+      "query": "各客户联系人的沟通策略总结",
+      "query_type": "multi_dimension",
+      "passed": false,
+      "recall_at_k": 0.0,
+      "top1_hit": false,
+      "expected": [
+        "华为_张伟",
+        "腾讯_王强",
+        "字节_孙丽"
+      ],
+      "actual": [
+        "通用_大客户跟进",
+        "通用_报价策略",
+        "通用_互联网方案",
+        "通用_竞品应对",
+        "招行_风控平台"
+      ]
+    },
+    {
+      "case_id": "multi_09",
+      "query": "KA客户竞品分布情况",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 0.3333,
+      "top1_hit": false,
+      "expected": [
+        "腾讯_数据中台",
+        "字节_广告平台",
+        "比亚迪_竞品"
+      ],
+      "actual": [
+        "通用_竞品应对",
+        "比亚迪_竞品SAP",
+        "通用_互联网方案",
+        "通用_大客户跟进",
+        "通用_金融方案"
+      ]
+    },
+    {
+      "case_id": "multi_10",
+      "query": "给老板汇报各客户整体进展",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 0.3333,
+      "top1_hit": false,
+      "expected": [
+        "华为",
+        "腾讯",
+        "招行"
+      ],
+      "actual": [
+        "通用_大客户跟进",
+        "招行_风控平台",
+        "通用_报价策略",
+        "profile",
+        "通用_互联网方案"
+      ]
+    },
+    {
+      "case_id": "multi_11",
+      "query": "华为和腾讯的报价策略对比",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "华为_报价",
+        "腾讯_报价"
+      ],
+      "actual": [
+        "华为_报价策略",
+        "腾讯_报价策略",
+        "华为_预算收紧",
+        "华为_安全审计",
+        "腾讯_POC结果"
+      ]
+    },
+    {
+      "case_id": "multi_12",
+      "query": "制造业客户的共同特点和个性差异",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": false,
+      "expected": [
+        "通用_制造业方案",
+        "比亚迪"
+      ],
+      "actual": [
+        "通用_互联网方案",
+        "通用_制造业方案",
+        "通用_报价策略",
+        "通用_大客户跟进",
+        "通用_金融方案"
+      ]
+    },
+    {
+      "case_id": "multi_13",
+      "query": "下周工作重点安排建议",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": true,
+      "expected": [
+        "通用_大客户跟进",
+        "华为_安全审计"
+      ],
+      "actual": [
+        "通用_大客户跟进",
+        "招行_风控平台",
+        "通用_互联网方案",
+        "腾讯_时间窗口",
+        "通用_报价策略"
+      ]
+    },
+    {
+      "case_id": "multi_14",
+      "query": "新客户拓展的方法论和案例",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": false,
+      "expected": [
+        "通用_报价策略",
+        "通用_POC流程"
+      ],
+      "actual": [
+        "通用_互联网方案",
+        "招行_风控平台",
+        "通用_报价策略",
+        "通用_金融方案",
+        "通用_大客户跟进"
+      ]
+    },
+    {
+      "case_id": "multi_15",
+      "query": "安全合规方面我们的积累和客户需求",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "招行_合规",
+        "通用_金融方案"
+      ],
+      "actual": [
+        "招行_合规要求",
+        "通用_金融方案",
+        "招行_风控平台",
+        "通用_互联网方案",
+        "招行_数据迁移"
+      ]
+    },
+    {
+      "case_id": "multi_16",
+      "query": "各客户的技术选型偏好汇总",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": false,
+      "expected": [
+        "小米_技术栈",
+        "字节_技术要求"
+      ],
+      "actual": [
+        "通用_互联网方案",
+        "比亚迪_赵敏_偏好",
+        "小米_预算充足",
+        "字节_技术要求",
+        "招行_风控平台"
+      ]
+    },
+    {
+      "case_id": "multi_17",
+      "query": "从过去经验看什么类型客户最容易成交",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": false,
+      "expected": [
+        "通用_大客户跟进",
+        "通用_报价策略"
+      ],
+      "actual": [
+        "通用_报价策略",
+        "通用_大客户跟进",
+        "通用_互联网方案",
+        "profile",
+        "通用_竞品应对"
+      ]
+    },
+    {
+      "case_id": "multi_18",
+      "query": "帮我回顾一下我的客户画像和工作重点",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 1.0,
+      "top1_hit": true,
+      "expected": [
+        "profile"
+      ],
+      "actual": [
+        "profile",
+        "通用_大客户跟进",
+        "通用_互联网方案",
+        "通用_金融方案",
+        "招行_风控平台"
+      ]
+    },
+    {
+      "case_id": "multi_19",
+      "query": "华为和字节哪个更值得投入精力",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 0.5,
+      "top1_hit": false,
+      "expected": [
+        "华为_安全审计",
+        "字节_广告平台"
+      ],
+      "actual": [
+        "字节_试用要求",
+        "字节_合同法务",
+        "字节_广告平台",
+        "华为_预算收紧",
+        "字节_技术要求"
+      ]
+    },
+    {
+      "case_id": "multi_20",
+      "query": "年底冲刺重点关注什么客户什么项目",
+      "query_type": "multi_dimension",
+      "passed": true,
+      "recall_at_k": 0.6667,
+      "top1_hit": false,
+      "expected": [
+        "华为_安全审计",
+        "招行_风控",
+        "通用_大客户跟进"
+      ],
+      "actual": [
+        "通用_大客户跟进",
+        "通用_金融方案",
+        "通用_互联网方案",
+        "通用_报价策略",
+        "招行_风控平台"
+      ]
+    }
+  ]
+}

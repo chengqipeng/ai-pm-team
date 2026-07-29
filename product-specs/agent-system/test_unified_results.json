@@ -1,0 +1,192 @@
+[
+  {
+    "id": 1,
+    "batch": "A",
+    "input": "在这个行业干了十年了，从技术转管理",
+    "expected": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "actual": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "passed": true,
+    "error": ""
+  },
+  {
+    "id": 2,
+    "batch": "A",
+    "input": "团队刚扩到20人，压力挺大的",
+    "expected": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "actual": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "passed": true,
+    "error": ""
+  },
+  {
+    "id": 3,
+    "batch": "A",
+    "input": "之前在阿里做过3年，后来跳到现在这家",
+    "expected": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "actual": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "passed": true,
+    "error": ""
+  },
+  {
+    "id": 4,
+    "batch": "A",
+    "input": "华南区的客户都归我管",
+    "expected": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "actual": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "passed": true,
+    "error": ""
+  },
+  {
+    "id": 5,
+    "batch": "A",
+    "input": "我不再负责华东区了，上个月调到华南",
+    "expected": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "actual": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "passed": true,
+    "error": ""
+  },
+  {
+    "id": 6,
+    "batch": "A",
+    "input": "既是产品经理也兼任售前，忙得要死",
+    "expected": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "actual": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "passed": true,
+    "error": ""
+  },
+  {
+    "id": 7,
+    "batch": "A",
+    "input": "说实话我就是个打杂的，什么都管",
+    "expected": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "actual": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "passed": true,
+    "error": ""
+  },
+  {
+    "id": 8,
+    "batch": "A",
+    "input": "我们是做ToB SaaS的，客户主要是中大型企业",
+    "expected": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "actual": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "passed": true,
+    "error": ""
+  },
+  {
+    "id": 9,
+    "batch": "A",
+    "input": "今年KPI是3000万，去年完成了2800",
+    "expected": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "actual": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "passed": true,
+    "error": ""
+  },
+  {
+    "id": 10,
+    "batch": "A",
+    "input": "负责的客户有200多个，大部分是金融行业",
+    "expected": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "actual": {
+      "profile": true,
+      "preferences": false,
+      "agent_rules": false,
+      "entities": false
+    },
+    "passed": true,
+    "error": ""
+  }
+]

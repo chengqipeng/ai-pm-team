@@ -1,0 +1,8 @@
+server:
+  name: neo-ai-mcp-demo
+  port: 8003
+  metrics_port: 16902
+
+boot:
+  items: eureka
+  health: eureka

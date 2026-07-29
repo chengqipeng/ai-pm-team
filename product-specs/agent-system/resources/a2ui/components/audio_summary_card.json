@@ -1,0 +1,62 @@
+{
+  "type": "AudioSummaryCard",
+  "description": "音频文件卡片，展示音频转写摘要、关键信息提取结果和文件信息。支持播放和全文查看。",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "description": "音频标题/文件名"
+      },
+      "duration": {
+        "type": "string",
+        "description": "音频时长（如 '12:34'）"
+      },
+      "summary": {
+        "type": "string",
+        "description": "转写摘要（200字以内）"
+      },
+      "key_points": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "关键信息点列表"
+      },
+      "participants": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "参与人列表"
+      },
+      "action_items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "content": {"type": "string"},
+            "assignee": {"type": "string"},
+            "deadline": {"type": "string"}
+          }
+        },
+        "description": "待办事项"
+      },
+      "file_url": {
+        "type": "string",
+        "description": "音频文件 URL"
+      },
+      "transcript_url": {
+        "type": "string",
+        "description": "完整转写文本 URL"
+      }
+    },
+    "required": ["title", "summary"]
+  },
+  "skill_bindings": {
+    "bind": ["audio_analysis", "meeting_summary"],
+    "prefer": []
+  },
+  "supported_model_names": ["component"],
+  "rendering_hints": {
+    "display_mode": "inline_card",
+    "show_player": true,
+    "expandable_transcript": true
+  }
+}

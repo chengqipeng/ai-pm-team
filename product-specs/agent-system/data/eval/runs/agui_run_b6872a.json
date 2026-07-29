@@ -1,0 +1,431 @@
+{
+  "run_id": "agui_run_b6872a",
+  "total": 17,
+  "passed": 15,
+  "failed": 2,
+  "pass_rate": 0.8823529411764706,
+  "duration_ms": 37938.9,
+  "token_total": 0,
+  "created_at": 1781600152663,
+  "status": "completed",
+  "cases": [
+    {
+      "case_id": "qr_pronoun_001",
+      "case_name": "[代词]它→具体产品",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "failed",
+      "input": "它的价格是多少",
+      "latency_ms": 1478.1,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['AirPods'], 实际: AirPods Pro 2的价格是多少"
+        },
+        {
+          "type": "semantic_preserve",
+          "passed": false,
+          "detail": "语义保持率: 0.00 (阈值: 0.7)"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "它的价格是多少",
+        "rewritten": "AirPods Pro 2的价格是多少",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_pronoun_002",
+      "case_name": "[代词]他→具体客户",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "他最近下了几个订单",
+      "latency_ms": 2561.2,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['李四'], 实际: 李四最近下了几个订单"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "他最近下了几个订单",
+        "rewritten": "李四最近下了几个订单",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_pronoun_003",
+      "case_name": "[代词]那个→具体订单",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "那个订单什么时候能到",
+      "latency_ms": 2329.4,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['ORD-101'], 实际: ORD-101什么时候能到"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "那个订单什么时候能到",
+        "rewritten": "ORD-101什么时候能到",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_pronoun_004",
+      "case_name": "[代词]这个→当前讨论对象",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "这个能退吗",
+      "latency_ms": 1488.2,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['ORD-205'], 实际: ORD-205能退吗"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "这个能退吗",
+        "rewritten": "ORD-205能退吗",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_ellipsis_001",
+      "case_name": "[省略]补全主语",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "电话号码是多少",
+      "latency_ms": 2339.1,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['王五'], 实际: 王五的电话号码是多少"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "电话号码是多少",
+        "rewritten": "王五的电话号码是多少",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_ellipsis_002",
+      "case_name": "[省略]补全查询对象",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "还有其他联系方式吗",
+      "latency_ms": 2419.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['张三', '联系方式'], 实际: 查询客户张三的其他联系方式"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "还有其他联系方式吗",
+        "rewritten": "查询客户张三的其他联系方式",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_ellipsis_003",
+      "case_name": "[省略]补全时间范围",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "上个月呢",
+      "latency_ms": 1477.8,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['上个月', '销售'], 实际: 上个月的销售额"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "上个月呢",
+        "rewritten": "上个月的销售额",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_condition_001",
+      "case_name": "[条件继承]换成另一个客户",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "换成李四呢",
+      "latency_ms": 1706.4,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['李四', '订单'], 实际: 查看客户李四最近的订单"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "换成李四呢",
+        "rewritten": "查看客户李四最近的订单",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_condition_002",
+      "case_name": "[条件继承]改时间范围",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "改成最近一周的",
+      "latency_ms": 2335.6,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['一周', '客户'], 实际: 查看最近一周的新增客户数"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "改成最近一周的",
+        "rewritten": "查看最近一周的新增客户数",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_condition_003",
+      "case_name": "[条件继承]追加筛选条件",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "只看VIP的",
+      "latency_ms": 2705.6,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['VIP', '流失'], 实际: 查看上季度VIP客户的流失情况"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "只看VIP的",
+        "rewritten": "查看上季度VIP客户的流失情况",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_confirm_001",
+      "case_name": "[确认]好的-确认上文操作",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "好的，就这样处理",
+      "latency_ms": 2414.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['取消', 'ORD-301'], 实际: 取消订单 ORD-301"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "好的，就这样处理",
+        "rewritten": "取消订单 ORD-301",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_nochange_001",
+      "case_name": "[不改写]已完整-无历史",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "帮我查一下客户张三的联系方式",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_unchanged_or_equivalent",
+          "passed": true,
+          "detail": "原始: 帮我查一下客户张三的联系方式, 改写: 帮我查一下客户张三的联系方式"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "帮我查一下客户张三的联系方式",
+        "rewritten": "帮我查一下客户张三的联系方式",
+        "changed": false
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_nochange_002",
+      "case_name": "[不改写]已完整-有历史但不相关",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "今天天气怎么样",
+      "latency_ms": 1565.7,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_unchanged_or_equivalent",
+          "passed": true,
+          "detail": "原始: 今天天气怎么样, 改写: 今天天气怎么样"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "今天天气怎么样",
+        "rewritten": "今天天气怎么样",
+        "changed": false
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_nochange_003",
+      "case_name": "[不改写]已自包含-有实体有意图",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "查看客户王五在2024年Q3的订单金额",
+      "latency_ms": 2565.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_unchanged_or_equivalent",
+          "passed": true,
+          "detail": "原始: 查看客户王五在2024年Q3的订单金额, 改写: 查看客户王五在2024年Q3的订单金额"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "查看客户王五在2024年Q3的订单金额",
+        "rewritten": "查看客户王五在2024年Q3的订单金额",
+        "changed": false
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_no_add_001",
+      "case_name": "[不添加]不推测未表达的意图",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "failed",
+      "input": "还有吗",
+      "latency_ms": 2881.2,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['推荐', 'CRM'], 实际: 还有其他推荐的CRM系统吗"
+        },
+        {
+          "type": "semantic_preserve",
+          "passed": false,
+          "detail": "语义保持率: 0.00 (阈值: 0.6)"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "还有吗",
+        "rewritten": "还有其他推荐的CRM系统吗",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_complex_001",
+      "case_name": "[多轮]三轮追问逐步聚焦",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "能导出Excel吗",
+      "latency_ms": 4786.7,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['导出', 'Excel'], 实际: 能导出上月销售排行前三名的详细数据到Excel吗"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "能导出Excel吗",
+        "rewritten": "能导出上月销售排行前三名的详细数据到Excel吗",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_complex_002",
+      "case_name": "[多轮]话题切换后指代",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "刚才那个客户的商机有几个",
+      "latency_ms": 2885.9,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['赵六', '商机'], 实际: 赵六的商机有几个"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "刚才那个客户的商机有几个",
+        "rewritten": "赵六的商机有几个",
+        "changed": true
+      },
+      "error_message": ""
+    }
+  ]
+}

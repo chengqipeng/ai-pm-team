@@ -1,0 +1,57 @@
+# ═══════════════════════════════════════════════════════════
+# 服务器 CPU 监控采集配置
+# ═══════════════════════════════════════════════════════════
+# 
+# 支持环境变量覆盖（优先级最高）：
+#   ARCA_USERNAME    方舟平台用户名
+#   ARCA_PASSWORD    方舟平台密码
+#   ARCA_BASE_URL    方舟平台基地址
+
+# ── 方舟 DevOps 平台认证 ──
+arca:
+  base_url: "http://arca-devops.ingageapp.com"
+  login_api: "/ac_api/user/login/"
+  username: "chengqp"
+  password: "rkhd0718"
+
+# ── Prometheus 实例列表 ──
+# 配置后直接使用，不再通过方舟 API 发现
+# 如果留空且 auto_discover=true，则自动从方舟获取
+prometheus_instances:
+  - id: 2
+    name: "stress"
+    url: "https://prome-stress.ingageapp.com"
+    remark: "stress 压测环境"
+  - id: 3
+    name: "test"
+    url: "https://prome-test.ingageapp.com"
+    remark: "test 测试环境"
+  - id: 4
+    name: "grayproduct"
+    url: "https://prome-gray.ingageapp.com"
+    remark: "灰度生产环境"
+  - id: 5
+    name: "sandbox"
+    url: "https://prome-sandbox.ingageapp.com"
+    remark: "sandbox 沙箱环境"
+  - id: 6
+    name: "tencent"
+    url: "https://prome-tencent.ingageapp.com"
+    remark: "腾讯云生产环境"
+  - id: 8
+    name: "tencentuat"
+    url: "https://prome-tencentuat.ingageapp.com"
+    remark: "腾讯云 UAT 环境"
+
+# ── 采集参数 ──
+# CPU 使用率 PromQL（默认: 各节点 5 分钟平均 CPU 使用率）
+cpu_query: '100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)'
+
+# 查询超时（秒）
+query_timeout: 10.0
+
+# 是否自动发现实例（当 prometheus_instances 为空时生效）
+auto_discover: true
+
+# 自动发现时扫描的 ID 范围
+discover_id_range: [1, 20]

@@ -1,0 +1,34 @@
+{
+  "type": "InterruptSelectCard",
+  "description": "中断确认-单选列表：展示候选选项供用户选择一个，由 ask_user(type=select) 触发",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "interrupt_id": {"type": "string", "description": "中断 ID（回传时使用）"},
+      "title": {"type": "string", "description": "标题"},
+      "message": {"type": "string", "description": "说明文字"},
+      "options": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {"type": "string"},
+            "label": {"type": "string"},
+            "description": {"type": "string"},
+            "icon": {"type": "string"}
+          },
+          "required": ["id", "label"]
+        }
+      }
+    },
+    "required": ["interrupt_id", "title", "options"]
+  },
+  "skill_bindings": {"bind": [], "prefer": []},
+  "supported_model_names": [],
+  "rendering_hints": {
+    "display_mode": "inline_card",
+    "interactive": true,
+    "single_use": true,
+    "disable_after_response": true
+  }
+}

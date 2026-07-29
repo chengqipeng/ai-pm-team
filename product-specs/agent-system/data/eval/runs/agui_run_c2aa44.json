@@ -1,0 +1,638 @@
+{
+  "run_id": "agui_run_c2aa44",
+  "total": 25,
+  "passed": 25,
+  "failed": 0,
+  "pass_rate": 1.0,
+  "duration_ms": 0.0,
+  "token_total": 0,
+  "created_at": 1781600498906,
+  "status": "completed",
+  "cases": [
+    {
+      "case_id": "rd_account_query_001",
+      "case_name": "[客户]基本信息查询",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "查看客户华为的信息",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "contains_any",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_account_query_002",
+      "case_name": "[客户]条件筛选查询",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "查找深圳的VIP客户",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "tool_args_match",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_account_create_001",
+      "case_name": "[客户]新建客户",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "帮我新建一个客户，名称是字节跳动，行业是互联网，城市北京",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "tool_args_match",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_account_update_001",
+      "case_name": "[客户]修改客户信息",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "把华为的行业改成ICT",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_account_analyze_001",
+      "case_name": "[客户]客户分析统计",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "按行业统计客户数量",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "tool_args_match",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_contact_query_001",
+      "case_name": "[联系人]查看客户联系人",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "查看华为的联系人有哪些",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "contains_any",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_contact_create_001",
+      "case_name": "[联系人]添加联系人",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "给华为添加一个联系人，姓名王磊，职位CIO，电话13900001234",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "tool_args_match",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_opp_query_001",
+      "case_name": "[商机]查看商机详情",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "查看华为ERP实施这个商机的详细信息",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "contains_any",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_opp_stage_001",
+      "case_name": "[商机]推进商机阶段",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "把华为CRM部署的商机推进到成交阶段",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_opp_analyze_001",
+      "case_name": "[商机]销售漏斗分析",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "分析当前的销售漏斗，各阶段商机金额分布",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "contains_any",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_opp_forecast_001",
+      "case_name": "[商机]赢单预测",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "本季度预计能成交多少金额",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_order_query_001",
+      "case_name": "[订单]订单状态查询",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "查看订单 ORD-001 的状态",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "contains_any",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_order_cancel_normal_001",
+      "case_name": "[订单]正常取消",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "取消我的订单 ORD-001",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "sequence_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "contains_any",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_order_cancel_reject_001",
+      "case_name": "[订单]已发货拒绝取消",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "取消订单 ORD-002",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "contains_any",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_order_notfound_001",
+      "case_name": "[订单]订单不存在",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "查看订单 ORD-99999",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "contains_any",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_analyze_revenue_001",
+      "case_name": "[分析]营收统计",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "统计上个月各客户的签单总金额",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_analyze_rank_001",
+      "case_name": "[分析]销售排行",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "按商机金额从高到低排列Top5客户",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_analyze_trend_001",
+      "case_name": "[分析]趋势分析",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "分析最近半年每月的新增客户数趋势",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_schema_001",
+      "case_name": "[Schema]查看字段定义",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "客户有哪些字段",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "tool_args_match",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_knowledge_001",
+      "case_name": "[知识库]产品文档搜索",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "大管径管道流量测量适合什么产品",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_multi_001",
+      "case_name": "[组合]查询+分析",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "华为有几个商机，总金额多少",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "contains_any",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_multi_002",
+      "case_name": "[组合]先查后改",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "查看比亚迪MES系统商机的金额，如果超过80万就推进到proposal阶段",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        },
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_ambiguous_001",
+      "case_name": "[模糊]缩写/简称",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "看看HW的商机",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_ambiguous_002",
+      "case_name": "[模糊]口语化表达",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "那个最大的单子是哪家的",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "rd_noaction_001",
+      "case_name": "[无需工具]闲聊",
+      "suite_id": "suite_reasoning_decision",
+      "layer_id": "layer_2_reasoning",
+      "status": "passed",
+      "input": "你好，今天天气怎么样",
+      "latency_ms": 0.0,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "tool_call_check",
+          "passed": true,
+          "detail": "推理层 — 待接入 EvalRunner + MockToolGateway"
+        }
+      ],
+      "stage": "llm_decision",
+      "raw_output": {
+        "note": "推理层需要完整 Agent 环境，待接入 EvalRunner"
+      },
+      "error_message": ""
+    }
+  ]
+}

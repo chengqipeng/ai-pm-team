@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Python 微服务架构设计</title>
+  <style>
+    :root {
+      --llm: #6366f1;
+      --llm-bg: #eef2ff;
+      --local: #0891b2;
+      --local-bg: #ecfeff;
+      --agent: #7c3aed;
+      --agent-bg: #f5f3ff;
+      --biz: #db2777;
+      --biz-bg: #fdf2f8;
+      --platform: #059669;
+      --platform-bg: #ecfdf5;
+      --mcp: #ea580c;
+      --mcp-bg: #fff7ed;
+      --registry: #0d9488;
+      --registry-bg: #f0fdfa;
+      --shared: #d97706;
+      --shared-bg: #fffbeb;
+      --text: #1e293b;
+      --border: #e2e8f0;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: #f8fafc;
+      color: var(--text);
+      line-height: 1.8;
+      padding: 3rem 2rem;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1 { font-size: 1.8rem; text-align: center; margin-bottom: 0.3rem; }
+    .subtitle { text-align: center; color: #64748b; margin-bottom: 3rem; font-size: 0.9rem; }
+    section { background: #fff; border-radius: 12px; padding: 2rem; margin-bottom: 2rem; border: 1px solid var(--border); }
+    h2 { font-size: 1.3rem; margin-bottom: 1rem; color: var(--text); border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; }
+    .box { padding: 1rem 1.2rem; border-radius: 8px; margin: 1rem 0; font-size: 0.9rem; }
+    .box-warn { background: var(--shared-bg); border-left: 4px solid var(--shared); }
+    ul { padding-left: 1.3rem; margin: 0.4rem 0; }
+    li { margin: 0.2rem 0; font-size: 0.88rem; }
+    @media (max-width: 768px) { body { padding: 1rem; } }
+  </style>
+</head>
+<body>
+<div class="container">
+
+<h1>AI Python 微服务架构设计</h1>
+<p class="subtitle">Agent 纯运行时 · Skill 驱动业务 · 切面注册机制 · MCP 独立服务 · 平台统一代理</p>
+
+<!-- ===== 架构总览 ===== -->
+<section>
+  <h2>架构总览</h2>
+
+  <div style="display:flex;flex-direction:column;gap:0;align-items:center;">
+
+    <!-- 用户入口 -->
+    <div style="background:#334155;color:#fff;padding:0.6rem 2rem;border-radius:8px 8px 0 0;font-weight:600;font-size:0.9rem;">
+      👤 业务前端 / API 网关 / 第三方系统
+    </div>
+    <div style="width:2px;height:20px;background:#94a3b8;"></div>
+
+    <!-- 第一层：Agent 服务层（Agent + MCP 平级） -->
+    <div style="width:100%;border:2px solid var(--agent);border-radius:12px;padding:1.5rem;background:var(--agent-bg);position:relative;">
+      <div style="position:absolute;top:-12px;left:20px;background:var(--agent);color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">第一层 · Agent 服务层（Runtime Services）</div>
+
+      <!-- 两个平级服务 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;margin-top:0.8rem;">
+
+        <!-- Agent 运行时 -->
+        <div style="background:#fff;border:1.5px solid var(--agent);border-radius:10px;padding:1rem;position:relative;">
+          <div style="position:absolute;top:-10px;left:12px;background:var(--agent);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;">neo-apps-ai-agent-service（纯运行时内核）</div>
+          <div style="font-size:0.72rem;color:#64748b;margin-top:0.4rem;">Agent 执行引擎 · 无业务代码 · 多 Agent 元数据配置驱动个性化 · 切面从注册表动态加载</div>
+
+          <div style="display:grid;grid-template-columns:5fr 3fr;gap:0.8rem;margin-top:0.5rem;">
+            <!-- 左：运行时内核 -->
+            <div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.3rem;">
+                <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.28rem;text-align:center;">
+                  <div style="font-weight:600;font-size:0.68rem;color:var(--agent);">⚙️ 调度引擎</div>
+                  <div style="font-size:0.58rem;color:#64748b;">Agent Loop</div>
+                </div>
+                <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.28rem;text-align:center;">
+                  <div style="font-weight:600;font-size:0.68rem;color:var(--agent);">📡 SSE 流</div>
+                  <div style="font-size:0.58rem;color:#64748b;">流式输出</div>
+                </div>
+                <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.28rem;text-align:center;">
+                  <div style="font-weight:600;font-size:0.68rem;color:var(--agent);">💾 State</div>
+                  <div style="font-size:0.58rem;color:#64748b;">状态持久化</div>
+                </div>
+                <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.28rem;text-align:center;">
+                  <div style="font-weight:600;font-size:0.68rem;color:var(--agent);">🧠 Memory</div>
+                  <div style="font-size:0.58rem;color:#64748b;">记忆管理</div>
+                </div>
+                <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.28rem;text-align:center;">
+                  <div style="font-weight:600;font-size:0.68rem;color:var(--agent);">🔁 Reflect</div>
+                  <div style="font-size:0.58rem;color:#64748b;">反思机制</div>
+                </div>
+                <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:5px;padding:0.28rem;text-align:center;">
+                  <div style="font-weight:600;font-size:0.68rem;color:var(--agent);">🤖 Multi-Agent</div>
+                  <div style="font-size:0.58rem;color:#64748b;">子Agent协作</div>
+                </div>
+              </div>
+
+              <!-- 加载注册器 -->
+              <div style="margin-top:0.4rem;border:1px dashed var(--registry);border-radius:6px;padding:0.4rem;position:relative;">
+                <div style="position:absolute;top:-7px;left:8px;background:#fff;padding:0 4px;font-size:0.62rem;color:var(--registry);font-weight:600;">加载注册器</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem;margin-top:0.2rem;">
+                  <div style="background:var(--registry-bg);border:1px solid #99f6e4;border-radius:4px;padding:0.2rem;text-align:center;">
+                    <div style="font-size:0.62rem;font-weight:600;color:var(--registry);">🎯 Skill Loader</div>
+                  </div>
+                  <div style="background:var(--registry-bg);border:1px solid #99f6e4;border-radius:4px;padding:0.2rem;text-align:center;">
+                    <div style="font-size:0.62rem;font-weight:600;color:var(--registry);">🛠 Tool Loader</div>
+                  </div>
+                  <div style="background:var(--registry-bg);border:1px solid #99f6e4;border-radius:4px;padding:0.2rem;text-align:center;">
+                    <div style="font-size:0.62rem;font-weight:600;color:var(--registry);">🔌 MW Loader</div>
+                  </div>
+                  <div style="background:var(--registry-bg);border:1px solid #99f6e4;border-radius:4px;padding:0.2rem;text-align:center;">
+                    <div style="font-size:0.62rem;font-weight:600;color:var(--registry);">🔗 MCP Connector</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 右：多 Agent 元数据配置 -->
+            <div style="border:1px dashed var(--agent);border-radius:8px;padding:0.5rem;position:relative;">
+              <div style="position:absolute;top:-8px;left:8px;background:#fff;padding:0 4px;font-size:0.62rem;color:var(--agent);font-weight:600;">多 Agent 元数据配置</div>
+              <div style="font-size:0.6rem;color:#64748b;margin-top:0.2rem;margin-bottom:0.4rem;text-align:center;">不同 Agent 实例通过元数据配置实现个性化</div>
+              <div style="display:grid;grid-template-columns:1fr;gap:0.25rem;">
+                <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:4px;padding:0.22rem 0.4rem;">
+                  <div style="font-size:0.62rem;font-weight:600;color:var(--agent);">🧬 Agent Profile</div>
+                  <div style="font-size:0.56rem;color:#64748b;">人设 · System Prompt · 模型选择</div>
+                </div>
+                <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:4px;padding:0.22rem 0.4rem;">
+                  <div style="font-size:0.62rem;font-weight:600;color:var(--agent);">🎯 Skill 绑定</div>
+                  <div style="font-size:0.56rem;color:#64748b;">每个 Agent 绑定不同 Skill 集合</div>
+                </div>
+                <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:4px;padding:0.22rem 0.4rem;">
+                  <div style="font-size:0.62rem;font-weight:600;color:var(--agent);">🛠 Tool 权限</div>
+                  <div style="font-size:0.56rem;color:#64748b;">Tool 白名单 · 调用限制</div>
+                </div>
+                <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:4px;padding:0.22rem 0.4rem;">
+                  <div style="font-size:0.62rem;font-weight:600;color:var(--agent);">🔌 MW 管道</div>
+                  <div style="font-size:0.56rem;color:#64748b;">中间件组合 · 执行顺序 · 开关</div>
+                </div>
+                <div style="background:var(--agent-bg);border:1px solid #c4b5fd;border-radius:4px;padding:0.22rem 0.4rem;">
+                  <div style="font-size:0.62rem;font-weight:600;color:var(--agent);">⚙️ 运行参数</div>
+                  <div style="font-size:0.56rem;color:#64748b;">温度 · Token 限制 · 特性开关</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MCP 独立服务 -->
+        <div style="background:#fff;border:1.5px solid var(--mcp);border-radius:10px;padding:1rem;position:relative;">
+          <div style="position:absolute;top:-10px;left:12px;background:var(--mcp);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;">neo-ai-mcp-service（MCP 独立服务）</div>
+          <div style="font-size:0.72rem;color:#64748b;margin-top:0.4rem;">MCP Server 统一接入 · 多调用入口 · StreamableHTTP · 认证鉴权 · 按域路由</div>
+
+          <!-- 核心能力 -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:0.3rem;margin-top:0.5rem;">
+            <div style="background:var(--mcp-bg);border:1px solid #fdba74;border-radius:5px;padding:0.28rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.68rem;color:var(--mcp);">🔐 认证鉴权</div>
+              <div style="font-size:0.58rem;color:#64748b;">JWT / OAuth2 / mTLS</div>
+            </div>
+            <div style="background:var(--mcp-bg);border:1px solid #fdba74;border-radius:5px;padding:0.28rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.68rem;color:var(--mcp);">🌐 API Gateway</div>
+              <div style="font-size:0.58rem;color:#64748b;">路由 / 限流 / 熔断</div>
+            </div>
+            <div style="background:var(--mcp-bg);border:1px solid #fdba74;border-radius:5px;padding:0.28rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.68rem;color:var(--mcp);">⚡ 分业务调用代理</div>
+              <div style="font-size:0.58rem;color:#64748b;">按域路由 & 执行</div>
+            </div>
+            <div style="background:var(--mcp-bg);border:1px solid #fdba74;border-radius:5px;padding:0.28rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.68rem;color:var(--mcp);">🎯 切面能力</div>
+              <div style="font-size:0.58rem;color:#64748b;">前置/后置拦截 · 注入</div>
+            </div>
+            <div style="background:var(--mcp-bg);border:1px solid #fdba74;border-radius:5px;padding:0.28rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.68rem;color:var(--mcp);">📝 审计日志</div>
+              <div style="font-size:0.58rem;color:#64748b;">Tracing & 记录</div>
+            </div>
+          </div>
+
+
+        </div>
+
+      </div>
+
+      <!-- 平级关系标注 -->
+      <div style="margin-top:0.6rem;text-align:center;">
+        <span style="background:#f1f5f9;border:1px solid var(--border);border-radius:20px;padding:0.25rem 1rem;font-size:0.72rem;color:#64748b;">
+          ↔ 平级关系：Agent 调用 MCP Service 执行外部工具 · MCP 不依赖 Agent
+        </span>
+      </div>
+
+      <!-- Skill 业务定义 + 注册表 + 注册器 SDK -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;margin-top:0.8rem;">
+
+        <!-- 注册表 -->
+        <div style="background:#fff;border:1.5px solid var(--registry);border-radius:10px;padding:0.8rem;position:relative;">
+          <div style="position:absolute;top:-10px;left:10px;background:var(--registry);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;">注册表（Database）</div>
+          <div style="font-size:0.7rem;color:#64748b;margin-top:0.4rem;text-align:center;">Skill / Tool / MW / MCP 注册中心 · 配置持久化 · 热加载</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.25rem;margin-top:0.4rem;">
+            <div style="background:var(--registry-bg);border:1px solid #99f6e4;border-radius:5px;padding:0.22rem;text-align:center;">
+              <div style="font-size:0.64rem;font-weight:600;color:var(--registry);">t_skill</div>
+            </div>
+            <div style="background:var(--registry-bg);border:1px solid #99f6e4;border-radius:5px;padding:0.22rem;text-align:center;">
+              <div style="font-size:0.64rem;font-weight:600;color:var(--registry);">t_tool</div>
+            </div>
+            <div style="background:var(--registry-bg);border:1px solid #99f6e4;border-radius:5px;padding:0.22rem;text-align:center;">
+              <div style="font-size:0.64rem;font-weight:600;color:var(--registry);">t_middleware</div>
+            </div>
+            <div style="background:var(--registry-bg);border:1px solid #99f6e4;border-radius:5px;padding:0.22rem;text-align:center;">
+              <div style="font-size:0.64rem;font-weight:600;color:var(--registry);">t_mcp_server</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 注册器 SDK -->
+        <div style="background:#fff;border:1.5px solid #8b5cf6;border-radius:10px;padding:0.8rem;position:relative;">
+          <div style="position:absolute;top:-10px;left:10px;background:#8b5cf6;color:#fff;padding:1px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;">neo-ai-registry-sdk（独立 Python 包）</div>
+          <div style="font-size:0.7rem;color:#64748b;margin-top:0.4rem;text-align:center;">注册器核心逻辑 · pip install · Agent + 业务服务共用</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem;margin-top:0.4rem;">
+            <div style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:5px;padding:0.22rem;text-align:center;">
+              <div style="font-size:0.62rem;font-weight:600;color:#8b5cf6;">📝 注册 API</div>
+              <div style="font-size:0.56rem;color:#64748b;">写入 Skill/Tool/MW</div>
+            </div>
+            <div style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:5px;padding:0.22rem;text-align:center;">
+              <div style="font-size:0.62rem;font-weight:600;color:#8b5cf6;">📖 加载 API</div>
+              <div style="font-size:0.56rem;color:#64748b;">读取 & 实例化</div>
+            </div>
+            <div style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:5px;padding:0.22rem;text-align:center;">
+              <div style="font-size:0.62rem;font-weight:600;color:#8b5cf6;">🔄 热加载</div>
+              <div style="font-size:0.56rem;color:#64748b;">变更监听 & 刷新</div>
+            </div>
+            <div style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:5px;padding:0.22rem;text-align:center;">
+              <div style="font-size:0.62rem;font-weight:600;color:#8b5cf6;">✅ Schema 校验</div>
+              <div style="font-size:0.56rem;color:#64748b;">注册前验证</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 运行机制标注 -->
+      <div style="margin-top:0.8rem;background:#f0fdfa;border:1px solid #99f6e4;border-radius:6px;padding:0.5rem 0.8rem;">
+        <div style="font-size:0.73rem;color:var(--registry);font-weight:600;margin-bottom:0.2rem;">📐 运行机制</div>
+        <div style="font-size:0.72rem;color:#64748b;line-height:1.6;">
+          ① 业务域服务部署时，通过 neo-ai-registry-sdk 将 Skill / Tool（含 callback endpoint）/ MW 注册到 DB →<br>
+          ② Agent 运行时通过 SDK 从 DB 加载切面定义，组装 Agent 能力（支持热加载） →<br>
+          ③ 执行远程 Tool 时，Agent 通过 HTTP 回调业务域服务 · 执行 MCP Tool 时调用 neo-ai-mcp-service
+        </div>
+      </div>
+    </div>
+    <div style="width:2px;height:16px;background:#94a3b8;"></div>
+    <div style="color:#94a3b8;font-size:0.72rem;font-weight:500;">▼ HTTP 回调（远程 Tool 执行）</div>
+    <div style="width:2px;height:16px;background:#94a3b8;"></div>
+
+    <!-- 第二层：业务域微服务层 -->
+    <div style="width:100%;border:2px solid var(--biz);border-radius:12px;padding:1.5rem;background:var(--biz-bg);position:relative;">
+      <div style="position:absolute;top:-12px;left:20px;background:var(--biz);color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">第二层 · 业务域服务层（Business Domain Services）</div>
+      <div style="display:grid;grid-template-columns:1fr;gap:0.8rem;margin-top:0.8rem;">
+        <div style="background:#fff;border:1.5px solid var(--biz);border-radius:10px;padding:1rem;position:relative;">
+          <div style="position:absolute;top:-10px;left:12px;background:var(--biz);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;">业务域微服务（Skill / Tool / Middleware 实现）</div>
+          <div style="font-size:0.78rem;color:#64748b;margin-top:0.3rem;">长驻 HTTP 服务 · 实现 Skill、Tool、Middleware 业务逻辑 · 封装后端系统（CRM/ERP/aPaaS）对接</div>
+
+          <!-- 职责说明 -->
+          <div style="display:grid;grid-template-columns:3fr 5fr;gap:0.8rem;margin-top:0.6rem;">
+            <div style="border:1px dashed var(--biz);border-radius:6px;padding:0.4rem;position:relative;">
+              <div style="position:absolute;top:-7px;left:6px;background:#fff;padding:0 4px;font-size:0.6rem;color:var(--biz);font-weight:600;">双重职责</div>
+              <div style="display:grid;grid-template-columns:1fr;gap:0.25rem;margin-top:0.2rem;">
+                <div style="background:var(--biz-bg);border:1px solid #f9a8d4;border-radius:4px;padding:0.22rem;text-align:center;">
+                  <div style="font-size:0.64rem;font-weight:600;color:var(--biz);">📝 注册 Skill/Tool</div>
+                  <div style="font-size:0.54rem;color:#64748b;">部署时通过 SDK 写入 DB</div>
+                </div>
+                <div style="background:var(--biz-bg);border:1px solid #f9a8d4;border-radius:4px;padding:0.22rem;text-align:center;">
+                  <div style="font-size:0.64rem;font-weight:600;color:var(--biz);">⚡ Tool 回调</div>
+                  <div style="font-size:0.54rem;color:#64748b;">Agent 运行时 HTTP 调用</div>
+                </div>
+              </div>
+              <div style="margin-top:0.3rem;background:#fdf2f8;border:1px solid #f9a8d4;border-radius:4px;padding:0.2rem 0.3rem;">
+                <div style="font-size:0.56rem;color:var(--biz);line-height:1.4;">
+                  <strong>Tool 三类：</strong>内置（Agent 进程内）· 远程（回调本层）· MCP（经 mcp-service）
+                </div>
+              </div>
+            </div>
+
+            <!-- 业务域列表 -->
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.3rem;">
+              <div style="background:var(--biz-bg);border:1px solid #f9a8d4;border-radius:6px;padding:0.4rem;text-align:center;">
+                <div style="font-size:0.68rem;font-weight:600;color:var(--biz);">neo-ai-salescloud-service</div>
+                <div style="font-size:0.58rem;color:#64748b;">销售域 · CRM 对接</div>
+              </div>
+              <div style="background:var(--biz-bg);border:1px solid #f9a8d4;border-radius:6px;padding:0.4rem;text-align:center;">
+                <div style="font-size:0.68rem;font-weight:600;color:var(--biz);">neo-ai-marketing-service</div>
+                <div style="font-size:0.58rem;color:#64748b;">营销域 · 线索/活动</div>
+              </div>
+              <div style="background:var(--biz-bg);border:1px solid #f9a8d4;border-radius:6px;padding:0.4rem;text-align:center;">
+                <div style="font-size:0.68rem;font-weight:600;color:var(--biz);">neo-ai-foundation-service</div>
+                <div style="font-size:0.58rem;color:#64748b;">基础域 · 提示词模板/录入/记忆反思合并</div>
+              </div>
+              <div style="background:var(--biz-bg);border:1px solid #f9a8d4;border-radius:6px;padding:0.4rem;text-align:center;">
+                <div style="font-size:0.68rem;font-weight:600;color:var(--biz);">neo-ai-xxx-service</div>
+                <div style="font-size:0.58rem;color:#64748b;">更多业务域 …</div>
+              </div>
+              <div style="background:var(--shared-bg);border:1px solid #fcd34d;border-radius:6px;padding:0.4rem;text-align:center;">
+                <div style="font-size:0.68rem;font-weight:600;color:var(--shared);">neo-ai-batch-service</div>
+                <div style="font-size:0.58rem;color:#64748b;">异步批量任务 · 数据迁移/记忆整合</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="width:2px;height:16px;background:#94a3b8;"></div>
+    <div style="color:#94a3b8;font-size:0.72rem;font-weight:500;">▼ HTTP REST（统一代理入口）</div>
+    <div style="width:2px;height:16px;background:#94a3b8;"></div>
+
+    <!-- 第三层：原子能力平台层 -->
+    <div style="width:100%;border:2px solid var(--platform);border-radius:12px;padding:1.5rem;background:var(--platform-bg);position:relative;">
+      <div style="position:absolute;top:-12px;left:20px;background:var(--platform);color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">第三层 · 原子能力平台层（AI Atomic Platform）</div>
+      <div style="display:grid;grid-template-columns:3fr 2fr;gap:0.8rem;margin-top:0.8rem;">
+        <div style="background:#fff;border:1.5px solid var(--platform);border-radius:10px;padding:1rem;position:relative;">
+          <div style="position:absolute;top:-10px;left:12px;background:var(--platform);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;">neo-ai-agent-platform-service</div>
+          <div style="font-size:0.78rem;color:#64748b;margin-top:0.3rem;">AI 能力统一网关 · 代理所有底层 AI 能力对外接口 · 原子能力 + LLM 路由 + 计费统一出口</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.4rem;margin-top:0.6rem;">
+            <div style="background:var(--platform-bg);border:1px solid #a7f3d0;border-radius:5px;padding:0.35rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;color:var(--platform);">🌐 LLM 代理</div>
+              <div style="font-size:0.62rem;color:#64748b;">三方模型路由</div>
+            </div>
+            <div style="background:var(--platform-bg);border:1px solid #a7f3d0;border-radius:5px;padding:0.35rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;color:var(--platform);">🧬 Embedding</div>
+              <div style="font-size:0.62rem;color:#64748b;">向量化代理</div>
+            </div>
+            <div style="background:var(--platform-bg);border:1px solid #a7f3d0;border-radius:5px;padding:0.35rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;color:var(--platform);">📄 文档解析</div>
+              <div style="font-size:0.62rem;color:#64748b;">多格式解析</div>
+            </div>
+            <div style="background:var(--platform-bg);border:1px solid #a7f3d0;border-radius:5px;padding:0.35rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;color:var(--platform);">👁 OCR</div>
+              <div style="font-size:0.62rem;color:#64748b;">图片识别</div>
+            </div>
+            <div style="background:var(--platform-bg);border:1px solid #a7f3d0;border-radius:5px;padding:0.35rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;color:var(--platform);">🎙 ASR/TTS</div>
+              <div style="font-size:0.62rem;color:#64748b;">语音能力</div>
+            </div>
+            <div style="background:var(--platform-bg);border:1px solid #a7f3d0;border-radius:5px;padding:0.35rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;color:var(--platform);">💰 计费中心</div>
+              <div style="font-size:0.62rem;color:#64748b;">统一计量</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- neo-ai-metadata-service -->
+        <div style="background:#fff;border:1.5px solid var(--platform);border-radius:10px;padding:1rem;position:relative;">
+          <div style="position:absolute;top:-10px;left:12px;background:var(--platform);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;">neo-ai-metadata-service</div>
+          <div style="font-size:0.78rem;color:#64748b;margin-top:0.3rem;">元数据管理服务 · aPaaS 元数据统一查询 · 业务语义理解基础</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;margin-top:0.6rem;">
+            <div style="background:var(--platform-bg);border:1px solid #a7f3d0;border-radius:5px;padding:0.35rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;color:var(--platform);">📋 实体元数据</div>
+              <div style="font-size:0.62rem;color:#64748b;">对象/字段定义</div>
+            </div>
+            <div style="background:var(--platform-bg);border:1px solid #a7f3d0;border-radius:5px;padding:0.35rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;color:var(--platform);">🏷 字段映射</div>
+              <div style="font-size:0.62rem;color:#64748b;">API↔显示名</div>
+            </div>
+            <div style="background:var(--platform-bg);border:1px solid #a7f3d0;border-radius:5px;padding:0.35rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;color:var(--platform);">🔐 权限校验</div>
+              <div style="font-size:0.62rem;color:#64748b;">字段/记录级</div>
+            </div>
+            <div style="background:var(--platform-bg);border:1px solid #a7f3d0;border-radius:5px;padding:0.35rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;color:var(--platform);">📐 布局配置</div>
+              <div style="font-size:0.62rem;color:#64748b;">页面/视图</div>
+            </div>
+            <div style="background:var(--platform-bg);border:1px solid #a7f3d0;border-radius:5px;padding:0.35rem;text-align:center;">
+              <div style="font-weight:600;font-size:0.72rem;color:var(--platform);">🔄 Schema 缓存</div>
+              <div style="font-size:0.62rem;color:#64748b;">热加载/版本</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="width:2px;height:16px;background:#94a3b8;"></div>
+    <div style="color:#94a3b8;font-size:0.72rem;font-weight:500;">▼ 内部 RPC（仅 platform-service 可调用）</div>
+    <div style="width:2px;height:16px;background:#94a3b8;"></div>
+
+    <!-- 第四层：基础模型服务 -->
+    <div style="width:100%;border:2px dashed #64748b;border-radius:12px;padding:1.5rem;background:#f8fafc;position:relative;">
+      <div style="position:absolute;top:-12px;left:20px;background:#475569;color:#fff;padding:2px 12px;border-radius:4px;font-size:0.8rem;font-weight:600;">第四层 · 基础模型服务（Foundation Model Services — 不对外暴露）</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;margin-top:0.8rem;">
+
+        <!-- LLM 网关 -->
+        <div style="background:#fff;border:1.5px solid var(--llm);border-radius:10px;padding:0.8rem;position:relative;">
+          <div style="position:absolute;top:-10px;left:10px;background:var(--llm);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;">neo-ai-llm-platform-service</div>
+          <div style="font-size:0.72rem;color:#64748b;margin-top:0.4rem;text-align:center;">三方大模型服务（内部）</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;margin-top:0.5rem;">
+            <div style="background:var(--llm-bg);border:1px solid #c7d2fe;border-radius:5px;padding:0.3rem;text-align:center;">
+              <div style="font-size:0.68rem;font-weight:600;color:var(--llm);">OpenAI / Claude</div>
+            </div>
+            <div style="background:var(--llm-bg);border:1px solid #c7d2fe;border-radius:5px;padding:0.3rem;text-align:center;">
+              <div style="font-size:0.68rem;font-weight:600;color:var(--llm);">混元 / 通义</div>
+            </div>
+            <div style="background:var(--llm-bg);border:1px solid #c7d2fe;border-radius:5px;padding:0.3rem;text-align:center;">
+              <div style="font-size:0.68rem;font-weight:600;color:var(--llm);">DeepSeek / 豆包</div>
+            </div>
+            <div style="background:var(--llm-bg);border:1px solid #c7d2fe;border-radius:5px;padding:0.3rem;text-align:center;">
+              <div style="font-size:0.68rem;font-weight:600;color:var(--llm);">路由 / 降级 / Key 池</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 小模型服务 -->
+        <div style="background:#fff;border:1.5px solid var(--local);border-radius:10px;padding:0.8rem;position:relative;">
+          <div style="position:absolute;top:-10px;left:10px;background:var(--local);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;">neo-ai-localllm-platform-service</div>
+          <div style="font-size:0.72rem;color:#64748b;margin-top:0.4rem;text-align:center;">自建小模型服务（内部）</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;margin-top:0.5rem;">
+            <div style="background:var(--local-bg);border:1px solid #a5f3fc;border-radius:5px;padding:0.3rem;text-align:center;">
+              <div style="font-size:0.68rem;font-weight:600;color:var(--local);">Embedding</div>
+            </div>
+            <div style="background:var(--local-bg);border:1px solid #a5f3fc;border-radius:5px;padding:0.3rem;text-align:center;">
+              <div style="font-size:0.68rem;font-weight:600;color:var(--local);">Reranker</div>
+            </div>
+            <div style="background:var(--local-bg);border:1px solid #a5f3fc;border-radius:5px;padding:0.3rem;text-align:center;">
+              <div style="font-size:0.68rem;font-weight:600;color:var(--local);">NER / 分类</div>
+            </div>
+            <div style="background:var(--local-bg);border:1px solid #a5f3fc;border-radius:5px;padding:0.3rem;text-align:center;">
+              <div style="font-size:0.68rem;font-weight:600;color:var(--local);">GPU 推理调度</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 禁止直接访问标注 -->
+      <div style="margin-top:0.8rem;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:0.5rem 0.8rem;text-align:center;">
+        <span style="color:#dc2626;font-weight:600;font-size:0.78rem;">🚫 本层服务仅允许 neo-ai-agent-platform-service 内部调用，禁止上层服务直连</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 设计原则 -->
+  <div class="box box-warn" style="margin-top:1.5rem;">
+    <strong>核心设计原则：</strong>
+    <ul>
+      <li><strong>Agent 纯运行时</strong>：neo-apps-ai-agent-service 仅包含执行引擎内核，不嵌入任何业务代码，业务能力全部由 Skill 注入</li>
+      <li><strong>MCP 独立平级</strong>：neo-ai-mcp-service 与 Agent 服务平级，独立管理 MCP Server 生命周期，Agent 通过 HTTP 调用其执行外部工具</li>
+      <li><strong>Skill 驱动业务</strong>：所有业务场景通过 Skill 声明式定义并注册到 DB，Agent 运行时动态加载执行</li>
+      <li><strong>业务域微服务双重职责</strong>：部署时注册 Skill/Tool 定义到 DB；运行时作为远程 Tool 的 HTTP 回调服务，封装后端系统（CRM/ERP/aPaaS）对接逻辑</li>
+      <li><strong>Tool 三类分治</strong>：内置 Tool（Agent 进程内执行）· 远程 Tool（HTTP 回调业务域服务）· MCP Tool（经 mcp-service 执行外部工具）</li>
+      <li><strong>切面注册机制</strong>：Skill、Tool、Middleware、MCP 连接均注册到数据库，注册器逻辑封装为独立 Python 包（neo-ai-registry-sdk），Agent 服务和业务服务共同依赖</li>
+      <li><strong>异步批量分离</strong>：长耗时任务（知识库入库、批量分析、数据迁移、记忆整合）由 neo-ai-batch-service 异步处理，不阻塞 Agent 对话主链路</li>
+      <li><strong>平台统一代理</strong>：所有底层 AI 能力通过 neo-ai-agent-platform-service 统一出口，集中计费/限流/审计</li>
+    </ul>
+  </div>
+</section>
+
+
+<!-- ===== neo-ai-registry-sdk 设计 ===== -->
+<section>
+  <h2>neo-ai-registry-sdk — 注册器 SDK 设计</h2>
+
+  <p style="font-size:0.88rem;color:#64748b;margin-bottom:1rem;">
+    独立 Python 包（<code>pip install neo-ai-registry-sdk</code>），封装 Tool / Middleware / MCP 的定义、注册、加载和远程调用全流程。Agent 运行时和业务域服务均依赖此 SDK，实现注册表驱动的切面管理。
+  </p>
+
+  <!-- SDK 模块全景 -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin:1rem 0;">
+
+    <!-- Agent 侧 -->
+    <div style="background:#f5f3ff;border:1.5px solid var(--agent);border-radius:10px;padding:1rem;position:relative;">
+      <div style="position:absolute;top:-10px;left:12px;background:var(--agent);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;">Agent 侧（消费方）</div>
+      <div style="font-size:0.72rem;color:#64748b;margin-top:0.4rem;margin-bottom:0.5rem;">neo_ai_registry/agent/ — Agent 运行时使用</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;">
+        <div style="background:#fff;border:1px solid #c4b5fd;border-radius:5px;padding:0.3rem;text-align:center;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--agent);">AgentRegistry</div>
+          <div style="font-size:0.56rem;color:#64748b;">注册 + 分派 + 转换</div>
+        </div>
+        <div style="background:#fff;border:1px solid #c4b5fd;border-radius:5px;padding:0.3rem;text-align:center;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--agent);">ConfigLoader</div>
+          <div style="font-size:0.56rem;color:#64748b;">YAML/dict → RegistryConfig</div>
+        </div>
+        <div style="background:#fff;border:1px solid #c4b5fd;border-radius:5px;padding:0.3rem;text-align:center;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--agent);">discover_tools()</div>
+          <div style="font-size:0.56rem;color:#64748b;">扫描 BaseTool 子类</div>
+        </div>
+        <div style="background:#fff;border:1px solid #c4b5fd;border-radius:5px;padding:0.3rem;text-align:center;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--agent);">discover_middlewares()</div>
+          <div style="font-size:0.56rem;color:#64748b;">扫描 AgentMiddleware 子类</div>
+        </div>
+        <div style="background:#fff;border:1px solid #c4b5fd;border-radius:5px;padding:0.3rem;text-align:center;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--agent);">tool_adapter</div>
+          <div style="font-size:0.56rem;color:#64748b;">ToolDefinition → BaseTool</div>
+        </div>
+        <div style="background:#fff;border:1px solid #c4b5fd;border-radius:5px;padding:0.3rem;text-align:center;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--agent);">middleware_adapter</div>
+          <div style="font-size:0.56rem;color:#64748b;">MiddlewareDef → AgentMiddleware</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Provider 侧 -->
+    <div style="background:var(--biz-bg);border:1.5px solid var(--biz);border-radius:10px;padding:1rem;position:relative;">
+      <div style="position:absolute;top:-10px;left:12px;background:var(--biz);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;">Provider 侧（提供方）</div>
+      <div style="font-size:0.72rem;color:#64748b;margin-top:0.4rem;margin-bottom:0.5rem;">neo_ai_registry/provider/ — 业务域服务使用</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;">
+        <div style="background:#fff;border:1px solid #f9a8d4;border-radius:5px;padding:0.3rem;text-align:center;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--biz);">ProviderRegistry</div>
+          <div style="font-size:0.56rem;color:#64748b;">内存注册表 + handler 管理</div>
+        </div>
+        <div style="background:#fff;border:1px solid #f9a8d4;border-radius:5px;padding:0.3rem;text-align:center;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--biz);">create_provider_app()</div>
+          <div style="font-size:0.56rem;color:#64748b;">一行创建 FastAPI 应用</div>
+        </div>
+        <div style="background:#fff;border:1px solid #f9a8d4;border-radius:5px;padding:0.3rem;text-align:center;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--biz);">create_provider_router()</div>
+          <div style="font-size:0.56rem;color:#64748b;">自动生成 v2 路由</div>
+        </div>
+        <div style="background:#fff;border:1px solid #f9a8d4;border-radius:5px;padding:0.3rem;text-align:center;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--biz);">ToolState / set_state</div>
+          <div style="font-size:0.56rem;color:#64748b;">线程隔离状态传递</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feign + MCP -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin:1rem 0;">
+    <div style="background:#ecfdf5;border:1.5px solid var(--platform);border-radius:10px;padding:1rem;position:relative;">
+      <div style="position:absolute;top:-10px;left:12px;background:var(--platform);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;">Feign 远程调用层</div>
+      <div style="font-size:0.72rem;color:#64748b;margin-top:0.4rem;margin-bottom:0.5rem;">neo_ai_registry/feign/ — 传输 + 服务发现</div>
+      <div style="display:grid;grid-template-columns:1fr;gap:0.3rem;">
+        <div style="background:#fff;border:1px solid #a7f3d0;border-radius:5px;padding:0.3rem;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--platform);">Transport（抽象基类）</div>
+          <div style="font-size:0.56rem;color:#64748b;">NeoApiTransport（Eureka 服务发现 + GlobalContext 上下文 + SkyWalking trace）</div>
+        </div>
+        <div style="background:#fff;border:1px solid #a7f3d0;border-radius:5px;padding:0.3rem;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--platform);">FeignClient</div>
+          <div style="font-size:0.56rem;color:#64748b;">ToolFeignClient · MiddlewareFeignClient · McpFeignClient</div>
+        </div>
+
+      </div>
+    </div>
+
+    <div style="background:var(--mcp-bg);border:1.5px solid var(--mcp);border-radius:10px;padding:1rem;position:relative;">
+      <div style="position:absolute;top:-10px;left:12px;background:var(--mcp);color:#fff;padding:1px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;">MCP 封装层</div>
+      <div style="font-size:0.72rem;color:#64748b;margin-top:0.4rem;margin-bottom:0.5rem;">neo_ai_registry/mcp/ — Agent 调用 MCP Service</div>
+      <div style="display:grid;grid-template-columns:1fr;gap:0.3rem;">
+        <div style="background:#fff;border:1px solid #fdba74;border-radius:5px;padding:0.3rem;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--mcp);">McpFeignClient</div>
+          <div style="font-size:0.56rem;color:#64748b;">call_tool() · list_tools() · list_servers()</div>
+        </div>
+        <div style="background:#fff;border:1px solid #fdba74;border-radius:5px;padding:0.3rem;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--mcp);">McpToolDefinition</div>
+          <div style="font-size:0.56rem;color:#64748b;">name · description · server_api_key · input/output_schema</div>
+        </div>
+        <div style="background:#fff;border:1px solid #fdba74;border-radius:5px;padding:0.3rem;">
+          <div style="font-size:0.66rem;font-weight:600;color:var(--mcp);">McpServerInfo</div>
+          <div style="font-size:0.56rem;color:#64748b;">api_key · domain · status · tool_count</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 核心数据模型 -->
+  <h3 style="font-size:1rem;margin:1.5rem 0 0.6rem;color:#334155;">核心数据模型</h3>
+  <div style="background:#1e293b;color:#e2e8f0;padding:1.5rem;border-radius:8px;font-family:monospace;font-size:0.72rem;overflow-x:auto;white-space:pre;line-height:1.7;margin:1rem 0;">
+# ═══ ToolDefinition — 统一模型（数据模型 + 可继承基类）═══
+class ToolDefinition(BaseModel):
+    api_key: str          # Tool 唯一标识
+    name: str             # 显示名称
+    description: str      # 功能描述（注入 LLM Function Calling）
+    domain: str           # 所属业务域（sales/marketing/basic/platform）
+    type: ToolType        # builtin / remote / mcp
+    service: str          # 目标服务名（type=remote 时必填，Eureka 注册名）
+    input_schema: dict    # JSON Schema 入参定义
+    read_only_flg: bool   # 是否只读操作
+    timeout_ms: int       # 超时时间（毫秒）
+
+# ═══ MiddlewareDefinition — 远程中间件注册 ═══
+class MiddlewareDefinition(BaseModel):
+    api_key: str          # 中间件唯一标识
+    name: str             # 显示名称
+    hooks: list[str]      # 激活的生命周期钩子
+    service: str          # 目标服务名（Eureka 注册名）
+    sort_num: int         # 执行顺序（越小越先执行）
+    required_features: list[str]  # 依赖的 Feature 开关
+
+# ═══ ToolType 枚举 ═══
+class ToolType(str, Enum):
+    BUILTIN = "builtin"   # Agent 进程内执行（有 execute 方法）
+    REMOTE  = "remote"    # HTTP 回调业务域服务（通过 FeignClient）
+    MCP     = "mcp"       # 经 neo-ai-mcp-service 执行
+
+# ═══ MiddlewareHook 枚举 ═══
+class MiddlewareHook(str, Enum):
+    BEFORE_AGENT   = "before_agent"
+    AFTER_AGENT    = "after_agent"
+    BEFORE_MODEL   = "before_model"
+    AFTER_MODEL    = "after_model"
+    WRAP_TOOL_CALL = "wrap_tool_call"</div>
+
+  <!-- Tool 三类执行路径 -->
+  <h3 style="font-size:1rem;margin:1.5rem 0 0.6rem;color:#334155;">Tool 三类执行路径</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.8rem;">
+    <div style="background:#f5f3ff;border:1.5px solid var(--agent);border-radius:8px;padding:0.8rem;">
+      <div style="font-weight:600;font-size:0.78rem;color:var(--agent);margin-bottom:0.4rem;">① Builtin Tool</div>
+      <div style="font-size:0.7rem;color:#64748b;line-height:1.6;">
+        继承 <code>BaseTool</code> → 实现 <code>_arun()</code><br>
+        扫描 <code>app/tools/</code> 目录自动发现<br>
+        Agent 进程内直接执行<br>
+        <span style="color:var(--agent);font-weight:600;">用途：</span>ask_user、manage_memory 等内置能力
+      </div>
+    </div>
+    <div style="background:var(--biz-bg);border:1.5px solid var(--biz);border-radius:8px;padding:0.8rem;">
+      <div style="font-weight:600;font-size:0.78rem;color:var(--biz);margin-bottom:0.4rem;">② Remote Tool</div>
+      <div style="font-size:0.7rem;color:#64748b;line-height:1.6;">
+        YAML 声明式注册 → <code>ToolDefinition</code><br>
+        动态生成 <code>StructuredTool</code><br>
+        <code>_arun</code> → ToolFeignClient → POST /v2/tools/{key}/execute<br>
+        <span style="color:var(--biz);font-weight:600;">用途：</span>query_customer、update_opportunity 等业务操作
+      </div>
+    </div>
+    <div style="background:var(--mcp-bg);border:1.5px solid var(--mcp);border-radius:8px;padding:0.8rem;">
+      <div style="font-weight:600;font-size:0.78rem;color:var(--mcp);margin-bottom:0.4rem;">③ MCP Tool</div>
+      <div style="font-size:0.7rem;color:#64748b;line-height:1.6;">
+        McpFeignClient → POST /v2/mcp/tools/call<br>
+        经 neo-ai-mcp-service 路由到 MCP Server<br>
+        支持 server_api_key 定向路由<br>
+        <span style="color:var(--mcp);font-weight:600;">用途：</span>query_records、search_knowledge 等 MCP 协议工具
+      </div>
+    </div>
+  </div>
+
+  <!-- State 传递机制 -->
+  <h3 style="font-size:1rem;margin:1.5rem 0 0.6rem;color:#334155;">State 传递机制</h3>
+  <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:1rem;font-size:0.78rem;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+      <div>
+        <div style="font-weight:600;color:#334155;margin-bottom:0.3rem;">state: ToolState（可读写）</div>
+        <ul style="font-size:0.72rem;color:#64748b;line-height:1.7;">
+          <li>Agent 图 state 的业务字段视图</li>
+          <li>Provider handler 通过 <code>get_state(key)</code> 读取</li>
+          <li>通过 <code>set_state(key, value)</code> 回写（线程隔离 ContextVar）</li>
+          <li>SDK 路由层自动收集 state_patch 回传 Agent</li>
+          <li>Agent 侧通过 <code>ToolState.write_back()</code> 合并到图 state</li>
+        </ul>
+      </div>
+      <div>
+        <div style="font-weight:600;color:#334155;margin-bottom:0.3rem;">configurable: dict（只读）</div>
+        <ul style="font-size:0.72rem;color:#64748b;line-height:1.7;">
+          <li>请求上下文（来自 LangGraph config.configurable）</li>
+          <li>包含：tenant_id、user_id、thread_id、language_code 等</li>
+          <li>自动过滤 __ 前缀的 LangGraph 内部字段</li>
+          <li>自动过滤不可 JSON 序列化的对象</li>
+          <li>Provider 只读访问，不可回写</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- SDK 包模块结构 -->
+  <h3 style="font-size:1rem;margin:1.5rem 0 0.6rem;color:#334155;">SDK 包模块结构</h3>
+  <div style="background:#1e293b;color:#e2e8f0;padding:1.2rem;border-radius:8px;font-family:monospace;font-size:0.7rem;overflow-x:auto;white-space:pre;line-height:1.6;">
+neo_ai_registry/
+├── __init__.py             # 包入口（导出所有公开 API）
+├── models.py              # ToolDefinition + MiddlewareDefinition + 枚举
+├── state.py               # ToolState + set_state/get_state（ContextVar 线程隔离）
+├── config.py              # ConfigLoader + RegistryConfig（YAML/dict → 配置对象）
+├── validator.py           # Schema 校验（注册前验证）
+├── agent/                 # Agent 运行时侧
+│   ├── registry.py        # AgentRegistry（注册 + 分派 + 转换入口）
+│   ├── discover.py        # discover_tools() / discover_middlewares()
+│   ├── tool_adapter.py    # create_base_tool()（ToolDefinition → StructuredTool）
+│   └── middleware_adapter.py # create_remote_middleware()（动态生成 AgentMiddleware）
+├── provider/              # Provider 服务侧
+│   ├── registry.py        # ProviderRegistry（内存注册 + handler 绑定）
+│   └── fastapi.py         # create_provider_app() / create_provider_router()
+├── feign/                 # 远程调用层
+│   ├── transport.py       # Transport 抽象 + NeoApiTransport（唯一实现）
+│   └── client.py          # ToolFeignClient + MiddlewareFeignClient
+└── mcp/                   # MCP 封装
+    ├── models.py          # McpToolDefinition + McpServerInfo
+    ├── client.py          # McpFeignClient（Agent → MCP Service）
+    └── provider.py        # McpProvider（抽象接口）</div>
+
+  <div class="box box-warn" style="margin-top:1rem;">
+    <strong>SDK 核心设计要点：</strong>
+    <ul>
+      <li><strong>Agent 与 Provider 共用一个 SDK</strong>：Agent 侧使用 agent/ 子包（消费方），Provider 侧使用 provider/ 子包（提供方），models.py / state.py / feign/ 共享</li>
+      <li><strong>Transport 唯一实现</strong>：NeoApiTransport 统一传输层（Eureka 服务发现 + GlobalContext 自动注入 + SkyWalking trace 传播），不再有开发/生产环境分裂</li>
+      <li><strong>动态类生成</strong>：tool_adapter 将 ToolDefinition → StructuredTool（动态 args_schema + InjectedState），middleware_adapter 将 MiddlewareDefinition → AgentMiddleware 子类（只覆写声明的 hooks 方法）</li>
+      <li><strong>ContextVar 线程隔离</strong>：set_state/get_state 基于 Python contextvars，每个请求独立的 state_patch，async 安全</li>
+      <li><strong>自动发现</strong>：discover_tools/discover_middlewares 递归扫描目录，自动实例化 BaseTool / AgentMiddleware 子类</li>
+    </ul>
+  </div>
+</section>
+
+
+<!-- ===== 上下游服务接入 ===== -->
+<section>
+  <h2>上下游服务接入 — 全链路调用规范</h2>
+
+  <p style="font-size:0.88rem;color:#64748b;margin-bottom:1rem;">
+    Agent 运行时通过 SDK 对接上下游服务的完整调用链路，涵盖 Agent 消费端加载、业务域 Provider 接入、MCP Service 调用三条主路径。
+  </p>
+
+  <h3 style="font-size:1rem;margin:1rem 0 0.6rem;color:#334155;">调用链路时序</h3>
+  <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:1rem;font-size:0.72rem;font-family:monospace;line-height:1.8;overflow-x:auto;white-space:pre;">
+Agent Runtime                      Provider Service                  MCP Service
+    │                                    │                                │
+    │── startup ──────────────────────── │                                │
+    │  ConfigLoader.from_yaml()          │                                │
+    │  AgentRegistry(NeoApiTransport())  │                                │
+    │  registry.load(config)             │                                │
+    │    ├─ discover_tools(app/tools)    │                                │
+    │    ├─ discover_middlewares(app/mw) │                                │
+    │    └─ 注册 remote ToolDef/MwDef    │                                │
+    │  get_base_tools() → BaseTool[]     │                                │
+    │  get_middlewares() → AgentMW[]     │                                │
+    │  create_agent(model,tools,mw)      │                                │
+    │                                    │                                │
+    │── Remote Tool 调用 ────────────────→│                                │
+    │  ToolFeignClient.async_execute     │                                │
+    │  POST /v2/tools/{key}/execute      │                                │
+    │  body: {input, state, configurable}│── handler(input, state, cfg)   │
+    │                                    │   set_state("key", value)      │
+    │  ←── {result, state_patch} ────────│                                │
+    │  ToolState.write_back(agent_state) │                                │
+    │                                    │                                │
+    │── Remote Middleware 调用 ──────────→│                                │
+    │  POST /v2/middlewares/{key}/execute │                                │
+    │  body: {hook, payload, state, cfg} │── handler(hook, payload, state)│
+    │  ←── {result, state_patch} ────────│   {action:"modify", patch}     │
+    │                                    │                                │
+    │── MCP Tool 调用 ──────────────────────────────────────────────────→ │
+    │  McpFeignClient.call_tool()        │                                │
+    │  POST /v2/mcp/tools/call           │                                │
+    │  body: {tool_name, arguments, server_api_key, context}              │
+    │  ←── {content, records, ...} ──────────────────────────────────────  │</div>
+
+  <h3 style="font-size:1rem;margin:1.5rem 0 0.6rem;color:#334155;">Agent 消费端接入（Runtime 侧）</h3>
+  <div style="background:#1e293b;color:#e2e8f0;padding:1.2rem;border-radius:8px;font-family:monospace;font-size:0.72rem;overflow-x:auto;white-space:pre;line-height:1.7;margin:0.5rem 0;">
+# config/registry.yaml
+scan:
+  tools_dir: app/tools
+  middlewares_dir: app/middlewares
+tools:
+  - api_key: query_customer
+    name: 查询客户
+    type: remote
+    service: neo-ai-salescloud-service  # Eureka 注册名
+    input_schema: { type: object, properties: { customer_name: { type: string } }, required: [customer_name] }
+middlewares:
+  - api_key: crm_query_state
+    service: neo-ai-salescloud-service
+    hooks: [before_agent, after_model]
+    sort_num: 50
+
+# app/agent_loader.py
+from neo_ai_registry import ConfigLoader, AgentRegistry
+from neo_ai_registry.feign.transport import NeoApiTransport
+
+config = ConfigLoader.from_yaml("config/registry.yaml")
+registry = AgentRegistry(transport=NeoApiTransport())
+registry.load(config, project_root=PROJECT_ROOT)
+tools = registry.get_base_tools()       # builtin + remote → BaseTool[]
+middlewares = registry.get_middlewares() # builtin + remote → AgentMiddleware[]
+agent = create_agent(model=model, tools=tools, middleware=middlewares, checkpointer=MemorySaver())</div>
+
+  <h3 style="font-size:1rem;margin:1.5rem 0 0.6rem;color:#334155;">业务域 Provider 接入（Service 侧）</h3>
+  <div style="background:#1e293b;color:#e2e8f0;padding:1.2rem;border-radius:8px;font-family:monospace;font-size:0.72rem;overflow-x:auto;white-space:pre;line-height:1.7;margin:0.5rem 0;">
+# app/main.py — 一行创建 Provider 服务
+from neo_ai_registry.provider import create_provider_app
+
+app = create_provider_app(
+    domain="sales",
+    handler_map={"query_customer": query_customer, "update_opportunity": update_opportunity},
+    middleware_handler_map={"crm_query_state": crm_query_state_handler},
+)
+
+@app.on_event("startup")
+async def startup():
+    from neo_ai_infr_eureka import EurekaGlobalClient
+    await EurekaGlobalClient().register_eureka()
+
+# Tool Handler 统一签名
+async def query_customer(input_data: dict, state: ToolState, configurable: dict) -> dict:
+    tenant_id = configurable.get("tenant_id")      # 只读上下文
+    set_state("last_query_entity", "account")       # 回写 state
+    return {"status": "success", "records": [...]}
+
+# Middleware Handler 统一签名
+async def crm_query_state_handler(hook: str, payload: dict, state: ToolState, configurable: dict) -> dict:
+    if hook == MiddlewareHook.BEFORE_AGENT:
+        return {"action": "modify", "patch": {"crm_state": {...}}}
+    return {"action": "continue"}</div>
+
+  <h3 style="font-size:1rem;margin:1.5rem 0 0.6rem;color:#334155;">REST 接口规范（v2）</h3>
+  <table style="width:100%;border-collapse:collapse;margin:0.5rem 0;font-size:0.82rem;">
+    <thead><tr style="background:#f8fafc;"><th style="padding:0.5rem;border:1px solid #e2e8f0;">方法</th><th style="padding:0.5rem;border:1px solid #e2e8f0;">路径</th><th style="padding:0.5rem;border:1px solid #e2e8f0;">请求体</th><th style="padding:0.5rem;border:1px solid #e2e8f0;">响应体</th><th style="padding:0.5rem;border:1px solid #e2e8f0;">说明</th></tr></thead>
+    <tbody>
+      <tr><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>POST</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>/v2/tools/{api_key}/execute</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>{input, state, configurable}</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>{code:0, data:{result, state_patch}}</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;">执行 Remote Tool（支持 SSE 流式）</td></tr>
+      <tr><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>POST</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>/v2/middlewares/{api_key}/execute</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>{hook, payload, state, configurable}</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>{code:0, data:{result, state_patch}}</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;">执行 Remote Middleware</td></tr>
+      <tr><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>POST</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>/v2/mcp/tools/call</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>{tool_name, arguments, server_api_key?, context?}</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>{content, records, ...}</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;">调用 MCP Tool</td></tr>
+      <tr><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>GET</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>/v2/mcp/tools</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;">—</td><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>[McpToolDefinition]</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;">MCP Tool 列表</td></tr>
+      <tr><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>GET</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>/v2/mcp/servers</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;">—</td><td style="padding:0.4rem;border:1px solid #e2e8f0;"><code>[McpServerInfo]</code></td><td style="padding:0.4rem;border:1px solid #e2e8f0;">MCP Server 列表</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="font-size:1rem;margin:1.5rem 0 0.6rem;color:#334155;">服务发现（Eureka）</h3>
+  <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:1rem;">
+    <div style="font-weight:600;font-size:0.82rem;color:#334155;margin-bottom:0.5rem;">NeoApiTransport — 唯一传输层实现</div>
+    <ul style="font-size:0.72rem;color:#64748b;line-height:1.7;">
+      <li><strong>底层</strong>：neo-ai-infr-eureka.NeoApiClient（统一封装）</li>
+      <li><strong>服务发现</strong>：Eureka 自动解析 app_name → 实例地址（负载均衡 + 健康检查）</li>
+      <li><strong>上下文传递</strong>：GlobalContext（tenant_id、user_id）自动注入 HTTP Header</li>
+      <li><strong>链路追踪</strong>：SkyWalking trace 自动传播（全链路可观测）</li>
+      <li><strong>异步支持</strong>：async_invoke() 原生异步 + invoke() 同步兼容（内部线程池桥接）</li>
+      <li><strong>超时控制</strong>：timeout_ms 透传到 NeoApiClient.ainvoke</li>
+    </ul>
+  </div>
+
+  <h3 style="font-size:1rem;margin:1.5rem 0 0.6rem;color:#334155;">Middleware 动态类生成</h3>
+  <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:1rem;font-size:0.72rem;color:#64748b;line-height:1.8;">
+    动态生成 AgentMiddleware 子类，只覆写 hooks 中声明的方法。LangGraph create_agent 通过 <code>cls.METHOD is not AgentMiddleware.METHOD</code> 检测覆写，只为实际覆写的方法注册图节点 — 不覆写不产生空节点，性能最优。<br><br>
+    <strong>钩子参数转换链路：</strong>AgentState → ToolState.from_agent_state() → 序列化 → FeignClient 远程调用 → response.state_patch → merge_patch() → write_back(AgentState)<br><br>
+    <strong>返回值约定：</strong><code>{"action":"continue"}</code> 不修改 · <code>{"action":"modify","patch":{...}}</code> 修改 state · <code>{"action":"block","reason":"..."}</code> 拦截（仅 wrap_tool_call）
+  </div>
+
+  <h3 style="font-size:1rem;margin:1.5rem 0 0.6rem;color:#334155;">SSE 流式 Tool</h3>
+  <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:1rem;font-size:0.72rem;color:#64748b;line-height:1.8;">
+    Handler 返回 <code>AsyncGenerator</code> → SDK 自动转 SSE（<code>data: {chunk}</code> 逐条推送 → <code>event: state_patch</code> 回传状态 → <code>event: done</code> 结束）
+  </div>
+
+  <div class="box box-warn" style="margin-top:1.5rem;">
+    <strong>新业务域接入清单：</strong>
+    <ul>
+      <li>① 创建 <code>neo-ai-{domain}-service/</code>，依赖 neo-ai-registry-sdk</li>
+      <li>② 实现 handler：<code>async def handler(input_data, state, configurable) -> dict</code></li>
+      <li>③ <code>create_provider_app(domain, handler_map)</code> 一行创建服务</li>
+      <li>④ startup 中 <code>EurekaGlobalClient().register_eureka()</code></li>
+      <li>⑤ Agent 侧 registry.yaml 声明 tools/middlewares，service 指向 Eureka 注册名</li>
+      <li>⑥ 验证：Agent 启动自动加载 → FeignClient 远程调用 → state_patch 回写</li>
+    </ul>
+  </div>
+</section>
+
+
+<!-- ===== Agent 元数据配置规范 ===== -->
+<section>
+  <h2>Agent 元数据配置规范（agent.yaml）</h2>
+
+  <p style="font-size:0.88rem;color:#64748b;margin-bottom:1rem;">每个 Agent 实例通过一份 <code>agent.yaml</code> 声明式配置实现个性化。运行时根据配置动态组装 System Prompt、Tool 集、Middleware 管道、Skill 绑定和特性开关。</p>
+
+  <!-- 完整配置 Schema -->
+  <div style="background:#1e293b;color:#e2e8f0;padding:1.5rem;border-radius:8px;font-family:'JetBrains Mono','Fira Code',monospace;font-size:0.74rem;overflow-x:auto;white-space:pre;line-height:1.7;margin:1rem 0;">
+<span style="color:#94a3b8;"># ═══ Agent 元数据配置完整 Schema ═══</span>
+
+<span style="color:#38bdf8;">name</span>: query-crm-data              <span style="color:#94a3b8;"># Agent 唯一标识（必填）</span>
+<span style="color:#38bdf8;">description</span>: CRM 智能查询 Agent    <span style="color:#94a3b8;"># Agent 功能描述</span>
+<span style="color:#38bdf8;">model</span>: deepseek-v4-flash           <span style="color:#94a3b8;"># 指定 LLM 模型（空则使用全局默认）</span>
+
+<span style="color:#38bdf8;">system_prompt</span>: |                    <span style="color:#94a3b8;"># Agent 人设与行为规则（支持多行 Markdown）</span>
+  # 角色
+  你是 CRM 智能查询助手...
+  # 工作流程
+  ...
+
+<span style="color:#38bdf8;">tools</span>:                              <span style="color:#94a3b8;"># 允许使用的 Tool 列表（白名单）</span>
+  - query_schema
+  - query_data
+  - analyze_data
+
+<span style="color:#38bdf8;">skills</span>:                             <span style="color:#94a3b8;"># 绑定的 Skill 列表</span>
+  - crm-query-simple
+  - data_analysis
+
+<span style="color:#38bdf8;">middleware</span>:                          <span style="color:#94a3b8;"># 中间件管道配置</span>
+  <span style="color:#38bdf8;">inherit</span>: false                   <span style="color:#94a3b8;"># 是否继承全局默认中间件（true/false）</span>
+  <span style="color:#38bdf8;">names</span>:                            <span style="color:#94a3b8;"># 指定加载的中间件列表</span>
+    - logging
+    - loop_detection
+    - tool_error_handling
+    - memory
+    - crm_query_state
+  <span style="color:#38bdf8;">config</span>: {}                        <span style="color:#94a3b8;"># 中间件参数覆盖（按中间件名分组）</span>
+
+<span style="color:#38bdf8;">features</span>:                           <span style="color:#94a3b8;"># 特性开关</span>
+  <span style="color:#38bdf8;">memory_enabled</span>: true             <span style="color:#94a3b8;"># 记忆系统</span>
+  <span style="color:#38bdf8;">subagent_enabled</span>: false          <span style="color:#94a3b8;"># 子 Agent 委派</span>
+  <span style="color:#38bdf8;">guardrail_enabled</span>: true          <span style="color:#94a3b8;"># 安全护栏</span>
+  <span style="color:#38bdf8;">mcp_enabled</span>: false               <span style="color:#94a3b8;"># MCP 工具接入</span>
+  <span style="color:#38bdf8;">skill_autogen_enabled</span>: false     <span style="color:#94a3b8;"># Skill 自动生成</span>
+  <span style="color:#38bdf8;">direct_output</span>: true              <span style="color:#94a3b8;"># 工具结果直出（跳过 LLM 二次加工）</span>
+
+<span style="color:#38bdf8;">max_llm_calls</span>: 15                  <span style="color:#94a3b8;"># 单次会话 LLM 最大调用次数</span>
+<span style="color:#38bdf8;">max_step_llm_calls</span>: 8             <span style="color:#94a3b8;"># 单步骤 LLM 最大调用次数</span></div>
+
+  <!-- 字段说明表 -->
+  <table style="width:100%;border-collapse:collapse;margin:1rem 0;font-size:0.82rem;">
+    <thead>
+      <tr style="background:#f8fafc;">
+        <th style="padding:0.5rem 0.6rem;border:1px solid #e2e8f0;width:18%;">字段</th>
+        <th style="padding:0.5rem 0.6rem;border:1px solid #e2e8f0;width:10%;">类型</th>
+        <th style="padding:0.5rem 0.6rem;border:1px solid #e2e8f0;width:12%;">默认值</th>
+        <th style="padding:0.5rem 0.6rem;border:1px solid #e2e8f0;width:60%;">说明</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>name</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">string</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">目录名</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><strong>必填</strong>。Agent 唯一标识，用于路由和注册表关联</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>description</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">string</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">""</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">Agent 功能描述，用于 Multi-Agent 场景下的 Agent 选择和展示</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>model</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">string</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">""（全局默认）</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">指定 LLM 模型标识。为空时使用 AppConfig 中的 default_model。支持所有通过 platform-service 注册的模型</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>system_prompt</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">string</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">""</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">Agent 的角色设定、行为规则、工作流程。支持多行 YAML 字符串（<code>|</code> 语法）</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>tools</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">list[string]</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">[]</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">允许此 Agent 使用的 Tool 名称白名单。运行时从注册表加载对应 Tool 实例</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>skills</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">list[string]</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">[]</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">绑定的 Skill 列表。Agent 可通过 skills_tool 调用这些 Skill</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>middleware.inherit</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">bool</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">true</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>true</code>：继承全局默认中间件 + 追加 names 中的；<code>false</code>：仅使用 names 中指定的中间件</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>middleware.names</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">list[string]</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">[]</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">中间件名称列表，决定加载顺序。常用：logging / loop_detection / tool_error_handling / memory / summarization</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>middleware.config</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">dict</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">{}</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">中间件参数覆盖，按中间件名分组。如 <code>{summarization: {max_tokens: 50000}}</code></td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>features.*</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">bool</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">见下方</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">特性开关集合，控制 Agent 能力维度的启停</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>max_llm_calls</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">int</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">20</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">单次会话 LLM 最大调用次数，防止无限循环。超出后强制输出当前结果</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>max_step_llm_calls</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">int</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">10</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">单步骤 LLM 最大调用次数（子 Agent 场景下更严格）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Features 开关详解 -->
+  <h3 style="font-size:1rem;margin:1.5rem 0 0.6rem;color:#334155;">Features 特性开关</h3>
+  <table style="width:100%;border-collapse:collapse;margin:0.5rem 0;font-size:0.82rem;">
+    <thead>
+      <tr style="background:#f8fafc;">
+        <th style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;width:22%;">开关</th>
+        <th style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;width:10%;">默认</th>
+        <th style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;width:68%;">作用</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>memory_enabled</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">true</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">启用记忆系统（输入侧检索相关记忆注入、输出侧异步提取记忆更新）</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>subagent_enabled</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">true</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">允许通过 fork Skill 委派子 Agent 执行任务，启用 SubagentLimitMiddleware</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>guardrail_enabled</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">true</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">启用安全护栏（Tool 白名单校验、敏感操作拦截）</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>mcp_enabled</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">false</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">启用 MCP 工具接入，Agent 可通过 neo-ai-mcp-service 调用外部 MCP Server</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>skill_autogen_enabled</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">false</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">允许 Agent 运行时自动生成 Skill（实验性功能）</td>
+      </tr>
+      <tr>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;"><code>direct_output</code></td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">false</td>
+        <td style="padding:0.4rem 0.6rem;border:1px solid #e2e8f0;">工具返回结果直接输出给用户，跳过 LLM 二次加工（适用于格式化输出场景）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- 配置示例对比 -->
+  <h3 style="font-size:1rem;margin:1.5rem 0 0.6rem;color:#334155;">典型配置示例</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+
+    <!-- 示例1：默认 Agent -->
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:1rem;">
+      <div style="font-weight:600;font-size:0.82rem;color:var(--agent);margin-bottom:0.5rem;">默认入口 Agent（通用对话）</div>
+      <div style="background:#1e293b;color:#e2e8f0;padding:0.8rem;border-radius:6px;font-family:monospace;font-size:0.7rem;white-space:pre;line-height:1.6;">name: default
+model: deepseek-v4-flash
+tools: []
+skills: []
+middleware:
+  inherit: true
+features:
+  memory_enabled: true
+  subagent_enabled: true
+  mcp_enabled: false</div>
+      <div style="font-size:0.72rem;color:#64748b;margin-top:0.5rem;">
+        ✅ 继承全局中间件<br>
+        ✅ 开启记忆 + 子Agent<br>
+        ❌ 无指定 Tool（依赖 Skill 内部工具）
+      </div>
+    </div>
+
+    <!-- 示例2：专业 Agent -->
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:1rem;">
+      <div style="font-weight:600;font-size:0.82rem;color:var(--agent);margin-bottom:0.5rem;">CRM 查询 Agent（专业场景）</div>
+      <div style="background:#1e293b;color:#e2e8f0;padding:0.8rem;border-radius:6px;font-family:monospace;font-size:0.7rem;white-space:pre;line-height:1.6;">name: query-crm-data
+model: ""
+tools:
+  - extract_entity
+  - generate_xoql
+  - execute_xoql
+  - answer_by_data
+middleware:
+  inherit: false
+  names: [logging, loop_detection,
+    tool_error_handling, memory]
+features:
+  subagent_enabled: false
+  direct_output: true</div>
+      <div style="font-size:0.72rem;color:#64748b;margin-top:0.5rem;">
+        ❌ 不继承全局中间件（自定义管道）<br>
+        ❌ 禁用子Agent（自身是终端执行者）<br>
+        ✅ direct_output（结果直出前端）
+      </div>
+    </div>
+  </div>
+
+  <!-- 与架构图对应关系 -->
+  <div class="box box-warn" style="margin-top:1.5rem;">
+    <strong>配置与架构的对应关系：</strong>
+    <ul>
+      <li><code>agent.yaml</code> 对应架构图中「多 Agent 元数据配置」区块 — 每个 Agent 实例一份配置</li>
+      <li><code>tools</code> 列表 → 加载注册器从 <code>t_tool</code> 表读取对应 Tool 定义并实例化</li>
+      <li><code>skills</code> 列表 → 加载注册器从 <code>t_skill</code> 表读取对应 Skill 定义</li>
+      <li><code>middleware.names</code> → 加载注册器从 <code>t_middleware</code> 表读取并按序组装管道</li>
+      <li><code>features.mcp_enabled</code> → 控制是否通过 MCP Connector 连接 neo-ai-mcp-service</li>
+      <li>未来演进：<code>agent.yaml</code> 本身也将迁入注册表（<code>t_agent_profile</code>），实现全配置数据库驱动</li>
+    </ul>
+  </div>
+</section>
+
+</div>
+</body>
+</html>

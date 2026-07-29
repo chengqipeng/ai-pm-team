@@ -1,0 +1,114 @@
+{
+  "run_id": "agui_run_a9b4cc",
+  "total": 4,
+  "passed": 3,
+  "failed": 1,
+  "pass_rate": 0.75,
+  "duration_ms": 6520.3,
+  "token_total": 0,
+  "created_at": 1781599961165,
+  "status": "completed",
+  "cases": [
+    {
+      "case_id": "qr_resolve_001",
+      "case_name": "指代消解-代词",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "failed",
+      "input": "它的价格是多少",
+      "latency_ms": 2334.5,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['AirPods', '价格'], 实际: AirPods Pro 2的价格是多少"
+        },
+        {
+          "type": "semantic_preserve",
+          "passed": false,
+          "detail": "语义保持率: 0.00 (阈值: 0.8)"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "它的价格是多少",
+        "rewritten": "AirPods Pro 2的价格是多少",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_resolve_002",
+      "case_name": "指代消解-那个",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "上次提到的那个问题解决了吗",
+      "latency_ms": 2343.4,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['ORD-005'], 实际: 订单 ORD-005 一直显示处理中的问题解决了吗"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "上次提到的那个问题解决了吗",
+        "rewritten": "订单 ORD-005 一直显示处理中的问题解决了吗",
+        "changed": true
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_no_change_001",
+      "case_name": "无需改写-独立完整查询",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "帮我查一下客户张三的联系方式",
+      "latency_ms": 0.1,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_unchanged_or_equivalent",
+          "passed": true,
+          "detail": "原始: 帮我查一下客户张三的联系方式, 改写: 帮我查一下客户张三的联系方式"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "帮我查一下客户张三的联系方式",
+        "rewritten": "帮我查一下客户张三的联系方式",
+        "changed": false
+      },
+      "error_message": ""
+    },
+    {
+      "case_id": "qr_context_enrich_001",
+      "case_name": "上下文补充",
+      "suite_id": "suite_query_rewrite",
+      "layer_id": "layer_1_entry",
+      "status": "passed",
+      "input": "再帮我看看他的订单",
+      "latency_ms": 1842.3,
+      "token_usage": 0,
+      "assertions": [
+        {
+          "type": "rewrite_contains",
+          "passed": true,
+          "detail": "期望包含 ['李四', '订单'], 实际: 查看客户李四的订单"
+        }
+      ],
+      "stage": "query_rewrite",
+      "raw_output": {
+        "original": "再帮我看看他的订单",
+        "rewritten": "查看客户李四的订单",
+        "changed": true
+      },
+      "error_message": ""
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "type": "FallbackDataViewer",
+  "description": "降级组件：当 Skill 输出的结构化数据没有匹配到任何专用组件时，用本组件原样展示 JSON 数据。支持折叠/展开和复制。",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "data_key": {
+        "type": "string",
+        "description": "数据标识（Skill apikey 或自定义 key）"
+      },
+      "data": {
+        "type": "object",
+        "description": "原始 JSON 数据（任意结构）"
+      },
+      "skill_apikey": {
+        "type": "string",
+        "description": "产出该数据的 Skill 标识"
+      }
+    },
+    "required": ["data"]
+  },
+  "skill_bindings": {
+    "bind": [],
+    "prefer": []
+  },
+  "supported_model_names": [],
+  "rendering_hints": {
+    "display_mode": "inline_card",
+    "collapsible": true,
+    "default_collapsed": true,
+    "show_copy_button": true
+  }
+}

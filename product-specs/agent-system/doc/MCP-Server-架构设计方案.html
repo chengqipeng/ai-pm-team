@@ -1,0 +1,1732 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Server 整体架构设计 — 含代码实现</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --surface-2: #334155;
+            --border: #475569;
+            --text: #e2e8f0;
+            --text-dim: #94a3b8;
+            --accent-blue: #38bdf8;
+            --accent-cyan: #22d3ee;
+            --accent-green: #4ade80;
+            --accent-purple: #a78bfa;
+            --accent-orange: #fb923c;
+            --accent-red: #f87171;
+            --accent-yellow: #fbbf24;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        .canvas {
+            max-width: 1400px;
+            margin: 0 auto;
+            position: relative;
+        }
+        .title-bar {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+        .title-bar h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+        .title-bar .meta {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+        }
+
+        /* 架构层容器 */
+        .layer {
+            position: relative;
+            margin-bottom: 1.5rem;
+        }
+        .layer-label {
+            position: absolute;
+            left: -0.5rem;
+            top: 50%;
+            transform: translateY(-50%) rotate(-90deg);
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            white-space: nowrap;
+        }
+        .layer-content {
+            margin-left: 2rem;
+        }
+
+        /* 连接线 */
+        .connector {
+            display: flex;
+            justify-content: center;
+            padding: 0.5rem 0;
+            margin-left: 2rem;
+        }
+        .connector .arrows {
+            display: flex;
+            gap: 4rem;
+            color: var(--border);
+            font-size: 1.2rem;
+        }
+        .connector .arrows span {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0;
+            line-height: 1;
+        }
+
+        /* 节点通用 */
+        .node {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem 1.2rem;
+            position: relative;
+            transition: border-color 0.2s;
+        }
+        .node:hover { border-color: var(--accent-blue); }
+        .node-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 0.4rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .node-desc {
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            line-height: 1.5;
+        }
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .dot-blue { background: var(--accent-blue); }
+        .dot-green { background: var(--accent-green); }
+        .dot-purple { background: var(--accent-purple); }
+        .dot-orange { background: var(--accent-orange); }
+        .dot-red { background: var(--accent-red); }
+        .dot-cyan { background: var(--accent-cyan); }
+
+        /* 外部客户端层 */
+        .clients-row {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .client-chip {
+            background: var(--surface-2);
+            border: 1px dashed var(--border);
+            border-radius: 20px;
+            padding: 0.4rem 1rem;
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .client-chip .icon { font-size: 0.9rem; }
+
+        /* Gateway 层 */
+        .gateway {
+            background: linear-gradient(135deg, #1e3a5f, #1e293b);
+            border: 1px solid var(--accent-blue);
+            border-radius: 10px;
+            padding: 1.2rem 1.5rem;
+        }
+        .gateway .node-title { color: var(--accent-blue); font-size: 0.85rem; }
+        .gateway-routes {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 0.5rem;
+            margin-top: 0.8rem;
+        }
+        .route {
+            background: var(--surface);
+            border-radius: 4px;
+            padding: 0.3rem 0.5rem;
+            font-size: 0.6rem;
+            text-align: center;
+            border: 1px solid transparent;
+        }
+        .route-path { color: var(--accent-cyan); }
+        .route-target { color: var(--text-dim); margin-top: 0.15rem; }
+
+        /* MCP Server 层 */
+        .servers-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 1rem;
+        }
+        .server-node {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1rem;
+            position: relative;
+            overflow: hidden;
+        }
+        .server-node::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+        }
+        .server-node.crm::before { background: var(--accent-blue); }
+        .server-node.knowledge::before { background: var(--accent-green); }
+        .server-node.metadata::before { background: var(--accent-purple); }
+        .server-node.platform::before { background: var(--accent-orange); }
+        .server-node.sandbox::before { background: var(--accent-red); }
+
+        .server-name {
+            font-size: 0.8rem;
+            font-weight: 700;
+            margin-bottom: 0.3rem;
+        }
+        .server-node.crm .server-name { color: var(--accent-blue); }
+        .server-node.knowledge .server-name { color: var(--accent-green); }
+        .server-node.metadata .server-name { color: var(--accent-purple); }
+        .server-node.platform .server-name { color: var(--accent-orange); }
+        .server-node.sandbox .server-name { color: var(--accent-red); }
+
+        .server-subtitle {
+            font-size: 0.6rem;
+            color: var(--text-dim);
+            margin-bottom: 0.6rem;
+        }
+        .tool-count {
+            display: inline-block;
+            background: var(--surface-2);
+            border-radius: 10px;
+            padding: 0.15rem 0.5rem;
+            font-size: 0.6rem;
+            color: var(--text-dim);
+            margin-bottom: 0.5rem;
+        }
+        .tool-items {
+            list-style: none;
+            font-size: 0.6rem;
+            line-height: 1.8;
+        }
+        .tool-items li {
+            color: var(--text-dim);
+            padding-left: 0.8rem;
+            position: relative;
+        }
+        .tool-items li::before {
+            content: '›';
+            position: absolute;
+            left: 0;
+            color: var(--border);
+        }
+        .tool-items .highlight-tool { color: var(--text); }
+
+        /* 中间件/拦截器层 */
+        .middleware-bar {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .mw-chip {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+        .mw-chip .mw-icon { color: var(--accent-yellow); }
+
+        /* 后端服务层 */
+        .backends-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 1rem;
+        }
+        .backend-node {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.8rem;
+            text-align: center;
+        }
+        .backend-name {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 0.2rem;
+        }
+        .backend-tech {
+            font-size: 0.55rem;
+            color: var(--text-dim);
+        }
+        .backend-api {
+            font-size: 0.55rem;
+            color: var(--accent-cyan);
+            margin-top: 0.3rem;
+            word-break: break-all;
+        }
+
+        /* 数据存储层 */
+        .storage-row {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .storage-node {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.8rem 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .storage-icon { font-size: 1.2rem; }
+        .storage-info .storage-name {
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        .storage-info .storage-detail {
+            font-size: 0.55rem;
+            color: var(--text-dim);
+        }
+
+        /* 图例 */
+        .legend {
+            margin-top: 2rem;
+            padding: 1rem 1.5rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-left: 2rem;
+        }
+        .legend-title {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--text-dim);
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.65rem;
+            color: var(--text-dim);
+        }
+
+        /* 协议标签 */
+        .protocol-tag {
+            display: inline-block;
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: 3px;
+            padding: 0.1rem 0.4rem;
+            font-size: 0.55rem;
+            color: var(--accent-blue);
+        }
+
+        /* ═══ 代码实现区域 ═══ */
+        .code-section {
+            margin-top: 4rem;
+            margin-left: 2rem;
+        }
+        .code-section-title {
+            font-size: 1.4rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+            text-align: center;
+        }
+        .code-section-subtitle {
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-bottom: 3rem;
+        }
+
+        /* 单个 Server 代码块 */
+        .server-impl {
+            margin-bottom: 3rem;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            background: var(--surface);
+        }
+        .server-impl-header {
+            padding: 1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .server-impl-header .dot { width: 10px; height: 10px; }
+        .server-impl-header h3 {
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+        .server-impl-header .impl-meta {
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            margin-left: auto;
+        }
+        .server-impl.crm .server-impl-header h3 { color: var(--accent-blue); }
+        .server-impl.knowledge .server-impl-header h3 { color: var(--accent-green); }
+        .server-impl.metadata .server-impl-header h3 { color: var(--accent-purple); }
+        .server-impl.platform .server-impl-header h3 { color: var(--accent-orange); }
+        .server-impl.sandbox .server-impl-header h3 { color: var(--accent-red); }
+
+        .server-impl-body {
+            padding: 1.5rem;
+        }
+        .impl-desc {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            line-height: 1.7;
+            margin-bottom: 1.2rem;
+            padding: 0.8rem 1rem;
+            background: var(--bg);
+            border-radius: 6px;
+            border-left: 3px solid var(--border);
+        }
+
+        /* 工具卡片 */
+        .tool-card {
+            margin-bottom: 1.5rem;
+            border: 1px solid var(--surface-2);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .tool-card-header {
+            padding: 0.6rem 1rem;
+            background: var(--surface-2);
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            cursor: pointer;
+        }
+        .tool-card-header:hover { background: var(--border); }
+        .tool-card-header .tool-name {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--accent-cyan);
+        }
+        .tool-card-header .tool-desc-short {
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            margin-left: auto;
+        }
+        .tool-card-header .toggle-icon {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            transition: transform 0.2s;
+        }
+        .tool-card.collapsed .tool-card-body { display: none; }
+        .tool-card.collapsed .toggle-icon { transform: rotate(-90deg); }
+
+        .tool-card-body {
+            padding: 1rem;
+        }
+        .tool-card-body .tool-purpose {
+            font-size: 0.7rem;
+            color: var(--text);
+            margin-bottom: 0.8rem;
+            line-height: 1.6;
+        }
+
+        /* Input Schema 表格 */
+        .schema-table {
+            width: 100%;
+            font-size: 0.65rem;
+            border-collapse: collapse;
+            margin-bottom: 0.8rem;
+        }
+        .schema-table th {
+            background: var(--bg);
+            color: var(--text-dim);
+            padding: 0.4rem 0.6rem;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border);
+        }
+        .schema-table td {
+            padding: 0.4rem 0.6rem;
+            border-bottom: 1px solid var(--surface-2);
+            color: var(--text);
+            vertical-align: top;
+        }
+        .schema-table .param-name { color: var(--accent-cyan); font-weight: 600; }
+        .schema-table .param-type { color: var(--accent-purple); }
+        .schema-table .param-required { color: var(--accent-red); font-size: 0.6rem; }
+        .schema-table .param-optional { color: var(--text-dim); font-size: 0.6rem; }
+
+        /* 代码块 */
+        .code-block {
+            background: var(--bg);
+            border: 1px solid var(--surface-2);
+            border-radius: 6px;
+            padding: 1rem;
+            overflow-x: auto;
+            font-size: 0.65rem;
+            line-height: 1.6;
+            margin-top: 0.8rem;
+        }
+        .code-block code {
+            color: var(--text);
+            white-space: pre;
+        }
+        .code-block .comment { color: var(--text-dim); }
+        .code-block .keyword { color: var(--accent-purple); }
+        .code-block .string { color: var(--accent-green); }
+        .code-block .function { color: var(--accent-blue); }
+        .code-block .class-name { color: var(--accent-yellow); }
+        .code-block .decorator { color: var(--accent-orange); }
+
+        /* 架构说明面板 */
+        .arch-note {
+            margin: 1rem 0;
+            padding: 0.8rem 1rem;
+            background: rgba(56, 189, 248, 0.05);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 6px;
+            font-size: 0.7rem;
+            line-height: 1.7;
+            color: var(--text-dim);
+        }
+        .arch-note strong { color: var(--accent-blue); }
+
+        /* 文件路径标签 */
+        .file-path {
+            display: inline-block;
+            background: var(--bg);
+            border: 1px solid var(--surface-2);
+            border-radius: 3px;
+            padding: 0.1rem 0.5rem;
+            font-size: 0.6rem;
+            color: var(--text-dim);
+            margin-bottom: 0.5rem;
+        }
+
+        /* Backend 关系图 */
+        .backend-relation {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg);
+            border-radius: 6px;
+            font-size: 0.65rem;
+            margin: 0.8rem 0;
+        }
+        .backend-relation .arrow { color: var(--accent-cyan); }
+
+        /* 分隔线 */
+        .divider {
+            margin: 3rem 2rem;
+            border: none;
+            border-top: 1px dashed var(--border);
+        }
+
+        /* TOC */
+        .toc {
+            margin: 2rem 2rem 3rem;
+            padding: 1.2rem 1.5rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+        }
+        .toc h3 {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            margin-bottom: 0.8rem;
+        }
+        .toc-list {
+            list-style: none;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 0.4rem;
+        }
+        .toc-list li a {
+            font-size: 0.7rem;
+            color: var(--accent-cyan);
+            text-decoration: none;
+            padding: 0.3rem 0;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .toc-list li a:hover { color: var(--accent-blue); }
+
+        @media (max-width: 1000px) {
+            .servers-grid, .backends-grid, .gateway-routes {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        @media (max-width: 600px) {
+            .servers-grid, .backends-grid, .gateway-routes {
+                grid-template-columns: 1fr;
+            }
+            body { padding: 1rem; }
+        }
+    </style>
+</head>
+<body>
+<div class="canvas">
+
+<!-- ═══════════════════════════════════════════════════════════════
+     第一部分：架构总览图
+     ═══════════════════════════════════════════════════════════════ -->
+
+<div class="title-bar">
+    <h1>MCP Server 整体架构设计</h1>
+    <div class="meta">neo-apps-ai-agent-service · StreamableHTTP · Multi-Domain · 2026.06</div>
+</div>
+
+<!-- Layer 1: 外部客户端 -->
+<div class="layer">
+    <div class="layer-label">Clients</div>
+    <div class="layer-content">
+        <div class="clients-row">
+            <div class="client-chip"><span class="icon">💬</span> WorkBuddy</div>
+            <div class="client-chip"><span class="icon">⌨️</span> Cursor / Kiro IDE</div>
+            <div class="client-chip"><span class="icon">🤖</span> Claude Desktop</div>
+            <div class="client-chip"><span class="icon">📱</span> AI Native App</div>
+            <div class="client-chip"><span class="icon">🔧</span> 第三方 MCP Client</div>
+            <div class="client-chip"><span class="icon">🔄</span> Agent 内部 (McpTool)</div>
+        </div>
+    </div>
+</div>
+
+<!-- 连接线 -->
+<div class="connector">
+    <div class="arrows">
+        <span>│<br>▼</span>
+        <span>│<br>▼</span>
+        <span style="color: var(--text-dim); font-size:0.6rem;">StreamableHTTP<br>+ JWT</span>
+        <span>│<br>▼</span>
+        <span>│<br>▼</span>
+    </div>
+</div>
+
+<!-- Layer 2: API Gateway -->
+<div class="layer">
+    <div class="layer-label">Gateway</div>
+    <div class="layer-content">
+        <div class="gateway">
+            <div class="node-title">
+                <span class="dot dot-blue"></span>
+                API Gateway — 统一接入层
+                <span class="protocol-tag">JWT 验证 → 租户解析 → 限流 → 路由</span>
+            </div>
+            <div class="gateway-routes">
+                <div class="route">
+                    <div class="route-path">/mcp/v2.0/crm/*</div>
+                    <div class="route-target">→ crm-data-mcp</div>
+                </div>
+                <div class="route">
+                    <div class="route-path">/mcp/v2.0/knowledge/*</div>
+                    <div class="route-target">→ knowledge-mcp</div>
+                </div>
+                <div class="route">
+                    <div class="route-path">/mcp/v2.0/metadata/*</div>
+                    <div class="route-target">→ metadata-mcp</div>
+                </div>
+                <div class="route">
+                    <div class="route-path">/mcp/v2.0/platform/*</div>
+                    <div class="route-target">→ platform-mcp</div>
+                </div>
+                <div class="route">
+                    <div class="route-path">/mcp/v2.0/sandbox/*</div>
+                    <div class="route-target">→ sandbox-mcp</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 连接线 -->
+<div class="connector">
+    <div class="arrows">
+        <span>│<br>▼</span><span>│<br>▼</span><span>│<br>▼</span><span>│<br>▼</span><span>│<br>▼</span>
+    </div>
+</div>
+
+<!-- Layer 3: MCP Servers -->
+<div class="layer">
+    <div class="layer-label">MCP Servers</div>
+    <div class="layer-content">
+        <div class="servers-grid">
+            <div class="server-node crm">
+                <div class="server-name">crm-data-mcp</div>
+                <div class="server-subtitle">CRM 业务数据服务</div>
+                <div class="tool-count">9 Tools</div>
+                <ul class="tool-items">
+                    <li class="highlight-tool">identify_record_by_name</li>
+                    <li class="highlight-tool">get_record_details</li>
+                    <li class="highlight-tool">query_records</li>
+                    <li>create_record</li>
+                    <li>update_record</li>
+                    <li>delete_record</li>
+                    <li>list_related_records</li>
+                    <li>aggregate_data</li>
+                    <li>get_entity_schema</li>
+                </ul>
+            </div>
+            <div class="server-node knowledge">
+                <div class="server-name">knowledge-mcp</div>
+                <div class="server-subtitle">知识库检索服务</div>
+                <div class="tool-count">6 Tools</div>
+                <ul class="tool-items">
+                    <li>search_knowledge</li>
+                    <li>list_knowledge_bases</li>
+                    <li>get_document_detail</li>
+                    <li>search_by_keyword</li>
+                    <li>upload_document</li>
+                    <li>delete_document</li>
+                </ul>
+            </div>
+            <div class="server-node metadata">
+                <div class="server-name">metadata-mcp</div>
+                <div class="server-subtitle">元数据查询服务</div>
+                <div class="tool-count">8 Tools · 只读</div>
+                <ul class="tool-items">
+                    <li>list_entities</li>
+                    <li>get_entity_fields</li>
+                    <li>get_entity_links</li>
+                    <li>get_pick_options</li>
+                    <li>list_metamodels</li>
+                    <li>get_column_mapping</li>
+                    <li>search_metadata</li>
+                    <li>get_data_model_summary</li>
+                </ul>
+            </div>
+            <div class="server-node platform">
+                <div class="server-name">platform-mcp</div>
+                <div class="server-subtitle">AI 平台能力服务</div>
+                <div class="tool-count">7 Tools</div>
+                <ul class="tool-items">
+                    <li>web_search</li>
+                    <li>execute_prompt_template</li>
+                    <li>list_agents</li>
+                    <li>trigger_auto_flow</li>
+                    <li>send_notification</li>
+                    <li>get_conversation_history</li>
+                    <li>manage_memory</li>
+                </ul>
+            </div>
+            <div class="server-node sandbox">
+                <div class="server-name">sandbox-mcp</div>
+                <div class="server-subtitle">沙盒执行服务</div>
+                <div class="tool-count">5 Tools · 高危</div>
+                <ul class="tool-items">
+                    <li>execute_code</li>
+                    <li>terminal</li>
+                    <li>read_file</li>
+                    <li>write_file</li>
+                    <li>search_files</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 中间件拦截层 -->
+<div class="connector">
+    <div class="middleware-bar">
+        <div class="mw-chip"><span class="mw-icon">🔐</span> 权限校验</div>
+        <div class="mw-chip"><span class="mw-icon">💰</span> 资源点计费</div>
+        <div class="mw-chip"><span class="mw-icon">📊</span> Tracing 埋点</div>
+        <div class="mw-chip"><span class="mw-icon">⚡</span> 限流熔断</div>
+        <div class="mw-chip"><span class="mw-icon">📝</span> 审计日志</div>
+    </div>
+</div>
+
+<!-- 连接线 -->
+<div class="connector">
+    <div class="arrows">
+        <span>│<br>▼</span>
+        <span style="color: var(--text-dim); font-size:0.6rem;">NeoApiClient<br>Eureka 服务发现</span>
+        <span>│<br>▼</span>
+    </div>
+</div>
+
+<!-- Layer 4: 后端服务 -->
+<div class="layer">
+    <div class="layer-label">Backend</div>
+    <div class="layer-content">
+        <div class="backends-grid">
+            <div class="backend-node">
+                <div class="backend-name">salescloud-ai-service</div>
+                <div class="backend-tech">Java · Spring Boot</div>
+                <div class="backend-api">/rest/ai/v1/mcp/tool/*</div>
+            </div>
+            <div class="backend-node">
+                <div class="backend-name">knowledge-service</div>
+                <div class="backend-tech">Python · 向量检索</div>
+                <div class="backend-api">/rest/ai/v1/rag/mcp</div>
+            </div>
+            <div class="backend-node">
+                <div class="backend-name">metadata-app-service</div>
+                <div class="backend-tech">Java · Spring Boot</div>
+                <div class="backend-api">/rest/metadata/v2.0/*</div>
+            </div>
+            <div class="backend-node">
+                <div class="backend-name">agent-platform-service</div>
+                <div class="backend-tech">Python · FastAPI</div>
+                <div class="backend-api">/rest/ai/v2.0/*</div>
+            </div>
+            <div class="backend-node">
+                <div class="backend-name">Tencent Sandbox</div>
+                <div class="backend-tech">Container · SSH</div>
+                <div class="backend-api">SSH / Cloud API</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 连接线 -->
+<div class="connector">
+    <div class="arrows">
+        <span>│<br>▼</span><span>│<br>▼</span><span>│<br>▼</span>
+    </div>
+</div>
+
+<!-- Layer 5: 数据存储 -->
+<div class="layer">
+    <div class="layer-label">Storage</div>
+    <div class="layer-content">
+        <div class="storage-row">
+            <div class="storage-node">
+                <div class="storage-icon">🐘</div>
+                <div class="storage-info">
+                    <div class="storage-name">PostgreSQL</div>
+                    <div class="storage-detail">元数据 · 会话 · 配置</div>
+                </div>
+            </div>
+            <div class="storage-node">
+                <div class="storage-icon">🔴</div>
+                <div class="storage-info">
+                    <div class="storage-name">Redis</div>
+                    <div class="storage-detail">缓存 · 限流 · Session</div>
+                </div>
+            </div>
+            <div class="storage-node">
+                <div class="storage-icon">🔍</div>
+                <div class="storage-info">
+                    <div class="storage-name">向量数据库</div>
+                    <div class="storage-detail">知识库 · 记忆 · Embedding</div>
+                </div>
+            </div>
+            <div class="storage-node">
+                <div class="storage-icon">☁️</div>
+                <div class="storage-info">
+                    <div class="storage-name">COS 对象存储</div>
+                    <div class="storage-detail">文件 · 文档 · 产物</div>
+                </div>
+            </div>
+            <div class="storage-node">
+                <div class="storage-icon">📊</div>
+                <div class="storage-info">
+                    <div class="storage-name">MySQL</div>
+                    <div class="storage-detail">业务数据 · 分片表</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 图例 -->
+<div class="legend">
+    <div class="legend-title">LEGEND</div>
+    <div class="legend-item"><span class="dot dot-blue"></span> CRM 数据</div>
+    <div class="legend-item"><span class="dot dot-green"></span> 知识库</div>
+    <div class="legend-item"><span class="dot dot-purple"></span> 元数据</div>
+    <div class="legend-item"><span class="dot dot-orange"></span> 平台能力</div>
+    <div class="legend-item"><span class="dot dot-red"></span> 沙盒执行</div>
+    <div class="legend-item"><span class="protocol-tag">StreamableHTTP</span> 传输协议</div>
+    <div class="legend-item" style="color:var(--accent-cyan);">highlight = 已实现</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     第二部分：代码实现详情
+     ═══════════════════════════════════════════════════════════════ -->
+
+<hr class="divider">
+
+<div class="code-section">
+    <div class="code-section-title">代码实现详情</div>
+    <div class="code-section-subtitle">5 个 MCP Server 的完整 Tool 实现 · 源码级文档 · 基于 agent-system 仓库</div>
+</div>
+
+<!-- 目录 -->
+<div class="toc">
+    <h3>📑 目录导航</h3>
+    <ul class="toc-list">
+        <li><a href="#impl-crm"><span class="dot dot-blue"></span> crm-data-mcp — CRM 业务数据服务</a></li>
+        <li><a href="#impl-knowledge"><span class="dot dot-green"></span> knowledge-mcp — 知识库检索服务</a></li>
+        <li><a href="#impl-metadata"><span class="dot dot-purple"></span> metadata-mcp — 元数据查询服务</a></li>
+        <li><a href="#impl-platform"><span class="dot dot-orange"></span> platform-mcp — AI 平台能力服务</a></li>
+        <li><a href="#impl-sandbox"><span class="dot dot-red"></span> sandbox-mcp — 沙盒执行服务</a></li>
+        <li><a href="#impl-infra"><span class="dot dot-cyan"></span> 基础设施 — Auth · Backend · Protocol</a></li>
+    </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     Server 1: crm-data-mcp
+     ═══════════════════════════════════════════════════════════════ -->
+
+<div class="code-section" id="impl-crm">
+
+<div class="server-impl crm">
+    <div class="server-impl-header">
+        <span class="dot dot-blue"></span>
+        <h3>crm-data-mcp — CRM 业务数据服务</h3>
+        <span class="impl-meta">src/tools/crm_tools.py · 9 Tools · 已实现</span>
+    </div>
+    <div class="server-impl-body">
+
+        <div class="impl-desc">
+            CRM MCP Server 提供对销售云业务数据的完整 CRUD + 聚合分析能力。<br>
+            通过 <code>CrmSimulatedBackend</code>（内部闭环）或 <code>EntityDataHttpBackend</code>（对接 paas-platform-service）<br>
+            提供 account（客户）、opportunity（商机）、contact（联系人）、activity（活动）、lead（线索）的数据操作。<br>
+            另含 <code>ManageMemoryTool</code> / <code>MemoryReadTool</code> 支持 Agent 长期记忆管理。
+        </div>
+
+        <div class="arch-note">
+            <strong>Backend 路由策略：</strong> 启动时通过环境变量决定 Backend 类型。
+            若配置 <code>METAREPO_API_BASE</code> 则使用 HTTP Backend 对接真实服务（走 JWT 认证 + Eureka 服务发现），
+            否则降级为 <code>CrmSimulatedBackend</code> 内存模拟。记忆引擎通过 <code>VikingMemoryEngine</code>
+            连接腾讯 VDB 向量数据库，可通过 <code>DISABLE_MEMORY=1</code> 关闭。
+        </div>
+
+        <div class="backend-relation">
+            <code>crm_tools.py</code>
+            <span class="arrow">→</span>
+            <code>CrmSimulatedBackend</code> / <code>EntityDataHttpBackend</code>
+            <span class="arrow">→</span>
+            <code>salescloud-ai-service /rest/ai/v1/mcp/tool/*</code>
+        </div>
+
+        <!-- Tool: query_schema -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">query_schema</span>
+                <span class="tool-desc-short">查询业务对象元数据定义（字段结构、关联、选项值）</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    查询 CRM 系统中业务对象的 Schema 信息。Agent 查询到数据后，需要理解字段含义、类型、选项值时调用。
+                    支持 list_entities / entity / entity_items / entity_links / entity_pick_options 五种查询类型。
+                </div>
+                <table class="schema-table">
+                    <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+                    <tr><td class="param-name">query_type</td><td class="param-type">string (enum)</td><td class="param-required">✓</td><td>list_entities | entity | entity_items | entity_links | entity_pick_options</td></tr>
+                    <tr><td class="param-name">entity_api_key</td><td class="param-type">string</td><td class="param-optional">△</td><td>业务对象 api_key（entity/entity_items/entity_links 时必填）</td></tr>
+                    <tr><td class="param-name">item_api_key</td><td class="param-type">string</td><td class="param-optional">△</td><td>字段 api_key（entity_pick_options 时必填）</td></tr>
+                </table>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">QuerySchemaTool</span>(Tool):
+    <span class="comment">"""查询元数据定义 — 查询业务对象的字段结构、关联关系、选项值等 schema 信息"""</span>
+
+    <span class="keyword">async def</span> <span class="function">call</span>(self, input_data, context, on_progress=None):
+        result = <span class="keyword">await</span> self._backend.query_metadata(
+            input_data[<span class="string">"query_type"</span>],
+            entity_api_key=input_data.get(<span class="string">"entity_api_key"</span>, <span class="string">""</span>),
+            item_api_key=input_data.get(<span class="string">"item_api_key"</span>, <span class="string">""</span>),
+        )
+        <span class="keyword">if</span> <span class="string">"error"</span> <span class="keyword">in</span> result:
+            <span class="keyword">return</span> ToolResult(content=result[<span class="string">"error"</span>], is_error=True)
+        <span class="keyword">return</span> ToolResult(content=json.dumps(result[<span class="string">"data"</span>], ensure_ascii=False, indent=2))</code></div>
+            </div>
+        </div>
+
+        <!-- Tool: query_data -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">query_data</span>
+                <span class="tool-desc-short">查询业务数据记录（query / get / count）</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    CRM 数据查询核心工具。支持按条件查询列表（分页、排序、字段筛选）、按 ID 查单条详情、统计记录数。<br>
+                    内含智能重试：若 record_id 不是 ID 格式自动降级为按名称搜索；搜索 0 条时自动拆词重试。
+                </div>
+                <table class="schema-table">
+                    <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+                    <tr><td class="param-name">action</td><td class="param-type">string (enum)</td><td class="param-required">✓</td><td>query | get | count</td></tr>
+                    <tr><td class="param-name">entity_api_key</td><td class="param-type">string</td><td class="param-required">✓</td><td>account / opportunity / contact / activity / lead</td></tr>
+                    <tr><td class="param-name">record_id</td><td class="param-type">string</td><td class="param-optional">△</td><td>记录 ID（get 时必填）</td></tr>
+                    <tr><td class="param-name">filters</td><td class="param-type">object</td><td class="param-optional">○</td><td>过滤条件 {"字段": "值"}</td></tr>
+                    <tr><td class="param-name">fields</td><td class="param-type">array[string]</td><td class="param-optional">○</td><td>返回字段列表</td></tr>
+                    <tr><td class="param-name">page / page_size</td><td class="param-type">integer</td><td class="param-optional">○</td><td>分页参数，默认 1/20</td></tr>
+                    <tr><td class="param-name">order_by</td><td class="param-type">string</td><td class="param-optional">○</td><td>排序字段（-前缀降序）</td></tr>
+                </table>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">QueryDataTool</span>(Tool):
+    <span class="comment">"""查询业务数据 — 最常用的数据访问工具"""</span>
+
+    <span class="keyword">async def</span> <span class="function">call</span>(self, input_data, context, on_progress=None):
+        action = input_data[<span class="string">"action"</span>]
+        entity = input_data[<span class="string">"entity_api_key"</span>]
+
+        <span class="keyword">if</span> action == <span class="string">"get"</span>:
+            rid = input_data.get(<span class="string">"record_id"</span>)
+            <span class="comment"># 智能识别：非 ID 格式自动降级为名称搜索</span>
+            is_id_format = (
+                rid.startswith((<span class="string">"acc_"</span>, <span class="string">"opp_"</span>, <span class="string">"con_"</span>, <span class="string">"act_"</span>, <span class="string">"lea_"</span>))
+                <span class="keyword">or</span> rid.isdigit() <span class="keyword">or</span> rid.startswith(<span class="string">"id_"</span>)
+            )
+            <span class="keyword">if not</span> is_id_format:
+                result = <span class="keyword">await</span> self._backend.query_data(entity, {<span class="string">"name__contains"</span>: rid})
+                <span class="comment"># ... 智能重试 + 拆词搜索</span>
+
+        <span class="keyword">if</span> action == <span class="string">"query"</span>:
+            result = <span class="keyword">await</span> self._backend.query_data(
+                entity, filters,
+                fields=input_data.get(<span class="string">"fields"</span>),
+                page=input_data.get(<span class="string">"page"</span>) <span class="keyword">or</span> 1,
+                page_size=input_data.get(<span class="string">"page_size"</span>) <span class="keyword">or</span> 20,
+                order_by=input_data.get(<span class="string">"order_by"</span>),
+            )</code></div>
+            </div>
+        </div>
+
+        <!-- Tool: modify_data -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">modify_data</span>
+                <span class="tool-desc-short">修改业务数据（create / update / delete）</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    数据写操作工具。执行前必须通过 ask_user 向用户确认操作内容。
+                    delete 操作标记为 <code>is_destructive=True</code>，触发额外的审计和确认流程。
+                </div>
+                <table class="schema-table">
+                    <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+                    <tr><td class="param-name">action</td><td class="param-type">string (enum)</td><td class="param-required">✓</td><td>create | update | delete</td></tr>
+                    <tr><td class="param-name">entity_api_key</td><td class="param-type">string</td><td class="param-required">✓</td><td>业务对象标识</td></tr>
+                    <tr><td class="param-name">record_id</td><td class="param-type">string</td><td class="param-optional">△</td><td>update/delete 时必填</td></tr>
+                    <tr><td class="param-name">data</td><td class="param-type">object</td><td class="param-optional">△</td><td>create/update 时的字段键值对</td></tr>
+                </table>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">ModifyDataTool</span>(Tool):
+    <span class="keyword">async def</span> <span class="function">call</span>(self, input_data, context, on_progress=None):
+        result = <span class="keyword">await</span> self._backend.mutate_data(
+            entity, action, data, record_id=record_id
+        )
+
+    <span class="keyword">def</span> <span class="function">is_destructive</span>(self, input_data):
+        <span class="keyword">return</span> input_data.get(<span class="string">"action"</span>) == <span class="string">"delete"</span></code></div>
+            </div>
+        </div>
+
+        <!-- Tool: analyze_data -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">analyze_data</span>
+                <span class="tool-desc-short">数据聚合分析（sum / count / avg / min / max + 分组）</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    对业务数据进行多维度聚合统计。支持多指标同时计算 + 按字段分组。
+                    典型场景：按阶段统计商机金额、按负责人统计客户数。
+                </div>
+                <table class="schema-table">
+                    <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+                    <tr><td class="param-name">entity_api_key</td><td class="param-type">string</td><td class="param-required">✓</td><td>业务对象标识</td></tr>
+                    <tr><td class="param-name">metrics</td><td class="param-type">array[{field, function}]</td><td class="param-required">✓</td><td>聚合指标，function: count/sum/avg/min/max</td></tr>
+                    <tr><td class="param-name">group_by</td><td class="param-type">string</td><td class="param-optional">○</td><td>分组字段</td></tr>
+                    <tr><td class="param-name">filters</td><td class="param-type">object</td><td class="param-optional">○</td><td>过滤条件</td></tr>
+                </table>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">AnalyzeDataTool</span>(Tool):
+    <span class="keyword">async def</span> <span class="function">call</span>(self, input_data, context, on_progress=None):
+        result = <span class="keyword">await</span> self._backend.aggregate_data(
+            input_data[<span class="string">"entity_api_key"</span>],
+            input_data[<span class="string">"metrics"</span>],
+            group_by=input_data.get(<span class="string">"group_by"</span>),
+            filters=input_data.get(<span class="string">"filters"</span>, {}),
+        )
+        <span class="keyword">return</span> ToolResult(content=json.dumps(result[<span class="string">"data"</span>], ensure_ascii=False, indent=2))</code></div>
+            </div>
+        </div>
+
+        <!-- Tool: manage_memory -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">manage_memory</span>
+                <span class="tool-desc-short">Agent 长期记忆管理（list / delete / clear）</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    管理 Agent 的对话记忆。通过 VikingMemoryEngine 连接腾讯 VDB 向量数据库。<br>
+                    支持按关键词搜索、按维度（task_history/customer_context/user_profile/domain_knowledge）筛选、删除和清空。
+                </div>
+                <table class="schema-table">
+                    <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+                    <tr><td class="param-name">action</td><td class="param-type">string (enum)</td><td class="param-required">✓</td><td>list | delete | delete_by_ids | clear</td></tr>
+                    <tr><td class="param-name">keyword</td><td class="param-type">string</td><td class="param-optional">○</td><td>搜索/删除关键词</td></tr>
+                    <tr><td class="param-name">dimension</td><td class="param-type">string (enum)</td><td class="param-optional">○</td><td>记忆维度筛选</td></tr>
+                    <tr><td class="param-name">ids</td><td class="param-type">array[integer]</td><td class="param-optional">△</td><td>delete_by_ids 时的 ID 列表</td></tr>
+                </table>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">ManageMemoryTool</span>(Tool):
+    <span class="comment"># Backend: VikingMemoryEngine → 腾讯 VDB (http://10.60.2.17)</span>
+
+    <span class="keyword">async def</span> <span class="function">call</span>(self, input_data, context, on_progress=None):
+        action = input_data.get(<span class="string">"action"</span>)
+        <span class="keyword">if</span> action == <span class="string">"list"</span>:
+            memories = self._engine.list_memories(user_id, keyword, dimension)
+        <span class="keyword">elif</span> action == <span class="string">"delete"</span>:
+            deleted = self._engine.delete_memories_by_keyword(user_id, keyword, dimension)
+        <span class="keyword">elif</span> action == <span class="string">"clear"</span>:
+            deleted = self._engine.clear_all_memories(user_id)</code></div>
+            </div>
+        </div>
+
+        <!-- Tool: ask_user / ask_clarification -->
+        <div class="tool-card collapsed">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">ask_user / ask_clarification</span>
+                <span class="tool-desc-short">用户交互确认 + 信息澄清追问（4 种澄清类型）</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    <strong>ask_user</strong>：简单的是/否确认（数据修改前确认）<br>
+                    <strong>ask_clarification</strong>：复杂的信息追问，含 4 种类型：missing_info / ambiguous_requirement / approach_choice / risk_confirmation。
+                    实际执行由 ClarificationMiddleware 拦截，中断 Agent 执行流并等待用户回复。
+                </div>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">AskClarificationTool</span>(Tool):
+    <span class="comment">"""4 种澄清类型：
+    - missing_info: 缺少关键参数
+    - ambiguous_requirement: 表述有歧义
+    - approach_choice: 多种方案需选择
+    - risk_confirmation: 高风险操作确认
+    """</span>
+
+    <span class="keyword">async def</span> <span class="function">call</span>(self, input_data, context, on_progress=None):
+        <span class="comment"># 实际由 ClarificationMiddleware 拦截，不会走到这里</span>
+        icons = {<span class="string">"missing_info"</span>: <span class="string">"❓"</span>, <span class="string">"ambiguous_requirement"</span>: <span class="string">"🤔"</span>,
+                 <span class="string">"approach_choice"</span>: <span class="string">"🔀"</span>, <span class="string">"risk_confirmation"</span>: <span class="string">"⚠️"</span>}</code></div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     Server 2: knowledge-mcp
+     ═══════════════════════════════════════════════════════════════ -->
+
+<div class="server-impl knowledge" id="impl-knowledge">
+    <div class="server-impl-header">
+        <span class="dot dot-green"></span>
+        <h3>knowledge-mcp — 知识库检索服务</h3>
+        <span class="impl-meta">src/tools/knowledge_tools.py · 3 Tools · 已实现</span>
+    </div>
+    <div class="server-impl-body">
+
+        <div class="impl-desc">
+            知识库 MCP Server 封装 RAG 检索能力，支持产品手册、销售话术、成功案例、技术白皮书等非结构化文档的语义检索。<br>
+            底层通过 <code>KnowledgeProvider</code> 对接向量数据库（支持 self-query 自动意图理解 + 元数据过滤）。<br>
+            Provider 支持租户隔离，按 tenant_id 限定可访问的知识库范围。
+        </div>
+
+        <div class="arch-note">
+            <strong>Provider 注入策略（三级降级）：</strong><br>
+            ① 直接注入（register_knowledge_tools 时传入）→ ② FastAPI app.state 动态获取 → ③ LangGraph runtime config 获取。<br>
+            解决服务启动时序问题：知识库 Provider 可能在 Tool 注册后才初始化完成。
+        </div>
+
+        <div class="backend-relation">
+            <code>knowledge_tools.py</code>
+            <span class="arrow">→</span>
+            <code>KnowledgeProvider.search()</code>
+            <span class="arrow">→</span>
+            <code>knowledge-service /rest/ai/v1/rag/mcp</code>
+        </div>
+
+        <!-- Tool: knowledge_search -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">knowledge_search</span>
+                <span class="tool-desc-short">语义检索知识库文档（支持 self-query + 元数据过滤）</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    核心检索工具。支持自然语言查询 + 自动意图理解（self-query），系统自动提取查询中的过滤条件。<br>
+                    可通过 doc_category / industry / business_stage / target_audience 进行精确元数据过滤。
+                </div>
+                <table class="schema-table">
+                    <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+                    <tr><td class="param-name">query</td><td class="param-type">string</td><td class="param-required">✓</td><td>自然语言检索问题</td></tr>
+                    <tr><td class="param-name">knowledge_base_id</td><td class="param-type">integer</td><td class="param-optional">○</td><td>指定知识库 ID</td></tr>
+                    <tr><td class="param-name">top_k</td><td class="param-type">integer</td><td class="param-optional">○</td><td>最大返回数量（默认 5）</td></tr>
+                    <tr><td class="param-name">doc_category</td><td class="param-type">string</td><td class="param-optional">○</td><td>文档类别过滤</td></tr>
+                    <tr><td class="param-name">industry</td><td class="param-type">string</td><td class="param-optional">○</td><td>行业过滤</td></tr>
+                    <tr><td class="param-name">business_stage</td><td class="param-type">string</td><td class="param-optional">○</td><td>业务阶段过滤</td></tr>
+                    <tr><td class="param-name">target_audience</td><td class="param-type">string</td><td class="param-optional">○</td><td>目标受众过滤</td></tr>
+                </table>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">KnowledgeSearchAdapterTool</span>(Tool):
+    <span class="comment">"""知识库检索 — 适配 ToolRegistry 的 Tool 基类"""</span>
+
+    <span class="keyword">async def</span> <span class="function">call</span>(self, input_data, context, on_progress=None):
+        <span class="comment"># 三级降级获取 provider: 直接注入 → app.state → langgraph config</span>
+        provider = self._provider
+        <span class="keyword">if</span> provider <span class="keyword">is</span> None:
+            provider = getattr(_app.state, <span class="string">"knowledge_provider"</span>, None)
+        <span class="keyword">if</span> provider <span class="keyword">is</span> None:
+            provider = get_config().get(<span class="string">"configurable"</span>, {}).get(<span class="string">"knowledge_provider"</span>)
+
+        results = <span class="keyword">await</span> provider.search(
+            tenant_id=tenant_id,
+            query=query,
+            knowledge_base_id=input_data.get(<span class="string">"knowledge_base_id"</span>),
+            top_k=input_data.get(<span class="string">"top_k"</span>, 5),
+            enable_self_query=True,  <span class="comment"># 自动意图理解</span>
+        )</code></div>
+            </div>
+        </div>
+
+        <!-- Tool: list_knowledge_bases -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">list_knowledge_bases</span>
+                <span class="tool-desc-short">列出当前租户可用的知识库</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    返回当前租户下所有可访问的知识库列表（含 ID、名称、描述、文档数量）。
+                    Agent 在不确定用哪个知识库时先调用此工具。
+                </div>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">ListKnowledgeBasesTool</span>(Tool):
+    <span class="keyword">async def</span> <span class="function">call</span>(self, input_data, context, on_progress=None):
+        bases = <span class="keyword">await</span> provider.list_knowledge_bases(tenant_id=tenant_id)
+        items = [{<span class="string">"id"</span>: kb.id, <span class="string">"name"</span>: kb.name,
+                  <span class="string">"description"</span>: kb.description,
+                  <span class="string">"document_count"</span>: kb.document_count,
+                  <span class="string">"chunk_count"</span>: kb.chunk_count} <span class="keyword">for</span> kb <span class="keyword">in</span> bases]</code></div>
+            </div>
+        </div>
+
+        <!-- Tool: knowledge_doc_detail -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">knowledge_doc_detail</span>
+                <span class="tool-desc-short">获取文档目录或指定章节完整内容</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    当 knowledge_search 返回的切片不够完整时，深入获取文档特定章节。<br>
+                    sections 为空 → 返回文档目录；指定 sections → 返回章节完整文本。
+                </div>
+                <table class="schema-table">
+                    <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+                    <tr><td class="param-name">doc_id</td><td class="param-type">string</td><td class="param-required">✓</td><td>文档 ID（从 search 结果获取）</td></tr>
+                    <tr><td class="param-name">sections</td><td class="param-type">array[string]</td><td class="param-optional">○</td><td>章节标题列表</td></tr>
+                </table>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">KnowledgeDocDetailAdapterTool</span>(Tool):
+    <span class="keyword">async def</span> <span class="function">call</span>(self, input_data, context, on_progress=None):
+        <span class="keyword">from</span> src.tools.builtins.knowledge_doc_detail_tool <span class="keyword">import</span> KnowledgeDocDetailTool
+        tool = KnowledgeDocDetailTool()
+        result = <span class="keyword">await</span> tool._arun(doc_id=doc_id, sections=sections)</code></div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     Server 3: metadata-mcp
+     ═══════════════════════════════════════════════════════════════ -->
+
+<div class="server-impl metadata" id="impl-metadata">
+    <div class="server-impl-header">
+        <span class="dot dot-purple"></span>
+        <h3>metadata-mcp — 元数据查询服务</h3>
+        <span class="impl-meta">src/tools/metarepo_tools.py · 2 Tools（只读）· 已实现</span>
+    </div>
+    <div class="server-impl-body">
+
+        <div class="impl-desc">
+            元数据 MCP Server 提供 aPaaS 平台三层架构的只读浏览能力：<br>
+            <strong>第一层</strong>：元模型注册（p_meta_model）— 30+ 种元模型<br>
+            <strong>第二层</strong>：元模型字段定义（p_meta_item）— 500+ 字段定义，db_column 映射到大宽表 dbc_xxxN<br>
+            <strong>第三层</strong>：元数据实例（Common + Tenant 合并读取）<br>
+            对齐 paas-platform-service MetamodelBrowseApiService 的 /meta/* 接口体系。
+        </div>
+
+        <div class="arch-note">
+            <strong>双 Backend 桥接：</strong>
+            Backend 可以是 <code>MetarepoSimulatedBackend</code>（同步内存）或 <code>MetarepoHttpBackend</code>（异步 HTTP）。<br>
+            工具内部用 <code>inspect.isawaitable()</code> 动态桥接，同一套代码兼容两种 Backend 的返回值。
+        </div>
+
+        <div class="backend-relation">
+            <code>metarepo_tools.py</code>
+            <span class="arrow">→</span>
+            <code>MetarepoHttpBackend</code> (via AuthClient)
+            <span class="arrow">→</span>
+            <code>metadata-app-service /rest/metadata/v2.0/*</code>
+        </div>
+
+        <!-- Tool: browse_metamodel -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">browse_metamodel</span>
+                <span class="tool-desc-short">浏览元模型层（8 种查询类型）</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    浏览 p_meta_model / p_meta_item / p_meta_link / p_meta_option 四表体系。<br>
+                    支持列出元模型、查看字段定义、dbc 列映射、关联关系、选项集、ItemType 枚举、反查物理列。
+                </div>
+                <table class="schema-table">
+                    <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+                    <tr><td class="param-name">query_type</td><td class="param-type">string (enum)</td><td class="param-required">✓</td><td>list_metamodels | get_metamodel | list_meta_items | column_mapping | list_meta_links | list_meta_options | item_type_mapping | trace_db_column</td></tr>
+                    <tr><td class="param-name">metamodel_api_key</td><td class="param-type">string</td><td class="param-optional">△</td><td>元模型标识：entity / item / role / department / ...</td></tr>
+                    <tr><td class="param-name">item_api_key</td><td class="param-type">string</td><td class="param-optional">○</td><td>字段标识（list_meta_options 可选过滤）</td></tr>
+                    <tr><td class="param-name">db_column</td><td class="param-type">string</td><td class="param-optional">△</td><td>物理列名（trace_db_column 时必填）</td></tr>
+                </table>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">BrowseMetamodelTool</span>(Tool):
+    <span class="comment">"""浏览元模型层 — 对齐 /meta/* 接口"""</span>
+
+    <span class="keyword">async def</span> <span class="function">call</span>(self, input_data, context, on_progress=None):
+        qt = input_data[<span class="string">"query_type"</span>]
+        <span class="keyword">if</span> qt == <span class="string">"list_metamodels"</span>:
+            data = <span class="keyword">await</span> _await(self._backend.list_metamodels())
+        <span class="keyword">elif</span> qt == <span class="string">"column_mapping"</span>:
+            data = <span class="keyword">await</span> _await(self._backend.get_column_mapping(mm))
+        <span class="keyword">elif</span> qt == <span class="string">"trace_db_column"</span>:
+            data = <span class="keyword">await</span> _await(self._backend.trace_db_column(col))
+        <span class="comment"># inspect.isawaitable 桥接：兼容同步/异步 Backend</span>
+
+<span class="keyword">async def</span> <span class="function">_await</span>(value: Any) -> Any:
+    <span class="keyword">if</span> inspect.isawaitable(value):
+        <span class="keyword">return await</span> value
+    <span class="keyword">return</span> value</code></div>
+            </div>
+        </div>
+
+        <!-- Tool: query_metadata -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">query_metadata</span>
+                <span class="tool-desc-short">查询元数据实例（Common + Tenant 合并）</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    查询合并后的元数据实例。对齐 /meta/metadata/* 接口。<br>
+                    覆盖全部业务视图：entity / item / entityLink / pickOption / checkRule / busiType / role / department。<br>
+                    支持按 entity_api_key 和 item_api_key 层级过滤。
+                </div>
+                <table class="schema-table">
+                    <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+                    <tr><td class="param-name">metamodel_api_key</td><td class="param-type">string</td><td class="param-required">✓</td><td>entity / item / pickOption / entityLink / checkRule / busiType / role / department</td></tr>
+                    <tr><td class="param-name">entity_api_key</td><td class="param-type">string</td><td class="param-optional">○</td><td>按业务对象过滤</td></tr>
+                    <tr><td class="param-name">item_api_key</td><td class="param-type">string</td><td class="param-optional">○</td><td>按字段过滤（pickOption 使用）</td></tr>
+                    <tr><td class="param-name">api_key</td><td class="param-type">string</td><td class="param-optional">○</td><td>精确查询单条实例</td></tr>
+                </table>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">QueryMetadataTool</span>(Tool):
+    <span class="comment">"""查询元数据实例 — Common + Tenant 合并后的结果"""</span>
+
+    <span class="keyword">async def</span> <span class="function">call</span>(self, input_data, context, on_progress=None):
+        <span class="comment"># 先验证元模型是否注册</span>
+        model = <span class="keyword">await</span> _await(self._backend.get_metamodel(mm))
+        <span class="keyword">if</span> model <span class="keyword">is</span> None:
+            <span class="keyword">return</span> ToolResult(
+                content=f<span class="string">"元模型 {mm} 未注册，使用 browse_metamodel 查看全部"</span>,
+                is_error=True)
+
+        <span class="comment"># 精确查询 or 列表查询</span>
+        <span class="keyword">if</span> api_key:
+            record = <span class="keyword">await</span> _await(self._backend.get_metadata(mm, api_key))
+        <span class="keyword">else</span>:
+            records = <span class="keyword">await</span> _await(self._backend.list_metadata(
+                mm, entity_api_key=entity, item_api_key=item))</code></div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     Server 4: platform-mcp
+     ═══════════════════════════════════════════════════════════════ -->
+
+<div class="server-impl platform" id="impl-platform">
+    <div class="server-impl-header">
+        <span class="dot dot-orange"></span>
+        <h3>platform-mcp — AI 平台能力服务</h3>
+        <span class="impl-meta">src/tools/web_search.py + 平台扩展 · 已实现核心</span>
+    </div>
+    <div class="server-impl-body">
+
+        <div class="impl-desc">
+            平台能力 MCP Server 聚合 AI 平台级基础设施：联网搜索、Prompt 模板执行、Agent 编排、自动化流程触发、通知推送、对话历史、记忆管理。<br>
+            当前已实现 <code>web_search</code>（百度千帆 AI Search API）和 <code>manage_memory</code>（VikingMemoryEngine），
+            其余工具对接 agent-platform-service FastAPI 后端。
+        </div>
+
+        <div class="backend-relation">
+            <code>web_search.py</code>
+            <span class="arrow">→</span>
+            <code>百度千帆 qianfan.baidubce.com/v2/ai_search</code>
+            <span class="arrow" style="margin-left:2rem;">|</span>
+            <code>agent-platform-service /rest/ai/v2.0/*</code>
+        </div>
+
+        <!-- Tool: web_search -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">web_search</span>
+                <span class="tool-desc-short">百度 AI 搜索 — 联网获取实时信息</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    通过百度千帆 AI Search API 进行联网搜索。返回 AI 摘要 + 结构化搜索结果（标题、日期、摘要、链接）。<br>
+                    适用于行业动态、竞品信息、公司新闻、技术趋势等 CRM 系统外的实时信息获取。
+                </div>
+                <table class="schema-table">
+                    <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+                    <tr><td class="param-name">query</td><td class="param-type">string</td><td class="param-required">✓</td><td>搜索关键词</td></tr>
+                </table>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">WebSearchTool</span>(Tool):
+    <span class="comment">"""百度 AI 搜索 — 基于千帆 AI Search API"""</span>
+
+    BAIDU_SEARCH_API = <span class="string">"https://qianfan.baidubce.com/v2/ai_search"</span>
+
+    <span class="keyword">async def</span> <span class="function">call</span>(self, input_data, context, on_progress=None):
+        headers = {
+            <span class="string">"Content-Type"</span>: <span class="string">"application/json"</span>,
+            <span class="string">"X-Appbuilder-Authorization"</span>: f<span class="string">"Bearer {self._api_key}"</span>,
+        }
+        body = {<span class="string">"messages"</span>: [{<span class="string">"role"</span>: <span class="string">"user"</span>, <span class="string">"content"</span>: query}], <span class="string">"stream"</span>: False}
+
+        resp = requests.post(BAIDU_SEARCH_API, headers=headers, json=body, timeout=15)
+        data = resp.json()
+
+        <span class="comment"># 解析: answer(AI摘要) + references(搜索结果)</span>
+        references = data.get(<span class="string">"references"</span>, [])
+        answer = data.get(<span class="string">"answer"</span>, <span class="string">""</span>)</code></div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     Server 5: sandbox-mcp
+     ═══════════════════════════════════════════════════════════════ -->
+
+<div class="server-impl sandbox" id="impl-sandbox">
+    <div class="server-impl-header">
+        <span class="dot dot-red"></span>
+        <h3>sandbox-mcp — 沙盒执行服务</h3>
+        <span class="impl-meta">src/tools/sandbox/*.py · 5 Tools · 高危 · 已实现</span>
+    </div>
+    <div class="server-impl-body">
+
+        <div class="impl-desc">
+            沙盒 MCP Server 提供隔离的代码执行环境，支持 Python/JS/Shell 代码运行、文件读写、内容搜索。<br>
+            通过 <code>Backend</code> 抽象层适配多种执行环境：SSH 远程服务器、腾讯云 Agent Runtime 容器、本地 Docker。<br>
+            所有写操作限制在 <code>/sandbox/.skills/</code> 目录下，路径自动规范化防止越权。<br>
+            <strong>⚠️ 高危标记：</strong>所有工具均为 <code>is_read_only=False</code>，受审计日志 + 权限中间件保护。
+        </div>
+
+        <div class="arch-note">
+            <strong>Backend 抽象层架构：</strong><br>
+            <code>Backend(ABC)</code> → <code>SSHBackend</code> / <code>TencentSandboxBackend</code> / <code>LocalBackend</code><br>
+            SSHBackend：ControlMaster 连接复用 + Persistent Shell（cd/export 跨命令生效）+ 输出截断保护（50K字符上限，超出走压缩引擎）<br>
+            TencentSandboxBackend：E2B SDK + 腾讯云 Agent Runtime API（CreateSandboxTool → code-interpreter 模板）
+        </div>
+
+        <div class="backend-relation">
+            <code>sandbox/*.py</code>
+            <span class="arrow">→</span>
+            <code>Backend(ABC)</code>
+            <span class="arrow">→</span>
+            <code>SSHBackend</code> (ControlMaster) / <code>TencentSandboxBackend</code> (E2B SDK)
+        </div>
+
+        <!-- Tool: execute_code -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">execute_code</span>
+                <span class="tool-desc-short">在沙盒中执行代码片段（Python / JS / Shell）</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    代码写入 Skill 专属 tmp 目录的临时文件后执行，执行完自动清理。<br>
+                    Skill 上下文感知：有 Skill → /sandbox/.skills/{skill_name}/tmp，无 Skill → /sandbox/.skills/.global/tmp。
+                </div>
+                <table class="schema-table">
+                    <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+                    <tr><td class="param-name">language</td><td class="param-type">string (enum)</td><td class="param-required">✓</td><td>python | python3 | javascript | js | node | sh</td></tr>
+                    <tr><td class="param-name">code</td><td class="param-type">string</td><td class="param-required">✓</td><td>要执行的代码</td></tr>
+                    <tr><td class="param-name">timeout</td><td class="param-type">integer</td><td class="param-optional">○</td><td>超时秒数（默认 60）</td></tr>
+                </table>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">CodeExecutionTool</span>(Tool):
+    <span class="comment">"""代码执行 — 在远程沙盒中运行代码片段"""</span>
+
+    LANGUAGE_RUNNERS = {<span class="string">"python"</span>: <span class="string">"python3"</span>, <span class="string">"javascript"</span>: <span class="string">"node"</span>, <span class="string">"sh"</span>: <span class="string">"sh"</span>}
+
+    <span class="keyword">async def</span> <span class="function">call</span>(self, input_data, context, on_progress=None):
+        tmp_dir = self._resolve_tmp_dir()  <span class="comment"># Skill 上下文感知</span>
+        tmp_file = f<span class="string">"{tmp_dir}/exec_{uuid.uuid4().hex[:12]}{ext}"</span>
+
+        <span class="keyword">try</span>:
+            <span class="keyword">await</span> self._backend.execute(f<span class="string">"mkdir -p {tmp_dir}"</span>)
+            <span class="keyword">await</span> self._backend.write_file(tmp_file, code)
+            result = <span class="keyword">await</span> self._backend.execute(f<span class="string">"{runner} {tmp_file}"</span>, timeout=timeout)
+        <span class="keyword">finally</span>:
+            <span class="keyword">await</span> self._backend.execute(f<span class="string">"rm -f {tmp_file}"</span>)  <span class="comment"># 自动清理</span></code></div>
+            </div>
+        </div>
+
+        <!-- Tool: terminal -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">terminal</span>
+                <span class="tool-desc-short">Shell 命令执行（系统管理、包安装、git）</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    执行任意 Shell 命令。适用于系统命令(df/top/ps)、包管理(pip/npm)、git 操作、网络诊断。<br>
+                    内置危险命令检测：<code>rm -rf /</code>、<code>mkfs</code>、<code>dd if=/dev/zero</code> 等标记为 destructive。
+                </div>
+                <table class="schema-table">
+                    <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+                    <tr><td class="param-name">command</td><td class="param-type">string</td><td class="param-required">✓</td><td>Shell 命令</td></tr>
+                    <tr><td class="param-name">timeout</td><td class="param-type">integer</td><td class="param-optional">○</td><td>超时秒数（默认 180）</td></tr>
+                </table>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">TerminalTool</span>(Tool):
+    <span class="comment">"""远程终端 — 在沙盒环境中执行 Shell 命令"""</span>
+
+    <span class="keyword">def</span> <span class="function">is_destructive</span>(self, input_data):
+        <span class="comment">"""检测危险命令"""</span>
+        dangerous_patterns = [
+            <span class="string">"rm -rf /"</span>, <span class="string">"mkfs"</span>, <span class="string">"dd if=/dev/zero"</span>,
+            <span class="string">"> /dev/sd"</span>, <span class="string">":(){ :|:& };:"</span>,
+        ]
+        <span class="keyword">return</span> <span class="keyword">any</span>(p <span class="keyword">in</span> command <span class="keyword">for</span> p <span class="keyword">in</span> dangerous_patterns)</code></div>
+            </div>
+        </div>
+
+        <!-- Tool: read_file / write_file / search_files -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">read_file / write_file / search_files</span>
+                <span class="tool-desc-short">远程文件操作三件套</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    <strong>read_file</strong>：按行范围读取远程文件（offset + limit），支持大文件分段读取。<br>
+                    <strong>write_file</strong>：创建/覆盖文件，强制写入 <code>/sandbox/.skills/</code> 目录下，路径自动规范化。<br>
+                    <strong>search_files</strong>：递归 grep 搜索（支持正则 + 文件名过滤）。
+                </div>
+                <table class="schema-table">
+                    <tr><th>工具</th><th>核心参数</th><th>安全策略</th></tr>
+                    <tr><td class="param-name">read_file</td><td>path, offset(0), limit(2000)</td><td>只读，file_exists 前置检查</td></tr>
+                    <tr><td class="param-name">write_file</td><td>path, content</td><td>路径规范化 → /sandbox/.skills/{skill}/output/</td></tr>
+                    <tr><td class="param-name">search_files</td><td>pattern, path(.), include</td><td>只读，grep -rn 递归搜索</td></tr>
+                </table>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">WriteFileTool</span>(Tool):
+    <span class="keyword">def</span> <span class="function">_normalize_path</span>(self, path: str) -> str:
+        <span class="comment">"""路径规范化 — 所有文件必须在 /sandbox/.skills/ 下"""</span>
+        <span class="keyword">from</span> src.tools.sandbox.script_syncer <span class="keyword">import</span> SKILL_BASE_DIR
+        <span class="keyword">if</span> path.startswith(f<span class="string">"{SKILL_BASE_DIR}/"</span>):
+            <span class="keyword">return</span> path  <span class="comment"># 已在合法目录</span>
+
+        <span class="comment"># 重定向到 Skill 输出目录</span>
+        <span class="keyword">try</span>:
+            ctx = get_skill_context()
+            <span class="keyword">if</span> ctx <span class="keyword">and</span> ctx.skill_name:
+                target_dir = f<span class="string">"{SKILL_BASE_DIR}/{ctx.skill_name}/output"</span>
+        <span class="keyword">except</span>:
+            target_dir = f<span class="string">"{SKILL_BASE_DIR}/.global/output"</span>
+        <span class="keyword">return</span> f<span class="string">"{target_dir}/{filename}"</span></code></div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     基础设施：Auth · Backend · Protocol
+     ═══════════════════════════════════════════════════════════════ -->
+
+<div class="server-impl" id="impl-infra" style="border-color: var(--accent-cyan);">
+    <div class="server-impl-header">
+        <span class="dot dot-cyan"></span>
+        <h3>基础设施 — Auth Client · Backend 抽象 · Protocol 层</h3>
+        <span class="impl-meta">src/tools/_http_auth.py · src/tools/sandbox/backend_base.py · src/core/service_backend.py</span>
+    </div>
+    <div class="server-impl-body">
+
+        <div class="impl-desc">
+            所有 MCP Server 共享的基础设施层，提供统一认证、服务发现、Backend 抽象：<br>
+            • <strong>AuthClient</strong>：懒登录 + 401 自动重登 + JWT Token 管理（共享单例）<br>
+            • <strong>Backend(ABC)</strong>：沙盒执行抽象（SSH / Tencent Cloud / Docker）<br>
+            • <strong>ServiceBackend(Protocol)</strong>：服务调用抽象（query_metadata / query_data / mutate_data / aggregate_data）
+        </div>
+
+        <!-- AuthClient -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">AuthClient — HTTP 认证客户端</span>
+                <span class="tool-desc-short">JWT 自动登录 + 401 重登 + 多 Backend 共享</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    paas-platform-service 的统一认证网关。所有 /meta/* 和 /entity/data/* 调用都需要 Bearer JWT。<br>
+                    同一个 AuthClient 实例被 MetarepoHttpBackend + EntityDataHttpBackend 共享，Token 只维护一份。
+                </div>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">AuthClient</span>:
+    <span class="comment">"""懒登录 + 401 重登的共享 token 源"""</span>
+
+    <span class="keyword">async def</span> <span class="function">request</span>(self, method, path, *, params=None, json=None):
+        <span class="comment">"""发请求 + 401 自动重登一次"""</span>
+        headers[<span class="string">"Authorization"</span>] = f<span class="string">"Bearer {await self._ensure_token()}"</span>
+        r = <span class="keyword">await</span> cli.request(method, path, params=params, json=json, headers=headers)
+        <span class="keyword">if</span> r.status_code == 401:
+            headers[<span class="string">"Authorization"</span>] = f<span class="string">"Bearer {await self._refresh_token()}"</span>
+            r = <span class="keyword">await</span> cli.request(method, path, ...)
+        <span class="comment"># 剥 {code, data} 响应壳</span>
+        <span class="keyword">if</span> <span class="string">"code"</span> <span class="keyword">in</span> payload <span class="keyword">and</span> <span class="string">"data"</span> <span class="keyword">in</span> payload:
+            <span class="keyword">return</span> payload[<span class="string">"data"</span>]
+
+<span class="comment"># 全局单例工厂</span>
+<span class="keyword">def</span> <span class="function">get_shared_auth_client</span>() -> Optional[AuthClient]:
+    <span class="comment">"""未配置 METAREPO_API_BASE 时返回 None → 回退 sim backend"""</span>
+    base = os.getenv(<span class="string">"METAREPO_API_BASE"</span>)
+    <span class="keyword">return</span> AuthClient(base_url=base, tenant_id=tenant_id,
+                     extra_headers={<span class="string">"X-Tenant-Id"</span>: tenant_id})</code></div>
+            </div>
+        </div>
+
+        <!-- Backend ABC -->
+        <div class="tool-card">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">Backend(ABC) — 沙盒执行抽象</span>
+                <span class="tool-desc-short">SSH · Tencent Cloud · Docker · Local 四种实现</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="tool-purpose">
+                    统一的命令执行接口，所有沙盒工具通过此抽象操作远程/本地环境。<br>
+                    SSHBackend 特性：ControlMaster 连接复用 + 输出截断保护（50K 上限 → 走压缩引擎或 head+tail 降级）。
+                </div>
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">Backend</span>(ABC):
+    <span class="comment">"""执行后端抽象基类 — 所有沙盒工具依赖此接口"""</span>
+    <span class="decorator">@abstractmethod</span>
+    <span class="keyword">async def</span> <span class="function">execute</span>(self, command: str, timeout=None) -> ExecutionResult: ...
+    <span class="decorator">@abstractmethod</span>
+    <span class="keyword">async def</span> <span class="function">write_file</span>(self, path: str, content: str) -> ExecutionResult: ...
+    <span class="decorator">@abstractmethod</span>
+    <span class="keyword">async def</span> <span class="function">read_file</span>(self, path: str) -> ExecutionResult: ...
+    <span class="decorator">@abstractmethod</span>
+    <span class="keyword">async def</span> <span class="function">file_exists</span>(self, path: str) -> bool: ...
+    <span class="decorator">@abstractmethod</span>
+    <span class="keyword">async def</span> <span class="function">connect</span>(self) -> None: ...
+    <span class="decorator">@abstractmethod</span>
+    <span class="keyword">async def</span> <span class="function">disconnect</span>(self) -> None: ...
+
+<span class="decorator">@dataclass</span>
+<span class="keyword">class</span> <span class="class-name">BackendConfig</span>:
+    backend_type: str = <span class="string">"local"</span>  <span class="comment"># local | ssh | docker | sandbox_api</span>
+    ssh_host: str = <span class="string">""</span>
+    ssh_port: int = 22
+    timeout: int = 180
+    max_output_chars: int = 50000
+
+<span class="decorator">@dataclass</span>
+<span class="keyword">class</span> <span class="class-name">ExecutionResult</span>:
+    stdout: str = <span class="string">""</span>
+    stderr: str = <span class="string">""</span>
+    exit_code: int = 0
+    timed_out: bool = False</code></div>
+            </div>
+        </div>
+
+        <!-- ServiceBackend Protocol -->
+        <div class="tool-card collapsed">
+            <div class="tool-card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="toggle-icon">▼</span>
+                <span class="tool-name">ServiceBackend(Protocol) — 服务调用抽象</span>
+                <span class="tool-desc-short">CRM 数据 + 元数据 + 权限的统一接口协议</span>
+            </div>
+            <div class="tool-card-body">
+                <div class="code-block"><code><span class="keyword">class</span> <span class="class-name">ServiceBackend</span>(Protocol):
+    <span class="comment">"""服务调用抽象 — 不同部署环境可替换实现"""</span>
+    <span class="keyword">async def</span> <span class="function">query_metadata</span>(self, query_type: str, **params) -> dict: ...
+    <span class="keyword">async def</span> <span class="function">query_data</span>(self, entity: str, filters: dict, **kw) -> dict: ...
+    <span class="keyword">async def</span> <span class="function">mutate_data</span>(self, entity: str, action: str, data: dict, **kw) -> dict: ...
+    <span class="keyword">async def</span> <span class="function">aggregate_data</span>(self, entity: str, metrics: list, **kw) -> dict: ...
+    <span class="keyword">async def</span> <span class="function">query_permission</span>(self, query_type: str, **kw) -> dict: ...</code></div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+</div><!-- end code-section -->
+
+<!-- 底部 -->
+<div class="legend" style="margin-top:3rem;">
+    <div class="legend-title">源码索引</div>
+    <div class="legend-item"><span class="dot dot-blue"></span> src/tools/crm_tools.py</div>
+    <div class="legend-item"><span class="dot dot-green"></span> src/tools/knowledge_tools.py</div>
+    <div class="legend-item"><span class="dot dot-purple"></span> src/tools/metarepo_tools.py</div>
+    <div class="legend-item"><span class="dot dot-orange"></span> src/tools/web_search.py</div>
+    <div class="legend-item"><span class="dot dot-red"></span> src/tools/sandbox/*.py</div>
+    <div class="legend-item"><span class="dot dot-cyan"></span> src/tools/_http_auth.py</div>
+</div>
+
+</div><!-- end canvas -->
+</body>
+</html>
