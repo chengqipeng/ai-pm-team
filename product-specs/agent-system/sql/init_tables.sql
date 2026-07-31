@@ -465,3 +465,31 @@ CREATE INDEX IF NOT EXISTS idx_skill_exec_idempotency
     WHERE idempotency_key != '' AND status = 'success';
 CREATE INDEX IF NOT EXISTS idx_skill_exec_time
     ON ai_skill_exec_log(tenant_id, start_time DESC);
+
+
+-- 13. agent-system 内部通用业务记录（不依赖外部 Java 服务）
+CREATE TABLE IF NOT EXISTS ai_business_record (
+    id                  BIGINT PRIMARY KEY,
+    tenant_id           BIGINT NOT NULL,
+    entity_api_key      VARCHAR(100) NOT NULL,
+    record_api_key      VARCHAR(128) NOT NULL,
+    record_data         JSONB NOT NULL DEFAULT '{}'::jsonb,
+    version             INT NOT NULL DEFAULT 1,
+    source_action_id    VARCHAR(128) NOT NULL DEFAULT '',
+    last_action_id      VARCHAR(128) NOT NULL DEFAULT '',
+    delete_flg          SMALLINT NOT NULL DEFAULT 0,
+    created_at          BIGINT NOT NULL,
+    created_by          BIGINT NOT NULL DEFAULT 0,
+    updated_at          BIGINT NOT NULL,
+    updated_by          BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_business_record_key
+    ON ai_business_record(tenant_id, entity_api_key, record_api_key)
+    WHERE delete_flg = 0;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_business_record_create_action
+    ON ai_business_record(tenant_id, source_action_id)
+    WHERE source_action_id != '';
+CREATE INDEX IF NOT EXISTS idx_business_record_entity
+    ON ai_business_record(tenant_id, entity_api_key, updated_at DESC)
+    WHERE delete_flg = 0;

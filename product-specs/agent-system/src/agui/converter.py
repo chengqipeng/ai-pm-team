@@ -515,8 +515,10 @@ class AGUIConverter:
                         if _sk and _sk.context == "fork":
                             _is_fork = True
                     self._doc_stream_mode = _is_fork  # 仅 fork 模式流式推送到右侧面板
-                elif not self._hard_suppress_text:
-                    # 只有当前没有硬抑制时才重置（避免子 Agent 工具调用解除 skills_tool 的抑制）
+                else:
+                    # 子 Agent 事件已在 _map_event 过滤；主 Agent 发起新的明确工具调用时，
+                    # 必须结束上一 Skill 的硬抑制，允许后续新结果正常输出。
+                    self._hard_suppress_text = False
                     self._suppress_next_text = False
                     self._suppress_char_count = 0
                     self._dedup_checking = False
@@ -693,8 +695,9 @@ class AGUIConverter:
                     if _sk and _sk.context == "fork":
                         _is_fork = True
                 self._doc_stream_mode = _is_fork
-            elif not self._hard_suppress_text:
-                # 只有当前没有硬抑制时才重置（避免子 Agent 工具调用解除 skills_tool 的抑制）
+            else:
+                # on_tool_start 到达的是主 Agent 已确认执行的新工具；解除上一 Skill 抑制。
+                self._hard_suppress_text = False
                 self._suppress_next_text = False
                 self._suppress_char_count = 0
                 self._dedup_checking = False
@@ -712,36 +715,41 @@ class AGUIConverter:
 
         # ── Fork Skill 输出控制：检测 [SKILL_DONE:*] 标记 ──
         if "[SKILL_DONE:" in output:
+            import re as _re
+            _done_match = _re.search(
+                r"\[SKILL_DONE:(?:silent|summarize|continue)\]\s*(\S+)", output)
+            _done_skill = _done_match.group(1) if _done_match else ""
+            _done_output_mode = self._resolve_output_mode(_done_skill) if _done_skill else "text"
             if "[SKILL_DONE:silent]" in output:
                 self._hard_suppress_text = True
-                # 如果 doc_stream 模式仍活跃，发送结束信号
+                # card 的最终 component_complete 才能提交文档，不能先用 provisional
+                # doc_stream_end 抢占成功终态。
                 if self._doc_stream_mode:
                     self._doc_stream_mode = False
-                    yield m.custom_event("doc_stream_end", {"status": "complete"})
+                    if _done_output_mode != "card":
+                        yield m.custom_event("doc_stream_end", {"status": "complete"})
                 self._suppress_next_text = False
                 logger.info("[AGUIConverter] tool_end detected SKILL_DONE:silent, hard suppress ON")
             elif "[SKILL_DONE:summarize]" in output:
                 self._hard_suppress_text = False
                 if self._doc_stream_mode:
                     self._doc_stream_mode = False
-                    yield m.custom_event("doc_stream_end", {"status": "complete"})
+                    if _done_output_mode != "card":
+                        yield m.custom_event("doc_stream_end", {"status": "complete"})
                 self._suppress_next_text = True
                 self._suppress_char_count = 0
             elif "[SKILL_DONE:passthrough]" in output:
                 # passthrough 模式：skill_result dispatch 失败，完整结果在 tool output 中
                 # 检查该 skill 的 output_mode，如果不是 text 则直接渲染并抑制 LLM
                 skill_content = output.split("\n\n", 1)[1] if "\n\n" in output else output
-                # 剥离知识引用标记
-                skill_content = self._strip_ref_markers_full(skill_content)
-                # 从 output 中提取 skill_apikey
-                import re as _re
                 _skill_match = _re.search(r"\[SKILL_DONE:passthrough\]\s*(\S+)", output)
                 _skill_apikey = _skill_match.group(1) if _skill_match else ""
+                skill_content, title = self._normalize_report_output(
+                    skill_content, _skill_apikey)
                 _output_mode = self._resolve_output_mode(_skill_apikey) if _skill_apikey else "text"
 
                 if _output_mode == "card" and skill_content:
                     # 直接渲染为 doc_card，抑制 LLM 后续输出
-                    title = skill_content.split("\n")[0][:60].lstrip("# ").strip()
                     yield m.custom_event("component_complete", {
                         "apikey": "doc_card",
                         "state": "complete",
@@ -815,10 +823,8 @@ class AGUIConverter:
         output_mode = self._resolve_output_mode(skill_apikey)
 
         if status == "completed" and output:
-            output_text = str(output) if not isinstance(output, str) else output
-
-            # ── 剥离知识引用标记 ──
-            output_text = self._strip_ref_markers_full(output_text)
+            output_text, output_title = self._normalize_report_output(
+                output, skill_apikey)
 
             # 去重：如果此内容已通过 skill_result 直出，跳过渲染（避免双重输出）
             content_hash = hash(output_text)
@@ -830,11 +836,10 @@ class AGUIConverter:
                     yield e
             elif output_mode == "card":
                 # 走 CUSTOM(component_complete) + 内置 doc_card
-                title = output_text.split("\n")[0][:60].lstrip("# ").strip()
                 yield m.custom_event("component_complete", {
                     "apikey": "doc_card",
                     "state": "complete",
-                    "data": {"title": title, "content": output_text, "skill_apikey": skill_apikey},
+                    "data": {"title": output_title, "content": output_text, "skill_apikey": skill_apikey},
                 })
                 # 记录 hash 防止 skill_result 重复输出 + 激活硬抑制防止 LLM 重复
                 self._last_skill_output_hash = hash(output_text)
@@ -973,15 +978,72 @@ class AGUIConverter:
 
     @staticmethod
     def _strip_ref_markers_full(content: str) -> str:
-        """从完整文本中剥离 [KB_REF: ...] 标记（非流式场景）。
-
-        用于 skill_result / skill_end 等一次性获得完整内容的场景。
-        同时兼容旧格式 <!-- REF: ... --> 以防残留。
-        """
+        """从完整文本中剥离知识引用标记。"""
         import re
-        content = re.sub(r'\[KB_REF:.*?\]\s*', '', content)
-        content = re.sub(r'<!--\s*REF:.*?-->\s*', '', content)
+        content = re.sub(r'\[KB_REF:.*?\]\s*', '', str(content or ""), flags=re.S)
+        content = re.sub(r'<!--\s*REF:.*?-->\s*', '', content, flags=re.S)
         return content
+
+    @classmethod
+    def _normalize_report_output(
+        cls, raw_content: Any, skill_apikey: str = "",
+    ) -> tuple[str, str]:
+        """规范化 Skill 报告正文并提取稳定标题，拒绝把分隔线当文件名。"""
+        import json
+        import re
+
+        content: Any = raw_content
+        if hasattr(content, "content"):
+            content = getattr(content, "content")
+        if isinstance(content, dict):
+            for key in ("content", "output", "value", "text", "result"):
+                candidate = content.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    content = candidate
+                    break
+            else:
+                content = json.dumps(content, ensure_ascii=False, indent=2)
+        elif not isinstance(content, str):
+            content = str(content or "")
+
+        content = cls._strip_ref_markers_full(content).replace("\r\n", "\n").replace("\r", "\n")
+        lines = content.split("\n")
+        while lines and not lines[0].strip():
+            lines.pop(0)
+
+        separator = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
+        # 去掉开头 YAML frontmatter；若只有孤立分隔线，也只移除该分隔线。
+        if lines and separator.match(lines[0]):
+            closing_index = next(
+                (idx for idx, line in enumerate(lines[1:41], start=1)
+                 if separator.match(line)),
+                None,
+            )
+            has_yaml_fields = bool(
+                closing_index is not None
+                and any(re.match(r"^\s*[A-Za-z_][\w.-]*\s*:", line)
+                        for line in lines[1:closing_index])
+            )
+            lines = lines[closing_index + 1:] if has_yaml_fields else lines[1:]
+            while lines and (not lines[0].strip() or separator.match(lines[0])):
+                lines.pop(0)
+
+        content = "\n".join(lines).strip()
+        heading = re.search(r"^\s*#{1,3}\s+(.+?)\s*$", content, flags=re.M)
+        if heading:
+            title = heading.group(1)
+        else:
+            title = next(
+                (line.strip() for line in content.split("\n")
+                 if line.strip() and not separator.match(line)),
+                "",
+            )
+        title = re.sub(r"^[#>*_`\s]+|[#>*_`\s]+$", "", title).strip()
+        title = re.sub(r"\.md$", "", title, flags=re.I).strip()[:60]
+        if not title or separator.match(title):
+            normalized_name = str(skill_apikey or "").replace("-", "").replace("_", "").lower()
+            title = "客户洞察报告" if normalized_name == "accountinsight" else "分析报告"
+        return content, title
 
     # ═══════════════════════════════════════════════════════════
     # on_custom_event 适配层（Skill / Tool / Middleware 自定义事件）
@@ -1137,8 +1199,10 @@ class AGUIConverter:
         if not content:
             return
 
-        # ── 剥离知识引用标记（完整内容，非流式）──
-        content = self._strip_ref_markers_full(content)
+        # ── 统一清理引用、frontmatter 与孤立分隔线 ──
+        content, _ = self._normalize_report_output(content, skill_apikey)
+        if not content:
+            return
 
         # 去重：如果相同内容已经通过 skill_result 输出过，跳过
         content_hash = hash(content)
@@ -1204,6 +1268,10 @@ class AGUIConverter:
         与主 Agent 的 LLM 文本流独立，形成完整闭环。
         注意：直出内容必须绕过 _hard_suppress_text（因为直出是正当输出，不应被抑制）。
         """
+        content, report_title = self._normalize_report_output(content, skill_apikey)
+        if not content:
+            return
+
         if output_mode == "text" or output_mode == "streaming":
             # 走 TEXT_MESSAGE 三段式，然后立即关闭（形成独立消息闭环）
             # 临时解除硬抑制以确保直出内容不被吞掉（skill_result 可能在 on_tool_end 之后到达）
@@ -1221,12 +1289,11 @@ class AGUIConverter:
 
         elif output_mode == "card":
             # 走 CUSTOM(component_complete) + 内置 doc_card
-            title = content.split("\n")[0][:60].lstrip("# ").strip() if content else ""
             yield m.custom_event("component_complete", {
                 "apikey": "doc_card",
                 "state": "complete",
                 "data": {
-                    "title": title,
+                    "title": report_title,
                     "content": content,
                     "skill_apikey": skill_apikey,
                 },

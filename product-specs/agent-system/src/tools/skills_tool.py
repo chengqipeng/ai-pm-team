@@ -37,7 +37,11 @@ class SkillsTool(BaseTool):
     model_config = {"arbitrary_types_allowed": True}
 
     def _run(self, skill_name: str, arguments: dict[str, Any] | None = None) -> str:
-        arguments = self._normalize_arguments(arguments)
+        try:
+            arguments = self._bind_trusted_business_context(
+                skill_name, self._normalize_arguments(arguments), None)
+        except ValueError as exc:
+            return f"[SKILL_DONE:error] {skill_name} 执行失败: {exc}"
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -58,6 +62,12 @@ class SkillsTool(BaseTool):
             _parent_config = None
 
         arguments = self._normalize_arguments(arguments)
+        try:
+            arguments = self._bind_trusted_business_context(
+                skill_name, arguments, _parent_config)
+        except ValueError as exc:
+            logger.warning("[SkillsTool] %s 参数校验失败: %s", skill_name, exc)
+            return f"[SKILL_DONE:error] {skill_name} 执行失败: {exc}"
 
         # ═══ 确保任何退出路径都产生 [SKILL_DONE:] 标记 ═══
         # 包括: 执行超时、内部异常、用户取消等非正常退出
@@ -158,6 +168,49 @@ class SkillsTool(BaseTool):
                 )
         else:
             return result
+
+    @staticmethod
+    def _bind_trusted_business_context(
+        skill_name: str,
+        arguments: dict[str, str],
+        parent_config: Any,
+    ) -> dict[str, str]:
+        """把 API 已按租户验证的客户标识确定性绑定到客户洞察 Skill。"""
+        normalized_name = str(skill_name or "").replace("-", "").replace("_", "").lower()
+        if normalized_name != "accountinsight":
+            return arguments
+
+        input_metadata: dict[str, Any] = {}
+        if isinstance(parent_config, dict):
+            configurable = parent_config.get("configurable") or {}
+            if isinstance(configurable, dict):
+                candidate = configurable.get("input_metadata") or {}
+                if isinstance(candidate, dict):
+                    input_metadata = candidate
+
+        business_context = input_metadata.get("business_context") or {}
+        if isinstance(business_context, dict) and business_context:
+            trusted_key = str(business_context.get("recordApiKey") or "").strip()
+            if (
+                business_context.get("intent") != "customer_insight"
+                or business_context.get("entityApiKey") != "account"
+                or not trusted_key
+            ):
+                raise ValueError("客户洞察缺少有效的已验证客户上下文")
+            model_key = str(arguments.get("data_id") or "").strip()
+            if model_key and model_key != trusted_key:
+                logger.warning(
+                    "[SkillsTool] accountInsight data_id overridden by validated business context: model=%s trusted=%s",
+                    model_key, trusted_key,
+                )
+            arguments["data_id"] = trusted_key
+
+        data_id = str(arguments.get("data_id") or "").strip()
+        if not data_id or "{data_id}" in data_id or "<PII:" in data_id:
+            raise ValueError("客户洞察需要有效的客户记录标识 data_id")
+        if not str(arguments.get("user_intent") or "").strip():
+            arguments["user_intent"] = "生成该客户的完整洞察报告"
+        return arguments
 
     @staticmethod
     def _resolve_post_output_behavior(skill) -> str:

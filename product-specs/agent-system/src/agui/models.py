@@ -89,7 +89,7 @@ class AGUIEvent:
         val = getattr(t, "value", None)
         return val if isinstance(val, str) else str(t)
 
-    def to_sse(self) -> str:
+    def to_sse(self, event_id: str | int | None = None) -> str:
         def _default(obj):
             """JSON 序列化兜底：处理 LangChain Message 等不可序列化对象"""
             if hasattr(obj, 'content'):
@@ -97,7 +97,14 @@ class AGUIEvent:
             if hasattr(obj, '__dict__'):
                 return {k: v for k, v in obj.__dict__.items() if not k.startswith('_')}
             return str(obj)
-        return f"event: {self._type_str()}\ndata: {json.dumps(self.data, ensure_ascii=False, default=_default)}\n\n"
+        prefix = ""
+        if event_id is not None:
+            safe_id = str(event_id).replace("\r", "").replace("\n", "")
+            prefix = f"id: {safe_id}\n"
+        return (
+            f"{prefix}event: {self._type_str()}\n"
+            f"data: {json.dumps(self.data, ensure_ascii=False, default=_default)}\n\n"
+        )
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"type": self._type_str(), **self.data}

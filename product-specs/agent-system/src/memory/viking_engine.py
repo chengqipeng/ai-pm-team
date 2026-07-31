@@ -399,11 +399,26 @@ class VectorStore:
         # 尝试获取已有 collection
         try:
             self._coll = self._db.describe_collection(self._coll_name)
-            # 尝试为旧集合补充 status 字段（如果缺失）
-            self._migrate_add_status_field()
-            return
+            # 检查向量维度是否匹配当前 embedding 模型
+            existing_dims = self._get_collection_dims()
+            if existing_dims and existing_dims != self._dims:
+                logger.warning(
+                    "Collection %s/%s vector dim mismatch: existing=%d, expected=%d. "
+                    "Dropping and recreating with correct dimensions.",
+                    self._db_name, self._coll_name, existing_dims, self._dims,
+                )
+                try:
+                    self._db.drop_collection(self._coll_name)
+                except Exception as drop_err:
+                    logger.warning("Drop collection failed: %s", drop_err)
+                self._coll = None
+                # 继续到下方创建逻辑
+            else:
+                # 尝试为旧集合补充 status 字段（如果缺失）
+                self._migrate_add_status_field()
+                return
         except Exception:
-            logger.exception("_ensure_collection 异常")
+            pass  # collection 不存在，继续创建
 
         # 尝试创建新 collection
         try:
@@ -426,11 +441,32 @@ class VectorStore:
                 name=self._coll_name, shard=1, replicas=1,
                 description="Viking Memory Engine (with BM25)", index=index,
             )
-            logger.info("Created collection: %s/%s", self._db_name, self._coll_name)
+            logger.info("Created collection: %s/%s (dims=%d)", self._db_name, self._coll_name, self._dims)
         except Exception as e:
             # collection 已存在但 describe 失败 → 直接获取
             logger.warning("Create collection failed (%s), getting existing", e)
             self._coll = self._db.collection(self._coll_name)
+
+    def _get_collection_dims(self) -> int | None:
+        """从已有集合的 index 信息中提取向量维度。"""
+        try:
+            if self._coll is None:
+                return None
+            # tcvectordb SDK: collection.index 或 describe_collection 返回的 index 信息
+            indexes = getattr(self._coll, 'indexes', None) or []
+            if not indexes and hasattr(self._coll, 'index'):
+                indexes = getattr(self._coll, 'index', None) or []
+            for idx in indexes:
+                if getattr(idx, 'field_name', '') == 'vector' or getattr(idx, 'name', '') == 'vector':
+                    dim = getattr(idx, 'dimension', None)
+                    if dim:
+                        return int(dim)
+            # 备选方式：从 collection 元信息获取
+            if hasattr(self._coll, 'embedding') and hasattr(self._coll.embedding, 'dimension'):
+                return int(self._coll.embedding.dimension)
+        except Exception as e:
+            logger.debug("_get_collection_dims failed: %s", e)
+        return None
 
     def _get_bm25(self):
         """延迟初始化 BM25 编码器"""
@@ -728,9 +764,12 @@ class VikingMemoryEngine(MemoryEngine):
     ) -> None:
         self._llm = llm
         self._emb = embedding_model or self._default_embedding()
+        # 使用 embedding 模型的实际输出维度（默认 1024 for Qwen3-Embedding-0.6B）
+        _actual_dims = getattr(self._emb, 'dimension', None) or 1024
         self._vdb = VectorStore(
             url=vdb_url, key=vdb_key, username=vdb_username,
             database_name=database_name, collection_name=collection_name,
+            embedding_dims=_actual_dims,
         )
         self._agent_rules_threshold = agent_rules_threshold
         self._new_memory_count: dict[str, int] = {}

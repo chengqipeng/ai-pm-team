@@ -230,6 +230,11 @@ class PIIRedactTransformer(InputTransformer):
 
         placeholders: dict[str, str] = metadata.get("pii_placeholders", {})
         counters: dict[str, int] = {}
+        protected_literals = [
+            literal for literal in metadata.get("protected_literals", [])
+            if isinstance(literal, str) and literal
+        ][:20]
+        protected_literals.sort(key=len, reverse=True)
         changed = False
 
         for msg in messages:
@@ -238,8 +243,21 @@ class PIIRedactTransformer(InputTransformer):
             if not isinstance(msg.content, str):
                 continue
 
-            new_content, msg_changed = self._redact_text(msg.content, placeholders, counters)
-            if msg_changed:
+            protected_content = msg.content
+            protected_tokens: dict[str, str] = {}
+            for index, literal in enumerate(protected_literals):
+                if literal not in protected_content:
+                    continue
+                token = f"__TRUSTED_BUSINESS_LITERAL_{index}__"
+                protected_content = protected_content.replace(literal, token)
+                protected_tokens[token] = literal
+
+            new_content, msg_changed = self._redact_text(
+                protected_content, placeholders, counters)
+            for token, literal in protected_tokens.items():
+                new_content = new_content.replace(token, literal)
+
+            if msg_changed or new_content != msg.content:
                 msg.content = new_content
                 changed = True
 

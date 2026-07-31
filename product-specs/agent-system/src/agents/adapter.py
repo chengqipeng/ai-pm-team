@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 from typing import AsyncGenerator, Any
 
 from langchain_core.messages import HumanMessage
@@ -20,8 +21,10 @@ class NeoAgentV2Adapter:
         self._agent: CompiledStateGraph | None = None
         self._init_lock = asyncio.Lock()
         self._skill_registry: Any = None  # SkillRegistry，Agent 初始化后可用
-        # A2UI userAction / 外部消息注入队列：thread_id → [message, ...]
+        # 兼容旧入口的有界 pending 队列；新 A2UI Action 使用 injected_messages 即时执行。
         self._pending_messages: dict[str, list[Any]] = {}
+        self._pending_lock = threading.RLock()
+        self._pending_limit = 32
 
     async def _ensure_agent(self) -> CompiledStateGraph:
         if self._agent is not None:
@@ -67,15 +70,34 @@ class NeoAgentV2Adapter:
 
         # 初始化 LLM（记忆提取 + 技能优化共用）
         from langchain_openai import ChatOpenAI
-        _model_name = os.environ.get("AGENT_MODEL", "deepseek-v4-flash")
-        _api_key = os.environ.get("AGENT_API_KEY") or os.environ.get("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
-        _api_base = os.environ.get("AGENT_API_BASE", "https://tokenhub.tencentmaas.com/v1")
+        _model_name = (
+            os.environ.get("AGENT_MODEL")
+            or os.environ.get("OPENAI_MODEL_NAME")
+            or "deepseek-v4-flash"
+        )
+        _api_key = (
+            os.environ.get("AGENT_API_KEY")
+            or os.environ.get("DEEPSEEK_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+        )
+        if not _api_key:
+            raise RuntimeError(
+                "Missing Agent API key: set AGENT_API_KEY, "
+                "DEEPSEEK_API_KEY or OPENAI_API_KEY."
+            )
+        _api_base = (
+            os.environ.get("AGENT_API_BASE")
+            or os.environ.get("OPENAI_BASE_URL")
+            or "https://tokenhub.tencentmaas.com/v1"
+        )
 
         aux_llm = ChatOpenAI(
             model=_model_name,
             api_key=_api_key,
             base_url=_api_base,
             max_tokens=2048,
+            timeout=120,
+            max_retries=2,
         )
 
         # 获取记忆引擎（与 ManageMemoryTool/MemoryReadTool 共享同一实例）
@@ -205,7 +227,11 @@ class NeoAgentV2Adapter:
         thread_id: str,
         user_input: str,
         run_id: str | None = None,
-        resume: dict | None = None,
+        resume: dict | list | Any | None = None,
+        injected_messages: list[Any] | None = None,
+        input_metadata: dict[str, Any] | None = None,
+        parent_run_id: str | None = None,
+        emit_legacy_reasoning: bool = True,
     ) -> AsyncGenerator[Any, None]:
         """AG-UI 模式执行：输出标准 AG-UI 事件流
 
@@ -223,6 +249,11 @@ class NeoAgentV2Adapter:
         from src.agui import create_agui_pipeline
         from src.agui import models as _m
 
+        if not thread_id or not thread_id.strip():
+            raise ValueError("thread_id is required")
+        if resume is not None and injected_messages:
+            raise ValueError("resume and injected_messages cannot be combined")
+
         agent = await self._ensure_agent()
         _run_id = run_id or _uuid.uuid4().hex
 
@@ -233,6 +264,8 @@ class NeoAgentV2Adapter:
             run_id=_run_id, thread_id=thread_id,
             history_messages=history,
             skill_registry=self._skill_registry,
+            parent_run_id=parent_run_id,
+            emit_legacy_reasoning=emit_legacy_reasoning,
         )
 
         from src.middleware.tracing import tracing_middleware
@@ -292,10 +325,24 @@ class NeoAgentV2Adapter:
                     from langchain_openai import ChatOpenAI
                     import os as _os
                     _aux_llm = ChatOpenAI(
-                        model="deepseek-v4-flash",
-                        api_key=_os.environ.get("DEEPSEEK_API_KEY", ""),
-                        base_url="https://tokenhub.tencentmaas.com/v1",
+                        model=(
+                            _os.environ.get("AGENT_MODEL")
+                            or _os.environ.get("OPENAI_MODEL_NAME")
+                            or "deepseek-v4-flash"
+                        ),
+                        api_key=(
+                            _os.environ.get("AGENT_API_KEY")
+                            or _os.environ.get("DEEPSEEK_API_KEY")
+                            or _os.environ.get("OPENAI_API_KEY")
+                        ),
+                        base_url=(
+                            _os.environ.get("AGENT_API_BASE")
+                            or _os.environ.get("OPENAI_BASE_URL")
+                            or "https://tokenhub.tencentmaas.com/v1"
+                        ),
                         max_tokens=2048,
+                        timeout=60,
+                        max_retries=1,
                     )
                     _title_mw = TitleMiddleware(llm=_aux_llm)
                     _title_mw.start_async_optimize(
@@ -311,35 +358,74 @@ class NeoAgentV2Adapter:
 
             logger.info("[execute_agui] RESUME: thread=%s, resume=%s", thread_id, resume)
             input_data = Command(resume=resume)
-            config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 500}
+            config = {
+                "configurable": {
+                    "thread_id": thread_id,
+                    "input_metadata": dict(input_metadata or {}),
+                },
+                "recursion_limit": 500,
+            }
             astream = agent.astream_events(input_data, config=config, version="v2")
         else:
-            # ── 入口层预处理：毒性检测 → 查询改写 ──
-            passed, blocked_reason = await _apply_content_review(user_input, thread_id)
-            if not passed:
-                # 拦截：直接作为单条文本消息返回
-                msg_id = _uuid.uuid4().hex[:12]
-                yield _m.run_started(_run_id, thread_id)
-                yield _m.text_message_start(msg_id)
-                yield _m.text_message_content(msg_id, blocked_reason)
-                yield _m.text_message_end(msg_id)
-                yield _m.run_finished(_run_id, thread_id)
-                return
+            pending = self._drain_pending(thread_id)
+            messages = pending + list(injected_messages or [])
+            ordinary_input = user_input.strip()
+            if not ordinary_input and not messages:
+                raise ValueError("user_input, injected_messages or resume is required")
 
-            effective_query = await _apply_query_rewrite(user_input, history, thread_id)
+            # 所有进入 Agent 的 UI 消息也必须经过内容安全检查；仅普通自然语言做查询改写。
+            review_inputs: list[str] = []
+            if ordinary_input:
+                review_inputs.append(ordinary_input)
+            for message in messages:
+                if hasattr(message, "content"):
+                    review_inputs.append(str(message.content))
+                elif isinstance(message, dict):
+                    review_inputs.append(str(message.get("content", "")))
+                else:
+                    review_inputs.append(str(message))
 
-            # 使用 checkpointer 时，LangGraph 会自动恢复历史消息，
-            # 这里只需传入当前轮的新消息，不要重复传入 history。
-            from langchain_core.messages import HumanMessage
-            messages = [HumanMessage(content=effective_query)]
+            for review_input in review_inputs:
+                passed, blocked_reason = await _apply_content_review(
+                    review_input, thread_id)
+                if not passed:
+                    msg_id = _uuid.uuid4().hex[:12]
+                    yield _m.run_started(_run_id, thread_id)
+                    yield _m.text_message_start(msg_id)
+                    yield _m.text_message_content(msg_id, blocked_reason)
+                    yield _m.text_message_end(msg_id)
+                    yield _m.run_finished(_run_id, thread_id)
+                    return
 
-            # 将 pending A2UI userAction 注入本次对话
-            pending = self._pending_messages.pop(thread_id, None)
-            if pending:
-                messages = pending + messages
+            input_metadata = dict(input_metadata or {})
+            if ordinary_input:
+                if input_metadata.get("business_context"):
+                    # 业务标识已由 API 按租户验证；禁止查询改写改变该受信字面量。
+                    effective_query = ordinary_input
+                    tracing_middleware._add_to_thread(
+                        thread_id, "query_rewrite", "query_rewrite", 0,
+                        {"original_query": ordinary_input[:500], "changed": False,
+                         "source": "entry", "skipped": True,
+                         "reason": "validated_business_context"},
+                        input_data={"original_query": ordinary_input[:500], "source": "entry"},
+                        output_data={"changed": False, "skipped": True,
+                                     "reason": "validated_business_context"},
+                        status="skipped", detail="可信业务上下文请求，跳过查询改写",
+                    )
+                else:
+                    effective_query = await _apply_query_rewrite(
+                        ordinary_input, history, thread_id)
+                from langchain_core.messages import HumanMessage
+                messages.append(HumanMessage(content=effective_query))
 
             input_data = {"messages": messages}
-            config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 500}
+            config = {
+                "configurable": {
+                    "thread_id": thread_id,
+                    "input_metadata": input_metadata,
+                },
+                "recursion_limit": 500,
+            }
             astream = agent.astream_events(input_data, config=config, version="v2")
 
         # 实时推送 mw_spans：后台 task 消费 AG-UI 事件流放入 queue，
@@ -455,35 +541,56 @@ class NeoAgentV2Adapter:
         except Exception:
             logger.exception("adapter.py L374 异常")
 
-        # 最后发送 RUN_FINISHED
-        if _run_finished_event:
-            yield _run_finished_event
-
-        # ── 检查是否有 pending interrupt（ask_user 触发的中断）──
+        # Interrupt 必须在唯一终态之前发出；标准端点会把 outcome 验证为
+        # RunFinishedInterruptOutcome，legacy 端点继续收到原 CUSTOM 事件。
+        interrupt_values: list[Any] = []
         try:
             state = agent.get_state(config)
             if state and state.next:
-                # graph 暂停在某个节点，说明有 interrupt
-                # 从 state.tasks 中提取 interrupt value
-                interrupt_values = []
                 for task in (state.tasks or []):
                     for intr in (getattr(task, 'interrupts', None) or []):
                         interrupt_values.append(getattr(intr, 'value', {}))
-
-                if interrupt_values:
-                    import uuid as _uuid2
-                    for iv in interrupt_values:
-                        yield _m.custom_event("interrupt", iv)
-                    # 产出带 interrupt outcome 的 RUN_FINISHED
-                    # （覆盖 converter 已产出的 RUN_FINISHED）
-                    yield _m.custom_event("run_interrupted", {
-                        "run_id": _run_id,
-                        "thread_id": thread_id,
-                        "interrupts": interrupt_values,
-                    })
         except Exception as exc:
-            import logging
-            logging.getLogger(__name__).debug("Check interrupt state failed: %s", exc)
+            logging.getLogger(__name__).debug(
+                "Check interrupt state failed: %s", exc)
+
+        if interrupt_values:
+            import uuid as _uuid2
+            official_interrupts = []
+            for value in interrupt_values:
+                metadata = value if isinstance(value, dict) else {"value": value}
+                interrupt_id = str(
+                    metadata.get("interrupt_id") or metadata.get("id")
+                    or _uuid2.uuid4().hex
+                )
+                official_interrupts.append({
+                    "id": interrupt_id,
+                    "reason": str(
+                        metadata.get("reason") or metadata.get("type")
+                        or "agent_interrupt"
+                    ),
+                    "message": metadata.get("message") or metadata.get("question"),
+                    "toolCallId": metadata.get("tool_call_id") or metadata.get("toolCallId"),
+                    "responseSchema": metadata.get("response_schema") or metadata.get("responseSchema"),
+                    "metadata": metadata,
+                })
+                yield _m.custom_event("interrupt", metadata)
+
+            if _run_finished_event is None:
+                _run_finished_event = _m.run_finished(_run_id, thread_id)
+            _run_finished_event.data["outcome"] = {
+                "type": "interrupt",
+                "interrupts": official_interrupts,
+            }
+            yield _m.custom_event("run_interrupted", {
+                "run_id": _run_id,
+                "thread_id": thread_id,
+                "interrupts": interrupt_values,
+            })
+
+        # 每个 Run 只发送一个终态，且 interrupt outcome 已在终态中体现。
+        if _run_finished_event:
+            yield _run_finished_event
 
     async def execute_a2ui(
         self,
@@ -508,7 +615,7 @@ class NeoAgentV2Adapter:
         projector = A2UIProjector(include_state_as_data_model=include_state_as_data_model)
         agui_stream = self.execute_agui(
             thread_id=thread_id, user_input=user_input,
-            run_id=run_id, history=history,
+            run_id=run_id,
         )
         async for msg in projector.project(agui_stream):
             yield msg
@@ -517,6 +624,10 @@ class NeoAgentV2Adapter:
     # 外部消息注入（A2UI userAction / 其他系统触发）
     # ═══════════════════════════════════════════════════════════
 
+    def _drain_pending(self, thread_id: str) -> list[Any]:
+        with self._pending_lock:
+            return self._pending_messages.pop(thread_id, [])
+
     def inject_message(
         self,
         thread_id: str | None,
@@ -524,21 +635,19 @@ class NeoAgentV2Adapter:
         *,
         source: str = "external",
     ) -> None:
-        """注入一条消息到指定 thread 的 pending 队列。
-
-        在下一次 `execute` / `execute_agui` 被调用时，pending 消息会被追加到
-        `input_data.messages`（位于 user_input 之前）。
-
-        Args:
-            thread_id: 目标会话 ID；None 视为默认 thread（不推荐）。
-            message:   LangChain `BaseMessage` 或 dict（`{"role", "content"}`）。
-            source:    日志标记（"a2ui" / "hook" / "webhook" ...）
-        """
-        key = thread_id or "__default__"
-        bucket = self._pending_messages.setdefault(key, [])
-        bucket.append(message)
+        """兼容旧调用：有界保存消息，下一次 execute_agui 原子消费。"""
+        if not thread_id or not thread_id.strip():
+            raise ValueError("thread_id is required for injected messages")
+        with self._pending_lock:
+            bucket = self._pending_messages.setdefault(thread_id, [])
+            if len(bucket) >= self._pending_limit:
+                raise OverflowError(
+                    f"pending message queue is full for thread {thread_id}")
+            bucket.append(message)
+            queue_size = len(bucket)
         logger.info("[inject_message] thread=%s source=%s queue_size=%d",
-                    key, source, len(bucket))
+                    thread_id, source, queue_size)
+
 
 
 def _build_messages(user_input: str, history: list[dict] | None = None) -> list:

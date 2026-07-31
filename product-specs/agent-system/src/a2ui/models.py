@@ -273,17 +273,19 @@ class UserAction:
     source_component_id: str
     timestamp: str
     context: dict[str, Any] = field(default_factory=dict)
+    action_id: str | None = None
 
     def to_dict(self) -> dict:
-        return {
-            "userAction": {
-                "name": self.name,
-                "surfaceId": self.surface_id,
-                "sourceComponentId": self.source_component_id,
-                "timestamp": self.timestamp,
-                "context": self.context,
-            }
+        body: dict[str, Any] = {
+            "name": self.name,
+            "surfaceId": self.surface_id,
+            "sourceComponentId": self.source_component_id,
+            "timestamp": self.timestamp,
+            "context": self.context,
         }
+        if self.action_id is not None:
+            body["actionId"] = self.action_id
+        return {"userAction": body}
 
 
 @dataclass

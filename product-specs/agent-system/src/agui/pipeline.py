@@ -13,6 +13,9 @@ def create_agui_pipeline(
     history_messages: list[dict] | None = None,
     component_map: dict[str, str] | None = None,
     skill_registry: Any | None = None,
+    *,
+    parent_run_id: str | None = None,
+    emit_legacy_reasoning: bool = True,
 ) -> tuple[AGUIConverter, ProgressiveRenderer]:
     """工厂函数：创建 AG-UI 转换 + 渲染管道
 
@@ -32,6 +35,8 @@ def create_agui_pipeline(
     converter = AGUIConverter(
         run_id=run_id, thread_id=thread_id,
         history_messages=history_messages,
+        parent_run_id=parent_run_id,
+        emit_legacy_reasoning=emit_legacy_reasoning,
         skill_registry=skill_registry,
     )
     renderer = ProgressiveRenderer(matcher=matcher)

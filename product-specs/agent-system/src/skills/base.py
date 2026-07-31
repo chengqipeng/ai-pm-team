@@ -695,15 +695,35 @@ class SkillExecutor:
 
         messages = [HumanMessage(content=task_instruction)]
 
-        # 注册子 thread 供主 Agent 实时 polling 子 Agent 链路
+        # 注册子 thread 供主 Agent 实时 polling 子 Agent 链路，并继承父 run
+        # 已验证的 input_metadata。这样业务 key 在子 Agent 安全处理中仍受保护。
+        parent_tid = ""
+        parent_input_metadata: dict = {}
         try:
             from src.middleware.tracing import tracing_middleware
             from langgraph.config import get_config
-            parent_tid = get_config().get("configurable", {}).get("thread_id", "")
+            parent_config = get_config() or {}
+            configurable = parent_config.get("configurable", {})
+            parent_tid = configurable.get("thread_id", "")
+            metadata = configurable.get("input_metadata") or {}
+            if isinstance(metadata, dict):
+                parent_input_metadata = dict(metadata)
             if parent_tid:
                 tracing_middleware.register_sub_thread(parent_tid, sub_thread_id)
         except Exception:
             parent_tid = ""
+            parent_input_metadata = {}
+
+        def _subagent_config() -> dict:
+            configurable = {
+                "thread_id": sub_thread_id,
+                "skip_memory_extract": True,   # 子 Agent 不提取记忆，由父 Agent 统一处理
+                "skip_memory_retrieve": True,  # 子 Agent 不检索记忆，父 Agent 已注入上下文
+            }
+            if parent_input_metadata:
+                import copy
+                configurable["input_metadata"] = copy.deepcopy(parent_input_metadata)
+            return {"configurable": configurable}
 
         try:
             from src.skills.context import set_skill_context, clear_skill_context
@@ -714,11 +734,7 @@ class SkillExecutor:
         try:
             result = await agent.ainvoke(
                 {"messages": messages},
-                config={"configurable": {
-                    "thread_id": sub_thread_id,
-                    "skip_memory_extract": True,   # 子 Agent 不提取记忆，由父 Agent 统一处理
-                    "skip_memory_retrieve": True,  # 子 Agent 不检索记忆，父 Agent 已注入上下文
-                }},
+                config=_subagent_config(),
             )
         except RuntimeError as rte:
             if "Event loop is closed" in str(rte) or "closed" in str(rte).lower():
@@ -728,10 +744,7 @@ class SkillExecutor:
                 try:
                     result = await agent.ainvoke(
                         {"messages": messages},
-                        config={"configurable": {
-                            "thread_id": sub_thread_id,
-                            "skip_memory_extract": True,
-                        }},
+                        config=_subagent_config(),
                     )
                 except Exception as exc2:
                     raise SkillExecutionError(
@@ -753,10 +766,7 @@ class SkillExecutor:
                 try:
                     result = await agent.ainvoke(
                         {"messages": messages},
-                        config={"configurable": {
-                            "thread_id": sub_thread_id,
-                            "skip_memory_extract": True,
-                        }},
+                        config=_subagent_config(),
                     )
                 except Exception as exc2:
                     raise SkillExecutionError(

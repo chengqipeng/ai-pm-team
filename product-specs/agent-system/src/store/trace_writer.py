@@ -396,6 +396,7 @@ class TraceWriter:
                 trace_id=trace.trace_id,
                 status=status,
                 error_message=error_message,
+                ext_info=self._build_ext_info(trace, thread_id),
                 created_at=now,
                 created_by=user_id,
                 updated_at=now,
@@ -407,6 +408,196 @@ class TraceWriter:
 
         except Exception as e:
             logger.warning("_persist_message failed (non-fatal): %s", e)
+
+    @staticmethod
+    def _build_ext_info(trace: Any, thread_id: str) -> str:
+        """从 ThreadStore 中提取本条消息的产物元数据，序列化为 ext_info JSON。
+
+        ThreadStore 消息 metadata 包含:
+          contentType: document | text | error
+          title: 文档标题（仅 document）
+          status: succeeded | failed
+
+        同时快照当前 Shared State 的 views 作为数据产物引用。
+        """
+        ext: dict[str, Any] = {}
+        try:
+            from src.a2ui.thread_store import thread_store
+            state = thread_store.get(thread_id)
+            if state is None:
+                return "{}"
+
+            origin_intent = state.current_origin_intent()
+            if origin_intent:
+                ext["originIntent"] = origin_intent
+            if state.user_requested_views:
+                ext["userTriggeredViewIds"] = sorted(
+                    state.user_requested_views)
+
+            # 从最后一条 assistant 消息获取产物元数据
+            for msg in reversed(state.messages):
+                if msg.get("role") == "assistant" and msg.get("metadata"):
+                    meta = msg["metadata"]
+                    content_type = meta.get("contentType", "")
+                    if content_type:
+                        ext["contentType"] = content_type
+                    title = meta.get("title", "")
+                    if title:
+                        ext["title"] = title
+                    msg_status = meta.get("status", "")
+                    if msg_status:
+                        ext["status"] = msg_status
+                    break
+
+            # 快照当前 data views 引用（只存 viewId + 实体类型 + 记录数，不存完整数据）
+            shared = state.shared_state
+            views = ((shared.get("data") or {}).get("views") or {}) if shared else {}
+            if views:
+                view_refs = []
+                for view_id, value in views.items():
+                    if not isinstance(value, dict):
+                        continue
+                    ref: dict[str, Any] = {
+                        "viewId": view_id,
+                        "userTriggered": view_id in state.user_requested_views,
+                    }
+                    if "entityApiKey" in value:
+                        ref["entityApiKey"] = value["entityApiKey"]
+                    records = value.get("records")
+                    if isinstance(records, list):
+                        ref["recordCount"] = len(records)
+                        ref["total"] = value.get("total", len(records))
+                    elif "recordApiKey" in value:
+                        ref["recordApiKey"] = value["recordApiKey"]
+                    view_refs.append(ref)
+                if view_refs:
+                    ext["dataViews"] = view_refs
+
+            # 快照 context_artifacts 的摘要引用
+            if state.context_artifacts:
+                artifact_refs = []
+                for artifact in state.context_artifacts:
+                    artifact_refs.append({
+                        "id": artifact.get("id", ""),
+                        "type": artifact.get("type", "data"),
+                        "viewId": artifact.get("viewId", ""),
+                        "timestamp": artifact.get("timestamp", 0),
+                        "sequence": artifact.get("sequence", 0),
+                        "userTriggered": bool(artifact.get("userTriggered", False)),
+                        "originIntent": artifact.get("originIntent", ""),
+                    })
+                ext["contextArtifacts"] = artifact_refs
+
+        except Exception as e:
+            logger.debug("_build_ext_info failed: %s", e)
+
+        if not ext:
+            return "{}"
+        return json.dumps(ext, ensure_ascii=False, separators=(",", ":"), default=str)
+
+    def persist_external_exchange(
+        self,
+        thread_id: str,
+        trace_id: str,
+        user_text: str,
+        assistant_text: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> bool:
+        """幂等持久化不创建 ai_trace 的外部确定性消息对。
+
+        返回 True 表示首次插入，False 表示同一 trace_id 已存在。
+        会话行使用 FOR UPDATE 串行化 sequence 与幂等检查。
+        """
+        if not thread_id or not trace_id or not user_text or not assistant_text:
+            raise ValueError("thread_id, trace_id and exchange content are required")
+        if len(trace_id) > 64:
+            raise ValueError("trace_id exceeds ai_message.trace_id limit")
+
+        from .pg_pool import get_conn
+        from .snowflake import next_id
+
+        now = int(time.time() * 1000)
+        user_id = self._user_id
+        try:
+            from src.core.context import get_context
+            ctx = get_context()
+            if ctx.user_id:
+                user_id = int(ctx.user_id) if str(ctx.user_id).isdigit() else 0
+        except Exception:
+            pass
+
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id, title FROM ai_conversation "
+                "WHERE tenant_id=%s AND thread_id=%s AND delete_flg=0 FOR UPDATE",
+                (self._tenant_id, thread_id),
+            )
+            row = cur.fetchone()
+            if row:
+                conv_id = row[0]
+            else:
+                conv_id = next_id()
+                cur.execute("""
+                    INSERT INTO ai_conversation
+                    (id, tenant_id, user_id, thread_id, agent_name, title, model,
+                     status, message_count, total_tokens, last_message_at,
+                     delete_flg, created_at, created_by, updated_at, updated_by)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (tenant_id, thread_id) DO NOTHING
+                    RETURNING id
+                """, (conv_id, self._tenant_id, user_id, thread_id,
+                      'CRM-Agent', self._generate_title(user_text), '',
+                      'active', 0, 0, now, 0, now, user_id, now, user_id))
+                inserted = cur.fetchone()
+                if inserted:
+                    conv_id = inserted[0]
+                else:
+                    cur.execute(
+                        "SELECT id FROM ai_conversation "
+                        "WHERE tenant_id=%s AND thread_id=%s AND delete_flg=0 FOR UPDATE",
+                        (self._tenant_id, thread_id),
+                    )
+                    existing_conv = cur.fetchone()
+                    if not existing_conv:
+                        raise RuntimeError("failed to ensure conversation")
+                    conv_id = existing_conv[0]
+
+            cur.execute(
+                "SELECT id FROM ai_message "
+                "WHERE conversation_id=%s AND trace_id=%s AND delete_flg=0",
+                (conv_id, trace_id),
+            )
+            if cur.fetchone():
+                return False
+
+            cur.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM ai_message "
+                "WHERE conversation_id=%s",
+                (conv_id,),
+            )
+            sequence = int(cur.fetchone()[0])
+            message_id = next_id()
+            ext_info = json.dumps(metadata or {}, ensure_ascii=False, default=str)
+            cur.execute("""
+                INSERT INTO ai_message
+                (id, tenant_id, conversation_id, thread_id, sequence, role,
+                 query, answer, masked_query, masked_answer, model,
+                 input_tokens, output_tokens, total_tokens,
+                 iteration_count, tool_count, duration_ms, trace_id,
+                 status, error_message, ext_info, delete_flg,
+                 created_at, created_by, updated_at, updated_by)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (message_id, self._tenant_id, conv_id, thread_id, sequence,
+                  'user', user_text[:10000], assistant_text[:50000], '', '', '',
+                  0, 0, 0, 0, 0, 0, trace_id, 'success', '', ext_info, 0,
+                  now, user_id, now, user_id))
+            cur.execute("""
+                UPDATE ai_conversation
+                SET message_count=message_count+1, last_message_at=%s, updated_at=%s
+                WHERE id=%s
+            """, (now, now, conv_id))
+        return True
 
     def _persist_token_usage(self, trace: Any, conv_id: int, now: int) -> None:
         """将 Token 用量写入 ai_token_usage 表（按 trace 粒度）"""

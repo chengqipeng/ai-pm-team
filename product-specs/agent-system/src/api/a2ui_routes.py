@@ -16,10 +16,12 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
-from typing import Any, AsyncGenerator
+import re
+from typing import Any, AsyncGenerator, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -35,8 +37,14 @@ from src.a2ui import (
     ClientError,
     a2ui_jsonl_stream,
     a2ui_sse_stream,
+    action_dispatcher,
+    stream_hub,
+    ActionDispatchError,
+    UnknownActionError,
 )
 from src.a2ui.models import A2UIMessage
+from src.agui.protocol import OfficialRunAgentInput, encode_official_sse
+from src.agui.run_registry import run_registry
 
 # Trace 埋点（可选：若 tracer 不可用则降级为 no-op）
 try:
@@ -151,6 +159,12 @@ async def a2ui_event(req: Request) -> JSONResponse:
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {exc}")
 
     thread_id = payload.pop("threadId", None) if isinstance(payload, dict) else None
+    # UserAction 必须明确归属 thread；先保留原有字段错误优先级。
+    if isinstance(payload, dict) and isinstance(payload.get("userAction"), dict):
+        body = payload["userAction"]
+        required = ("name", "surfaceId", "sourceComponentId", "timestamp")
+        if all(key in body for key in required) and not thread_id:
+            raise HTTPException(status_code=400, detail="threadId is required for userAction")
 
     # Trace：把入站事件挂到该 thread 的活跃 trace 上
     trace = None
@@ -179,16 +193,31 @@ async def a2ui_event(req: Request) -> JSONResponse:
         return JSONResponse({"status": "duplicate"}, status_code=202)
 
     if isinstance(event, UserAction):
-        _deliver_user_action(thread_id, event)
+        try:
+            outcome = _deliver_user_action(str(thread_id), event)
+            if inspect.isawaitable(outcome):
+                outcome = await outcome
+            result = outcome if isinstance(outcome, dict) else {"status": "accepted"}
+        except UnknownActionError as exc:
+            if span is not None:
+                span.metadata["error"] = str(exc)
+                span.finish("error")
+            raise HTTPException(status_code=422, detail=str(exc))
+        except ActionDispatchError as exc:
+            if span is not None:
+                span.metadata["error"] = str(exc)
+                span.finish("error")
+            raise HTTPException(status_code=400, detail=str(exc))
         if span is not None:
             span.metadata.update({
-                "outcome": "accepted",
+                "outcome": result.get("status", "accepted"),
                 "action": event.name,
                 "surface_id": event.surface_id,
+                "action_id": result.get("actionId"),
             })
             span.finish("success")
         return JSONResponse({
-            "status": "accepted",
+            **result,
             "surfaceId": event.surface_id,
             "name": event.name,
         }, status_code=202)
@@ -212,34 +241,9 @@ async def a2ui_event(req: Request) -> JSONResponse:
     raise HTTPException(status_code=500, detail="Unknown handler outcome")
 
 
-def _deliver_user_action(thread_id: str | None, ua: UserAction) -> None:
-    """把 UserAction 注入 Agent thread。
-
-    当前实现：把消息 append 到 thread 的 pending queue（由 Adapter 在下次 astream 时消费）。
-    该桥接层为占位实现；实际接入方式取决于 agent_manager 的具体 API。
-    """
-    try:
-        from src.agents.adapter import neo_agent_v2_adapter  # 延迟 import 避免循环
-    except Exception:  # pragma: no cover
-        logger.debug("adapter not available, UserAction only logged")
-        neo_agent_v2_adapter = None
-
-    msg = A2UIInboundHandler.to_human_message(ua)
-    if neo_agent_v2_adapter is None:
-        logger.info("[a2ui.userAction] thread=%s ua=%s msg=%s",
-                    thread_id, ua.name, getattr(msg, "content", msg))
-        return
-
-    # 若 adapter 提供 inject_message API（设计 §7），调用之；否则 log 降级
-    inject = getattr(neo_agent_v2_adapter, "inject_message", None)
-    if callable(inject):
-        try:
-            inject(thread_id=thread_id, message=msg, source="a2ui")  # type: ignore[misc]
-        except Exception:
-            logger.exception("inject_message failed")
-    else:
-        logger.info("[a2ui.userAction] no inject_message; drop thread=%s name=%s",
-                    thread_id, ua.name)
+async def _deliver_user_action(thread_id: str, ua: UserAction) -> dict[str, str]:
+    """经白名单 ActionDispatcher 即时发布活动并启动处理。"""
+    return await action_dispatcher.dispatch(thread_id, ua)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -312,6 +316,47 @@ async def a2ui_stream(req: A2UIStreamRequest, http: Request) -> StreamingRespons
 
 
 # ═══════════════════════════════════════════════════════════
+# GET /api/chat/agui/tail — 页面操作及后台事件持续订阅
+# ═══════════════════════════════════════════════════════════
+
+@a2ui_router.get("/api/chat/agui/tail")
+async def chat_agui_tail(request: Request, threadId: str,
+                         lastEventId: int | None = None) -> StreamingResponse:
+    """订阅 thread 广播流；支持 Last-Event-ID 有限重放与心跳。"""
+    if not threadId.strip():
+        raise HTTPException(status_code=400, detail="threadId is required")
+    after_sequence = lastEventId
+    header_event_id = request.headers.get("last-event-id")
+    if header_event_id is not None:
+        try:
+            after_sequence = int(header_event_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid Last-Event-ID") from exc
+
+    async def generator() -> AsyncGenerator[str, None]:
+        subscription = await stream_hub.subscribe(
+            threadId, after_sequence=after_sequence)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    item = await asyncio.wait_for(
+                        subscription.queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+                    continue
+                yield item.event.to_sse(item.sequence)
+        finally:
+            await stream_hub.unsubscribe(subscription)
+
+    return StreamingResponse(
+        generator(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ═══════════════════════════════════════════════════════════
 # POST /agent/chat/reconnect — 断线重连
 # ═══════════════════════════════════════════════════════════
 
@@ -320,6 +365,18 @@ class ChatReconnectRequest(BaseModel):
     last_run_id: str | None = Field(default=None, alias="lastRunId")
 
     model_config = {"populate_by_name": True}
+
+
+class ChatBusinessContext(BaseModel):
+    """客户端声明、服务端按租户验证后才可进入 Agent 的业务上下文。"""
+    intent: Literal["customer_insight"]
+    entity_api_key: Literal["account"] = Field(alias="entityApiKey")
+    record_api_key: str = Field(
+        alias="recordApiKey", min_length=1, max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+    )
+
+    model_config = {"populate_by_name": True, "extra": "forbid"}
 
 
 class ChatAguiRequest(BaseModel):
@@ -337,9 +394,11 @@ class ChatAguiRequest(BaseModel):
     run_id: str | None = Field(default=None, alias="runId")
     # resume 字段：中断恢复时传递用户响应（interrupt_id + value）
     resume: dict | None = None
+    business_context: ChatBusinessContext | None = Field(
+        default=None, alias="businessContext")
     a2uiClientCapabilities: dict | None = None
 
-    model_config = {"populate_by_name": True}
+    model_config = {"populate_by_name": True, "extra": "forbid"}
 
 
 @a2ui_router.post("/agent/chat/reconnect")
@@ -361,17 +420,22 @@ async def chat_reconnect(req: ChatReconnectRequest) -> StreamingResponse:
     from src.agui import AGUIConverter
     from src.a2ui import thread_store
 
+    # The folded snapshot and sequence are captured under StreamHub's publish
+    # lock, eliminating the snapshot-to-tail race window.
+    bundle, replay_after = stream_hub.snapshot_with_boundary(
+        req.thread_id,
+        lambda: thread_store.snapshot_bundle(req.thread_id),
+    )
+
     async def generator() -> AsyncGenerator[str, None]:
         run_id = uuid.uuid4().hex
         parent_run_id = req.last_run_id
 
-        # 从 ThreadStore 拉真实态
-        state = thread_store.get(req.thread_id)
-        messages = list(state.messages) if state else []
-        state_snapshot = state.snapshot_state() if state else None
-        activities = state.active_activities() if state else []
-        if state and state.last_run_id and parent_run_id is None:
-            parent_run_id = state.last_run_id
+        messages = bundle["messages"] if bundle else []
+        state_snapshot = bundle["state"] if bundle else None
+        activities = bundle["activities"] if bundle else []
+        if bundle and bundle["last_run_id"] and parent_run_id is None:
+            parent_run_id = bundle["last_run_id"]
 
         converter = AGUIConverter(
             run_id=run_id,
@@ -387,36 +451,165 @@ async def chat_reconnect(req: ChatReconnectRequest) -> StreamingResponse:
         ):
             yield event.to_sse()
 
-    return StreamingResponse(generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-AGUI-Replay-After": str(replay_after),
+        },
+    )
 
 
 # ═══════════════════════════════════════════════════════════
 # POST /api/chat/agui — 统一 AG-UI 事件流对话端点
 # ═══════════════════════════════════════════════════════════
 
+def _is_failed_insight_content(content: str) -> bool:
+    """识别被 Skill 包装成文档流的明确客户洞察失败结果。"""
+    text = " ".join(str(content or "").split())
+    if not text:
+        return False
+    missing = bool(re.search(
+        r"(?:客户\s*(?:ID|记录标识)|CRM\s*(?:记录|系统)|recordApiKey)"
+        r".{0,160}(?:没有找到|未找到|不存在|not\s+found)",
+        text, re.IGNORECASE,
+    ))
+    explicit_failure = bool(re.search(
+        r"客户洞察.{0,40}(?:生成|执行|保存)?.{0,20}失败|"
+        r"(?:生成|执行)客户洞察.{0,20}失败",
+        text, re.IGNORECASE,
+    ))
+    redacted_missing = (
+        "<PII:CN_BANK_CARD_" in text
+        and bool(re.search(r"没有找到|未找到|不存在|not\s+found", text, re.IGNORECASE))
+    )
+    return missing or explicit_failure or redacted_missing
+
+
+def _standard_message_text(req: OfficialRunAgentInput) -> str:
+    """Extract the newest user text while keeping server-side history canonical."""
+    for message in reversed(req.messages):
+        if getattr(message, "role", "") != "user":
+            continue
+        content = getattr(message, "content", "")
+        if isinstance(content, str):
+            return content
+        parts: list[str] = []
+        for item in content or []:
+            text = getattr(item, "text", None)
+            if text:
+                parts.append(str(text))
+        return "\n".join(parts)
+    return ""
+
+
+def _standard_resume_value(req: OfficialRunAgentInput) -> Any | None:
+    if not req.resume:
+        return None
+    payloads = [entry.payload for entry in req.resume]
+    return payloads[0] if len(payloads) == 1 else payloads
+
+
 @a2ui_router.post("/api/chat/agui")
 async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
-    """AG-UI 统一对话端点。
+    """Legacy CRM endpoint; its existing snake_case SSE contract is preserved."""
+    return await _chat_agui_response(req, http)
 
-    替代老的 `/api/chat`，输出格式完全对齐 AG-UI Python SDK 事件类型。
-    A2UI 消息通过 ACTIVITY_SNAPSHOT 事件下发（Mode B）。
 
-    流程：
-    1. Catalog 协商 → 选定 catalog_id
-    2. Trace start（复用 src.core.tracer）
-    3. 调用 Adapter.execute_agui 拿事件流
-    4. 顺便把每条消息写入 ThreadStore（供断线重连）
+@a2ui_router.post("/api/chat/agui/run")
+async def chat_agui_run(
+    req: OfficialRunAgentInput,
+    http: Request,
+) -> StreamingResponse:
+    """Official RunAgentInput + BaseEvent/EventEncoder compatibility endpoint."""
+    forwarded = req.forwarded_props if isinstance(req.forwarded_props, dict) else {}
+    message = _standard_message_text(req)
+    resume = _standard_resume_value(req)
+    if not message.strip() and resume is None:
+        raise HTTPException(
+            status_code=422,
+            detail="RunAgentInput requires a user text message or resume entries",
+        )
+
+    legacy_req = ChatAguiRequest.model_validate({
+        "threadId": req.thread_id,
+        "runId": req.run_id,
+        "message": message,
+        "resume": resume,
+        "businessContext": forwarded.get("businessContext"),
+        "a2uiClientCapabilities": forwarded.get("a2uiClientCapabilities"),
+    })
+    protocol_metadata = {
+        "ag_ui_input": {
+            "state": req.state,
+            "tools": [tool.model_dump(by_alias=True) for tool in req.tools],
+            "context": [item.model_dump(by_alias=True) for item in req.context],
+            "forwardedProps": req.forwarded_props,
+        }
+    }
+    return await _chat_agui_response(
+        legacy_req,
+        http,
+        standard_wire=True,
+        parent_run_id=req.parent_run_id,
+        protocol_metadata=protocol_metadata,
+    )
+
+
+async def _chat_agui_response(
+    req: ChatAguiRequest,
+    http: Request,
+    *,
+    standard_wire: bool = False,
+    parent_run_id: str | None = None,
+    protocol_metadata: dict[str, Any] | None = None,
+) -> StreamingResponse:
+    """Execute one chat run and select either legacy or official wire encoding.
+
+    The execution, CRM visibility, document persistence and trace behavior stay
+    shared, so adding protocol compatibility cannot fork business semantics.
     """
     import uuid as _uuid
     import time as _time
     from src.a2ui import thread_store
 
     _req_start = _time.time()
+    run_id = req.run_id or _uuid.uuid4().hex
     logger.info(
         "[AG-UI] 收到请求: thread=%s, run=%s, message=%s",
-        req.thread_id, req.run_id or "(auto)",
+        req.thread_id, run_id,
         repr(req.message[:100]) if req.message else "(empty)",
     )
+
+    # 业务标识不能由客户端直接声明为 PII 例外。先按当前租户验证记录存在，
+    # 再构建仅在本次 Agent run 生效的可信字面量保护列表。
+    input_metadata: dict[str, Any] = dict(protocol_metadata or {})
+    validated_context: dict[str, Any] | None = None
+    if req.business_context is not None:
+        from src.core.context import get_context
+        from src.store.business_record_dao import BusinessRecordDAO
+
+        current = get_context()
+        business = req.business_context
+        record = await asyncio.to_thread(
+            BusinessRecordDAO.get,
+            int(current.tenant_id),
+            business.entity_api_key,
+            business.record_api_key,
+        )
+        if record is None:
+            raise HTTPException(
+                status_code=404, detail="CRM 中未找到该客户记录，无法生成客户洞察")
+        validated_context = {
+            "intent": business.intent,
+            "entityApiKey": business.entity_api_key,
+            "recordApiKey": business.record_api_key,
+        }
+        input_metadata.update({
+            "protected_literals": [business.record_api_key],
+            "business_context": validated_context,
+        })
 
     # 1. Catalog 协商
     reg = get_catalog_registry()
@@ -426,6 +619,33 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
         client_inline=cap.get("inlineCatalogs") or [],
         accepts_inline=False,
     )
+
+    # Standard endpoint: one active run per thread and no duplicate runId
+    # execution. Legacy behavior is intentionally unchanged during migration.
+    lease_acquired = False
+    if standard_wire:
+        admission = run_registry.start(req.thread_id, run_id)
+        if admission == "duplicate":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "DUPLICATE_RUN_ID",
+                    "message": "runId was already accepted; reconnect to the thread tail",
+                    "threadId": req.thread_id,
+                    "runId": run_id,
+                },
+            )
+        if admission == "conflict":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "THREAD_RUN_IN_PROGRESS",
+                    "message": "another run is active for this thread",
+                    "threadId": req.thread_id,
+                    "runId": run_id,
+                },
+            )
+        lease_acquired = True
 
     # 2. Trace start
     trace = None
@@ -444,39 +664,84 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
         except Exception:
             logger.exception("tracer.start_trace failed")
 
-    # 3. 记录本次消息入 ThreadStore
+    # 3. 记录本次消息入 ThreadStore（稳定 ID 保证 runId 重试不重复写入）
     if req.message:
-        thread_store.append_message(req.thread_id, {
-            "role": "user", "content": req.message,
+        thread_store.upsert_message(req.thread_id, {
+            "id": f"chat-{run_id}-user",
+            "role": "user",
+            "content": req.message,
+            "createdAt": int(_time.time() * 1000),
         })
 
-    run_id = req.run_id or _uuid.uuid4().hex
     thread_store.set_last_run(req.thread_id, run_id)
+    from src.a2ui.thread_store import infer_user_requested_views
+    requested_view_patterns, origin_intent = infer_user_requested_views(
+        req.message or "", validated_context)
+    user_view_scope_id = f"run:{run_id}"
 
     async def generator() -> AsyncGenerator[str, None]:
         nonlocal trace
         from src.agents.adapter import neo_agent_v2_adapter
+        from src.core.context import RequestContext, get_context, set_context
+
+        # StreamingResponse 会在独立异步任务中消费 generator；必须在该任务内
+        # 注入 thread_id，深层 CRM Tool 才能把页面状态广播回正确的 AG-UI tail。
+        current_ctx = get_context()
+        set_context(RequestContext(
+            tenant_id=current_ctx.tenant_id,
+            user_id=current_ctx.user_id,
+            thread_id=req.thread_id,
+            agent_name=current_ctx.agent_name,
+            extend_params=dict(current_ctx.extend_params),
+        ))
+        thread_store.begin_user_view_scope(
+            req.thread_id,
+            user_view_scope_id,
+            requested_view_patterns,
+            origin_intent,
+        )
 
         _event_count = 0
         _text_chars = 0
-        _full_content = ""  # 累积模型回复文本，用于持久化到 ai_message.answer
+        _full_content = ""  # 累积普通文本回复
+        _document_content = ""  # 文档内容在明确成功终态前仅作为 provisional 数据
+        _document_title = ""
+        _document_completed = False
+        _document_failed = False
+        _run_failed = False
+        _doc_stream_active = False  # 一旦 doc_stream 开始，抑制 TEXT_MESSAGE 事件转发
         _tool_calls = []
         _tool_args_buffer = {}  # tool_call_id → accumulated args string
 
         try:
-            async for event in neo_agent_v2_adapter.execute_agui(
-                thread_id=req.thread_id,
-                user_input=req.message or "",
-                run_id=run_id,
-                resume=req.resume,
-            ):
+            execute_kwargs: dict[str, Any] = {
+                "thread_id": req.thread_id,
+                "user_input": req.message or "",
+                "run_id": run_id,
+            }
+            if standard_wire:
+                execute_kwargs.update({
+                    "parent_run_id": parent_run_id,
+                    "emit_legacy_reasoning": False,
+                })
+            if req.resume is not None:
+                execute_kwargs["resume"] = req.resume
+            if input_metadata:
+                execute_kwargs["input_metadata"] = input_metadata
+            async for event in neo_agent_v2_adapter.execute_agui(**execute_kwargs):
                 _event_count += 1
                 # 详细事件日志
                 t_val = getattr(event.type, "value", event.type)
                 if t_val == "TEXT_MESSAGE_CONTENT":
+                    # doc_stream 开始后抑制 TEXT_MESSAGE（避免重复输出）
+                    if _doc_stream_active or _document_completed:
+                        continue
                     delta = event.data.get("delta", "")
                     _text_chars += len(delta)
                     _full_content += delta
+                elif t_val in ("TEXT_MESSAGE_START", "TEXT_MESSAGE_END"):
+                    if _doc_stream_active or _document_completed:
+                        continue
                 elif t_val == "TOOL_CALL_START":
                     tool_name = event.data.get("tool_call_name") or event.data.get("name", "")
                     tool_call_id = event.data.get("tool_call_id", "")
@@ -508,6 +773,9 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
                         req.thread_id, _event_count, _text_chars, _tool_calls, elapsed,
                     )
                 elif t_val == "RUN_ERROR":
+                    _run_failed = True
+                    _document_failed = True
+                    _document_completed = False
                     logger.error("[AG-UI] [thread=%s] RUN_ERROR: %s", req.thread_id, event.data)
                     # 记录错误到 trace 链路
                     if trace is not None:
@@ -529,13 +797,44 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
                             logger.warning("AG-UI trace error persist failed: %s", _te)
                 elif t_val == "CUSTOM":
                     name = event.data.get("name", "")
+                    raw_value = event.data.get("value")
+                    value = raw_value if isinstance(raw_value, dict) else {}
                     if name == "doc_stream":
-                        pass  # 高频事件不打印
+                        _doc_stream_active = True
+                        delta = value.get("delta", "")
+                        if isinstance(delta, str) and not _run_failed:
+                            _document_content += delta
                     elif name == "doc_stream_end":
-                        logger.info("[AG-UI] [thread=%s] doc_stream_end", req.thread_id)
+                        status = str(value.get("status") or "complete").lower()
+                        _document_failed = (
+                            status in {"failed", "error", "cancelled"}
+                            or _is_failed_insight_content(_document_content)
+                        )
+                        _document_completed = bool(
+                            _document_content and not _document_failed and not _run_failed)
+                        logger.info(
+                            "[AG-UI] [thread=%s] doc_stream_end status=%s committed=%s",
+                            req.thread_id, status, _document_completed)
                     elif name == "component_complete":
-                        apikey = (event.data.get("value") or {}).get("apikey", "")
-                        logger.info("[AG-UI] [thread=%s] component_complete: %s", req.thread_id, apikey)
+                        apikey = value.get("apikey", "")
+                        if apikey == "doc_card":
+                            component_data = value.get("data") or {}
+                            content = component_data.get("content", "")
+                            status = str(
+                                value.get("status") or component_data.get("status")
+                                or "complete").lower()
+                            if isinstance(content, str) and content:
+                                _document_content = content
+                                _document_title = str(component_data.get("title") or "")
+                            _document_failed = (
+                                status in {"failed", "error", "cancelled"}
+                                or _is_failed_insight_content(_document_content)
+                            )
+                            _document_completed = bool(
+                                _document_content and not _document_failed and not _run_failed)
+                        logger.info(
+                            "[AG-UI] [thread=%s] component_complete: %s committed=%s",
+                            req.thread_id, apikey, _document_completed)
                     elif name == "mw_span":
                         span_val = event.data.get("value") or {}
                         span_type = span_val.get("type", "")
@@ -543,24 +842,47 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
                         if span_type in ("skill_execution", "llm_call", "content_review", "query_rewrite", "memory_retrieval"):
                             logger.info("[AG-UI] [thread=%s] %s: %s", req.thread_id, span_type, span_val.get("detail", span_name))
 
-                # ACTIVITY_SNAPSHOT 带 a2ui-surface 时登记到 ThreadStore
-                if (t_val == "ACTIVITY_SNAPSHOT"
-                        and event.data.get("activity_type") == "a2ui-surface"):
-                    ops = (event.data.get("content") or {}).get("operations") or []
-                    render_type = (event.data.get("content") or {}).get("render_type")
-                    if render_type and ops:
-                        thread_store.record_activity(req.thread_id, render_type, ops)
-                yield event.to_sse()
+                # 所有事件进入统一广播序列；ACTIVITY 由 StreamHub 原位写入 ThreadStore。
+                published = await stream_hub.publish(req.thread_id, event)
+                encoded = (
+                    encode_official_sse(event, published.sequence)
+                    if standard_wire else event.to_sse(published.sequence)
+                )
+                if encoded:
+                    yield encoded
 
-            # 流正常结束 — 持久化会话到 ai_conversation
+            # 流正常结束：文档只有收到明确成功终态才提交；失败内容仅作为普通错误消息。
+            document_success = bool(
+                _document_content and _document_completed
+                and not _document_failed and not _run_failed)
+            if _document_failed:
+                final_content = _document_content or _full_content
+                content_type = "error"
+                final_status = "failed"
+            elif document_success:
+                final_content = _document_content
+                content_type = "document"
+                final_status = "succeeded"
+            else:
+                final_content = _full_content
+                content_type = "text"
+                final_status = "succeeded" if not _run_failed else "failed"
+
+            if final_content:
+                thread_store.upsert_message(req.thread_id, {
+                    "id": f"chat-{run_id}-assistant",
+                    "role": "assistant", "content": final_content,
+                    "createdAt": int(_time.time() * 1000),
+                    "metadata": {
+                        "contentType": content_type,
+                        "title": _document_title if document_success else "",
+                        "status": final_status,
+                    },
+                })
+
+            # 持久化会话到 ai_conversation；trace 不可用时仍保留 ThreadStore 快照。
             if trace is not None:
                 try:
-                    # 将 assistant 回复写入 ThreadStore（供断线重连 MESSAGES_SNAPSHOT）
-                    if _full_content:
-                        thread_store.append_message(req.thread_id, {
-                            "role": "assistant", "content": _full_content,
-                        })
-
                     # 合并所有中间件 spans 到 Tracer（供 /api/conversations/:id/messages 查询）
                     from src.middleware.tracing import tracing_middleware as _tm
                     all_mw_spans = _tm.get_spans(req.thread_id)
@@ -590,7 +912,8 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
                                 span.metadata["children"] = mw_span["children"]
                         _tm.clear(req.thread_id)
 
-                    tracer.finish_trace(trace.trace_id, "success", _full_content)
+                    trace_status = "error" if (_document_failed or _run_failed) else "success"
+                    tracer.finish_trace(trace.trace_id, trace_status, final_content)
                     from src.store.trace_writer import TraceWriter
                     from src.core.context import DEFAULT_TENANT_ID
                     _tw = TraceWriter(tenant_id=DEFAULT_TENANT_ID)
@@ -618,12 +941,28 @@ async def chat_agui(req: ChatAguiRequest, http: Request) -> StreamingResponse:
                         _tw_exc.on_trace_finish(trace_final_exc)
                 except Exception as _te:
                     logger.warning("AG-UI trace exception persist failed: %s", _te)
-            yield run_error("INTERNAL_ERROR", code=type(exc).__name__).to_sse()
+            error_event = run_error("INTERNAL_ERROR", code=type(exc).__name__)
+            published = await stream_hub.publish(req.thread_id, error_event)
+            encoded = (
+                encode_official_sse(error_event, published.sequence)
+                if standard_wire else error_event.to_sse(published.sequence)
+            )
+            if encoded:
+                yield encoded
         finally:
-            pass
+            thread_store.end_user_view_scope(req.thread_id, user_view_scope_id)
+            if lease_acquired:
+                run_registry.finish(req.thread_id, run_id)
 
+    headers = {
+        "X-A2UI-Catalog": catalog_id,
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    }
+    if standard_wire:
+        headers["X-AGUI-Protocol"] = "0.1"
     return StreamingResponse(
         generator(),
         media_type="text/event-stream",
-        headers={"X-A2UI-Catalog": catalog_id},
+        headers=headers,
     )

@@ -60,8 +60,6 @@ if not os.environ.get("SSL_CERT_FILE"):
 #     except Exception as exc:
 #         logging.getLogger(__name__).warning("Phoenix 初始化失败（不影响正常运行）: %s", exc)
 
-os.environ.setdefault("DEEPSEEK_API_KEY", "sk-HdY98AcN68JhtXLp8oeIATEL4PWq9rzRcCAhI8G4SOtBbtSw")
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
@@ -103,16 +101,26 @@ _agent_lock = asyncio.Lock()
 _skill_registry = None  # SkillRegistry 实例，Agent 初始化后可用
 _middlewares = None  # 中间件列表，Agent 初始化后可用
 
-# ── 共享 CRM 后端实例（Agent 和 mock-data API 共用，修改即时可见）──
-_crm_backend = None
+# ── CRM 后端实例 ──
+_crm_backend = None          # mock-data API 专用内存数据
+_agent_crm_backend = None    # Agent/Page 共用 agent-system PostgreSQL 数据
 
 def get_crm_backend():
-    """获取共享的 CRM 模拟后端实例"""
+    """获取 mock-data API 的共享模拟后端实例。"""
     global _crm_backend
     if _crm_backend is None:
         from src.tools.crm_backend import CrmSimulatedBackend
         _crm_backend = CrmSimulatedBackend()
     return _crm_backend
+
+
+def get_agent_crm_backend():
+    """获取 Agent 与 A2UI Action 共用的内部持久化 backend。"""
+    global _agent_crm_backend
+    if _agent_crm_backend is None:
+        from src.tools.persistent_crm_backend import PersistentCrmBackend
+        _agent_crm_backend = PersistentCrmBackend()
+    return _agent_crm_backend
 
 
 async def _get_agent(multimodal: bool = False):
@@ -127,7 +135,6 @@ async def _get_agent(multimodal: bool = False):
 
         from src.agents.langchain_agent import create_deep_agent, LangChainAgentConfig
         from src.tools.base import ToolRegistry
-        from src.tools.crm_backend import CrmSimulatedBackend
         from src.tools.crm_tools import register_crm_tools
         from src.tools.metarepo_backend import MetarepoSimulatedBackend
         from src.tools.metarepo_tools import register_metarepo_tools
@@ -137,13 +144,13 @@ async def _get_agent(multimodal: bool = False):
         from src.memory.viking_engine import VikingMemoryEngine
         from langchain_openai import ChatOpenAI
 
-        backend = get_crm_backend()
+        backend = get_agent_crm_backend()
         metarepo_backend = _build_metarepo_backend_for_server()
         reg = ToolRegistry()
 
-        # 构建业务数据 backend — 始终使用内部模拟后端（agent-system 内部闭环）
+        # 业务数据 backend — agent-system 内部 PostgreSQL 持久化
         data_backend = backend
-        logger.info("CRM data backend for server Agent: Simulated (内部闭环)")
+        logger.info("CRM data backend for server Agent: agent-system PostgreSQL")
         skill_reg = SkillRegistry()
         # 权威数据源：ai_skill_definition 表（禁止从文件加载）
         try:
@@ -162,7 +169,8 @@ async def _get_agent(multimodal: bool = False):
             pass
 
         aux_llm = ChatOpenAI(model="deepseek-v4-flash", api_key=os.environ["DEEPSEEK_API_KEY"],
-                             base_url="https://tokenhub.tencentmaas.com/v1", max_tokens=2048)
+                             base_url="https://tokenhub.tencentmaas.com/v1", max_tokens=2048,
+                             timeout=120, max_retries=2)
         memory_engine = None
         try:
             memory_engine = VikingMemoryEngine(
@@ -285,6 +293,17 @@ def _extract_json_object(text: str) -> dict | None:
                 except (json.JSONDecodeError, ValueError):
                     return None
     return None
+
+
+def _parse_ext_info(raw: str | None) -> dict:
+    """安全解析 ai_message.ext_info JSON 字符串为 dict。"""
+    if not raw or raw == "{}":
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
 
 
 def _detect_document(content: str) -> dict | None:
@@ -1927,7 +1946,7 @@ async def get_conversation_messages(thread_id: str):
                     SELECT id, sequence, role, query, answer, model,
                            input_tokens, output_tokens, total_tokens,
                            iteration_count, tool_count, duration_ms,
-                           trace_id, status, error_message, created_at
+                           trace_id, status, error_message, ext_info, created_at
                     FROM ai_message
                     WHERE conversation_id=%s AND delete_flg=0
                     ORDER BY sequence ASC
@@ -1947,6 +1966,7 @@ async def get_conversation_messages(thread_id: str):
                             spans_raw = detail.get("spans", [])
 
                     messages.append({
+                        "message_id": str(msg.get("id") or ""),
                         "trace_id": trace_id,
                         "user_input": msg.get("query", ""),
                         "agent_output": msg.get("answer", ""),
@@ -1959,6 +1979,7 @@ async def get_conversation_messages(thread_id: str):
                         "status": msg.get("status", "success"),
                         "error_message": msg.get("error_message", ""),
                         "created_at": msg.get("created_at", 0),
+                        "ext_info": _parse_ext_info(msg.get("ext_info", "{}")),
                         "spans": spans_raw,
                     })
 

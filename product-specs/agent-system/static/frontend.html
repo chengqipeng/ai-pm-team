@@ -168,8 +168,19 @@ body { margin: 0; }
 /* 顶层容器强制 flex 布局（双保险，即便 Tailwind 失败也生效） */
 #app { display: flex; height: 100vh; width: 100%; overflow: hidden; position: relative; background: #f4f7fb; }
 
-/* 左侧边栏固定宽度 */
-#sidebar { width: 18rem; flex-shrink: 0; display: flex; flex-direction: column; }
+/* 左侧边栏固定宽度，可完全折叠释放对话空间 */
+#sidebar {
+  width: 18rem;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 240ms ease, border-color 240ms ease;
+}
+#sidebar > * { width: 18rem; min-width: 18rem; }
+#sidebar.sidebar-collapsed { width: 0; border-right-color: transparent; }
+#sidebarExpandBtn { transition: opacity 180ms ease, transform 180ms ease; }
+#crmWorkspace, #crmWorkspaceLauncher { transition: left 240ms ease; }
 
 /* 主工作区占据剩余空间，min-width:0 至关重要 —— 防止 flex 子项被内容撑破 */
 #app > main { flex: 1 1 0%; display: flex; flex-direction: column; min-width: 0; position: relative; }
@@ -180,9 +191,117 @@ body { margin: 0; }
 /* 对话核心区 min-width:0，否则长内容（代码块、trace 预览）会把它撑破 */
 #app > main > div.flex-1.flex > div.flex-1 { flex: 1 1 0%; display: flex; flex-direction: column; min-width: 0; position: relative; }
 
-/* 右侧面板：显式宽度，防止被内容撑开 */
-#rightPanel { width: 400px; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }
-#rightPanel.w-0 { width: 0 !important; margin: 0 !important; border-width: 0 !important; opacity: 0; pointer-events: none; }
+/* 右侧面板：根据视口和左侧栏状态自适应，宽屏展示更多业务字段 */
+#rightPanel {
+  --right-panel-width: 440px;
+  width: min(var(--right-panel-width), calc(100% - 420px));
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  min-width: 0;
+}
+#sidebar.sidebar-collapsed ~ main #rightPanel { width: min(var(--right-panel-width), calc(100% - 420px)); }
+#rightPanel.w-0 { width: 0 !important; min-width: 0 !important; margin: 0 !important; border-width: 0 !important; opacity: 0; pointer-events: none; }
+#crmContextBody { min-width: 0; }
+#crmContextBody.crm-context-list {
+  display: block;
+  max-height: min(66vh, 720px);
+  overflow: auto;
+}
+#crmContextBody.crm-context-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 0.625rem;
+  max-height: min(66vh, 720px);
+  overflow-y: auto;
+}
+@media (max-width: 700px) {
+  #crmContextBody.crm-context-form { grid-template-columns: 1fr; }
+}
+.crm-context-data-wrap {
+  width: 100%;
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.875rem;
+  background: rgba(255,255,255,0.94);
+}
+.crm-context-data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: auto;
+  font-size: 10px;
+}
+.crm-context-data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.6rem 0.7rem;
+  color: #64748b;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 9px;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+.crm-context-data-table td {
+  max-width: 180px;
+  padding: 0.65rem 0.7rem;
+  color: #334155;
+  background: #fff;
+  border-bottom: 1px solid #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crm-context-data-table tbody tr:last-child td { border-bottom: 0; }
+.crm-context-data-table tbody tr:hover td { background: #f8fbff; }
+.crm-context-data-table th:first-child,
+.crm-context-data-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  min-width: 165px;
+  max-width: 220px;
+  box-shadow: 1px 0 0 #e2e8f0;
+}
+.crm-context-data-table th:last-child,
+.crm-context-data-table td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 3;
+  min-width: 126px;
+  background: #fff;
+  box-shadow: -1px 0 0 #e2e8f0;
+}
+.crm-context-data-table th:first-child,
+.crm-context-data-table th:last-child { z-index: 4; background: #f8fafc; }
+.crm-context-data-foot { padding: 0.55rem 0.75rem; border-top: 1px solid #e2e8f0; background: #f8fafc; color: #94a3b8; font-size: 9px; }
+@media (max-width: 1100px) {
+  #rightPanel {
+    position: absolute;
+    z-index: 35;
+    right: 0;
+    top: 3.5rem;
+    bottom: 0;
+    width: min(var(--right-panel-width), calc(100vw - 2rem));
+    margin: 1rem;
+    background: rgba(255,255,255,0.96);
+    box-shadow: 0 20px 60px rgba(15,23,42,0.18);
+  }
+  #sidebar.sidebar-collapsed ~ main #rightPanel { width: min(var(--right-panel-width), calc(100vw - 2rem)); }
+}
+@media (max-width: 520px) {
+  #rightPanel, #sidebar.sidebar-collapsed ~ main #rightPanel { width: calc(100vw - 1rem); margin: 0.5rem; border-radius: 1.25rem; }
+}
+
+/* 中间对话区始终保留，右侧生成内容只触发左侧历史栏收起 */
+#chatPane { min-width: 0; overflow: hidden; }
 
 /* 消息气泡最大宽度（避免没有 Tailwind 任意值时铺满整行） */
 #chatInner .flex.justify-end > div,
@@ -314,6 +433,9 @@ body { margin: 0; }
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
         </div>
         <span class="font-bold text-lg tracking-tight text-gray-900">DeepAgent AI</span>
+        <button id="sidebarCollapseBtn" onclick="toggleSidebar(true)" class="ml-auto w-8 h-8 rounded-xl flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-white/70 transition-all" title="收起对话历史" aria-label="收起对话历史">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/><line x1="20" y1="4" x2="20" y2="20"/></svg>
+        </button>
       </div>
       <button onclick="newChat()" class="w-full py-3 px-4 bg-white border border-gray-200/50 rounded-2xl flex items-center justify-center gap-2 text-sm font-bold text-blue-600 shadow-sm hover:shadow-md hover:bg-blue-50 transition-all group">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="group-hover:rotate-90 transition-transform duration-300"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -351,6 +473,9 @@ body { margin: 0; }
   <main class="flex-1 flex flex-col min-w-0 relative z-10 transition-all duration-300">
     <header class="h-14 flex items-center justify-between px-6 bg-white/40 backdrop-blur-md border-b border-gray-200/50 shrink-0">
       <div class="flex items-center gap-2 min-w-0">
+        <button id="sidebarExpandBtn" onclick="toggleSidebar(false)" class="hidden w-8 h-8 shrink-0 rounded-xl items-center justify-center text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-all" title="展开对话历史" aria-label="展开对话历史">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="4" x2="4" y2="20"/><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
         <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
         <span id="headerTitle" class="text-sm font-bold text-gray-900 truncate max-w-[180px]">新对话</span>
         <span class="text-[10px] text-gray-400 font-medium bg-blue-50 px-2 py-0.5 rounded-full text-blue-600 shrink-0">当前会话</span>
@@ -391,8 +516,8 @@ body { margin: 0; }
 
     <div class="flex-1 flex overflow-hidden">
       <!-- 对话核心区 -->
-      <div class="flex-1 flex flex-col min-w-0 relative">
-        <div id="chatArea" class="flex-1 overflow-y-auto custom-scrollbar px-6 pt-10 pb-4">
+      <div id="chatPane" class="flex-1 flex flex-col min-w-0 relative">
+        <div id="chatArea" class="flex-1 overflow-y-auto custom-scrollbar px-6 pt-10 pb-4" role="log" aria-live="polite" aria-label="对话消息">
           <div id="chatInner" class="max-w-4xl mx-auto w-full space-y-10 pb-6">
             <!-- 欢迎页 -->
             <div id="welcomeBlock" class="text-center py-20">
@@ -445,7 +570,7 @@ body { margin: 0; }
       </div>
 
       <!-- 右侧面板 -->
-      <div id="rightPanel" class="w-[400px] transition-all duration-300 m-6 ml-0 rounded-[32px] bg-white/70 backdrop-blur-2xl border border-white/40 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] flex flex-col shrink-0 overflow-hidden relative">
+      <div id="rightPanel" class="transition-all duration-300 m-6 ml-0 rounded-[32px] bg-white/70 backdrop-blur-2xl border border-white/40 shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] flex flex-col shrink-0 overflow-hidden relative">
         <!-- 面板头部 & 标签 -->
         <div class="flex items-center justify-between px-4 mt-4">
           <div class="flex-1 flex gap-1 bg-gray-200/30 p-1 rounded-2xl">
@@ -473,6 +598,30 @@ body { margin: 0; }
           </div>
           <!-- 参考上下文 Tab -->
           <div id="panelDocs" class="space-y-4 hidden animate-slide-right">
+            <!-- CRM 联动 Surface：始终保留，可重复进入详细页面/对话框 -->
+            <div id="crmContextCard" class="hidden overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-br from-white to-blue-50/70 shadow-sm">
+              <div class="px-4 py-3 border-b border-blue-100/70 flex items-center justify-between">
+                <div class="flex items-center gap-2 min-w-0">
+                  <div class="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm">▦</div>
+                  <div class="min-w-0">
+                    <p id="crmContextTitle" class="text-xs font-bold text-gray-900 truncate">CRM 联动页面</p>
+                    <p id="crmContextStatus" class="text-[10px] text-gray-400 mt-0.5">等待 AG-UI 数据</p>
+                  </div>
+                </div>
+                <span id="crmContextLive" class="hidden items-center gap-1 text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>流式</span>
+              </div>
+              <div class="h-0.5 bg-blue-50 overflow-hidden"><div id="crmContextProgress" class="h-full w-0 bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-500"></div></div>
+              <div id="crmContextBody" class="p-4 min-h-[96px]">
+                <div class="space-y-2 animate-pulse"><div class="h-3 w-2/3 rounded bg-gray-100"></div><div class="h-8 rounded-xl bg-gray-100"></div><div class="h-8 rounded-xl bg-gray-100"></div></div>
+              </div>
+              <div class="px-4 py-3 border-t border-blue-100/70 flex items-center justify-between bg-white/60">
+                <span id="crmContextMeta" class="text-[9px] text-gray-400">Shared State</span>
+                <div class="flex items-center gap-2">
+                  <button onclick="crmContextCreate()" class="text-[10px] font-bold text-blue-600 hover:text-blue-700">新建</button>
+                  <button id="crmContextPrimaryBtn" onclick="crmContextPrimary()" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-[10px] font-bold hover:bg-blue-700">展开页面</button>
+                </div>
+              </div>
+            </div>
             <!-- 文档预览模式（默认隐藏） -->
             <div id="docPreviewMode" class="hidden">
               <div class="flex items-center gap-2 mb-4">
@@ -491,7 +640,7 @@ body { margin: 0; }
               <div class="p-4 rounded-2xl bg-white/50 border border-white/60 shadow-sm">
                 <h4 class="text-xs font-bold text-gray-900 mb-3 flex items-center gap-2">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-blue-500"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  当前生成的文件
+                  会话产物链路
                 </h4>
                 <div id="generatedFiles" class="space-y-2"></div>
               </div>
@@ -512,9 +661,915 @@ body { margin: 0; }
       </div>
     </div>
   </main>
+
+  <!-- CRM 真实业务页面：数据完全来自 agent-system Action + PostgreSQL -->
+  <section id="crmWorkspace" class="hidden fixed left-72 right-0 top-0 bottom-0 z-40 bg-[#f4f7fb] flex-col">
+    <header class="h-16 px-7 bg-white border-b border-gray-200 flex items-center justify-between shrink-0">
+      <div class="flex items-center gap-4">
+        <button onclick="closeCrmWorkspace()" class="p-2 rounded-xl text-gray-500 hover:bg-gray-100" title="返回对话">←</button>
+        <div><h2 class="text-base font-bold text-gray-900">CRM 业务工作台</h2><p class="text-[11px] text-gray-400">AG-UI / A2UI 实时联动页面</p></div>
+      </div>
+      <div class="flex items-center gap-2">
+        <select id="crmEntitySelect" onchange="crmChangeEntity(this.value)" class="text-xs border border-gray-200 rounded-xl px-3 py-2 bg-white">
+          <option value="account">客户</option><option value="contact">联系人</option><option value="opportunity">商机</option><option value="lead">线索</option><option value="activity">活动</option>
+        </select>
+        <button onclick="refreshCrmWorkspace()" class="px-4 py-2 text-xs font-bold rounded-xl border border-gray-200 bg-white hover:bg-gray-50">刷新</button>
+        <button onclick="openCrmCreateDialog()" class="px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700">＋ 新建</button>
+      </div>
+    </header>
+    <div class="flex-1 overflow-auto p-4 sm:p-5">
+      <div class="w-full max-w-none mx-auto">
+        <div class="grid grid-cols-3 gap-3 mb-4">
+          <div class="bg-white rounded-2xl border border-gray-100 px-5 py-4 shadow-sm"><p class="text-xs text-gray-400">当前对象</p><p id="crmEntityLabel" class="text-lg font-bold mt-1.5">客户</p></div>
+          <div class="bg-white rounded-2xl border border-gray-100 px-5 py-4 shadow-sm"><p class="text-xs text-gray-400">记录总数</p><p id="crmRecordTotal" class="text-lg font-bold mt-1.5">—</p></div>
+          <div class="bg-white rounded-2xl border border-gray-100 px-5 py-4 shadow-sm"><p class="text-xs text-gray-400">联动状态</p><p id="crmLinkStatus" class="text-sm font-bold text-emerald-600 mt-1.5">正在连接…</p></div>
+        </div>
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden min-h-[calc(100vh-176px)]">
+          <div id="crmTableContent" class="min-h-[calc(100vh-176px)] p-10 text-center text-sm text-gray-400">点击“刷新”从 agent-system 加载业务数据</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- A2UI 表单/详情真实对话框 -->
+  <div id="crmDialog" class="hidden fixed inset-0 z-[70] bg-black/30 backdrop-blur-sm items-center justify-center p-6" onclick="if(event.target===this)closeCrmDialog()">
+    <div class="bg-white rounded-3xl shadow-2xl w-[760px] max-w-[96vw] max-h-[90vh] flex flex-col overflow-hidden">
+      <header class="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+        <div><h3 id="crmDialogTitle" class="text-base font-bold text-gray-900">业务记录</h3><p id="crmDialogSubtitle" class="text-[11px] text-gray-400 mt-1">由 Shared State 实时驱动</p></div>
+        <button onclick="closeCrmDialog()" class="w-8 h-8 rounded-xl text-gray-400 hover:bg-gray-100">✕</button>
+      </header>
+      <div id="crmDialogStream" class="hidden px-6 py-3 border-b border-blue-100 bg-blue-50/70 shrink-0">
+        <div class="flex items-center justify-between mb-2"><span id="crmDialogStreamText" class="text-[11px] font-bold text-blue-700">正在提交…</span><span id="crmDialogStreamPhase" class="text-[9px] text-blue-500">AG-UI</span></div>
+        <div class="h-1 rounded-full bg-blue-100 overflow-hidden"><div id="crmDialogStreamProgress" class="h-full w-0 bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-500"></div></div>
+      </div>
+      <div id="crmDialogBody" class="p-6 overflow-y-auto custom-scrollbar flex-1"></div>
+      <footer id="crmDialogFooter" class="px-6 py-4 border-t border-gray-100 flex justify-end gap-2 shrink-0"></footer>
+    </div>
+  </div>
+
+  <button id="crmWorkspaceLauncher" onclick="openCrmWorkspace()" class="fixed left-[304px] bottom-6 z-30 px-4 py-2.5 rounded-2xl bg-slate-900 text-white text-xs font-bold shadow-xl hover:bg-blue-700 transition-all">▦ CRM 工作台</button>
+  <div id="crmToast" class="hidden fixed right-6 top-20 z-[90] px-4 py-3 rounded-xl bg-slate-900 text-white text-xs shadow-xl"></div>
 </div>
 
 <script>
+// ═══ CRM AG-UI / A2UI 页面联动 ═══
+let crmTail = null;
+let crmTailThread = '';
+let crmRestoreThread = '';
+let crmReplayBoundary = null;
+let crmRestorePromise = null;
+let crmSharedState = { data: { views: {} } };
+let crmCurrentEntity = 'account';
+let crmCurrentList = null;
+let crmCurrentForm = null;
+let crmCurrentView = null;
+let crmPendingDialog = false;
+let crmContextRenderToken = 0;
+let crmContextFinishTimer = null;
+let crmContextIsRendering = false;
+let crmContextPinnedView = null;
+let crmInsightPinnedView = null;
+let crmDialogMode = 'closed';
+let crmStatusText = '等待 AG-UI 数据';
+let crmStatusError = false;
+// Shared State 可保留 Agent/Skill 的内部查询结果；只有用户明确请求的 view
+// 才能进入右侧“会话产物链路”或抢占参考上下文。
+let crmUserRequestedViews = new Set();
+let crmCurrentRunRequestedViewPatterns = new Set();
+let crmCurrentOriginIntent = '';
+let rightPanelContentProfile = {kind: 'idle', model: null};
+let rightPanelResizeTimer = null;
+
+function crmViewMatchesPattern(viewId, pattern) {
+  const normalizedView = String(viewId || '');
+  const normalizedPattern = String(pattern || '');
+  if (!normalizedView || !normalizedPattern) return false;
+  return normalizedPattern.endsWith('*')
+    ? normalizedView.startsWith(normalizedPattern.slice(0, -1))
+    : normalizedView === normalizedPattern;
+}
+function crmRegisterUserRequestedView(viewId, options = {}) {
+  const normalized = String(viewId || '').trim();
+  if (!normalized) return;
+  if (normalized.includes('*')) {
+    if (!options.history) crmCurrentRunRequestedViewPatterns.add(normalized);
+    return;
+  }
+  crmUserRequestedViews.add(normalized);
+  if (options.currentRun !== false) crmCurrentRunRequestedViewPatterns.add(normalized);
+}
+function crmIsUserRequestedView(viewId, options = {}) {
+  const normalized = String(viewId || '').trim();
+  if (!normalized) return false;
+  if (options.userTriggered === true) return true;
+  if (!options.currentRunOnly && crmUserRequestedViews.has(normalized)) return true;
+  for (const pattern of crmCurrentRunRequestedViewPatterns) {
+    if (!crmViewMatchesPattern(normalized, pattern)) continue;
+    if (options.promote !== false) crmUserRequestedViews.add(normalized);
+    return true;
+  }
+  return false;
+}
+function crmInferUserRequestedViews(message, businessContext, options = {}) {
+  const text = String(message || '').trim();
+  crmCurrentOriginIntent = String(businessContext?.intent || '');
+  if (!options.history) crmCurrentRunRequestedViewPatterns.clear();
+  if (businessContext?.intent === 'customer_insight' || /客户洞察|customer[_\s-]*insight|洞察\s*Skill/i.test(text)) {
+    crmCurrentOriginIntent = 'customer_insight';
+    return [];
+  }
+
+  const lower = text.toLowerCase();
+  const specificEntities = [
+    ['opportunity', /商机|opportunit|pipeline/i],
+    ['contact', /联系人|contact/i],
+    ['activity', /活动|activity/i],
+    ['lead', /线索|lead/i],
+  ].filter(([, pattern]) => pattern.test(lower)).map(([entity]) => entity);
+  const entities = specificEntities.length
+    ? specificEntities
+    : (/客户|账户|account|customer/i.test(lower) ? ['account'] : []);
+  if (!entities.length) return [];
+
+  const detailIntent = /详情|详细|记录标识|record\s*(?:api\s*)?key/i.test(text);
+  const createIntent = /新建|创建|新增|create|add/i.test(text);
+  const editIntent = /编辑|修改|更新|edit|update/i.test(text);
+  const listIntent = !detailIntent && !createIntent && !editIntent &&
+    /列表|查询|查找|搜索|检索|列出|展示|查看|有哪些|list|search|query|find/i.test(text);
+  const requested = [];
+  entities.forEach(entity => {
+    if (createIntent) requested.push(`${entity}:create`);
+    else if (editIntent) requested.push(`${entity}:edit:*`, `${entity}:update:*`);
+    else if (detailIntent) {
+      const keyMatch = text.match(/(?:CRM\s*)?记录标识[：:]\s*([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})/i);
+      requested.push(keyMatch ? `${entity}:detail:${keyMatch[1]}` : `${entity}:detail:*`);
+    } else if (listIntent) requested.push(`${entity}:list`);
+  });
+  requested.forEach(viewId => crmRegisterUserRequestedView(viewId, options));
+  if (!crmCurrentOriginIntent && requested.length) crmCurrentOriginIntent = 'crm_query';
+  return requested;
+}
+function crmRegisterActionRequestedView(name, context = {}) {
+  const entity = String(context.entityApiKey || crmCurrentEntity || 'account');
+  const key = String(context.recordApiKey || '');
+  const viewId = String(context.viewId || '');
+  crmCurrentRunRequestedViewPatterns.clear();
+  crmCurrentOriginIntent = `crm_ui_${name}`;
+  if (viewId) crmRegisterUserRequestedView(viewId);
+  if (name === 'refresh_view') crmRegisterUserRequestedView(`${entity}:list`);
+  if (name === 'view_record' && key) crmRegisterUserRequestedView(`${entity}:detail:${key}`);
+  if (name === 'edit_record' && key) crmRegisterUserRequestedView(`${entity}:edit:${key}`);
+  if (['submit_update', 'delete_record'].includes(name) && key) {
+    crmRegisterUserRequestedView(`${entity}:detail:${key}`);
+  }
+}
+
+function resetCrmThreadContext() {
+  if (crmTail) crmTail.close();
+  crmTail = null;
+  crmTailThread = '';
+  crmRestoreThread = '';
+  crmReplayBoundary = null;
+  crmRestorePromise = null;
+  crmSharedState = { data: { views: {} } };
+  crmCurrentList = null;
+  crmCurrentForm = null;
+  crmCurrentView = null;
+  crmPendingDialog = false;
+  crmContextPinnedView = null;
+  crmInsightPinnedView = null;
+  crmStatusText = '等待 AG-UI 数据';
+  crmStatusError = false;
+  crmUserRequestedViews.clear();
+  crmCurrentRunRequestedViewPatterns.clear();
+  crmCurrentOriginIntent = '';
+  clearTimeout(crmContextFinishTimer);
+  crmContextRenderToken++;
+  crmContextIsRendering = false;
+  document.getElementById('crmContextCard')?.classList.add('hidden');
+  closeCrmDialog();
+}
+
+function crmEntityName(entity) {
+  return ({account:'客户', contact:'联系人', opportunity:'商机', lead:'线索', activity:'活动'})[entity] || entity || 'CRM';
+}
+function crmFieldLabel(key) {
+  return ({
+    accountName:'客户名称', customerName:'客户名称', name:'名称', city:'城市', province:'省份', state:'省/州', district:'区县',
+    industry:'行业', industryId:'行业ID', highSeaId:'公海ID', customerRating:'客户评级', rating:'评级', accountScore:'客户评分',
+    annualRevenue:'年营收', employeeCount:'员工数', receivedAmount:'已收金额', unreceivedAmount:'未收金额', duplicateFlg:'重复标记',
+    opportunityName:'商机名称', amount:'金额', stage:'阶段', contactName:'联系人', leadName:'线索名称', subject:'主题',
+    status:'状态', ownerName:'负责人', source:'来源', sourceType:'来源方式', phone:'电话', email:'邮箱', website:'网站'
+  })[key] || key.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').replace(/^./, text => text.toUpperCase());
+}
+function crmFormatContextValue(key, value) {
+  if (value == null || value === '') return '—';
+  if (typeof value === 'number' && /(revenue|amount|income|received)/i.test(key)) {
+    return new Intl.NumberFormat('zh-CN', {style:'currency', currency:'CNY', notation: Math.abs(value) >= 10000 ? 'compact' : 'standard', maximumFractionDigits:1}).format(value);
+  }
+  if (typeof value === 'number' && /employeeCount/i.test(key)) return `${value.toLocaleString('zh-CN')} 人`;
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+function crmContextTableFields(records, nameKeys) {
+  const reserved = new Set(['recordApiKey','entityApiKey','version','createdAt','updatedAt', ...nameKeys]);
+  const preferred = [
+    'city','province','state','district','industry','customerRating','rating','annualRevenue','employeeCount',
+    'receivedAmount','unreceivedAmount','accountScore','duplicateFlg','highSeaId','industryId','status','ownerName',
+    'source','sourceType','phone','email','website','amount','stage'
+  ];
+  const available = new Set();
+  records.forEach(record => Object.keys(record || {}).forEach(key => {
+    if (!reserved.has(key)) available.add(key);
+  }));
+  const fields = preferred.filter(key => available.has(key));
+  available.forEach(key => { if (!fields.includes(key)) fields.push(key); });
+  return fields;
+}
+function estimateRightPanelWidth(kind, model) {
+  if (kind === 'list') {
+    const records = Array.isArray(model?.records) ? model.records : [];
+    const nameKeys = ['accountName','customerName','customer_name','contactName','opportunityName','leadName','subject','name'];
+    const fields = crmContextTableFields(records, nameKeys);
+    const fieldsWidth = fields.reduce((total, field) => {
+      const labelWidth = crmFieldLabel(field).length * 13 + 34;
+      const sampleWidth = records.slice(0, 5).reduce((longest, record) => {
+        const value = crmFormatContextValue(field, record?.[field]);
+        return Math.max(longest, Math.min(180, value.length * 7 + 28));
+      }, 0);
+      return total + Math.max(88, Math.min(180, Math.max(labelWidth, sampleWidth)));
+    }, 0);
+    return 330 + fieldsWidth;
+  }
+  if (kind === 'form') {
+    const fields = Array.isArray(model?.fields) ? model.fields : [];
+    const longestLabel = fields.reduce((max, field) => Math.max(max, String(field.label || field.apiKey || '').length), 0);
+    const columnWidth = Math.max(210, Math.min(310, longestLabel * 13 + 100));
+    const densityAllowance = Math.min(240, Math.ceil(fields.length / 8) * 40);
+    return (fields.length > 8 ? 2 : 1) * columnWidth + 96 + densityAllowance;
+  }
+  if (kind === 'detail') {
+    const count = model && typeof model === 'object' ? Object.keys(model).length : 0;
+    return 420 + Math.min(320, Math.ceil(count / 4) * 54);
+  }
+  if (kind === 'document') {
+    const content = String(model?.content || '');
+    const longestLine = content.split('\n').slice(0, 200).reduce((max, line) => Math.max(max, line.length), 0);
+    return Math.max(520, Math.min(960, longestLine * 7 + 160));
+  }
+  if (kind === 'trace') {
+    const count = Number(model?.count || 0);
+    return 400 + Math.min(220, Math.ceil(count / 6) * 44);
+  }
+  return 440;
+}
+function adaptRightPanelWidth(kind, model) {
+  const panel = document.getElementById('rightPanel');
+  if (!panel) return;
+  rightPanelContentProfile = {kind: kind || 'idle', model: model || null};
+  const hostWidth = panel.parentElement?.getBoundingClientRect().width || window.innerWidth;
+  const targetWidth = estimateRightPanelWidth(kind, model);
+  const narrowViewport = window.innerWidth <= 1100;
+  const minimumChatWidth = Math.max(440, Math.min(760, hostWidth * 0.4));
+  const layoutMaximum = narrowViewport
+    ? window.innerWidth - 32
+    : Math.max(340, hostWidth - minimumChatWidth - 24);
+  const resolvedWidth = Math.round(Math.max(320, Math.min(targetWidth, layoutMaximum, window.innerWidth - 16)));
+  panel.style.setProperty('--right-panel-width', `${resolvedWidth}px`);
+  panel.dataset.contentKind = kind || 'idle';
+  panel.dataset.resolvedWidth = String(resolvedWidth);
+}
+function adaptRightPanelToCurrentContent() {
+  adaptRightPanelWidth(rightPanelContentProfile.kind, rightPanelContentProfile.model);
+}
+function showCrmContext() {
+  const card = document.getElementById('crmContextCard');
+  if (!card) return;
+  card.classList.remove('hidden');
+  if (!isRightPanelOpen) openRightPanel();
+  switchTab('docs');
+}
+function crmContextLoading(message) {
+  if (!crmCurrentView && message === 'AG-UI 已连接') return;
+  showCrmContext();
+  const body = document.getElementById('crmContextBody');
+  const live = document.getElementById('crmContextLive');
+  const progress = document.getElementById('crmContextProgress');
+  document.getElementById('crmContextStatus').textContent = message || '正在接收数据…';
+  live.classList.remove('hidden'); live.classList.add('flex');
+  progress.style.width = '38%';
+  // 首次加载才显示骨架；已有 Shared State 时保留当前内容，只更新顶部流式状态。
+  // 不递增 renderToken，避免取消正在逐条写入的最新一轮渲染任务。
+  if (!crmCurrentView) {
+    ++crmContextRenderToken;
+    body.innerHTML = '<div data-crm-loading="true" class="space-y-2 animate-pulse"><div class="flex items-center gap-2 text-[10px] text-blue-600"><span class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>AG-UI 正在流式更新</div><div class="h-8 rounded-xl bg-blue-100/60"></div><div class="h-8 rounded-xl bg-blue-100/40"></div><div class="h-8 w-4/5 rounded-xl bg-blue-100/30"></div></div>';
+  }
+}
+function renderCrmContext(viewId, value) {
+  if (value && typeof value === 'object') crmCurrentView = {viewId, value};
+  if (!crmCurrentView) return;
+  const current = crmCurrentView;
+  const model = current.value || {};
+  const token = ++crmContextRenderToken;
+  crmContextIsRendering = true;
+  const entity = model.entityApiKey || crmCurrentEntity;
+  const records = Array.isArray(model.records) ? model.records : null;
+  const isForm = model.mode === 'create' || model.mode === 'update';
+  const kind = records ? 'list' : isForm ? 'form' : 'detail';
+  adaptRightPanelWidth(kind, model);
+  const detailSize = !records && !isForm ? Object.keys(model).length : 0;
+  const hasStructuredContent = records ? records.length > 0 : isForm ? (model.fields || []).length > 0 : detailSize >= 3;
+  if (hasStructuredContent) {
+    const identity = records
+      ? records.map(record => record.recordApiKey || '').join(',')
+      : isForm ? `${model.mode}:${(model.fields || []).length}`
+      : `${model.recordApiKey || current.viewId}:v${model.version || 1}`;
+    requestRightContentFocus(`crm:${kind}:${current.viewId}:${identity}`);
+  }
+  showCrmContext();
+  document.getElementById('crmContextTitle').textContent = `${crmEntityName(entity)}${kind === 'list' ? '列表' : kind === 'form' ? (model.mode === 'create' ? '新建表单' : '编辑表单') : '记录详情'}`;
+  document.getElementById('crmContextStatus').textContent = crmStatusText || 'Shared State 已同步';
+  document.getElementById('crmContextMeta').textContent = `${current.viewId || 'view'} · ${kind === 'list' ? (model.total ?? records.length) + ' 条' : kind === 'form' ? (model.fields || []).length + ' 个字段' : 'v' + (model.version || 1)}`;
+  document.getElementById('crmContextPrimaryBtn').textContent = kind === 'list' ? '展开页面' : '打开对话框';
+  const body = document.getElementById('crmContextBody');
+  const live = document.getElementById('crmContextLive');
+  const progress = document.getElementById('crmContextProgress');
+  live.classList.remove('hidden'); live.classList.add('flex');
+  progress.style.width = '58%'; body.innerHTML = '';
+  body.classList.toggle('crm-context-list', kind === 'list');
+  body.classList.toggle('crm-context-form', kind === 'form');
+  let items = [];
+  if (records) {
+    const nameKeys = ['accountName','customerName','customer_name','contactName','opportunityName','leadName','subject','name'];
+    const fields = crmContextTableFields(records, nameKeys);
+    const visibleRecords = records.slice(0, 20);
+    const minTableWidth = Math.max(680, 300 + fields.length * 112);
+    const headHtml = `<tr><th>${esc(crmEntityName(entity))}名称</th>${fields.map(field => `<th title="${esc(field)}">${esc(crmFieldLabel(field))}</th>`).join('')}<th>操作</th></tr>`;
+    const rowsHtml = visibleRecords.map((record, recordIndex) => {
+      const nameKey = nameKeys.find(key => record[key] != null && record[key] !== '');
+      const title = nameKey ? record[nameKey] : record.recordApiKey;
+      const cells = fields.map(field => {
+        const formatted = crmFormatContextValue(field, record[field]);
+        return `<td title="${esc(formatted)}">${esc(formatted)}</td>`;
+      }).join('');
+      const insightButton = entity === 'account' ? `<button data-key="${esc(record.recordApiKey || '')}" onclick="crmOpenCustomerInsight(this.dataset.key)" class="px-2 py-1.5 rounded-lg bg-violet-50 text-[9px] font-bold text-violet-700 hover:bg-violet-100 transition-colors">✦ 洞察</button>` : '';
+      return `<tr>
+        <td><button data-key="${esc(record.recordApiKey || '')}" onclick="crmContextOpenRecord(this.dataset.key)" class="w-full flex items-center gap-2 text-left group"><span class="w-7 h-7 shrink-0 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center text-[9px] font-bold">${esc(String(title || recordIndex + 1).slice(0,1))}</span><span class="min-w-0"><b class="block text-[10px] text-slate-800 truncate group-hover:text-blue-700">${esc(String(title || '未命名记录'))}</b><small class="block text-[8px] text-slate-400 truncate mt-0.5">${esc(record.recordApiKey || '')} · v${esc(String(record.version || 1))}</small></span></button></td>
+        ${cells}
+        <td><div class="flex items-center justify-end gap-1"><button data-key="${esc(record.recordApiKey || '')}" onclick="crmContextOpenRecord(this.dataset.key)" class="px-2 py-1.5 rounded-lg text-[9px] font-bold text-blue-700 hover:bg-blue-50">详情</button>${insightButton}</div></td>
+      </tr>`;
+    }).join('');
+    const total = model.total ?? records.length;
+    items = records.length ? [`<div class="crm-context-data-wrap"><table class="crm-context-data-table" style="min-width:${minTableWidth}px"><thead>${headHtml}</thead><tbody>${rowsHtml}</tbody></table>${total > visibleRecords.length ? `<div class="crm-context-data-foot">当前展示 ${visibleRecords.length} 条，共 ${esc(String(total))} 条；展开页面可继续翻页</div>` : `<div class="crm-context-data-foot">共 ${esc(String(total))} 条 · 展示 ${fields.length} 个业务字段 · 支持横向滚动</div>`}</div>`] : ['<div class="py-8 text-center text-[10px] text-gray-400">暂无记录，可点击“新建”创建</div>'];
+  } else if (isForm) {
+    items = (model.fields || []).map(field => `<div class="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-white/80 border border-blue-50"><span class="text-[10px] font-medium text-gray-600 truncate">${esc(field.label || field.apiKey)}</span><span class="text-[9px] text-gray-400 shrink-0">${esc(field.type || 'VARCHAR')}${field.required ? ' · 必填' : ''}</span></div>`);
+  } else {
+    items = Object.entries(model).filter(([key]) => !['entityApiKey'].includes(key)).slice(0, 24).map(([key, val]) => `<div class="flex items-start justify-between gap-3 px-3 py-2 rounded-xl bg-white/80 border border-blue-50"><span class="text-[9px] text-gray-400">${esc(crmFieldLabel(key))}</span><span class="text-[10px] font-medium text-gray-700 text-right truncate max-w-[260px]" title="${esc(typeof val === 'object' ? JSON.stringify(val) : String(val ?? '—'))}">${esc(typeof val === 'object' ? JSON.stringify(val) : String(val ?? '—'))}</span></div>`);
+  }
+  if (!items.length) items = ['<div class="py-5 text-center text-[10px] text-gray-400">暂无可展示内容</div>'];
+  const finishContextRender = () => {
+    if (token !== crmContextRenderToken) return;
+    crmContextIsRendering = false;
+    body.querySelectorAll('[data-crm-loading="true"]').forEach(node => node.remove());
+    live.classList.add('hidden'); live.classList.remove('flex');
+    progress.style.width = '100%';
+    document.getElementById('crmContextStatus').textContent = crmStatusError ? crmStatusText : '流式同步完成';
+    clearTimeout(crmContextFinishTimer);
+    crmContextFinishTimer = setTimeout(() => {
+      if (token === crmContextRenderToken) progress.style.width = '0';
+    }, 450);
+  };
+  items.forEach(html => body.insertAdjacentHTML('beforeend', html));
+  progress.style.width = '96%';
+  body.parentElement?.scrollTo({top: body.parentElement.scrollHeight, behavior: 'smooth'});
+  clearTimeout(crmContextFinishTimer);
+  crmContextFinishTimer = setTimeout(finishContextRender, 300);
+}
+function crmContextPrimary() {
+  if (!crmCurrentView) return openCrmWorkspace();
+  const model = crmCurrentView.value || {};
+  if (Array.isArray(model.records)) {
+    const workspace = document.getElementById('crmWorkspace');
+    workspace.classList.remove('hidden'); workspace.classList.add('flex');
+    renderCrmTable(model);
+  } else {
+    crmPendingDialog = true;
+    renderCrmView(crmCurrentView.viewId, model);
+  }
+}
+function crmContextCreate() {
+  crmPendingDialog = true;
+  openCrmCreateDialog();
+}
+function crmContextOpenRecord(recordKey) {
+  crmClearInsightPinnedView();
+  crmPendingDialog = true;
+  postCrmAction('view_record', {entityApiKey: crmCurrentEntity, recordApiKey: recordKey, viewId: crmCurrentEntity + ':detail:' + recordKey, actionLabel: '查看详情'}, 'context-view-record');
+}
+function crmRecordTitle(record) {
+  if (!record) return '客户';
+  return record.accountName || record.name || record.recordApiKey || '客户';
+}
+function crmClearInsightPinnedView() {
+  crmInsightPinnedView = null;
+}
+function crmRenderInsightPinnedContext() {
+  if (!crmInsightPinnedView) return false;
+  const sharedValue = crmSharedState?.data?.views?.[crmInsightPinnedView.viewId];
+  if (sharedValue && typeof sharedValue === 'object') crmInsightPinnedView.value = sharedValue;
+  const value = crmInsightPinnedView.value || {};
+  crmCurrentEntity = 'account';
+  crmCurrentView = {viewId: crmInsightPinnedView.viewId, value};
+  renderCrmContext(crmInsightPinnedView.viewId, value);
+  return true;
+}
+function crmRestoreInsightPinnedView(messages) {
+  if (!Array.isArray(messages)) return;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index] || {};
+    if (message.role !== 'user') continue;
+    const match = String(message.content || '').match(/CRM\s*记录标识[：:]\s*([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})/i);
+    if (!match) continue;
+    const recordKey = match[1];
+    const viewId = `account:detail:${recordKey}`;
+    crmInsightPinnedView = {
+      viewId,
+      value: crmSharedState?.data?.views?.[viewId] || {entityApiKey: 'account', recordApiKey: recordKey},
+    };
+    return;
+  }
+}
+function crmOpenCustomerInsight(recordKey) {
+  const normalizedKey = String(recordKey || '');
+  const record = (crmCurrentList?.records || []).find(item => String(item.recordApiKey || '') === normalizedKey) ||
+    (String(crmCurrentView?.value?.recordApiKey || '') === normalizedKey ? crmCurrentView.value : {entityApiKey: 'account', recordApiKey: recordKey});
+
+  // 洞察期间固定选中客户；关联商机/联系人/活动仍写入 Shared State，但不能抢占右侧上下文。
+  crmInsightPinnedView = {
+    viewId: `account:detail:${normalizedKey}`,
+    value: record,
+  };
+
+  // 客户洞察属于中央聊天任务；关闭 CRM 业务弹框并清理历史聚焦态。
+  // 不在右侧渲染客户详情——洞察结果（文档）会自动显示在右侧文档预览面板。
+  closeCrmDialog();
+  const chatPane = document.getElementById('chatPane');
+  chatPane?.classList.remove('chat-pane-collapsed');
+  if (chatPane) {
+    chatPane.inert = false;
+    chatPane.setAttribute('aria-hidden', 'false');
+  }
+  document.getElementById('rightPanel')?.classList.remove('right-content-focused');
+
+  // 右侧切换到参考上下文 tab，显示"正在生成"状态（文档流开始后会自动覆盖）
+  if (typeof switchTab === 'function') switchTab('docs');
+  const _dlm = document.getElementById('docListMode');
+  const _dpm = document.getElementById('docPreviewMode');
+  if (_dlm) _dlm.classList.add('hidden');
+  if (_dpm) _dpm.classList.remove('hidden');
+  const _dpt = document.getElementById('docPreviewTitle');
+  const _dpc = document.getElementById('docPreviewContent');
+  if (_dpt) _dpt.textContent = '客户洞察生成中...';
+  if (_dpc) _dpc.innerHTML = '<div class="flex items-center gap-2 text-gray-400 text-xs py-4"><div class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></div>正在分析客户数据，请稍候...</div>';
+
+  const prompt = `请在当前聊天会话中执行客户洞察 Skill：分析客户“${crmRecordTitle(record)}”（CRM 记录标识：${recordKey}），结合 CRM 数据生成客户画像、关键信号、风险判断和下一步行动建议。请直接在中央聊天会话中流式输出完整结果，不要打开 CRM 弹框。`;
+  return send(prompt, {
+    businessContext: {
+      intent: 'customer_insight',
+      entityApiKey: 'account',
+      recordApiKey: normalizedKey,
+    },
+  });
+}
+
+function crmPointerParts(path) {
+  return String(path || '').split('/').slice(1).map(p => p.replace(/~1/g, '/').replace(/~0/g, '~'));
+}
+function crmSetPointer(root, path, value, remove) {
+  const parts = crmPointerParts(path);
+  let node = root;
+  parts.slice(0, -1).forEach(key => {
+    if (!node[key] || typeof node[key] !== 'object') node[key] = {};
+    node = node[key];
+  });
+  if (!parts.length) return value;
+  const key = parts[parts.length - 1];
+  if (remove) delete node[key]; else node[key] = value;
+  return root;
+}
+function crmApplyDelta(delta) {
+  const dirtyViews = new Set();
+  (delta || []).forEach(op => {
+    if (!op || !op.path) return;
+    crmSharedState = crmSetPointer(crmSharedState, op.path, op.value, op.op === 'remove');
+    if (op.path.startsWith('/data/views/')) {
+      const parts = crmPointerParts(op.path);
+      if (parts[2]) dirtyViews.add(parts[2]);
+    }
+  });
+  dirtyViews.forEach(viewId => {
+    const model = crmSharedState?.data?.views?.[viewId];
+    if (!model) return;
+    const userRequested = crmIsUserRequestedView(viewId, {currentRunOnly: true});
+    if (userRequested) {
+      upsertContextDataArtifact(viewId, model, {
+        userTriggered: true,
+        originIntent: crmCurrentOriginIntent,
+        source: 'state-delta',
+      });
+    }
+    if (crmInsightPinnedView) {
+      if (viewId === crmInsightPinnedView.viewId) {
+        crmInsightPinnedView.value = model;
+        // 洞察执行期间只更新 pinned value，不在右侧渲染客户详情
+        // 文档流式输出会占据右侧预览面板
+      }
+      return;
+    }
+    // Skill 为完成任务查询的关联数据仍保留在 Shared State，
+    // 但未由用户主动请求时不能进入右侧可见区域。
+    if (userRequested) renderCrmView(viewId, model);
+  });
+}
+function crmResolvePointer(path) {
+  return crmPointerParts(path).reduce((node, key) => node == null ? undefined : node[key], crmSharedState);
+}
+function handleCrmAguiEvent(type, data) {
+  if (type === 'STATE_SNAPSHOT') {
+    crmSharedState = data.snapshot || { data: {} };
+    restoreContextDataArtifacts(crmSharedState);
+    const views = ((crmSharedState || {}).data || {}).views || {};
+    if (crmInsightPinnedView) {
+      // 洞察执行期间只静默更新 pinned value，不渲染客户详情到右侧
+      const pinnedModel = views[crmInsightPinnedView.viewId];
+      if (pinnedModel && typeof pinnedModel === 'object') crmInsightPinnedView.value = pinnedModel;
+    } else {
+      Object.entries(views).forEach(([id, value]) => {
+        if (crmIsUserRequestedView(id, {promote: false})) renderCrmView(id, value);
+      });
+    }
+  } else if (type === 'STATE_DELTA') {
+    crmApplyDelta(data.delta || []);
+  } else if (type === 'ACTIVITY_SNAPSHOT') {
+    if (data.activity_type === 'ui-action') {
+      const content = data.content || {};
+      const status = content.display?.statusText || content.phase || '';
+      const actionName = content.action?.name || '';
+      const submitAction = actionName === 'submit_create' || actionName === 'submit_update';
+      setCrmStatus(status, content.phase === 'failed');
+      if (submitAction) {
+        setCrmDialogStream(content.phase, status,
+          content.error?.message || content.error?.code || '');
+      }
+      const operation = content.result?.operation;
+      if (content.phase === 'succeeded' && ['created', 'updated', 'deleted'].includes(operation)) {
+        showCrmToast(operation === 'created' ? '创建成功' : operation === 'updated' ? '保存成功' : '删除成功');
+        if (operation === 'deleted') {
+          setTimeout(() => { closeCrmDialog(); refreshCrmWorkspace(); }, 450);
+        } else {
+          const record = content.result?.record;
+          if (record) {
+            crmCurrentForm = null;
+            crmPendingDialog = true;
+            const resultViewId = `${record.entityApiKey || crmCurrentEntity}:detail:${record.recordApiKey || 'current'}`;
+            crmRegisterUserRequestedView(resultViewId, {currentRun: false});
+            upsertContextDataArtifact(resultViewId, record, {
+              userTriggered: true,
+              originIntent: `crm_${operation}`,
+              source: 'ui-action-result',
+            });
+            renderCrmDetail(record, {created: operation === 'created'});
+            // 列表可以后台刷新，但右侧参考上下文必须继续展示刚创建/保存的记录。
+            crmContextPinnedView = {
+              viewId: resultViewId,
+              value: record,
+            };
+          } else {
+            openCrmDialog();
+          }
+          setCrmDialogStream('succeeded', operation === 'created' ? '客户创建成功，详情与参考上下文已同步' : '记录保存成功，详情已同步');
+          setTimeout(() => refreshCrmWorkspace(), 450);
+        }
+      }
+      if (['succeeded', 'failed'].includes(content.phase)) {
+        crmCurrentRunRequestedViewPatterns.clear();
+        crmCurrentOriginIntent = '';
+      }
+      return;
+    }
+    const operations = data.content?.operations || [];
+    let surface = null;
+    operations.forEach(op => {
+      if (op.surfaceUpdate) surface = op.surfaceUpdate;
+      if (op.beginRendering && surface) {
+        const root = (surface.components || []).find(c => c.id === op.beginRendering.root);
+        const definition = root && root.component ? Object.entries(root.component)[0] : null;
+        if (definition) {
+          const props = definition[1] || {};
+          const model = crmResolvePointer(props.data?.path || '');
+          if (model) renderCrmView(props.viewId?.literalString || surface.surfaceId, model);
+        }
+      }
+    });
+  }
+}
+function dispatchCrmStreamEvent(type, data, sourceThread) {
+  if (sourceThread && typeof tid !== 'undefined' && sourceThread !== tid) return;
+  if (type === 'MESSAGES_SNAPSHOT') {
+    const messages = data.messages || [];
+    crmRestoreInsightPinnedView(messages);
+    if (typeof restoreChatMessagesSnapshot === 'function') {
+      restoreChatMessagesSnapshot(messages);
+    }
+    return;
+  }
+  if (['STATE_SNAPSHOT', 'STATE_DELTA', 'ACTIVITY_SNAPSHOT'].includes(type)) {
+    handleCrmAguiEvent(type, data);
+  }
+}
+async function restoreCrmSnapshot(threadId, _retryCount = 0) {
+  if (!threadId || crmRestoreThread === threadId) return crmRestorePromise;
+  crmRestoreThread = threadId;
+  crmRestorePromise = fetch(API + '/agent/chat/reconnect', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({threadId})
+  }).then(async response => {
+    if (!response.ok) throw new Error('reconnect failed: ' + response.status);
+    const boundaryHeader = response.headers.get('X-AGUI-Replay-After');
+    const parsedBoundary = boundaryHeader == null ? NaN : Number(boundaryHeader);
+    crmReplayBoundary = Number.isInteger(parsedBoundary) && parsedBoundary >= 0
+      ? parsedBoundary : null;
+    const text = (await response.text()).replace(/\r/g, '');
+    text.split('\n\n').forEach(block => {
+      if (!block.trim()) return;
+      const lines = block.split('\n');
+      const eventType = (lines.find(line => line.startsWith('event:')) || '').slice(6).trim();
+      const dataText = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+      if (!dataText || dataText === '[DONE]') return;
+      try {
+        const data = JSON.parse(dataText);
+        if (threadId !== tid || crmRestoreThread !== threadId) return;
+        dispatchCrmStreamEvent(eventType || data.type || '', data, threadId);
+      } catch (error) {
+        console.warn('[CRM reconnect] invalid event', error);
+      }
+    });
+    ensureCrmTail(crmReplayBoundary);
+  }).catch(error => {
+    if (crmRestoreThread === threadId) crmRestoreThread = '';
+    console.warn('[CRM reconnect] snapshot restore failed:', error);
+    // 指数退避重试（最多 3 次）
+    if (_retryCount < 3 && threadId === tid) {
+      const delay = Math.min(1000 * Math.pow(2, _retryCount), 4000);
+      setTimeout(() => { crmRestorePromise = null; restoreCrmSnapshot(threadId, _retryCount + 1); }, delay);
+    }
+  }).finally(() => {
+    if (crmRestoreThread === threadId) crmRestorePromise = null;
+  });
+  return crmRestorePromise;
+}
+function ensureCrmTail(afterSequence = null) {
+  if (typeof tid === 'undefined' || !tid || (crmTail && crmTailThread === tid && crmTail.readyState !== 2)) return;
+  if (crmTail) crmTail.close();
+  const tailThread = tid;
+  crmTailThread = tailThread;
+  const boundaryQuery = Number.isInteger(afterSequence) && afterSequence >= 0
+    ? '&lastEventId=' + encodeURIComponent(String(afterSequence)) : '';
+  crmTail = new EventSource(API + '/api/chat/agui/tail?threadId=' + encodeURIComponent(tailThread) + boundaryQuery);
+  const crmTailEventTypes = ['STATE_SNAPSHOT', 'STATE_DELTA', 'ACTIVITY_SNAPSHOT'];
+  crmTailEventTypes.forEach(type => {
+    crmTail.addEventListener(type, event => {
+      try { dispatchCrmStreamEvent(type, JSON.parse(event.data), tailThread); }
+      catch (error) { console.error('[CRM A2UI]', error); }
+    });
+  });
+  crmTail.onopen = () => setCrmStatus('AG-UI 已连接');
+  crmTail.onerror = () => setCrmStatus('AG-UI 连接中断，等待自动重连', true);
+}
+function initializeCrmConnection() {
+  return restoreCrmSnapshot(typeof tid === 'undefined' ? '' : tid);
+}
+async function postCrmAction(name, context, sourceComponentId) {
+  ensureCrmTail();
+  crmRegisterActionRequestedView(name, context || {});
+  setCrmStatus('正在处理…');
+  const response = await fetch(API + '/agent/a2ui/event', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({threadId: tid, userAction: {
+      name, surfaceId: 'crm-workspace', sourceComponentId: sourceComponentId || name,
+      timestamp: new Date().toISOString(), context: Object.assign({placement: 'page'}, context || {})
+    }})
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    setCrmStatus('请求失败', true); showCrmToast('请求失败：' + detail, true);
+    throw new Error(detail);
+  }
+  return response.json();
+}
+function openCrmWorkspace() {
+  crmClearInsightPinnedView();
+  document.getElementById('crmWorkspace').classList.remove('hidden');
+  document.getElementById('crmWorkspace').classList.add('flex');
+  ensureCrmTail();
+  if (crmCurrentList) renderCrmTable(crmCurrentList); else refreshCrmWorkspace();
+}
+function closeCrmWorkspace() {
+  const el = document.getElementById('crmWorkspace'); el.classList.add('hidden'); el.classList.remove('flex');
+  if (!isRightPanelOpen) openRightPanel();
+  switchTab('docs');
+  if (crmCurrentView) renderCrmContext(crmCurrentView.viewId, crmCurrentView.value);
+}
+function crmChangeEntity(entity) {
+  crmClearInsightPinnedView();
+  crmCurrentEntity = entity; crmCurrentList = null;
+  document.getElementById('crmEntityLabel').textContent = document.getElementById('crmEntitySelect').selectedOptions[0].textContent;
+  refreshCrmWorkspace(false);
+}
+function refreshCrmWorkspace(clearInsight = true) {
+  if (clearInsight) crmClearInsightPinnedView();
+  return postCrmAction('refresh_view', {entityApiKey: crmCurrentEntity, viewId: crmCurrentEntity + ':list', page: 1, pageSize: 20, actionLabel: '刷新列表'}, 'refresh-list');
+}
+function openCrmCreateDialog() {
+  crmClearInsightPinnedView();
+  return postCrmAction('create_record', {entityApiKey: crmCurrentEntity, viewId: crmCurrentEntity + ':create', actionLabel: '新建记录'}, 'create-record');
+}
+function crmOpenRecord(recordKey, mode) {
+  crmClearInsightPinnedView();
+  return postCrmAction(mode === 'edit' ? 'edit_record' : 'view_record', {
+    entityApiKey: crmCurrentEntity, recordApiKey: recordKey,
+    viewId: crmCurrentEntity + ':' + mode + ':' + recordKey, actionLabel: mode === 'edit' ? '编辑记录' : '查看详情'
+  }, mode + '-record');
+}
+function renderCrmView(viewId, value) {
+  if (!value || typeof value !== 'object') return;
+  if (crmInsightPinnedView) {
+    if (viewId === crmInsightPinnedView.viewId) {
+      crmInsightPinnedView.value = value;
+      // 洞察期间不渲染详情，只静默存储最新值
+    }
+    return;
+  }
+  if (Array.isArray(value.records)) renderCrmTable(value);
+  else if (value.mode === 'create' || value.mode === 'update') renderCrmForm(viewId, value);
+  else if (value.recordApiKey || value.deleted) renderCrmDetail(value);
+}
+function renderCrmTable(value) {
+  crmCurrentEntity = value.entityApiKey || crmCurrentEntity; crmCurrentList = value;
+  const viewId = `${crmCurrentEntity}:list`;
+  const pinnedView = crmContextPinnedView;
+  crmCurrentView = pinnedView || {viewId, value};
+  const records = value.records || [];
+  document.getElementById('crmEntitySelect').value = crmCurrentEntity;
+  document.getElementById('crmEntityLabel').textContent = document.getElementById('crmEntitySelect').selectedOptions[0]?.textContent || crmCurrentEntity;
+  document.getElementById('crmRecordTotal').textContent = value.total ?? records.length;
+  const reserved = new Set(['recordApiKey','entityApiKey','version','createdAt','updatedAt']);
+  const fields = [...new Set(records.flatMap(r => Object.keys(r).filter(k => !reserved.has(k))))].slice(0, 5);
+  const head = ['记录标识', ...fields, '版本', '操作'];
+  const rows = records.map(record => `<tr class="border-t border-gray-100 hover:bg-blue-50/30">
+    <td class="px-4 py-3.5 text-xs font-mono text-gray-500">${esc(record.recordApiKey || '')}</td>
+    ${fields.map(field => `<td class="px-4 py-3.5 text-xs text-gray-700 max-w-[220px] truncate" title="${esc(String(record[field] ?? ''))}">${esc(String(record[field] ?? '—'))}</td>`).join('')}
+    <td class="px-4 py-3.5 text-xs text-gray-500">v${esc(String(record.version || 1))}</td>
+    <td class="px-4 py-3.5 whitespace-nowrap"><button data-key="${esc(record.recordApiKey || '')}" onclick="crmOpenRecord(this.dataset.key,'view')" class="text-xs font-bold text-blue-600 mr-3">查看</button><button data-key="${esc(record.recordApiKey || '')}" onclick="crmOpenRecord(this.dataset.key,'edit')" class="text-xs font-bold text-indigo-600 mr-3">编辑</button>${crmCurrentEntity === 'account' ? `<button data-key="${esc(record.recordApiKey || '')}" onclick="crmOpenCustomerInsight(this.dataset.key)" class="px-2.5 py-1.5 rounded-lg bg-violet-50 text-xs font-bold text-violet-700 hover:bg-violet-100">✦ 客户洞察</button>` : ''}</td>
+  </tr>`).join('');
+  document.getElementById('crmTableContent').innerHTML = records.length ? `<div class="overflow-auto min-h-[calc(100vh-176px)]"><table class="w-full min-w-[980px] text-left"><thead class="bg-gray-50 sticky top-0 z-10"><tr>${head.map(h => `<th class="px-4 py-3.5 text-[11px] font-bold text-gray-500">${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="min-h-[calc(100vh-176px)] flex items-center justify-center text-sm text-gray-400">暂无记录，点击右上角“新建”创建第一条数据</div>';
+  renderCrmContext(crmCurrentView.viewId, crmCurrentView.value);
+  if (pinnedView) crmContextPinnedView = null;
+  setCrmStatus('页面数据已同步');
+}
+function crmInput(field, value) {
+  const key = esc(field.apiKey || ''); const label = esc(field.label || key); const type = field.type || 'VARCHAR';
+  const common = `data-field="${key}" data-type="${esc(type)}"`;
+  if (type === 'BOOLEAN') return `<label class="flex items-center gap-2 mt-2"><input ${common} type="checkbox" ${value ? 'checked' : ''} class="rounded border-gray-300"><span class="text-xs text-gray-600">启用</span></label>`;
+  if (type === 'TEXT') return `<textarea ${common} rows="3" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100">${esc(String(value ?? ''))}</textarea>`;
+  if (field.options?.length) return `<select ${common} class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white">${field.options.map(o => { const ov=o.value??o.code??o.api_key??o; return `<option value="${esc(String(ov))}" ${String(ov)===String(value??'')?'selected':''}>${esc(String(o.label??o.name??ov))}</option>`; }).join('')}</select>`;
+  const htmlType = ['INTEGER','DECIMAL'].includes(type) ? 'number' : type === 'DATE' ? 'date' : type === 'DATETIME' ? 'datetime-local' : 'text';
+  return `<input ${common} type="${htmlType}" ${type === 'DECIMAL' ? 'step="any"' : ''} value="${esc(String(value ?? ''))}" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100">`;
+}
+function renderCrmForm(viewId, value) {
+  crmDialogMode = 'form';
+  crmCurrentForm = {viewId, value}; crmCurrentEntity = value.entityApiKey || crmCurrentEntity;
+  crmCurrentView = {viewId, value};
+  resetCrmDialogStream();
+  renderCrmContext(viewId, value);
+  document.getElementById('crmDialogTitle').textContent = (value.mode === 'create' ? '新建' : '编辑') + (value.label || '业务记录');
+  document.getElementById('crmDialogSubtitle').textContent = `${value.entityApiKey} · ${value.fields?.length || 0} 个元数据字段`;
+  const fields = (value.fields || []).slice(0, 24);
+  document.getElementById('crmDialogBody').innerHTML = `<form id="crmRecordForm" class="grid grid-cols-2 gap-4">${fields.map(field => `<div class="${field.type === 'TEXT' ? 'col-span-2' : ''}"><label class="block text-xs font-bold text-gray-600 mb-1.5">${esc(field.label || field.apiKey)}${field.required ? '<span class="text-red-500"> *</span>' : ''}</label>${crmInput(field, (value.values || {})[field.apiKey])}</div>`).join('')}</form>${(value.fields || []).length > fields.length ? `<p class="text-[11px] text-gray-400 mt-4">当前展示前 ${fields.length} 个字段，共 ${value.fields.length} 个元数据字段</p>` : ''}`;
+  document.getElementById('crmDialogFooter').innerHTML = '<button onclick="closeCrmDialog()" class="px-4 py-2 text-xs font-bold rounded-xl border border-gray-200">取消</button><button onclick="submitCrmForm()" class="px-5 py-2 text-xs font-bold rounded-xl bg-blue-600 text-white">保存</button>';
+  const workspaceOpen = !document.getElementById('crmWorkspace').classList.contains('hidden');
+  if (workspaceOpen || crmPendingDialog) openCrmDialog();
+  crmPendingDialog = false;
+}
+function submitCrmForm() {
+  if (!crmCurrentForm) return;
+  const data = {};
+  document.querySelectorAll('#crmRecordForm [data-field]').forEach(input => {
+    let value = input.type === 'checkbox' ? input.checked : input.value;
+    if (input.type !== 'checkbox' && value === '') return;
+    if (['INTEGER','DECIMAL'].includes(input.dataset.type)) value = Number(value);
+    data[input.dataset.field] = value;
+  });
+  const model = crmCurrentForm.value;
+  const context = {entityApiKey: model.entityApiKey, data, viewId: crmCurrentForm.viewId, actionLabel: '保存记录'};
+  if (model.mode === 'update') { context.recordApiKey = model.recordApiKey; context.expectedVersion = model.version; }
+  setCrmDialogStream('accepted', model.mode === 'create' ? '正在创建客户…' : '正在保存记录…');
+  return postCrmAction(model.mode === 'create' ? 'submit_create' : 'submit_update', context, 'submit-record')
+    .catch(error => { setCrmDialogStream('failed', '保存失败', error.message); throw error; });
+}
+function renderCrmDetail(value, options = {}) {
+  crmCurrentEntity = value.entityApiKey || crmCurrentEntity;
+  const detailViewId = `${crmCurrentEntity}:detail:${value.recordApiKey || 'current'}`;
+  crmCurrentView = {viewId: detailViewId, value};
+  renderCrmContext(detailViewId, value);
+  crmDialogMode = 'detail';
+  const ignored = new Set(['entityApiKey']);
+  document.getElementById('crmDialogTitle').textContent = value.deleted ? '记录已删除' : options.created ? `${crmEntityName(crmCurrentEntity)}创建成功` : '记录详情';
+  document.getElementById('crmDialogSubtitle').textContent = `${value.recordApiKey || ''} · v${value.version || 1} · 已同步至参考上下文`;
+  document.getElementById('crmDialogBody').innerHTML = `<dl class="grid grid-cols-2 gap-x-6 gap-y-4">${Object.entries(value).filter(([k]) => !ignored.has(k)).map(([k,v]) => `<div class="border-b border-gray-100 pb-3"><dt class="text-[11px] text-gray-400">${esc(k)}</dt><dd class="text-sm text-gray-800 mt-1 break-words">${esc(typeof v === 'object' ? JSON.stringify(v) : String(v ?? '—'))}</dd></div>`).join('')}</dl>`;
+  const insightButton = crmCurrentEntity === 'account' && !value.deleted ? `<button onclick="crmOpenCustomerInsight('${esc(value.recordApiKey || '')}')" class="px-5 py-2 text-xs font-bold rounded-xl bg-violet-600 text-white hover:bg-violet-700">✦ 客户洞察</button>` : '';
+  document.getElementById('crmDialogFooter').innerHTML = value.deleted ? '<button onclick="closeCrmDialog()" class="px-4 py-2 text-xs font-bold rounded-xl bg-slate-900 text-white">关闭</button>' : `<button onclick="deleteCrmRecord('${esc(value.recordApiKey || '')}',${Number(value.version || 1)})" class="px-4 py-2 text-xs font-bold rounded-xl text-red-600 border border-red-100">删除</button><button onclick="crmOpenRecord('${esc(value.recordApiKey || '')}','edit')" class="px-5 py-2 text-xs font-bold rounded-xl border border-blue-100 text-blue-700">编辑</button>${insightButton}`;
+  const workspaceOpen = !document.getElementById('crmWorkspace').classList.contains('hidden');
+  if (workspaceOpen || crmPendingDialog) openCrmDialog();
+  crmPendingDialog = false;
+}
+function deleteCrmRecord(recordKey, version) {
+  if (!confirm('确认删除这条记录？')) return;
+  return postCrmAction('delete_record', {entityApiKey: crmCurrentEntity, recordApiKey: recordKey, expectedVersion: version, confirmed: true, viewId: crmCurrentEntity + ':detail:' + recordKey, actionLabel: '删除记录'}, 'delete-record');
+}
+function setCrmDialogStream(phase, message, errorDetail) {
+  const panel = document.getElementById('crmDialogStream');
+  const text = document.getElementById('crmDialogStreamText');
+  const phaseEl = document.getElementById('crmDialogStreamPhase');
+  const progress = document.getElementById('crmDialogStreamProgress');
+  if (!panel || !text || !phaseEl || !progress) return;
+  panel.classList.remove('hidden', 'bg-blue-50/70', 'border-blue-100', 'bg-emerald-50', 'border-emerald-100', 'bg-red-50', 'border-red-100');
+  const states = {
+    accepted: {width:'22%', label:'已接收', color:'blue'},
+    running: {width:'62%', label:'正在写入 PostgreSQL…', color:'blue'},
+    succeeded: {width:'100%', label:message || '保存成功，详情已同步', color:'emerald'},
+    failed: {width:'100%', label:errorDetail ? `${message || '保存失败'}：${errorDetail}` : (message || '保存失败'), color:'red'},
+  };
+  const state = states[phase] || states.running;
+  text.textContent = state.label;
+  phaseEl.textContent = phase === 'succeeded' ? 'STATE 已同步' : phase === 'failed' ? '处理失败' : 'AG-UI 流式处理';
+  progress.style.width = state.width;
+  progress.className = 'h-full transition-all duration-500 ' + (state.color === 'emerald' ? 'bg-emerald-500' : state.color === 'red' ? 'bg-red-500' : 'bg-gradient-to-r from-blue-500 to-indigo-500');
+  panel.classList.add(state.color === 'emerald' ? 'bg-emerald-50' : state.color === 'red' ? 'bg-red-50' : 'bg-blue-50/70');
+  panel.classList.add(state.color === 'emerald' ? 'border-emerald-100' : state.color === 'red' ? 'border-red-100' : 'border-blue-100');
+  text.className = 'text-[11px] font-bold ' + (state.color === 'emerald' ? 'text-emerald-700' : state.color === 'red' ? 'text-red-700' : 'text-blue-700');
+  phaseEl.className = 'text-[9px] ' + (state.color === 'emerald' ? 'text-emerald-600' : state.color === 'red' ? 'text-red-600' : 'text-blue-500');
+  document.querySelectorAll('#crmRecordForm [data-field]').forEach(input => { input.disabled = phase === 'accepted' || phase === 'running'; });
+  const saveButton = document.querySelector('#crmDialogFooter button:last-child');
+  if (saveButton && /保存/.test(saveButton.textContent || '')) {
+    saveButton.disabled = phase === 'accepted' || phase === 'running';
+    saveButton.classList.toggle('opacity-50', saveButton.disabled);
+    saveButton.textContent = phase === 'accepted' || phase === 'running' ? '保存中…' : '保存';
+  }
+}
+function resetCrmDialogStream() {
+  const panel = document.getElementById('crmDialogStream');
+  const progress = document.getElementById('crmDialogStreamProgress');
+  if (panel) panel.classList.add('hidden');
+  if (progress) progress.style.width = '0';
+}
+function openCrmDialog() { const el=document.getElementById('crmDialog'); el.classList.remove('hidden'); el.classList.add('flex'); }
+function closeCrmDialog() { const el=document.getElementById('crmDialog'); el.classList.add('hidden'); el.classList.remove('flex'); crmCurrentForm=null; crmDialogMode='closed'; resetCrmDialogStream(); }
+function setCrmStatus(text, error) {
+  crmStatusText = text || '等待 AG-UI 数据'; crmStatusError = Boolean(error);
+  const el = document.getElementById('crmLinkStatus');
+  if (el) { el.textContent = crmStatusText; el.className = 'text-sm font-bold mt-1.5 ' + (error?'text-amber-600':'text-emerald-600'); }
+  const contextStatus = document.getElementById('crmContextStatus');
+  if (contextStatus) { contextStatus.textContent = crmStatusText; contextStatus.className = 'text-[10px] mt-0.5 ' + (error?'text-amber-600':'text-gray-400'); }
+  const isStreaming = /正在处理|正在同步|正在流式|正在加载|正在创建|正在保存/.test(crmStatusText);
+  if (isStreaming && !crmInsightPinnedView) {
+    crmContextLoading(crmStatusText);
+  } else {
+    const contextBody = document.getElementById('crmContextBody');
+    contextBody?.querySelectorAll('[data-crm-loading="true"]').forEach(node => node.remove());
+    const live = document.getElementById('crmContextLive');
+    const progress = document.getElementById('crmContextProgress');
+    if (!crmContextIsRendering) {
+      live?.classList.add('hidden'); live?.classList.remove('flex');
+      if (progress) {
+        progress.style.width = crmCurrentView ? '100%' : '0';
+        clearTimeout(crmContextFinishTimer);
+        crmContextFinishTimer = setTimeout(() => { progress.style.width = '0'; }, 450);
+      }
+    }
+  }
+}
+function showCrmToast(text, error) { const el=document.getElementById('crmToast'); el.textContent=text; el.className=`fixed right-6 top-20 z-[90] px-4 py-3 rounded-xl text-white text-xs shadow-xl ${error?'bg-red-600':'bg-slate-900'}`; setTimeout(()=>el.classList.add('hidden'),2200); }
+window.addEventListener('load', initializeCrmConnection);
+window.addEventListener('resize', () => {
+  clearTimeout(rightPanelResizeTimer);
+  rightPanelResizeTimer = setTimeout(adaptRightPanelToCurrentContent, 120);
+});
+setInterval(() => {
+  if (typeof tid !== 'undefined' && (tid !== crmTailThread || tid !== crmRestoreThread)) initializeCrmConnection();
+}, 1000);
+
 // ═══ 状态管理 ═══
 const API = '';
 let apiMode = localStorage.getItem('deepagent_api_mode') || 'sse'; // 'sse' | 'agui'
@@ -523,10 +1578,292 @@ localStorage.setItem('deepagent_current_tid', tid);
 let hist = [], pf = [];
 let activeTab = 'realtime';
 let isRightPanelOpen = true;
+let isSidebarCollapsed = localStorage.getItem('deepagent_sidebar_collapsed') === '1';
+let autoSidebarCollapseSignature = '';
+let dismissedAutoSidebarSignature = '';
 let chatHistory = [];
 let liveSpans = [];
-let generatedDocs = []; // 生成的文档列表
+let generatedDocs = []; // 当前会话的文档产物
+let generatedData = []; // 当前会话的结构化数据产物
+let contextArtifactSequence = 0;
 let currentPreviewDoc = null; // 当前预览的文档
+
+function stableArtifactValue(value) {
+  if (Array.isArray(value)) return '[' + value.map(stableArtifactValue).join(',') + ']';
+  if (value && typeof value === 'object') {
+    return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + stableArtifactValue(value[key])).join(',') + '}';
+  }
+  return JSON.stringify(value == null ? null : value);
+}
+function artifactHash(value) {
+  const text = typeof value === 'string' ? value : stableArtifactValue(value);
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+function artifactTimestamp(value, fallback = 0) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value > 0 && value < 1e12 ? value * 1000 : value;
+  if (typeof value === 'string' && value) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric > 0 && numeric < 1e12 ? numeric * 1000 : numeric;
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+function nextArtifactSequence(sequence) {
+  const explicit = Number(sequence || 0);
+  if (explicit > contextArtifactSequence) contextArtifactSequence = explicit;
+  if (explicit > 0) return explicit;
+  contextArtifactSequence += 1;
+  return contextArtifactSequence;
+}
+function upsertGeneratedDocument(content, candidateTitle, options = {}) {
+  const normalized = normalizeDocumentPayload(content, candidateTitle || '', '客户洞察报告');
+  if (!normalized.content || crmInsightFailureMessage(normalized.content)) return null;
+  const signature = `document:${artifactHash(normalized.content)}`;
+  const existing = generatedDocs.find(item => item.signature === signature);
+  const timestamp = artifactTimestamp(options.timestamp ?? options.createdAt, existing?.timestamp || Date.now());
+  const sequence = nextArtifactSequence(options.sequence || existing?.sequence);
+  if (existing) {
+    existing.title = normalized.title || existing.title;
+    existing.content = normalized.content;
+    existing.timestamp = Math.max(existing.timestamp || 0, timestamp || 0);
+    existing.sequence = Math.max(existing.sequence || 0, sequence || 0);
+    if (options.sourceId) existing.sourceId = String(options.sourceId);
+    if (options.refresh !== false) refreshGeneratedFiles();
+    return existing;
+  }
+  const doc = {
+    id: `document-${artifactHash(signature)}`,
+    type: 'document', signature,
+    title: normalized.title, content: normalized.content,
+    timestamp, sequence,
+    sourceId: options.sourceId ? String(options.sourceId) : '',
+  };
+  generatedDocs.push(doc);
+  if (options.refresh !== false) refreshGeneratedFiles();
+  return doc;
+}
+function contextDataArtifactInfo(viewId, value) {
+  const model = value && typeof value === 'object' ? value : {};
+  const entity = crmEntityName(model.entityApiKey || String(viewId || '').split(':')[0]);
+  if (Array.isArray(model.records)) return {title: `${entity}列表`, summary: `${model.total ?? model.records.length} 条记录`};
+  if (model.mode === 'create' || model.mode === 'update') {
+    return {title: `${entity}${model.mode === 'create' ? '新建' : '编辑'}表单`, summary: `${(model.fields || []).length} 个字段`};
+  }
+  return {title: `${entity}记录详情`, summary: model.recordApiKey ? `记录 ${model.recordApiKey}` : `${Object.keys(model).length} 个字段`};
+}
+function upsertContextDataArtifact(viewId, value, options = {}) {
+  if (!viewId || !value || typeof value !== 'object') return null;
+  if (!Array.isArray(value) && !Object.keys(value).length) return null;
+  const explicitlyUserTriggered = options.userTriggered === true;
+  if (!options.force && !crmIsUserRequestedView(viewId, {
+    userTriggered: explicitlyUserTriggered,
+    promote: options.promote !== false,
+  })) return null;
+  if (explicitlyUserTriggered) crmRegisterUserRequestedView(viewId, {currentRun: false});
+  const signature = `data:${viewId}:${artifactHash(value)}`;
+  const existing = generatedData.find(item => item.signature === signature);
+  const timestamp = artifactTimestamp(options.timestamp, existing?.timestamp || Date.now());
+  const sequence = nextArtifactSequence(options.sequence || existing?.sequence);
+  const info = contextDataArtifactInfo(viewId, value);
+  if (existing) {
+    existing.value = JSON.parse(JSON.stringify(value));
+    existing.timestamp = Math.max(existing.timestamp || 0, timestamp || 0);
+    existing.sequence = Math.max(existing.sequence || 0, sequence || 0);
+    existing.title = info.title; existing.summary = info.summary;
+    existing.userTriggered = true;
+    if (options.originIntent) existing.originIntent = String(options.originIntent);
+    if (options.source) existing.source = String(options.source);
+    if (options.refresh !== false) refreshGeneratedFiles();
+    return existing;
+  }
+  const artifact = {
+    id: options.id ? String(options.id) : `data-${artifactHash(signature)}`,
+    type: 'data', signature, viewId,
+    value: JSON.parse(JSON.stringify(value)),
+    title: info.title, summary: info.summary,
+    timestamp, sequence,
+    userTriggered: true,
+    originIntent: options.originIntent ? String(options.originIntent) : '',
+    source: options.source ? String(options.source) : '',
+  };
+  generatedData.push(artifact);
+  if (options.refresh !== false) refreshGeneratedFiles();
+  return artifact;
+}
+function rebuildContextArtifactsFromMessages(messages) {
+  if (!Array.isArray(messages)) return;
+  let lastUserContent = '';
+  messages.forEach((message, index) => {
+    if (message?.role === 'user') {
+      lastUserContent = String(message.content || '');
+      return;
+    }
+    if (message?.role !== 'assistant' || typeof message.content !== 'string') return;
+    const metadata = message.metadata || {};
+    if (metadata.status === 'failed' || metadata.contentType === 'error' || crmInsightFailureMessage(message.content)) return;
+    const cardMatch = message.content.match(/^<!--doc_card:(.+?)-->\n([\s\S]*)$/);
+    const rawContent = cardMatch ? cardMatch[2] : message.content;
+    const customerInsight = /客户洞察/.test(lastUserContent);
+    const normalized = normalizeDocumentPayload(rawContent, metadata.title || cardMatch?.[1] || '', '客户洞察报告');
+    const isDocument = metadata.contentType === 'document' || Boolean(cardMatch) || customerInsight || Boolean(detectDocument(normalized.content));
+    if (!isDocument) return;
+    upsertGeneratedDocument(normalized.content, metadata.title || cardMatch?.[1] || (customerInsight ? '客户洞察报告' : normalized.title), {
+      sourceId: message.id || `snapshot-${index}`,
+      timestamp: message.createdAt || message.created_at,
+      sequence: message.sequence || index + 1,
+      refresh: false,
+    });
+  });
+  refreshGeneratedFiles();
+}
+function restoreContextDataArtifacts(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return;
+  (snapshot.userTriggeredViewIds || []).forEach(viewId =>
+    crmRegisterUserRequestedView(viewId, {currentRun: false}));
+  const history = Array.isArray(snapshot.contextArtifacts) ? snapshot.contextArtifacts : [];
+  const latestArtifactByView = new Map();
+  history.forEach((artifact, index) => {
+    if (artifact?.type !== 'data' || !artifact.viewId) return;
+    const prior = latestArtifactByView.get(artifact.viewId);
+    const sequence = Number(artifact.sequence || index + 1);
+    if (!prior || sequence >= Number(prior.sequence || 0)) {
+      latestArtifactByView.set(artifact.viewId, artifact);
+    }
+    if (artifact.userTriggered === false) return;
+    const explicitlyUserTriggered = artifact.userTriggered === true;
+    if (!explicitlyUserTriggered && !crmIsUserRequestedView(artifact.viewId, {promote: false})) return;
+    upsertContextDataArtifact(artifact.viewId, artifact.value, {
+      id: artifact.id,
+      timestamp: artifact.timestamp,
+      sequence,
+      userTriggered: explicitlyUserTriggered,
+      originIntent: artifact.originIntent,
+      source: 'state-reconnect',
+      refresh: false,
+    });
+  });
+  const views = snapshot?.data?.views || {};
+  Object.entries(views).forEach(([viewId, value]) => {
+    const latest = latestArtifactByView.get(viewId);
+    // 新格式中 latest=false 表示该值来自 Skill 内部查询；即使同类 view
+    // 曾被用户请求过，也不能把这个内部版本作为可见产物恢复。
+    if (latest?.userTriggered === false) return;
+    const explicitlyUserTriggered = latest?.userTriggered === true;
+    if (!explicitlyUserTriggered && !crmIsUserRequestedView(viewId, {promote: false})) return;
+    upsertContextDataArtifact(viewId, value, {
+      userTriggered: explicitlyUserTriggered,
+      originIntent: latest?.originIntent,
+      source: 'state-snapshot',
+      refresh: false,
+    });
+  });
+  refreshGeneratedFiles();
+}
+
+/**
+ * 从历史 agent_output 中检测结构化数据（Markdown 表格），恢复为数据产物。
+ * 仅在 loadChat 中使用，将表格数据转为右侧产物链路条目。
+ */
+function detectAndRestoreDataArtifact(agentOutput, userInput, options) {
+  if (!agentOutput || typeof agentOutput !== 'string') return;
+  // 检测 Markdown 表格（至少一行标题 + 分隔符 + 一行数据）
+  const tableMatch = agentOutput.match(/\|(.+)\|\s*\n\|[\s:|-]+\|\s*\n(\|.+\|[\s\S]*?)(?=\n\n|\n$|$)/);
+  if (!tableMatch) return;
+  // 解析表格为结构化数据
+  const headerLine = tableMatch[1];
+  const bodyBlock = tableMatch[2];
+  const headers = headerLine.split('|').map(cell => cell.trim()).filter(Boolean);
+  const rows = bodyBlock.trim().split('\n')
+    .filter(line => line.includes('|'))
+    .map(line => line.split('|').map(cell => cell.trim()).filter(Boolean));
+  if (!headers.length || !rows.length) return;
+  // 构造结构化数据
+  const records = rows.map(row => {
+    const record = {};
+    headers.forEach((header, index) => { record[header] = row[index] || ''; });
+    return record;
+  });
+  // 推断实体类型
+  const input = String(userInput || '').toLowerCase();
+  let entityApiKey = 'account';
+  if (/商机|pipeline|opportunity/.test(input)) entityApiKey = 'opportunity';
+  else if (/联系人|contact/.test(input)) entityApiKey = 'contact';
+  else if (/活动|activity/.test(input)) entityApiKey = 'activity';
+  else if (/线索|lead/.test(input)) entityApiKey = 'lead';
+  const viewId = `${entityApiKey}:list`;
+  const value = { entityApiKey, records, total: records.length, mode: 'list' };
+  upsertContextDataArtifact(viewId, value, {
+    timestamp: options?.timestamp || Date.now(),
+    sequence: options?.sequence || 0,
+    refresh: false,
+  });
+}
+
+function resetThreadScopedUiContext() {
+  resetCrmThreadContext();
+  window._docStreamContent = null;
+  window._docStreamTokenCount = 0;
+  generatedDocs = [];
+  generatedData = [];
+  contextArtifactSequence = 0;
+  currentPreviewDoc = null;
+  refreshGeneratedFiles();
+  closeDocPreview();
+}
+
+function restoreChatMessagesSnapshot(messages) {
+  if (!Array.isArray(messages) || !messages.length) return;
+  // 右侧产物索引与聊天区缺失消息恢复相互独立；即使 hist 已完整也必须重建全部文档。
+  rebuildContextArtifactsFromMessages(messages);
+  const keyOf = message => {
+    const id = String(message?.id || '');
+    if (id) return `id:${id}`;
+    const actionId = String(message?.metadata?.actionId || '');
+    if (actionId) return `action:${actionId}:${message?.role || ''}`;
+    return `content:${message?.role || ''}\u0000${message?.content || ''}`;
+  };
+  const existingKeys = new Set(hist.map(keyOf));
+  const existingContent = new Set(hist.map(
+    message => `${message.role}\u0000${message.content || ''}`));
+  const missing = messages.filter(message => {
+    const role = message?.role;
+    const content = typeof message?.content === 'string' ? message.content : '';
+    return (role === 'user' || role === 'assistant') && content
+      && !existingKeys.has(keyOf(message))
+      && !existingContent.has(`${role}\u0000${content}`);
+  });
+  if (!missing.length) return;
+  const inner = document.getElementById('chatInner');
+  if (!hist.length) inner.innerHTML = '';
+  missing.forEach(message => {
+    const role = message.role;
+    const content = message.content;
+    const metadata = message.metadata || {};
+    const failedInsight = metadata.status === 'failed' || Boolean(crmInsightFailureMessage(content));
+    if (role === 'user') addUserBubble(content, {time: message.createdAt});
+    else addAIBubble(content, {
+      time: message.createdAt,
+      timestamp: message.createdAt,
+      sequence: message.sequence,
+      sourceId: message.id,
+      status: failedInsight ? 'failed' : metadata.status,
+      skipDocDetect: failedInsight,
+      documentTitle: !failedInsight && metadata.contentType === 'document'
+        ? normalizeDocumentPayload(content, metadata.title, '客户洞察报告').title : '',
+    });
+    const restored = {id: message.id, role, content, metadata,
+      createdAt: message.createdAt, sequence: message.sequence};
+    hist.push(restored);
+    existingKeys.add(keyOf(restored));
+    existingContent.add(`${role}\u0000${content}`);
+  });
+}
 
 // ═══ 会话持久化（全部从后端 API 加载，禁止 localStorage 缓存对话数据）═══
 // saveHistToStorage / loadHistFromStorage / saveTraceToStorage / loadTraceFromStorage
@@ -586,10 +1923,11 @@ function switchApiMode(mode) {
   console.log('[DeepAgent] API mode:', mode);
 }
 
-// 初始化 select 状态
+// 初始化 select 与界面布局状态
 document.addEventListener('DOMContentLoaded', () => {
   const sel = document.getElementById('apiModeSelect');
   if (sel) sel.value = apiMode;
+  applySidebarState(false);
 });
 
 // ═══ Interrupt UI 渲染 ═══
@@ -728,18 +2066,70 @@ async function sendResume(resumeData) {
     updatePanelStatus(false);
   }
 }
+// ═══ 右侧结构化内容识别：仅自动收起左侧对话历史 ═══
+function requestRightContentFocus(signature) {
+  const normalized = String(signature || 'right-content');
+  window.setTimeout(() => {
+    const chatPane = document.getElementById('chatPane');
+    const rightPanel = document.getElementById('rightPanel');
+    // 纠正旧聚焦态：结构化内容出现时中间对话必须始终可见。
+    chatPane?.classList.remove('chat-pane-collapsed');
+    if (chatPane) { chatPane.inert = false; chatPane.setAttribute('aria-hidden', 'false'); }
+    rightPanel?.classList.remove('right-content-focused');
+    if (normalized === dismissedAutoSidebarSignature) return;
+    autoSidebarCollapseSignature = normalized;
+    if (!isSidebarCollapsed) {
+      isSidebarCollapsed = true;
+      // 自动布局不覆盖用户持久化偏好；用户仍可点顶部按钮重新展开。
+      applySidebarState(false);
+      // 左侧释放空间后，按新的可用宽度重新计算右侧区域。
+      window.requestAnimationFrame(adaptRightPanelToCurrentContent);
+    }
+  }, 120);
+}
+
+// ═══ 左侧对话历史折叠控制 ═══
+function applySidebarState(persist = true) {
+  const sidebar = document.getElementById('sidebar');
+  const expandButton = document.getElementById('sidebarExpandBtn');
+  const workspace = document.getElementById('crmWorkspace');
+  const launcher = document.getElementById('crmWorkspaceLauncher');
+  if (!sidebar) return;
+
+  sidebar.classList.toggle('sidebar-collapsed', isSidebarCollapsed);
+  sidebar.setAttribute('aria-hidden', isSidebarCollapsed ? 'true' : 'false');
+  sidebar.inert = isSidebarCollapsed;
+  if (expandButton) {
+    expandButton.classList.toggle('hidden', !isSidebarCollapsed);
+    expandButton.classList.toggle('flex', isSidebarCollapsed);
+  }
+  // CRM 全屏工作区和入口跟随侧栏移动，折叠后不保留 288px 空白。
+  if (workspace) workspace.style.left = isSidebarCollapsed ? '0' : '18rem';
+  if (launcher) launcher.style.left = isSidebarCollapsed ? '1rem' : '19rem';
+  if (persist) localStorage.setItem('deepagent_sidebar_collapsed', isSidebarCollapsed ? '1' : '0');
+}
+function toggleSidebar(collapsed) {
+  const nextCollapsed = typeof collapsed === 'boolean' ? collapsed : !isSidebarCollapsed;
+  if (!nextCollapsed && autoSidebarCollapseSignature) {
+    dismissedAutoSidebarSignature = autoSidebarCollapseSignature;
+  }
+  isSidebarCollapsed = nextCollapsed;
+  applySidebarState(true);
+  window.requestAnimationFrame(adaptRightPanelToCurrentContent);
+}
+
 // ═══ 右侧面板控制 ═══
 function closeRightPanel() {
   isRightPanelOpen = false;
   document.getElementById('rightPanel').classList.add('w-0', 'opacity-0', 'pointer-events-none', 'm-0', 'border-0');
-  document.getElementById('rightPanel').classList.remove('w-[400px]', 'm-6');
+  document.getElementById('rightPanel').classList.remove('m-6');
   document.getElementById('openPanelBtn').classList.remove('hidden');
 }
 
 function openRightPanel() {
   isRightPanelOpen = true;
   document.getElementById('rightPanel').classList.remove('w-0', 'opacity-0', 'pointer-events-none', 'm-0', 'border-0');
-  document.getElementById('rightPanel').classList.add('w-[400px]', 'm-6');
+  document.getElementById('rightPanel').classList.add('m-6');
   document.getElementById('openPanelBtn').classList.add('hidden');
 }
 
@@ -761,6 +2151,18 @@ function switchTab(tab) {
     tabRealtime.className = 'flex-1 flex items-center justify-center gap-2 py-2 text-[11px] font-bold rounded-xl transition-all text-gray-500 hover:bg-white/40';
     panelDocs.classList.remove('hidden');
     panelRealtime.classList.add('hidden');
+  }
+
+  if (tab === 'realtime') {
+    adaptRightPanelWidth('trace', {count: liveSpans.length});
+  } else if (currentPreviewDoc) {
+    adaptRightPanelWidth('document', {content: currentPreviewDoc.content, title: currentPreviewDoc.title});
+  } else if (crmCurrentView?.value) {
+    const value = crmCurrentView.value;
+    const kind = Array.isArray(value.records) ? 'list' : (value.mode === 'create' || value.mode === 'update') ? 'form' : 'detail';
+    adaptRightPanelWidth(kind, value);
+  } else {
+    adaptRightPanelWidth('idle', null);
   }
 }
 
@@ -901,8 +2303,7 @@ function newChat() {
   tid = genId();
   localStorage.setItem('deepagent_current_tid', tid);
   hist = [];
-  generatedDocs = [];
-  currentPreviewDoc = null;
+  resetThreadScopedUiContext();
   if (!chatHistory.find(c => c.id === tid)) {
     chatHistory.unshift({ id: tid, title: '新对话', time: Date.now() / 1000 });
   }
@@ -922,6 +2323,7 @@ function newChat() {
     </div>`;
   document.getElementById('headerTitle').textContent = '新对话';
   resetTrace();
+  initializeCrmConnection();
 }
 
 // ═══ 消息气泡 ═══
@@ -951,15 +2353,23 @@ function addUserBubble(content, opts) {
 
 function addAIBubble(content, extra) {
   const inner = document.getElementById('chatInner');
+  const insightFailure = crmInsightFailureMessage(content);
+
+  // 明确失败的洞察内容只能作为普通消息显示，禁止历史恢复时生成文档。
+  const forcePlainMessage = Boolean(insightFailure) || Boolean(extra && extra.status === 'failed');
 
   // 检测 doc_card 标记（从历史恢复时渲染为卡片）
-  const docCardMatch = content.match(/^<!--doc_card:(.+?)-->\n([\s\S]*)$/);
+  const docCardMatch = forcePlainMessage ? null : content.match(/^<!--doc_card:(.+?)-->\n([\s\S]*)$/);
   if (docCardMatch) {
-    const title = docCardMatch[1];
-    const docContent = docCardMatch[2];
-    const docId = 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
-    generatedDocs.push({ id: docId, title: title, content: docContent, time: '' });
-    refreshGeneratedFiles();
+    const payload = normalizeDocumentPayload(docCardMatch[2], docCardMatch[1], '客户洞察报告');
+    const title = payload.title;
+    const docContent = payload.content;
+    const doc = upsertGeneratedDocument(docContent, title, {
+      sourceId: extra?.sourceId,
+      timestamp: extra?.timestamp || extra?.time,
+      sequence: extra?.sequence,
+    });
+    const docId = doc.id;
     const cardHtml = `
       <div class="flex justify-start mb-4">
         <div class="max-w-[85%] bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
@@ -981,16 +2391,22 @@ function addAIBubble(content, extra) {
 
   // 检测是否包含报告/文档内容（有标题结构的长文本）
   // 注意：AG-UI 模式刷新恢复时通过 extra.skipDocDetect 跳过检测，保持和实时输出一致
-  const skipDoc = extra && extra.skipDocDetect;
-  const docInfo = skipDoc ? null : detectDocument(content);
+  const skipDoc = forcePlainMessage || (extra && extra.skipDocDetect);
+  const forcedDocumentTitle = !forcePlainMessage && extra && extra.documentTitle;
+  const documentPayload = normalizeDocumentPayload(
+    content, forcedDocumentTitle || '', '客户洞察报告');
+  const docInfo = forcedDocumentTitle
+    ? {title: documentPayload.title}
+    : (skipDoc ? null : detectDocument(documentPayload.content));
 
   let docCardHtml = '';
   if (docInfo) {
-    const docId = 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
-    // 存储文档内容
-    generatedDocs.push({ id: docId, title: docInfo.title, content: content, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,5) });
-    // 更新右侧面板文件列表
-    refreshGeneratedFiles();
+    const doc = upsertGeneratedDocument(documentPayload.content, docInfo.title, {
+      sourceId: extra?.sourceId,
+      timestamp: extra?.timestamp || extra?.time,
+      sequence: extra?.sequence,
+    });
+    const docId = doc.id;
 
     docCardHtml = `
       <div class="mt-4 flex items-center gap-4 p-3 rounded-2xl bg-blue-50/50 border border-blue-100 transition-all hover:bg-blue-50 cursor-pointer group" onclick="openDocPreview('${docId}')">
@@ -1090,14 +2506,24 @@ function addAiBubbleStart() {
   scrollToBottom();
 }
 
+let _aiBubbleRenderTimer = null;
+let _aiBubbleRenderPending = '';
 function updateAiBubble(fullContent) {
   if (!_aguiStreamEl) return;
-  const rendered = typeof marked !== 'undefined' ? marked.parse(fullContent) : esc(fullContent);
-  _aguiStreamEl.innerHTML = rendered + '<span class="animate-pulse text-gray-400">▍</span>';
-  scrollToBottom();
+  _aiBubbleRenderPending = fullContent;
+  if (_aiBubbleRenderTimer) return; // 节流中
+  _aiBubbleRenderTimer = setTimeout(() => {
+    _aiBubbleRenderTimer = null;
+    if (!_aguiStreamEl || !_aiBubbleRenderPending) return;
+    const rendered = typeof marked !== 'undefined' ? marked.parse(_aiBubbleRenderPending) : esc(_aiBubbleRenderPending);
+    _aguiStreamEl.innerHTML = rendered + '<span class="animate-pulse text-gray-400">▍</span>';
+    scrollToBottom();
+  }, 80);
 }
 
 function finalizeAiBubble(fullContent) {
+  if (_aiBubbleRenderTimer) { clearTimeout(_aiBubbleRenderTimer); _aiBubbleRenderTimer = null; }
+  _aiBubbleRenderPending = '';
   if (!_aguiStreamEl) return;
   const rendered = typeof marked !== 'undefined' ? marked.parse(fullContent) : esc(fullContent);
   _aguiStreamEl.innerHTML = rendered;
@@ -2211,7 +3637,45 @@ function updateDocsPanel(generated, refs) {
 
 // ═══ 文档检测与预览 ═══
 
+function crmInsightFailureMessage(content) {
+  const text = String(content || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  const missingRecord = /(?:客户\s*(?:ID|记录标识)|CRM\s*(?:记录|系统)|recordApiKey).{0,160}(?:没有找到|未找到|不存在|not\s+found)/i.test(text);
+  const explicitFailure = /客户洞察.{0,40}(?:生成|执行|保存)?.{0,20}失败|(?:生成|执行)客户洞察.{0,20}失败/i.test(text);
+  const redactedMissing = /<PII:CN_BANK_CARD_\d+>/i.test(text) && /没有找到|未找到|不存在|not\s+found/i.test(text);
+  return missingRecord || explicitFailure || redactedMissing ? text : '';
+}
+
+function normalizeDocumentPayload(content, candidateTitle, fallbackTitle = '客户洞察报告') {
+  let text = String(content || '').replace(/\r\n?/g, '\n');
+  let lines = text.split('\n');
+  while (lines.length && !lines[0].trim()) lines.shift();
+  const isSeparator = line => /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(String(line || ''));
+  if (lines.length && isSeparator(lines[0])) {
+    const relativeClosing = lines.slice(1, 41).findIndex(isSeparator);
+    const closingIndex = relativeClosing < 0 ? -1 : relativeClosing + 1;
+    const hasYamlFields = closingIndex > 0 && lines.slice(1, closingIndex)
+      .some(line => /^\s*[A-Za-z_][\w.-]*\s*:/.test(line));
+    lines = hasYamlFields ? lines.slice(closingIndex + 1) : lines.slice(1);
+    while (lines.length && (!lines[0].trim() || isSeparator(lines[0]))) lines.shift();
+  }
+  text = lines.join('\n').trim();
+
+  const cleanTitle = value => {
+    const title = String(value || '').replace(/^\s*#{1,6}\s*/, '')
+      .replace(/\.md$/i, '').replace(/^[#>*_`\s]+|[#>*_`\s]+$/g, '').trim();
+    return !title || isSeparator(title) ? '' : title.slice(0, 60);
+  };
+  const heading = text.match(/^\s*#{1,3}\s+(.+?)\s*$/m);
+  const firstContentLine = text.split('\n').find(line => line.trim() && !isSeparator(line)) || '';
+  const title = cleanTitle(candidateTitle) || cleanTitle(heading?.[1]) ||
+    cleanTitle(firstContentLine) || fallbackTitle;
+  return {content: text, title};
+}
+
 function detectDocument(content) {
+  const normalized = normalizeDocumentPayload(content, '', '分析报告');
+  content = normalized.content;
   // 检测是否是报告/文档格式
   if (!content || content.length < 400) return null;
 
@@ -2231,16 +3695,8 @@ function detectDocument(content) {
                 (content.length >= 400 && totalHeadings >= 3);
   if (!isDoc) return null;
 
-  // 提取标题
-  let title = '分析报告';
-  const h1Match = content.match(/^#\s+(.+)/m);
-  if (h1Match) {
-    title = h1Match[1].trim().replace(/^[《]|[》]$/g, '');
-  } else {
-    const firstLine = content.trim().split('\n')[0].replace(/^#+\s*/, '').trim();
-    if (firstLine.length > 2 && firstLine.length < 50) title = firstLine.replace(/^[《]|[》]$/g, '');
-  }
-  return { title };
+  // 标题已统一跳过 frontmatter/孤立分隔线。
+  return { title: normalized.title };
 }
 
 function openDocPreview(docId) {
@@ -2248,6 +3704,8 @@ function openDocPreview(docId) {
   if (!doc) return;
 
   currentPreviewDoc = doc;
+  adaptRightPanelWidth('document', {content: doc.content, title: doc.title});
+  requestRightContentFocus(`document:${doc.id}`);
 
   // 切换到参考上下文 tab
   switchTab('docs');
@@ -2284,22 +3742,57 @@ function downloadCurrentDoc() {
   URL.revokeObjectURL(url);
 }
 
+function openDataArtifact(artifactId) {
+  const artifact = generatedData.find(item => item.id === artifactId);
+  if (!artifact) return;
+  closeDocPreview();
+  crmClearInsightPinnedView();
+  crmContextPinnedView = null;
+  crmStatusText = '已恢复历史数据产物';
+  crmCurrentEntity = artifact.value?.entityApiKey || String(artifact.viewId || '').split(':')[0] || crmCurrentEntity;
+  renderCrmContext(artifact.viewId, JSON.parse(JSON.stringify(artifact.value)));
+}
+function artifactDisplayTime(timestamp) {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  const today = new Date();
+  const sameDay = date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth() && date.getDate() === today.getDate();
+  return date.toLocaleString('zh-CN', sameDay
+    ? {hour:'2-digit', minute:'2-digit', hour12:false}
+    : {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false});
+}
 function refreshGeneratedFiles() {
   const genEl = document.getElementById('generatedFiles');
-  if (!generatedDocs.length) {
-    genEl.innerHTML = '<div class="text-[10px] text-gray-400 py-2">暂无生成文件</div>';
+  if (!genEl) return;
+  const artifacts = [
+    ...generatedDocs.map(item => ({...item, _type:'document'})),
+    ...generatedData.map(item => ({...item, _type:'data'})),
+  ].sort((left, right) => (right.timestamp || 0) - (left.timestamp || 0)
+    || (right.sequence || 0) - (left.sequence || 0));
+  if (!artifacts.length) {
+    genEl.innerHTML = '<div class="text-[10px] text-gray-400 py-2">暂无会话产物</div>';
     return;
   }
   const mdIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
-  genEl.innerHTML = generatedDocs.map(doc => `
-    <div onclick="openDocPreview('${doc.id}')" class="flex items-center gap-3 p-2 hover:bg-white/80 rounded-xl transition-all cursor-pointer group border border-transparent hover:border-blue-100">
-      <div class="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-500 group-hover:bg-blue-100 transition-all">${mdIcon}</div>
-      <div class="flex-1 overflow-hidden">
-        <p class="text-[11px] font-bold text-gray-700 truncate">${esc(doc.title)}.md</p>
-        <p class="text-[9px] text-gray-400 font-mono">${doc.time} • ${Math.ceil(doc.content.length / 500)}页</p>
-      </div>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-gray-300 group-hover:text-blue-400"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
-    </div>`).join('');
+  const dataIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>';
+  genEl.innerHTML = artifacts.map(artifact => {
+    const isDocument = artifact._type === 'document';
+    const safeId = String(artifact.id || '').replace(/[^A-Za-z0-9_-]/g, '');
+    const action = isDocument ? `openDocPreview('${safeId}')` : `openDataArtifact('${safeId}')`;
+    const meta = isDocument
+      ? `${Math.max(1, Math.ceil((artifact.content || '').length / 500))} 页`
+      : (artifact.summary || '结构化数据');
+    return `
+      <div onclick="${action}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${action}}" role="button" tabindex="0" aria-label="${esc(artifact.title || '未命名')}" class="flex items-center gap-3 p-2 hover:bg-white/80 rounded-xl transition-all cursor-pointer group border border-transparent hover:border-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-200">
+        <div class="w-8 h-8 rounded-lg ${isDocument ? 'bg-blue-50 text-blue-500 group-hover:bg-blue-100' : 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100'} flex items-center justify-center transition-all">${isDocument ? mdIcon : dataIcon}</div>
+        <div class="flex-1 overflow-hidden">
+          <p class="text-[11px] font-bold text-gray-700 truncate">${esc(artifact.title || '未命名')}${isDocument ? '.md' : ''}</p>
+          <p class="text-[10px] text-gray-500 font-mono truncate">${esc(artifactDisplayTime(artifact.timestamp))} · ${esc(meta)}</p>
+        </div>
+        <span class="text-[9px] px-1.5 py-0.5 rounded ${isDocument ? 'bg-blue-50 text-blue-500' : 'bg-emerald-50 text-emerald-600'}">${isDocument ? '文档' : '数据'}</span>
+      </div>`;
+  }).join('');
 }
 
 // ═══ 文件上传 ═══
@@ -2533,6 +4026,11 @@ function sq(text) { document.getElementById('inp').value = text; send(); }
 // ═══ AG-UI 模式发送 ═══
 async function sendAgui(text, extra) {
   if (!text && !extra) return;
+  window._docStreamContent = null;
+  window._docStreamTokenCount = 0;
+  // 每轮只登记用户明确请求的 CRM view；客户洞察只允许最终文档，
+  // 不允许 Skill 内部 account/opportunity/contact/activity 查询进入可见产物。
+  crmInferUserRequestedViews(text, extra?.businessContext);
 
   // 显示用户消息
   if (text) {
@@ -2563,6 +4061,9 @@ async function sendAgui(text, extra) {
   if (extra && extra.resume) {
     body.resume = extra.resume;
   }
+  if (extra && extra.businessContext) {
+    body.businessContext = extra.businessContext;
+  }
 
   try {
     const r = await fetch(API + '/api/chat/agui', {
@@ -2570,7 +4071,14 @@ async function sendAgui(text, extra) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!r.ok) throw new Error('AG-UI API error: ' + r.status);
+    if (!r.ok) {
+      let detail = '';
+      try {
+        const errorBody = await r.json();
+        detail = errorBody.detail || errorBody.message || '';
+      } catch(e) { /* 非 JSON 错误响应 */ }
+      throw new Error(detail || ('AG-UI API error: ' + r.status));
+    }
 
     const reader = r.body.getReader();
     const decoder = new TextDecoder();
@@ -2579,8 +4087,50 @@ async function sendAgui(text, extra) {
     let textMsgActive = false;
     let textMsgFinalized = false; // 标记第一轮 TEXT_MESSAGE 已完成（防止 skill_result + LLM 双重输出）
     let seenToolCalls = new Set(); // 去重 TOOL_CALL_START
+    let runFailed = false;
+    let documentCommitted = false;
+    let documentFailureShown = false;
+    let skillExecuting = false; // Skill fork 执行期间抑制 TEXT_MESSAGE
     window._skillStepAdded = false; // 技能执行步骤只添加一次
     window._subLoopCount = 0;
+
+    const clearDocumentDraft = () => {
+      window._docStreamContent = null;
+      window._docStreamTokenCount = 0;
+      const streamBubble = document.getElementById('agui-stream-bubble');
+      if (streamBubble) streamBubble.remove();
+      _aguiStreamEl = null;
+      const previewTitle = document.getElementById('docPreviewTitle');
+      if (previewTitle && /生成中/.test(previewTitle.textContent || '')) closeDocPreview();
+    };
+    // 检测过程性日志（不应显示在聊天区的中间输出）
+    const _isProcessLog = (text) => {
+      if (!text || typeof text !== 'string') return false;
+      const trimmed = text.trim();
+      // 以 { 开头且包含过程性字段名（流式未闭合也能识别）
+      if (trimmed.startsWith('{') && /["'](?:rewritten_query|keywords|intent|expansion_terms|search_queries|query_plan)["']\s*:/.test(trimmed)) return true;
+      // 多段 JSON 块组成的内容（占比 > 70%）
+      const jsonBlocks = trimmed.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g) || [];
+      if (jsonBlocks.length >= 2) {
+        const jsonLen = jsonBlocks.reduce((sum, b) => sum + b.length, 0);
+        if (jsonLen > trimmed.length * 0.7) return true;
+      }
+      return false;
+    };
+    const showDocumentFailure = (content, fallbackMessage) => {
+      if (documentFailureShown) return;
+      const failure = crmInsightFailureMessage(content) || fallbackMessage || '客户洞察生成失败';
+      clearDocumentDraft();
+      addAIBubble('⚠️ ' + failure, {skipDocDetect: true, status: 'failed'});
+      hist.push({role: 'assistant', content: failure,
+        metadata: {contentType: 'error', status: 'failed'}});
+      documentFailureShown = true;
+      documentCommitted = true;
+      textMsgFinalized = true;
+      textMsgActive = false;
+      aiContent = '';
+      addStep('客户洞察生成失败', 'err');
+    };
 
     // AG-UI SSE 格式: "event: TYPE\ndata: {...}\n\n"
     let currentEventType = '';
@@ -2608,17 +4158,24 @@ async function sendAgui(text, extra) {
 
           // RUN_STARTED
           if (type === 'RUN_STARTED') {
-            // 运行开始
+            // 新一轮对话开始：隐藏上一轮的 CRM 上下文卡片（表单/详情），避免旧数据残留
+            const crmCard = document.getElementById('crmContextCard');
+            if (crmCard && !crmCard.classList.contains('hidden')) {
+              crmCard.classList.add('hidden');
+            }
+            crmCurrentView = null;
+            crmContextPinnedView = null;
           }
           // TEXT_MESSAGE_START
           else if (type === 'TEXT_MESSAGE_START') {
             textMsgActive = true;
             // 如果已经输出过文档卡片（doc_card/doc_stream_end），不再显示文本
-            if (textMsgFinalized) continue;
-            // 如果之前有 doc_stream 内容但未完成，说明后端已切换到文本模式
+            if (textMsgFinalized || documentCommitted) continue;
+            // Skill 执行期间抑制所有 TEXT_MESSAGE（过程性内容不显示）
+            if (skillExecuting) continue;
+            // 如果 doc_stream 正在进行（文档流式输出中），TEXT_MESSAGE 静默忽略
             if (window._docStreamContent) {
-              window._docStreamContent = null;
-              window._docStreamTokenCount = 0;
+              continue;
             }
             // 开启新的文本气泡
             aiContent = '';
@@ -2628,27 +4185,50 @@ async function sendAgui(text, extra) {
           }
           // TEXT_MESSAGE_CONTENT
           else if (type === 'TEXT_MESSAGE_CONTENT') {
-            if (textMsgFinalized || !textMsgActive) continue;
+            if (textMsgFinalized || !textMsgActive || skillExecuting) continue;
             const delta = data.delta || (data.data && data.data.delta) || '';
             if (delta && typeof delta === 'string') {
               aiContent += delta;
-              updateAiBubble(aiContent);
+              // 过滤过程性 JSON 输出（技能内部调试信息不应显示在聊天区）
+              if (!_isProcessLog(aiContent)) {
+                updateAiBubble(aiContent);
+              }
             }
           }
           // TEXT_MESSAGE_END
           else if (type === 'TEXT_MESSAGE_END') {
             textMsgActive = false;
-            if (aiContent) {
-              finalizeAiBubble(aiContent);
-              // 重置状态，允许后续新的 TEXT_MESSAGE 创建新气泡
+            // 文档已提交、skill 执行中、doc_stream 进行中时丢弃文本
+            if (textMsgFinalized || documentCommitted || skillExecuting || window._docStreamContent) {
               aiContent = '';
-              _aguiStreamEl = null;
+              if (_aguiStreamEl && !skillExecuting) {
+                const bubble = document.getElementById('agui-stream-bubble');
+                if (bubble) { bubble.remove(); _aguiStreamEl = null; }
+              }
+              continue;
+            }
+            if (aiContent) {
+              // 过滤纯过程性日志（不应作为最终回复显示）
+              if (_isProcessLog(aiContent)) {
+                aiContent = '';
+                if (_aguiStreamEl) {
+                  const bubble = document.getElementById('agui-stream-bubble');
+                  if (bubble) { bubble.remove(); _aguiStreamEl = null; }
+                }
+              } else {
+                finalizeAiBubble(aiContent);
+                aiContent = '';
+                _aguiStreamEl = null;
+              }
             }
           }
           // TOOL_CALL_START
           else if (type === 'TOOL_CALL_START') {
             const toolCallId = data.tool_call_id || '';
             const toolName = data.name || data.tool_call_name || '';
+            if (['query_data', 'modify_data'].includes(toolName) && !crmInsightPinnedView && !skillExecuting) {
+              crmContextLoading(toolName === 'query_data' ? '正在流式加载业务页面…' : '正在同步业务变更…');
+            }
             // 去重
             const dedupeKey = toolName + ':' + (toolCallId || String(Date.now()));
             if (!seenToolCalls.has(dedupeKey)) {
@@ -2656,10 +4236,16 @@ async function sendAgui(text, extra) {
               // skills_tool 开始时显示"生成中"占位 + 左侧步骤标记（只执行一次）
               if (toolName === 'skills_tool' && !window._skillStepAdded) {
                 window._skillStepAdded = true;
-                if (!_aguiStreamEl) {
-                  addAiBubbleStart();
-                  updateAiBubble('<div class="flex items-center gap-2 text-gray-400 text-sm"><div class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>正在分析生成中...</div>');
+                skillExecuting = true;
+                // 清除 skill 开始前 Agent 输出的过渡性文本（如"数据初步获取完毕..."）
+                if (_aguiStreamEl || aiContent) {
+                  const bubble = document.getElementById('agui-stream-bubble');
+                  if (bubble) bubble.remove();
+                  _aguiStreamEl = null;
+                  aiContent = '';
                 }
+                addAiBubbleStart();
+                updateAiBubble('<div class="flex items-center gap-2 text-gray-400 text-sm"><div class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>正在分析生成中...</div>');
                 window._subLoopCount = 0;
                 addStep('⚡ 技能执行 (fork) 中...', 'run');
               }
@@ -2729,7 +4315,9 @@ async function sendAgui(text, extra) {
               if (['title_generation', 'content_review', 'query_rewrite', 'context_build', 'memory_retrieval', 'memory_extract'].includes(spanType)) {
                 addStep(`${stepName}`, 'done');
               } else if (spanType === 'skill_execution') {
-                // 技能执行完成 — 更新左侧步骤状态（从"执行中"变为"完成"）
+                // 技能执行完成 — 解除 TEXT_MESSAGE 抑制
+                skillExecuting = false;
+                // 更新左侧步骤状态（从"执行中"变为"完成"）
                 const skillMeta = meta || {};
                 const sName = skillMeta.skill_name || '';
                 const sMode = skillMeta.context_mode || 'inline';
@@ -2781,9 +4369,21 @@ async function sendAgui(text, extra) {
               const apikey = (value && value.apikey) || '';
               const compData = (value && value.data) || {};
               if (apikey === 'doc_card') {
+                const documentPayload = normalizeDocumentPayload(
+                  compData.content || '', compData.title || '', '客户洞察报告');
+                const title = documentPayload.title;
+                const content = documentPayload.content;
+                const componentStatus = String(value.status || value.state || compData.status || 'complete').toLowerCase();
+                const failure = crmInsightFailureMessage(content);
+                if (['failed', 'error', 'cancelled'].includes(componentStatus) || failure) {
+                  showDocumentFailure(content, '客户洞察生成失败');
+                  continue;
+                }
+                if (!content || documentCommitted || runFailed) continue;
+                documentCommitted = true;
+                // 洞察完成，解除右侧 pinned 状态，允许后续详情查询渲染到右侧
+                crmClearInsightPinnedView();
                 // 文档卡片：折叠式展示（标题 + 展开/收起）
-                const title = compData.title || '文档';
-                const content = compData.content || '';
                 const chatInner = document.getElementById('chatInner');
                 // 如果当前有"生成中"占位气泡，移除整个气泡容器
                 const streamBubble = document.getElementById('agui-stream-bubble');
@@ -2792,10 +4392,9 @@ async function sendAgui(text, extra) {
                   _aguiStreamEl = null;
                 }
                 // 存储到 generatedDocs → 右侧"参考上下文"面板
-                const docId = 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
-                generatedDocs.push({ id: docId, title: title, content: content, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,5) });
-                refreshGeneratedFiles();
-                currentPreviewDoc = generatedDocs[generatedDocs.length - 1];
+                const _compDoc = upsertGeneratedDocument(content, title);
+                const docId = _compDoc.id;
+                currentPreviewDoc = _compDoc;
                 // 更新右侧文档预览（最终完整版）
                 document.getElementById('docPreviewTitle').textContent = title + '.md';
                 const previewRendered = typeof marked !== 'undefined' ? marked.parse(content) : content.replace(/\n/g, '<br>');
@@ -2832,7 +4431,7 @@ async function sendAgui(text, extra) {
             else if (name === 'doc_stream') {
               // 文档流式输出 — 实时渲染到右侧"参考上下文"面板
               const delta = (value && value.delta) || '';
-              if (delta) {
+              if (delta && !runFailed && !documentCommitted) {
                 // 首次收到 doc_stream 时初始化面板
                 if (!window._docStreamContent) {
                   window._docStreamContent = '';
@@ -2841,34 +4440,52 @@ async function sendAgui(text, extra) {
                   if (!isRightPanelOpen) openRightPanel();
                   switchTab('docs');
                   document.getElementById('docPreviewMode').classList.remove('hidden');
-                  document.getElementById('docFileList').classList.add('hidden');
+                  document.getElementById('docListMode').classList.add('hidden');
                   document.getElementById('docPreviewTitle').textContent = '生成中...';
                   document.getElementById('docPreviewContent').innerHTML = '<div class="flex items-center gap-2 text-gray-400 text-xs py-4"><div class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></div>正在生成文档...</div>';
                 }
                 window._docStreamContent += delta;
                 window._docStreamTokenCount++;
-                // 节流渲染：每 5 个 chunk 或遇到换行时刷新
-                if (window._docStreamTokenCount % 5 === 0 || delta.includes('\n')) {
-                  const rendered = typeof marked !== 'undefined' ? marked.parse(window._docStreamContent) : window._docStreamContent.replace(/\n/g, '<br>');
-                  const previewEl = document.getElementById('docPreviewContent');
-                  previewEl.innerHTML = rendered;
-                  previewEl.scrollTop = previewEl.scrollHeight;
+                if (window._docStreamTokenCount === 1 || window._docStreamTokenCount % 20 === 0) {
+                  adaptRightPanelWidth('document', {content: window._docStreamContent});
+                  if (window._docStreamTokenCount === 1) requestRightContentFocus(`doc-stream:${tid}`);
+                }
+                // 节流渲染：使用 timer 去抖，最多每 150ms 解析一次完整 markdown
+                if (!window._docStreamRenderTimer) {
+                  window._docStreamRenderTimer = setTimeout(() => {
+                    window._docStreamRenderTimer = null;
+                    if (!window._docStreamContent) return;
+                    const rendered = typeof marked !== 'undefined' ? marked.parse(window._docStreamContent) : window._docStreamContent.replace(/\n/g, '<br>');
+                    const previewEl = document.getElementById('docPreviewContent');
+                    previewEl.innerHTML = rendered;
+                    previewEl.scrollTop = previewEl.scrollHeight;
+                  }, 150);
                 }
                 // 从内容中提取标题（首次出现 # 标题时更新）
                 if (window._docStreamTokenCount < 50 && window._docStreamContent.includes('\n')) {
-                  const firstLine = window._docStreamContent.split('\n')[0].replace(/^#+\s*/, '').trim();
-                  if (firstLine) {
-                    document.getElementById('docPreviewTitle').textContent = firstLine + '.md';
-                  }
+                  const streamTitle = normalizeDocumentPayload(
+                    window._docStreamContent, '', '客户洞察报告').title;
+                  document.getElementById('docPreviewTitle').textContent = streamTitle + '.md';
                 }
               }
             }
             else if (name === 'doc_stream_end') {
-              // 文档流式输出结束信号 — 将已累积的流式内容渲染为气泡
-              if (window._docStreamContent && window._docStreamContent.length > 0) {
-                const content = window._docStreamContent;
-                const firstLine = content.split('\n')[0].replace(/^#+\s*/, '').trim();
-                const title = firstLine || '分析报告';
+              const streamStatus = String((value && value.status) || 'complete').toLowerCase();
+              const streamContent = window._docStreamContent || '';
+              const streamFailure = crmInsightFailureMessage(streamContent);
+              if (['failed', 'error', 'cancelled'].includes(streamStatus) || streamFailure) {
+                showDocumentFailure(streamContent, '客户洞察生成失败');
+                continue;
+              }
+              // 文档流式输出结束信号 — 仅成功终态提交已累积内容
+              if (!documentCommitted && !runFailed && streamContent.length > 0) {
+                documentCommitted = true;
+                // 洞察完成，解除右侧 pinned 状态
+                crmClearInsightPinnedView();
+                const documentPayload = normalizeDocumentPayload(
+                  streamContent, '', '客户洞察报告');
+                const content = documentPayload.content;
+                const title = documentPayload.title;
 
                 // 移除对话区的"生成中"占位气泡（整个容器）
                 const streamBubble = document.getElementById('agui-stream-bubble');
@@ -2878,10 +4495,9 @@ async function sendAgui(text, extra) {
                 }
 
                 // 存储到 generatedDocs → 右侧面板仍可查看
-                const docId = 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
-                generatedDocs.push({ id: docId, title: title, content: content, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,5) });
-                refreshGeneratedFiles();
-                currentPreviewDoc = generatedDocs[generatedDocs.length - 1];
+                const _dsDoc = upsertGeneratedDocument(content, title);
+                const docId = _dsDoc.id;
+                currentPreviewDoc = _dsDoc;
 
                 // 更新右侧文档预览为最终版
                 document.getElementById('docPreviewTitle').textContent = title + '.md';
@@ -2939,6 +4555,11 @@ async function sendAgui(text, extra) {
           }
           // RUN_FINISHED
           else if (type === 'RUN_FINISHED') {
+            // 解除所有 run 级别的抑制状态
+            skillExecuting = false;
+            crmClearInsightPinnedView();
+            crmCurrentRunRequestedViewPatterns.clear();
+            crmCurrentOriginIntent = '';
             // ── 标题更新：从后端获取最新标题 ──
             try {
               const convResp = await fetch(API + '/api/conversations?limit=50');
@@ -2953,11 +4574,20 @@ async function sendAgui(text, extra) {
               }
             } catch(e) { /* 标题更新失败不影响主流程 */ }
 
-            // ── doc_stream 兜底：如果流式文档内容已累积但未收到完成信号，自动完成 ──
-            if (window._docStreamContent && window._docStreamContent.length > 0) {
-              const content = window._docStreamContent;
-              const firstLine = content.split('\n')[0].replace(/^#+\s*/, '').trim();
-              const title = firstLine || '分析报告';
+            // ── doc_stream 兜底：仅在内容不是失败结果且 run 正常结束时提交 ──
+            const pendingDocument = window._docStreamContent || '';
+            const pendingFailure = crmInsightFailureMessage(pendingDocument);
+            if (pendingDocument && pendingFailure) {
+              showDocumentFailure(pendingDocument, '客户洞察生成失败');
+            }
+            if (!documentCommitted && !runFailed && pendingDocument && !pendingFailure) {
+              documentCommitted = true;
+              // 洞察完成，解除右侧 pinned 状态
+              crmClearInsightPinnedView();
+              const documentPayload = normalizeDocumentPayload(
+                pendingDocument, '', '客户洞察报告');
+              const content = documentPayload.content;
+              const title = documentPayload.title;
 
               const streamBubble = document.getElementById('agui-stream-bubble');
               if (streamBubble) {
@@ -2965,10 +4595,9 @@ async function sendAgui(text, extra) {
                 _aguiStreamEl = null;
               }
 
-              const docId = 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
-              generatedDocs.push({ id: docId, title: title, content: content, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,5) });
-              refreshGeneratedFiles();
-              currentPreviewDoc = generatedDocs[generatedDocs.length - 1];
+              const _rfDoc = upsertGeneratedDocument(content, title);
+              const docId = _rfDoc.id;
+              currentPreviewDoc = _rfDoc;
 
               document.getElementById('docPreviewTitle').textContent = title + '.md';
               const previewRendered = typeof marked !== 'undefined' ? marked.parse(content) : content.replace(/\n/g, '<br>');
@@ -3007,10 +4636,19 @@ async function sendAgui(text, extra) {
               _aguiStreamEl = null;
             }
             collapseStepsContainer();
+            // 如果本轮无新 CRM 内容但有会话产物，确保右侧显示产物列表而非空白
+            if (!crmCurrentView && (generatedDocs.length || generatedData.length)) {
+              const crmCard = document.getElementById('crmContextCard');
+              if (crmCard) crmCard.classList.add('hidden');
+              closeDocPreview();
+              refreshGeneratedFiles();
+            }
             scrollToBottom();
           }
           // RUN_ERROR
           else if (type === 'RUN_ERROR') {
+            runFailed = true;
+            clearDocumentDraft();
             const errMsg = data.message || '执行出错';
             addStep(`❌ ${truncStr(errMsg, 40)}`, 'err');
             addLiveSpan({
@@ -3047,11 +4685,13 @@ async function sendAgui(text, extra) {
     addSystemBubble('请求失败: ' + e.message);
   }
 
+  crmCurrentRunRequestedViewPatterns.clear();
+  crmCurrentOriginIntent = '';
   updatePanelStatus(false);
   scrollToBottom();
 }
 
-async function send(overrideText) {
+async function send(overrideText, extra) {
   const inp = document.getElementById('inp');
   const text = overrideText || inp.value.trim();
   if (!text && !overrideText) return;
@@ -3060,9 +4700,9 @@ async function send(overrideText) {
   // 上传文件
   if (pf.length) await uploadAll();
 
-  // AG-UI 模式路由
-  if (apiMode === 'agui') {
-    return sendAgui(text);
+  // 带服务端验证业务上下文的请求必须走 AG-UI 安全链路。
+  if (apiMode === 'agui' || (extra && extra.businessContext)) {
+    return sendAgui(text, extra);
   }
 
   // 显示用户消息
@@ -3473,10 +5113,9 @@ async function send(overrideText) {
           const docTitle = actualDoc ? actualDoc.title : (serverDocMeta ? serverDocMeta.title : '分析报告');
 
           // 存储文档
-          const docId = 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
-          generatedDocs.push({ id: docId, title: docTitle, content: aiContent, time: new Date().toLocaleTimeString('zh-CN', {hour12:false}).slice(0,5) });
-          refreshGeneratedFiles();
-          currentPreviewDoc = generatedDocs[generatedDocs.length - 1];
+          const _sendDoc = upsertGeneratedDocument(aiContent, docTitle);
+          const docId = _sendDoc.id;
+          currentPreviewDoc = _sendDoc;
 
           // 对话区显示缩略 + 卡片
           addAIBubbleRaw(aiContent, docTitle, docId);
@@ -3624,14 +5263,18 @@ async function loadChatHistory() {
   }
   renderChatList();
 
-  // 刷新后自动恢复当前对话内容（从服务端加载）
+  // 先恢复数据库消息，再消费同一 thread 的 AG-UI 消息与 Shared State 快照。
   const current = chatHistory.find(c => c.id === tid);
   if (current && current.title !== '新对话') {
-    loadChat(tid);
+    await loadChat(tid);
+  } else {
+    resetThreadScopedUiContext();
+    initializeCrmConnection();
   }
 }
 
 async function loadChat(chatId) {
+  resetThreadScopedUiContext();
   tid = chatId;
   localStorage.setItem('deepagent_current_tid', tid);
   hist = [];
@@ -3646,25 +5289,99 @@ async function loadChat(chatId) {
   // 从服务端加载消息 + 链路数据
   try {
     const r = await (await fetch(API + '/api/conversations/' + chatId + '/messages')).json();
+    if (chatId !== tid) return;
     const messages = r.messages || [];
-    if (!messages.length) { inner.innerHTML = '<div class="text-center text-gray-400 text-xs py-10">暂无消息</div>'; return; }
-    inner.innerHTML = '';
-    for (const msg of messages) {
-      // created_at 是毫秒时间戳
-      const msgTime = msg.created_at || 0;
-      if (msg.user_input) { addUserBubble(msg.user_input, {time: msgTime}); hist.push({ role: 'user', content: msg.user_input }); }
-      // 恢复内联推理步骤
-      if (msg.spans && msg.spans.length > 0) {
-        renderInlineSteps(msg.spans);
+    // 先基于全部历史用户输入和服务端显式元数据重建会话级主动 View，
+    // 再恢复 dataViews；否则后出现的 Skill 内部查询会被误当成用户产物。
+    messages.forEach(msg => {
+      const extInfo = msg.ext_info || {};
+      (extInfo.userTriggeredViewIds || []).forEach(viewId =>
+        crmRegisterUserRequestedView(viewId, {currentRun: false, history: true}));
+      if (msg.user_input) {
+        crmInferUserRequestedViews(msg.user_input, null, {history: true, currentRun: false});
       }
-      if (msg.agent_output) { addAIBubble(msg.agent_output, {skipDocDetect: true, time: msgTime}); hist.push({ role: 'assistant', content: msg.agent_output }); }
+    });
+    crmCurrentRunRequestedViewPatterns.clear();
+    crmCurrentOriginIntent = '';
+    if (!messages.length) {
+      inner.innerHTML = '<div class="text-center text-gray-400 text-xs py-10">暂无消息</div>';
+    } else {
+      inner.innerHTML = '';
+      for (const msg of messages) {
+        // created_at 是毫秒时间戳
+        const msgTime = msg.created_at || 0;
+        if (msg.user_input) { addUserBubble(msg.user_input, {time: msgTime}); hist.push({ role: 'user', content: msg.user_input }); }
+        // 恢复内联推理步骤
+        if (msg.spans && msg.spans.length > 0) {
+          renderInlineSteps(msg.spans);
+        }
+        // 历史客户洞察/报告重新执行文档识别，以恢复右侧生成文件。
+        if (msg.agent_output) {
+          const isCustomerInsight = /客户洞察/.test(String(msg.user_input || ''));
+          const extInfo = msg.ext_info || {};
+          const extContentType = extInfo.contentType || '';
+          const extTitle = extInfo.title || '';
+          const extStatus = extInfo.status || msg.status || '';
+          const failedInsight = isCustomerInsight && (
+            extStatus === 'failed' || msg.status === 'error' || Boolean(crmInsightFailureMessage(msg.agent_output)));
+          const isDocument = extContentType === 'document' || (isCustomerInsight && !failedInsight);
+          addAIBubble(msg.agent_output, {
+            time: msgTime,
+            timestamp: msgTime,
+            sequence: msg.sequence || 0,
+            sourceId: msg.message_id || msg.trace_id || '',
+            status: failedInsight ? 'failed' : extStatus || msg.status,
+            skipDocDetect: failedInsight || extContentType === 'text',
+            documentTitle: isDocument ? (extTitle || '客户洞察报告') : '',
+          });
+          hist.push({ role: 'assistant', content: msg.agent_output,
+            metadata: {status: failedInsight ? 'failed' : extStatus || msg.status, contentType: extContentType, title: extTitle} });
+          // 从 ext_info.dataViews 恢复结构化数据产物（服务重启后 ThreadStore 为空时的兜底）。
+          // 新格式以 ref.userTriggered 为准；旧数据仅在命中历史主动 View 白名单时兼容恢复。
+          if (!failedInsight && Array.isArray(extInfo.dataViews)) {
+            extInfo.dataViews.forEach(ref => {
+              if (!ref.viewId || ref.userTriggered === false) return;
+              const explicitlyUserTriggered = ref.userTriggered === true;
+              if (!explicitlyUserTriggered && !crmIsUserRequestedView(ref.viewId, {promote: false})) return;
+              const value = { entityApiKey: ref.entityApiKey || ref.viewId.split(':')[0] || 'account' };
+              if (ref.recordCount != null) {
+                value.records = []; value.total = ref.total || ref.recordCount;
+                value.mode = 'list';
+              } else if (ref.recordApiKey) {
+                value.recordApiKey = ref.recordApiKey;
+              }
+              upsertContextDataArtifact(ref.viewId, value, {
+                timestamp: msgTime,
+                sequence: msg.sequence || 0,
+                userTriggered: explicitlyUserTriggered,
+                originIntent: extInfo.originIntent,
+                source: 'database-history',
+                refresh: false,
+              });
+            });
+          }
+          // 从 agent_output 检测结构化表格数据，作为旧消息的数据产物恢复兜底；
+          // upsert 仍会执行主动 View 白名单过滤。
+          if (!failedInsight && !Array.isArray(extInfo.dataViews)) {
+            detectAndRestoreDataArtifact(msg.agent_output, msg.user_input, {
+              timestamp: msgTime, sequence: msg.sequence || 0,
+            });
+          }
+        }
+      }
+      // 加载最后一条消息的完整推理链路到右侧面板
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && lastMsg.spans && lastMsg.spans.length) {
+        renderHistoricalTrace(lastMsg.spans);
+      }
+      // 统一刷新右侧产物列表（loadChat 中各消息恢复时用了 refresh:false）
+      refreshGeneratedFiles();
     }
-    // 加载最后一条消息的完整推理链路到右侧面板
-    const lastMsg = messages[messages.length - 1];
-    if (lastMsg && lastMsg.spans && lastMsg.spans.length) {
-      renderHistoricalTrace(lastMsg.spans);
-    }
-  } catch(e) { inner.innerHTML = '<div class="text-center text-gray-400 text-xs py-10">加载失败</div>'; }
+  } catch(e) {
+    if (chatId === tid) inner.innerHTML = '<div class="text-center text-gray-400 text-xs py-10">加载失败</div>';
+  } finally {
+    if (chatId === tid) initializeCrmConnection();
+  }
 }
 
 // 恢复历史对话时，在对话气泡之间渲染内联推理步骤
@@ -3994,10 +5711,6 @@ loadChatHistory();
 
 // 初始化参考上下文面板
 refreshGeneratedFiles();
-updateDocsPanel([], [
-  { name: '2024 年度销售统计口径说明.pdf', size: '1.1MB' },
-  { name: '华东大区客户分级列表.csv', size: '842KB' }
-]);
 </script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 """
-CRM 业务工具 — 调用 CrmSimulatedBackend 的真实 CRUD 逻辑
+CRM 业务工具 — 调用 agent-system 内部 PostgreSQL CRUD backend。
 每个工具对应产品设计 §3.7.2 的工具清单
 """
 from __future__ import annotations
@@ -20,12 +20,12 @@ _memory_engine_resolved = False  # 区分"未解析"和"解析后为 None"
 
 
 def _resolve_crm_backend():
-    """解析 CRM 数据 backend（单例，始终使用内部模拟后端）"""
+    """解析 agent-system 内部 PostgreSQL CRM backend 单例。"""
     global _crm_backend_instance
     if _crm_backend_instance is None:
-        from src.tools.crm_backend import CrmSimulatedBackend
-        _crm_backend_instance = CrmSimulatedBackend()
-        logger.info("CRM backend resolved: Simulated (内部闭环)")
+        from src.tools.persistent_crm_backend import PersistentCrmBackend
+        _crm_backend_instance = PersistentCrmBackend()
+        logger.info("CRM backend resolved: agent-system PostgreSQL")
     return _crm_backend_instance
 
 
@@ -183,37 +183,11 @@ class QueryDataTool(Tool):
         entity = input_data["entity_api_key"]
 
         if action == "get":
-            rid = input_data.get("record_id")
+            rid = str(input_data.get("record_id") or "").strip()
             if not rid:
                 return ToolResult(content="get 操作需要 record_id", is_error=True)
-            
-            # 如果 record_id 不是 ID 格式（不以 acc_/opp_/con_ 等开头且不是纯数字），
-            # 自动降级为按名称搜索
-            is_id_format = (
-                rid.startswith(("acc_", "opp_", "con_", "act_", "lea_"))
-                or rid.isdigit()
-                or rid.startswith("id_")
-            )
-            
-            if not is_id_format:
-                # 用户可能传了名称而非 ID，自动转为搜索
-                result = await self._backend.query_data(entity, {"name__contains": rid})
-                records = result.get("data", {}).get("records", [])
-                if not records and len(rid) > 2:
-                    # 拆词重试
-                    result = await self._backend.query_data(entity, {"name__contains": rid[:2]})
-                    records = result.get("data", {}).get("records", [])
-                if records:
-                    if len(records) == 1:
-                        return ToolResult(content=json.dumps(records[0], ensure_ascii=False, indent=2))
-                    else:
-                        return ToolResult(content=json.dumps(
-                            {"hint": f"未找到 ID=\"{rid}\"，但按名称搜索找到以下结果：",
-                             "records": records, "total": len(records)},
-                            ensure_ascii=False, indent=2,
-                        ))
-                return ToolResult(content=f"{entity} 记录 {rid} 不存在", is_error=True)
-            
+
+            # get 的语义固定为按主键精确读取；名称模糊检索只能使用 query + filters。
             result = await self._backend.query_data(entity, {"id": rid})
             records = result.get("data", {}).get("records", [])
             if not records:
@@ -314,6 +288,8 @@ class ModifyDataTool(Tool):
                 "entity_api_key": {"type": "string", "description": "业务对象 api_key"},
                 "record_id": {"type": "string", "description": "记录 ID（update/delete 时必填）"},
                 "data": {"type": "object", "description": "数据 {字段: 值}"},
+                "expected_version": {"type": "integer", "description": "更新/删除的乐观锁版本"},
+                "confirmed": {"type": "boolean", "description": "删除操作已获得用户明确确认"},
             },
             "required": ["action", "entity_api_key"],
         }
@@ -323,8 +299,13 @@ class ModifyDataTool(Tool):
         entity = input_data["entity_api_key"]
         data = input_data.get("data", {})
         record_id = input_data.get("record_id")
+        if action == "delete" and input_data.get("confirmed") is not True:
+            return ToolResult(content="删除操作需要用户明确确认（confirmed=true）", is_error=True)
 
-        result = await self._backend.mutate_data(entity, action, data, record_id=record_id)
+        result = await self._backend.mutate_data(
+            entity, action, data, record_id=record_id,
+            expected_version=input_data.get("expected_version"),
+        )
         if "error" in result:
             return ToolResult(content=f"操作失败: {result['error']}", is_error=True)
         return ToolResult(content=json.dumps(result["data"], ensure_ascii=False, indent=2))

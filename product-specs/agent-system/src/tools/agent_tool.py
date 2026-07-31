@@ -58,9 +58,23 @@ class AgentTool(BaseTool):
         agent = await self.agent_factory.build(agent_name, self.current_depth)
         sub_thread_id = f"{self.parent_thread_id}-{agent_name}-{uuid4().hex[:8]}"
 
+        configurable: dict[str, Any] = {"thread_id": sub_thread_id}
+        # 继承 API 已验证的业务上下文与受保护字面量，避免多层 Agent 委派时
+        # recordApiKey 再次经过 PII 转换而变成占位符。
+        try:
+            import copy
+            from langchain_core.runnables.config import ensure_config
+            parent_config = ensure_config() or {}
+            input_metadata = (
+                (parent_config.get("configurable") or {}).get("input_metadata") or {})
+            if isinstance(input_metadata, dict) and input_metadata:
+                configurable["input_metadata"] = copy.deepcopy(input_metadata)
+        except Exception:
+            logger.debug("[agent_tool] parent input_metadata unavailable", exc_info=True)
+
         result = await agent.ainvoke(
             {"messages": [HumanMessage(content=instruction)]},
-            config={"configurable": {"thread_id": sub_thread_id}},
+            config={"configurable": configurable},
         )
 
         messages = result.get("messages", [])

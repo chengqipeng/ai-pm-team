@@ -273,7 +273,7 @@
               <div style="position:absolute;top:-7px;left:6px;background:#fff;padding:0 4px;font-size:0.6rem;color:var(--biz);font-weight:600;">双重职责</div>
               <div style="display:grid;grid-template-columns:1fr;gap:0.25rem;margin-top:0.2rem;">
                 <div style="background:var(--biz-bg);border:1px solid #f9a8d4;border-radius:4px;padding:0.22rem;text-align:center;">
-                  <div style="font-size:0.64rem;font-weight:600;color:var(--biz);">📝 注册 Skill/Tool</div>
+                  <div style="font-size:0.64rem;font-weight:600;color:var(--biz);">📝 注册 Tool</div>
                   <div style="font-size:0.54rem;color:#64748b;">部署时通过 SDK 写入 DB</div>
                 </div>
                 <div style="background:var(--biz-bg);border:1px solid #f9a8d4;border-radius:4px;padding:0.22rem;text-align:center;">
@@ -449,7 +449,7 @@
       <li><strong>Agent 纯运行时</strong>：neo-apps-ai-agent-service 仅包含执行引擎内核，不嵌入任何业务代码，业务能力全部由 Skill 注入</li>
       <li><strong>MCP 独立平级</strong>：neo-ai-mcp-service 与 Agent 服务平级，独立管理 MCP Server 生命周期，Agent 通过 HTTP 调用其执行外部工具</li>
       <li><strong>Skill 驱动业务</strong>：所有业务场景通过 Skill 声明式定义并注册到 DB，Agent 运行时动态加载执行</li>
-      <li><strong>业务域微服务双重职责</strong>：部署时注册 Skill/Tool 定义到 DB；运行时作为远程 Tool 的 HTTP 回调服务，封装后端系统（CRM/ERP/aPaaS）对接逻辑</li>
+      <li><strong>业务域微服务双重职责</strong>：部署时注册 Tool 定义到 DB；运行时作为远程 Tool 的 HTTP 回调服务，封装后端系统（CRM/ERP/aPaaS）对接逻辑</li>
       <li><strong>Tool 三类分治</strong>：内置 Tool（Agent 进程内执行）· 远程 Tool（HTTP 回调业务域服务）· MCP Tool（经 mcp-service 执行外部工具）</li>
       <li><strong>切面注册机制</strong>：Skill、Tool、Middleware、MCP 连接均注册到数据库，注册器逻辑封装为独立 Python 包（neo-ai-registry-sdk），Agent 服务和业务服务共同依赖</li>
       <li><strong>异步批量分离</strong>：长耗时任务（知识库入库、批量分析、数据迁移、记忆整合）由 neo-ai-batch-service 异步处理，不阻塞 Agent 对话主链路</li>

@@ -1008,7 +1008,10 @@ class ContextWindowMiddleware(AgentMiddleware):
 
                     # 降级：CompressionEngine 不可用 / 内容太短 / 压缩无效 → SUMMARY_ONLY
                     if compressed_content is None:
-                        from src.middleware.compression_engine import CompressLevel as _CL
+                        from src.middleware.compression_engine import (
+                            CompressionEngine,
+                            CompressLevel as _CL,
+                        )
                         fallback_cr = CompressionEngine.get_instance().compress(
                             content, tool_name=getattr(msg, "name", ""),
                             level=_CL.SUMMARY_ONLY,

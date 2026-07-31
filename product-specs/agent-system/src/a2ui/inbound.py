@@ -53,6 +53,7 @@ def parse_client_event(payload: dict) -> ClientEvent:
             source_component_id=ua["sourceComponentId"],
             timestamp=str(ua["timestamp"]),
             context=dict(ua.get("context") or {}),
+            action_id=ua.get("actionId"),
         )
 
     if "error" in payload:
@@ -143,29 +144,52 @@ class A2UIInboundHandler:
 
     @staticmethod
     def to_human_message(ua: UserAction) -> Any:
-        """把 UserAction 编码成一条 HumanMessage 注入 Agent。
-
-        延迟 import `langchain_core`，避免模块加载时的重量级依赖。
-        """
+        """把 UserAction 编码成安全、有限长度的 HumanMessage。"""
+        safe_context = sanitize_action_context(ua.context)
         try:
             from langchain_core.messages import HumanMessage
         except ImportError:  # pragma: no cover
-            return {"role": "user", "content": _format_ua_text(ua)}
+            return {"role": "user", "content": _format_ua_text(ua, safe_context)}
         return HumanMessage(
-            content=_format_ua_text(ua),
+            content=_format_ua_text(ua, safe_context),
             additional_kwargs={
                 "ui_action": {
+                    "action_id": ua.action_id,
                     "name": ua.name,
                     "surface_id": ua.surface_id,
                     "source_component_id": ua.source_component_id,
                     "timestamp": ua.timestamp,
-                    "context": ua.context,
+                    "context": safe_context,
                 }
             },
         )
 
 
-def _format_ua_text(ua: UserAction) -> str:
-    """给 LLM 看的简洁文本，提醒这是一条 UI action 而非普通用户输入。"""
-    ctx = json.dumps(ua.context, ensure_ascii=False) if ua.context else "{}"
-    return f"[ui-action] {ua.name} on surface={ua.surface_id} context={ctx}"
+def sanitize_action_context(value: Any, *, depth: int = 0) -> Any:
+    """限制 UI 上下文大小并脱敏常见凭据字段，避免直接注入 LLM。"""
+    if depth > 4:
+        return "[truncated]"
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in list(value.items())[:64]:
+            normalized_key = str(key)[:128]
+            if any(token in normalized_key.lower()
+                   for token in ("password", "secret", "token", "api_key", "apikey")):
+                out[normalized_key] = "[redacted]"
+            else:
+                out[normalized_key] = sanitize_action_context(item, depth=depth + 1)
+        return out
+    if isinstance(value, list):
+        return [sanitize_action_context(item, depth=depth + 1) for item in value[:64]]
+    if isinstance(value, str):
+        return value[:2000]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return str(value)[:2000]
+
+
+def _format_ua_text(ua: UserAction, context: dict[str, Any] | None = None) -> str:
+    """给 LLM 的简洁文本；上下文已脱敏并限制长度。"""
+    safe_context = context if context is not None else sanitize_action_context(ua.context)
+    ctx = json.dumps(safe_context, ensure_ascii=False) if safe_context else "{}"
+    return f"[ui-action] {ua.name} on surface={ua.surface_id} context={ctx}"[:8000]

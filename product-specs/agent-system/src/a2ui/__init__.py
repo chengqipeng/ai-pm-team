@@ -70,6 +70,25 @@ from .projector import A2UIProjector, parse_a2ui_message
 from .stream import a2ui_jsonl_stream, a2ui_sse_stream
 from .render_helper import A2UIRenderHelper, SurfaceBuilder
 from .thread_store import ThreadState, ThreadStore, thread_store
+from .action_messages import NormalizedAction, normalize_action, ui_action_activity
+from .stream_hub import (
+    StreamEvent,
+    StreamSubscription,
+    ThreadStreamHub,
+    stream_hub,
+)
+from .record_action_service import (
+    RecordActionError,
+    RecordActionService,
+    register_record_handlers,
+)
+from .action_dispatcher import (
+    ActionDefinition,
+    ActionDispatcher,
+    ActionDispatchError,
+    UnknownActionError,
+    action_dispatcher,
+)
 
 
 __all__ = [
@@ -98,4 +117,10 @@ __all__ = [
     "A2UIRenderHelper", "SurfaceBuilder",
     # Thread Store（重连）
     "ThreadState", "ThreadStore", "thread_store",
+    # 页面 Action 与广播流
+    "NormalizedAction", "normalize_action", "ui_action_activity",
+    "StreamEvent", "StreamSubscription", "ThreadStreamHub", "stream_hub",
+    "ActionDefinition", "ActionDispatcher", "ActionDispatchError",
+    "UnknownActionError", "action_dispatcher",
+    "RecordActionError", "RecordActionService", "register_record_handlers",
 ]
