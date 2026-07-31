@@ -1,0 +1,1924 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>业务组件与 Agent 对话联动 — 技术实现方案</title>
+<style>
+:root {
+  --primary: #2563eb;
+  --primary-light: #dbeafe;
+  --secondary: #7c3aed;
+  --secondary-light: #ede9fe;
+  --success: #059669;
+  --success-light: #d1fae5;
+  --warning: #d97706;
+  --warning-light: #fef3c7;
+  --danger: #dc2626;
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-600: #4b5563;
+  --gray-700: #374151;
+  --gray-800: #1f2937;
+  --gray-900: #111827;
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  line-height: 1.7;
+  color: var(--gray-800);
+  background: var(--gray-50);
+  padding: 0;
+}
+.container { max-width: 1100px; margin: 0 auto; padding: 40px 24px; }
+h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin-bottom: 8px;
+  letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: 1rem;
+  color: var(--gray-600);
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--gray-200);
+}
+h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin: 40px 0 16px;
+  padding-top: 16px;
+  border-top: 2px solid var(--primary-light);
+}
+h2:first-of-type { border-top: none; margin-top: 0; }
+h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--gray-800);
+  margin: 24px 0 12px;
+}
+h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  margin: 16px 0 8px;
+}
+p { margin-bottom: 12px; color: var(--gray-700); }
+ul, ol { margin: 8px 0 16px 24px; color: var(--gray-700); }
+li { margin-bottom: 6px; }
+code {
+  font-family: "JetBrains Mono", "Fira Code", "SF Mono", Menlo, monospace;
+  font-size: 0.85em;
+  background: var(--gray-100);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--secondary);
+}
+pre {
+  background: var(--gray-900);
+  color: #e5e7eb;
+  padding: 20px;
+  border-radius: var(--radius);
+  overflow-x: auto;
+  margin: 12px 0 20px;
+  font-size: 0.82em;
+  line-height: 1.6;
+  box-shadow: var(--shadow-md);
+}
+pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+.card {
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin: 16px 0;
+  box-shadow: var(--shadow);
+}
+.card-blue { border-left: 4px solid var(--primary); }
+.card-purple { border-left: 4px solid var(--secondary); }
+.card-green { border-left: 4px solid var(--success); }
+.card-yellow { border-left: 4px solid var(--warning); }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0 20px;
+  font-size: 0.9em;
+}
+th, td {
+  padding: 10px 14px;
+  text-align: left;
+  border: 1px solid var(--gray-200);
+}
+th {
+  background: var(--gray-100);
+  font-weight: 600;
+  color: var(--gray-800);
+}
+td { color: var(--gray-700); }
+tr:nth-child(even) td { background: var(--gray-50); }
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75em;
+  font-weight: 600;
+}
+.badge-blue { background: var(--primary-light); color: var(--primary); }
+.badge-purple { background: var(--secondary-light); color: var(--secondary); }
+.badge-green { background: var(--success-light); color: var(--success); }
+.badge-yellow { background: var(--warning-light); color: var(--warning); }
+.diagram {
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin: 16px 0;
+  overflow-x: auto;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.8em;
+  line-height: 1.5;
+  white-space: pre;
+  color: var(--gray-800);
+}
+.toc {
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-bottom: 32px;
+}
+.toc h3 { margin-top: 0; color: var(--gray-900); }
+.toc ol { margin: 12px 0 0 20px; }
+.toc li { margin-bottom: 4px; }
+.toc a { color: var(--primary); text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+.highlight { background: var(--warning-light); padding: 2px 4px; border-radius: 3px; }
+.meta-info {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+  font-size: 0.9em;
+  color: var(--gray-600);
+}
+.meta-info span { display: flex; align-items: center; gap: 4px; }
+.section-num { color: var(--primary); font-weight: 700; margin-right: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>业务组件与 Agent 对话联动 — 技术实现方案</h1>
+<div class="meta-info">
+  <span>📂 product-specs/agent-system</span>
+  <span>📅 2026-07-29</span>
+  <span>🏷️ AG-UI + A2UI v0.8</span>
+  <span>📐 基于现有代码实现</span>
+</div>
+<p class="subtitle">在 agent-system 现有 AG-UI × A2UI 架构上，实现表单、表格、列表、详情组件与 Agent Chat 的双向实时联动；支持创建、查询、更新、删除、刷新、选择、分页、审批等组件操作，并保证 Chat 内组件与真实业务页面使用同一份业务状态。</p>
+
+<div class="toc">
+<h3>目录</h3>
+<ol>
+  <li><a href="#sec1">目标场景与联动模式</a></li>
+  <li><a href="#sec2">整体架构设计</a></li>
+  <li><a href="#sec3">后端实现方案（Python）</a></li>
+  <li><a href="#sec4">前端联动机制</a></li>
+  <li><a href="#sec5">端到端数据流</a></li>
+  <li><a href="#sec6">核心代码实现</a></li>
+  <li><a href="#sec7">Demo 示例</a></li>
+  <li><a href="#sec8">统一业务组件模型</a></li>
+  <li><a href="#sec9">组件操作与 Agent 联动</a></li>
+  <li><a href="#sec10">创建与更新完整流程</a></li>
+  <li><a href="#sec11">工程实现与协议扩展</a></li>
+  <li><a href="#sec12">实施计划、验收与风险</a></li>
+</ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2 id="sec1"><span class="section-num">1.</span> 目标场景与联动模式</h2>
+
+<h3>1.1 典型业务场景</h3>
+<table>
+<tr><th>场景</th><th>对话框行为</th><th>页面行为</th></tr>
+<tr><td>创建客户</td><td>Agent 在 Chat 中弹出客户表单，用户填写字段</td><td>页面侧边栏实时预览客户信息卡片</td></tr>
+<tr><td>编辑商机</td><td>用户说"修改金额为 50 万"，Agent 理解后更新表单字段</td><td>页面商机详情同步刷新金额</td></tr>
+<tr><td>审批流</td><td>用户在对话中点击"提交审批"按钮</td><td>页面审批列表新增一条待办</td></tr>
+<tr><td>智能填单</td><td>Agent 根据上下文自动预填表单，用户确认或修改</td><td>页面表格同步显示新记录（草稿态）</td></tr>
+</table>
+
+<h3>1.2 三种联动模式</h3>
+<div class="card card-blue">
+<h4>Mode ① Chat 驱动页面（Agent → 表单 → 页面同步）</h4>
+<p>Agent 在 Chat 内渲染表单组件 → 用户填写 → Shared State 更新 → 页面组件响应式刷新</p>
+</div>
+<div class="card card-purple">
+<h4>Mode ② 页面驱动对话（页面操作 → Agent 继续）</h4>
+<p>用户在页面表单上修改字段 → userAction 回传 → Agent 接收并继续处理（如校验、自动补全）</p>
+</div>
+<div class="card card-green">
+<h4>Mode ③ 对话式表单填写（Agent 引导 + 多轮对话）</h4>
+<p>Agent 逐字段引导用户填写 → 每轮对话更新表单状态 → 最终用户确认提交</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2 id="sec2"><span class="section-num">2.</span> 整体架构设计</h2>
+
+<div class="diagram">
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Shared State（唯一数据源）                        │
+│  {                                                                           │
+│    "form": {                                                                 │
+│      "customer_create": {                                                    │
+│        "fields": {"name":"","industry":"","level":"A","amount":0},           │
+│        "status": "editing",     // editing | validating | submitted          │
+│        "errors": {},            // field → error message                     │
+│        "dirty":  ["name"]       // 已修改的字段列表                            │
+│      }                                                                       │
+│    },                                                                        │
+│    "data": { ... }              // 其他业务数据                               │
+│  }                                                                           │
+└────────┬───────────────────────────────┬────────────────────────┬───────────┘
+         │                               │                        │
+         ▼                               ▼                        ▼
+┌─────────────────┐           ┌────────────────────┐    ┌──────────────────┐
+│  Chat 内 A2UI    │           │  页面 &lt;A2UISurface&gt; │    │  业务组件          │
+│  (ACTIVITY)      │           │  (CUSTOM a2ui.*)   │    │  useNeoState()   │
+│                  │           │                    │    │                  │
+│  ┌────────────┐  │           │  ┌──────────────┐  │    │  读取表单状态     │
+│  │ Form 组件   │  │           │  │ 预览卡片      │  │    │  响应式更新       │
+│  │ TextField  │  │           │  │ RecordCard   │  │    │                  │
+│  │ Select     │──┤           │  │ path 绑定     │  │    │                  │
+│  │ Button     │  │           │  │ Shared State │  │    │                  │
+│  └────────────┘  │           │  └──────────────┘  │    │                  │
+└────────┬─────────┘           └────────────────────┘    └──────────────────┘
+         │                               ▲
+         │  userAction                   │  STATE_DELTA
+         ▼                               │
+┌─────────────────────────────────────────┴───────────────────────────────────┐
+│                            后端 Agent（Python）                               │
+│                                                                              │
+│  ┌──────────────┐    ┌───────────────┐    ┌──────────────────────────┐      │
+│  │ FormSkill     │    │ A2UIRender    │    │ SnapshotAggregator       │      │
+│  │              │    │ Helper        │    │                          │      │
+│  │ • 表单初始化  │───▶│ • render()    │───▶│ • STATE_SNAPSHOT/DELTA   │      │
+│  │ • 字段校验    │    │ • update_data │    │ • ACTIVITY_SNAPSHOT      │      │
+│  │ • 提交处理    │    │               │    │                          │      │
+│  └──────────────┘    └───────────────┘    └──────────────────────────┘      │
+│         ▲                                                                    │
+│         │  inject_message (userAction → HumanMessage)                        │
+│  ┌──────┴──────────────────────────────────────────────────────┐            │
+│  │  A2UIInboundHandler                                          │            │
+│  │  POST /agent/a2ui/event → parse → dedupe → inject           │            │
+│  └─────────────────────────────────────────────────────────────┘            │
+└──────────────────────────────────────────────────────────────────────────────┘
+</div>
+
+<h3>2.1 核心设计原则</h3>
+<ul>
+<li><strong>Shared State 唯一数据源</strong>：表单字段值、校验状态、提交状态全部存在 <code>/form/{form_id}/</code> 路径下</li>
+<li><strong>结构与数据分离</strong>：表单 UI 结构（TextField/Select/Button）通过 ACTIVITY_SNAPSHOT 下发；表单数据通过 STATE_SNAPSHOT/DELTA 驱动</li>
+<li><strong>双向绑定通过 path</strong>：表单组件的 <code>value</code> 属性绑定到 <code>/form/{form_id}/fields/{field_name}</code>，实现读写联动</li>
+<li><strong>userAction 闭环</strong>：用户在表单上的每次操作（输入、选择、提交）都通过 <code>POST /agent/a2ui/event</code> 回传 Agent</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2 id="sec3"><span class="section-num">3.</span> 后端实现方案（Python）</h2>
+
+<h3>3.1 表单状态数据模型</h3>
+<pre><code># src/a2ui/form_state.py
+
+from dataclasses import dataclass, field
+from typing import Any
+
+@dataclass
+class FormFieldDef:
+    """单个表单字段定义"""
+    name: str                    # 字段标识（camelCase）
+    label: str                   # 显示名
+    type: str                    # text | number | select | date | boolean
+    required: bool = False
+    placeholder: str = ""
+    options: list[dict] | None = None   # select 类型的选项 [{value, label}]
+    default: Any = None
+    validation: dict | None = None      # {"pattern": "...", "min": 0, "max": 100}
+
+@dataclass
+class FormState:
+    """表单运行时状态（存入 Shared State）"""
+    form_id: str
+    title: str
+    fields: dict[str, Any]       # field_name → current value
+    status: str = "editing"      # editing | validating | submitted | error
+    errors: dict[str, str] = field(default_factory=dict)  # field → error msg
+    dirty: list[str] = field(default_factory=list)        # 已修改字段
+
+    def to_shared_state(self) -> dict:
+        return {
+            "formId": self.form_id,
+            "title": self.title,
+            "fields": dict(self.fields),
+            "status": self.status,
+            "errors": dict(self.errors),
+            "dirty": list(self.dirty),
+        }
+
+    def update_field(self, name: str, value: Any) -> None:
+        self.fields[name] = value
+        if name not in self.dirty:
+            self.dirty.append(name)
+        # 清除该字段的错误
+        self.errors.pop(name, None)
+
+    def validate(self, field_defs: list[FormFieldDef]) -> bool:
+        self.errors = {}
+        for fd in field_defs:
+            val = self.fields.get(fd.name)
+            if fd.required and (val is None or val == ""):
+                self.errors[fd.name] = f"{fd.label}为必填项"
+        self.status = "error" if self.errors else "validating"
+        return not self.errors
+</code></pre>
+
+<h3>3.2 FormBuilder — 表单 UI 构建器</h3>
+<pre><code># src/a2ui/form_builder.py
+
+from src.a2ui.builder import A2UIBuilder
+from src.a2ui.models import Component
+from .form_state import FormFieldDef
+
+class FormBuilder:
+    """在 A2UIBuilder 基础上封装表单构建能力。
+
+    用法：
+        fb = FormBuilder(form_id="customer_create", title="创建客户")
+        fb.add_field(FormFieldDef(name="name", label="客户名称", type="text", required=True))
+        fb.add_field(FormFieldDef(name="industry", label="行业", type="select",
+                                  options=[{"value":"tech","label":"科技"},...]))
+        fb.add_submit(label="创建", action="submit_customer_form")
+        surface_fn = fb.build_surface_fn()
+    """
+
+    def __init__(self, form_id: str, title: str = "") -> None:
+        self.form_id = form_id
+        self.title = title
+        self._fields: list[FormFieldDef] = []
+        self._submit_label: str = "提交"
+        self._submit_action: str = "submit_form"
+        self._cancel_action: str | None = None
+
+    def add_field(self, field_def: FormFieldDef) -> "FormBuilder":
+        self._fields.append(field_def)
+        return self
+
+    def add_submit(self, label: str = "提交", action: str = "submit_form",
+                   cancel_action: str | None = "cancel_form") -> "FormBuilder":
+        self._submit_label = label
+        self._submit_action = action
+        self._cancel_action = cancel_action
+        return self
+
+    @property
+    def field_defs(self) -> list[FormFieldDef]:
+        return list(self._fields)
+
+    def build_surface_fn(self):
+        """返回 SurfaceBuilder 回调，供 A2UIRenderHelper.render() 使用"""
+        form_id = self.form_id
+        title = self.title
+        fields = list(self._fields)
+        submit_label = self._submit_label
+        submit_action = self._submit_action
+        cancel_action = self._cancel_action
+
+        def surface_fn(ui: A2UIBuilder, data_path: str) -> None:
+            form_path = f"{data_path}"  # → /data/form/{form_id}
+            fields_path = f"{form_path}/fields"
+            errors_path = f"{form_path}/errors"
+
+            child_ids = []
+
+            # 标题
+            if title:
+                ui.text("form_title", literal=title, usage_hint="h3")
+                child_ids.append("form_title")
+
+            # 逐字段生成组件
+            for fd in fields:
+                field_id = f"field_{fd.name}"
+                error_id = f"error_{fd.name}"
+
+                if fd.type == "select" and fd.options:
+                    # Select 组件（用 MultipleChoice 模拟单选）
+                    ui.add(Component(
+                        id=field_id,
+                        type="MultipleChoice",
+                        props={
+                            "label": {"literalString": fd.label},
+                            "value": {"path": f"{fields_path}/{fd.name}"},
+                            "options": {"literalArray": fd.options},
+                            "required": {"literalBoolean": fd.required},
+                            "action": {
+                                "name": "field_change",
+                                "context": [
+                                    {"key": "formId", "value": {"literalString": form_id}},
+                                    {"key": "field", "value": {"literalString": fd.name}},
+                                ]
+                            },
+                        }
+                    ))
+                elif fd.type == "boolean":
+                    ui.add(Component(
+                        id=field_id,
+                        type="CheckBox",
+                        props={
+                            "label": {"literalString": fd.label},
+                            "value": {"path": f"{fields_path}/{fd.name}"},
+                            "action": {
+                                "name": "field_change",
+                                "context": [
+                                    {"key": "formId", "value": {"literalString": form_id}},
+                                    {"key": "field", "value": {"literalString": fd.name}},
+                                ]
+                            },
+                        }
+                    ))
+                else:
+                    # TextField（text / number / date）
+                    props = {
+                        "value": {"path": f"{fields_path}/{fd.name}"},
+                        "label": {"literalString": fd.label},
+                        "action": {
+                            "name": "field_change",
+                            "context": [
+                                {"key": "formId", "value": {"literalString": form_id}},
+                                {"key": "field", "value": {"literalString": fd.name}},
+                            ]
+                        },
+                    }
+                    if fd.placeholder:
+                        props["placeholder"] = {"literalString": fd.placeholder}
+                    ui.add(Component(id=field_id, type="TextField", props=props))
+
+                # 错误提示（绑定到 errors path）
+                ui.add(Component(
+                    id=error_id,
+                    type="Text",
+                    props={
+                        "text": {"path": f"{errors_path}/{fd.name}",
+                                 "literalString": ""},
+                        "usageHint": "error",
+                    }
+                ))
+                child_ids.extend([field_id, error_id])
+
+            # 按钮行
+            btn_children = []
+            ui.button("btn_submit", label=submit_label, action=submit_action,
+                      context={"formId": {"literalString": form_id}})
+            btn_children.append("btn_submit")
+
+            if cancel_action:
+                ui.button("btn_cancel", label="取消", action=cancel_action,
+                          context={"formId": {"literalString": form_id}})
+                btn_children.append("btn_cancel")
+
+            ui.row("btn_row", children=btn_children)
+            child_ids.append("btn_row")
+
+            # Root column
+            ui.column("root", children=child_ids)
+
+        return surface_fn
+
+    def default_values(self) -> dict[str, Any]:
+        """根据字段定义生成默认值 dict"""
+        return {fd.name: (fd.default if fd.default is not None else "") for fd in self._fields}
+</code></pre>
+
+<h3>3.3 FormSkill — 表单生命周期管理</h3>
+<pre><code># src/skills/form_skill.py
+
+from src.a2ui import A2UIRenderHelper
+from src.a2ui.form_builder import FormBuilder
+from src.a2ui.form_state import FormState, FormFieldDef
+from src.agui.models import AGUIEvent
+
+class FormSkill:
+    """管理表单的完整生命周期：初始化 → 字段更新 → 校验 → 提交。
+
+    与 A2UIRenderHelper 配合：
+    - 初始化：render() 产出 STATE_SNAPSHOT + ACTIVITY_SNAPSHOT
+    - 字段更新：update_data() 产出 STATE_DELTA
+    - 提交：validate + submit → STATE_DELTA（状态变更）
+
+    Adapter 在收到 userAction 时调用对应方法。
+    """
+
+    def __init__(self, helper: A2UIRenderHelper) -> None:
+        self._helper = helper
+        self._forms: dict[str, FormState] = {}
+        self._builders: dict[str, FormBuilder] = {}
+
+    def init_form(
+        self,
+        form_id: str,
+        title: str,
+        field_defs: list[FormFieldDef],
+        initial_values: dict | None = None,
+        submit_label: str = "提交",
+        submit_action: str = "submit_form",
+    ) -> list[AGUIEvent]:
+        """初始化表单：创建状态 + 渲染 UI。
+
+        返回 AG-UI 事件列表（STATE_SNAPSHOT + ACTIVITY_SNAPSHOT）。
+        """
+        # 构建表单定义
+        fb = FormBuilder(form_id=form_id, title=title)
+        for fd in field_defs:
+            fb.add_field(fd)
+        fb.add_submit(label=submit_label, action=submit_action)
+        self._builders[form_id] = fb
+
+        # 初始化表单状态
+        defaults = fb.default_values()
+        if initial_values:
+            defaults.update(initial_values)
+        state = FormState(
+            form_id=form_id,
+            title=title,
+            fields=defaults,
+        )
+        self._forms[form_id] = state
+
+        # 通过 RenderHelper 一步完成：数据 + 结构 + 下发
+        render_type = f"form/{form_id}"
+        return self._helper.render(
+            render_type=render_type,
+            data=state.to_shared_state(),
+            surface_fn=fb.build_surface_fn(),
+            notification_message=f"📝 {title}",
+        )
+
+    def on_field_change(self, form_id: str, field_name: str, value) -> list[AGUIEvent]:
+        """处理字段变更 → 更新 Shared State。"""
+        state = self._forms.get(form_id)
+        if state is None:
+            return []
+        state.update_field(field_name, value)
+        render_type = f"form/{form_id}"
+        return self._helper.update_data(render_type, state.to_shared_state())
+
+    def on_submit(self, form_id: str) -> list[AGUIEvent]:
+        """处理表单提交：校验 → 状态变更。"""
+        state = self._forms.get(form_id)
+        builder = self._builders.get(form_id)
+        if state is None or builder is None:
+            return []
+
+        # 校验
+        valid = state.validate(builder.field_defs)
+        render_type = f"form/{form_id}"
+
+        if not valid:
+            return self._helper.update_data(render_type, state.to_shared_state())
+
+        # 校验通过 → 标记提交中
+        state.status = "submitted"
+        return self._helper.update_data(render_type, state.to_shared_state())
+
+    def get_form_data(self, form_id: str) -> dict | None:
+        """获取表单当前数据（供业务逻辑使用）"""
+        state = self._forms.get(form_id)
+        return dict(state.fields) if state else None
+</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2 id="sec4"><span class="section-num">4.</span> 前端联动机制</h2>
+
+<h3>4.1 Shared State 中的表单数据结构</h3>
+<pre><code>// STATE_SNAPSHOT.snapshot 中的表单部分
+{
+  "phase": "executing",
+  "data": {
+    "form/customer_create": {
+      "formId": "customer_create",
+      "title": "创建客户",
+      "fields": {
+        "name": "工商银行",
+        "industry": "finance",
+        "level": "A",
+        "amount": 58
+      },
+      "status": "editing",
+      "errors": {},
+      "dirty": ["name", "industry"]
+    }
+  },
+  "panelSurfaceMap": {
+    "form/customer_create": "panel-slot-1"
+  }
+}
+</code></pre>
+
+<h3>4.2 前端组件消费 Shared State</h3>
+<pre><code>// 页面侧边栏 — 实时预览卡片（与 Chat 内表单共享同一份 Shared State）
+function CustomerPreviewCard() {
+  const [formData] = useNeoState('form/customer_create');
+
+  if (!formData || formData.status === 'editing') {
+    return &lt;Skeleton /&gt;;
+  }
+
+  return (
+    &lt;Card title="客户预览"&gt;
+      &lt;Field label="名称"&gt;{formData.fields.name || '—'}&lt;/Field&gt;
+      &lt;Field label="行业"&gt;{formData.fields.industry || '—'}&lt;/Field&gt;
+      &lt;Field label="级别"&gt;{formData.fields.level}&lt;/Field&gt;
+      &lt;Field label="金额"&gt;{formData.fields.amount ? `¥${formData.fields.amount}万` : '—'}&lt;/Field&gt;
+      {formData.status === 'submitted' && &lt;Tag color="green"&gt;已提交&lt;/Tag&gt;}
+    &lt;/Card&gt;
+  );
+}
+</code></pre>
+
+<h3>4.3 userAction 回传流程</h3>
+<pre><code>// 前端 A2UI TextField 组件内部 — 用户输入时触发
+function A2UITextField({ node, getValue, sharedState }) {
+  const value = getValue(node.props.value);    // 从 Shared State 读取当前值
+  const action = node.props.action;            // {name: "field_change", context: [...]}
+
+  const handleChange = debounce((newValue) =&gt; {
+    // Fire-and-forget 回传给 Agent
+    fetch('/agent/a2ui/event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        threadId: currentThreadId,
+        userAction: {
+          name: action.name,                    // "field_change"
+          surfaceId: currentSurfaceId,
+          sourceComponentId: node.id,           // "field_name"
+          timestamp: new Date().toISOString(),
+          context: {
+            formId: resolveContext(action.context, 'formId'),
+            field: resolveContext(action.context, 'field'),
+            value: newValue,                    // ★ 已 resolve 的实际值
+          }
+        }
+      })
+    });
+  }, 300);
+
+  return &lt;Input value={value} onChange={e =&gt; handleChange(e.target.value)} /&gt;;
+}
+</code></pre>
+
+<h3>4.4 响应式更新链路</h3>
+<div class="card card-blue">
+<p><strong>完整链路（字段修改）</strong></p>
+<ol>
+<li>用户在 Chat 内 TextField 输入 "工商银行"</li>
+<li>前端 debounce 300ms 后 POST <code>/agent/a2ui/event</code>（userAction: field_change）</li>
+<li>后端 <code>A2UIInboundHandler</code> → <code>inject_message()</code> → Agent 下次 execute 时消费</li>
+<li>Agent 调 <code>FormSkill.on_field_change("customer_create", "name", "工商银行")</code></li>
+<li>产出 <code>STATE_DELTA</code>: <code>[{op:"replace", path:"/data/form~1customer_create/fields/name", value:"工商银行"}]</code></li>
+<li>前端 Shared State 更新 → Chat 内 TextField 确认值 + 页面 CustomerPreviewCard 同步刷新</li>
+</ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2 id="sec5"><span class="section-num">5.</span> 端到端数据流</h2>
+
+<h3>5.1 场景：Agent 引导创建客户</h3>
+<pre><code>用户: "帮我创建一个新客户"
+    │
+    ▼
+┌─ Agent 执行 ─────────────────────────────────────────────────────┐
+│                                                                    │
+│  1. Agent 理解意图 → 调用 FormSkill.init_form()                    │
+│  2. FormBuilder 生成表单组件树                                      │
+│  3. A2UIRenderHelper.render() 产出事件：                            │
+│     ① STATE_SNAPSHOT (data.form/customer_create = {fields, ...})  │
+│     ② ACTIVITY_SNAPSHOT (surfaceUpdate + beginRendering)           │
+│  4. Agent 回复文本："请填写以下客户信息："                             │
+└────────────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─ SSE 输出（按顺序）────────────────────────────────────────────────┐
+│                                                                    │
+│  event: RUN_STARTED                                                │
+│  event: STATE_SNAPSHOT                                             │
+│    data: {snapshot: {data: {"form/customer_create": {              │
+│      formId: "customer_create",                                    │
+│      title: "创建客户",                                             │
+│      fields: {name:"", industry:"", level:"A", amount:0},          │
+│      status: "editing", errors: {}, dirty: []                      │
+│    }}}}                                                            │
+│                                                                    │
+│  event: ACTIVITY_SNAPSHOT                                          │
+│    data: {activity_type: "a2ui-surface", content: {operations: [   │
+│      {surfaceUpdate: {surfaceId:"panel-slot-1", components:[       │
+│        {id:"root", component:{Column:{children:{explicitList:      │
+│          ["form_title","field_name","error_name",                   │
+│           "field_industry","error_industry",                       │
+│           "field_level","error_level",                             │
+│           "field_amount","error_amount","btn_row"]}}}},            │
+│        {id:"form_title", component:{Text:{text:{literalString:     │
+│          "创建客户"},usageHint:"h3"}}},                             │
+│        {id:"field_name", component:{TextField:{                    │
+│          value:{path:"/data/form~1customer_create/fields/name"},   │
+│          label:{literalString:"客户名称"},                           │
+│          placeholder:{literalString:"请输入客户名称"},               │
+│          action:{name:"field_change",context:[                     │
+│            {key:"formId",value:{literalString:"customer_create"}}, │
+│            {key:"field",value:{literalString:"name"}}              │
+│          ]}                                                        │
+│        }}},                                                        │
+│        ...                                                         │
+│        {id:"btn_submit", component:{Button:{                       │
+│          child:"btn_submit__label",                                │
+│          action:{name:"submit_customer_form",context:[              │
+│            {key:"formId",value:{literalString:"customer_create"}}  │
+│          ]}                                                        │
+│        }}},                                                        │
+│      ]}},                                                          │
+│      {beginRendering:{surfaceId:"panel-slot-1",root:"root"}}       │
+│    ]}}                                                             │
+│                                                                    │
+│  event: TEXT_MESSAGE_START  {message_id:"m1"}                      │
+│  event: TEXT_MESSAGE_CONTENT {delta:"请填写以下客户信息："}           │
+│  event: TEXT_MESSAGE_END    {message_id:"m1"}                      │
+│  event: RUN_FINISHED                                               │
+└────────────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─ 前端渲染 ───────────────────────────────────────────────────────┐
+│                                                                    │
+│  ┌─ Chat 对话区域 ─────────────────────┐  ┌─ 页面侧边栏 ────────┐ │
+│  │                                      │  │                      │ │
+│  │  🤖 请填写以下客户信息：              │  │  ┌──────────────┐    │ │
+│  │                                      │  │  │ 客户预览      │    │ │
+│  │  ┌────────────────────────┐          │  │  │              │    │ │
+│  │  │ 📝 创建客户             │          │  │  │ 名称: —      │    │ │
+│  │  │                        │          │  │  │ 行业: —      │    │ │
+│  │  │ 客户名称  [__________] │          │  │  │ 级别: A      │    │ │
+│  │  │ 行业     [▼ 请选择   ] │          │  │  │ 金额: —      │    │ │
+│  │  │ 级别     [▼ A级      ] │          │  │  │              │    │ │
+│  │  │ 金额(万) [__________] │          │  │  └──────────────┘    │ │
+│  │  │                        │          │  │                      │ │
+│  │  │  [创建]  [取消]        │          │  │  (path 绑定同一份     │ │
+│  │  └────────────────────────┘          │  │   Shared State)      │ │
+│  │                                      │  │                      │ │
+│  └──────────────────────────────────────┘  └──────────────────────┘ │
+└────────────────────────────────────────────────────────────────────┘
+</code></pre>
+
+<h3>5.2 场景：用户填写字段 → 实时联动</h3>
+<pre><code>用户在 Chat 内 TextField 输入 "工商银行"
+    │
+    ▼
+POST /agent/a2ui/event
+  {threadId:"t-123", userAction:{
+    name:"field_change", surfaceId:"panel-slot-1",
+    sourceComponentId:"field_name",
+    timestamp:"2026-07-29T10:30:00Z",
+    context:{formId:"customer_create", field:"name", value:"工商银行"}
+  }}
+    │
+    ▼  202 Accepted（fire-and-forget）
+    │
+    ▼  Agent 下次 execute 时消费 pending message
+┌─ Agent 处理 ─────────────────────────────────────────────────────┐
+│  FormSkill.on_field_change("customer_create", "name", "工商银行")  │
+│    → state.fields["name"] = "工商银行"                             │
+│    → state.dirty = ["name"]                                       │
+│    → helper.update_data("form/customer_create", state)            │
+│    → STATE_DELTA: [{op:"replace",                                 │
+│         path:"/data/form~1customer_create/fields/name",           │
+│         value:"工商银行"},                                         │
+│        {op:"add",                                                 │
+│         path:"/data/form~1customer_create/dirty/-",               │
+│         value:"name"}]                                            │
+└────────────────────────────────────────────────────────────────────┘
+    │
+    ▼  SSE 推送 STATE_DELTA
+    │
+┌─ 前端响应 ───────────────────────────────────────────────────────┐
+│  1. Shared State 应用 JSON Patch                                   │
+│  2. Chat 内 TextField path="/data/form.../fields/name" → "工商银行" │
+│  3. 页面 CustomerPreviewCard useNeoState('form/customer_create')   │
+│     → formData.fields.name = "工商银行" → 重渲染 "名称: 工商银行"    │
+└────────────────────────────────────────────────────────────────────┘
+</code></pre>
+
+<h3>5.3 场景：提交表单</h3>
+<pre><code>用户点击 [创建] 按钮
+    │
+    ▼
+POST /agent/a2ui/event
+  {userAction:{name:"submit_customer_form", context:{formId:"customer_create"}}}
+    │
+    ▼  Agent 处理
+┌─ FormSkill.on_submit("customer_create") ─────────────────────────┐
+│                                                                    │
+│  1. validate() → 检查必填字段                                       │
+│     ├─ 校验失败 → STATE_DELTA: errors.name = "客户名称为必填项"      │
+│     │   → 前端 error Text 组件通过 path 绑定自动显示                │
+│     │                                                              │
+│     └─ 校验通过 → status = "submitted"                             │
+│        → STATE_DELTA: status = "submitted"                         │
+│        → RecordActionService 创建客户并持久化到本地 PostgreSQL       │
+│        → Agent 文本回复："✅ 客户工商银行已创建成功！"                 │
+│        → 可选：deleteSurface 移除表单面板                           │
+└────────────────────────────────────────────────────────────────────┘
+</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2 id="sec6"><span class="section-num">6.</span> 核心代码实现</h2>
+
+<h3>6.1 在 Adapter 中集成 FormSkill</h3>
+<pre><code># src/agents/adapter.py 中 execute_agui() 增加 userAction 路由
+
+async def _handle_user_action(self, thread_id: str, ua_msg) -> list:
+    """解析 userAction HumanMessage，路由到对应 Skill。"""
+    import json
+    content = ua_msg.content if hasattr(ua_msg, 'content') else str(ua_msg)
+
+    # 解析 [ui-action] 格式
+    if not content.startswith("[ui-action]"):
+        return []
+
+    # 从 additional_kwargs 提取结构化信息
+    kwargs = getattr(ua_msg, 'additional_kwargs', {}) or {}
+    ui_action = kwargs.get('ui_action', {})
+    action_name = ui_action.get('name', '')
+    context = ui_action.get('context', {})
+
+    form_id = context.get('formId', '')
+
+    if action_name == 'field_change':
+        field = context.get('field', '')
+        value = context.get('value', '')
+        return self._form_skill.on_field_change(form_id, field, value)
+
+    elif action_name.startswith('submit_'):
+        events = self._form_skill.on_submit(form_id)
+        # 提交成功后调用业务逻辑
+        if self._form_skill.get_form_data(form_id):
+            state = self._form_skill._forms.get(form_id)
+            if state and state.status == "submitted":
+                # 触发业务逻辑（如调用 CRM API）
+                pass
+        return events
+
+    elif action_name == 'cancel_form':
+        # 取消表单 → 清空状态
+        return self._helper.update_data(
+            f"form/{form_id}",
+            {"formId": form_id, "status": "cancelled", "fields": {}, "errors": {}, "dirty": []}
+        )
+
+    return []
+</code></pre>
+
+<h3>6.2 在 Agent Tool 中触发表单</h3>
+<pre><code># src/tools/form_tools.py — 注册为 Agent 可调用的工具
+
+from langchain_core.tools import tool
+from src.a2ui.form_state import FormFieldDef
+
+@tool
+def show_customer_form(prefill: dict | None = None) -> str:
+    """当用户想创建新客户时调用此工具，弹出客户创建表单。
+
+    Args:
+        prefill: 可选的预填值，如从对话上下文推断出的客户名称等
+    """
+    from src.skills.form_skill import get_active_form_skill
+
+    form_skill = get_active_form_skill()
+    events = form_skill.init_form(
+        form_id="customer_create",
+        title="创建客户",
+        field_defs=[
+            FormFieldDef(name="name", label="客户名称", type="text",
+                        required=True, placeholder="请输入客户全称"),
+            FormFieldDef(name="industry", label="行业", type="select",
+                        options=[
+                            {"value": "tech", "label": "科技"},
+                            {"value": "finance", "label": "金融"},
+                            {"value": "manufacturing", "label": "制造"},
+                            {"value": "retail", "label": "零售"},
+                        ]),
+            FormFieldDef(name="level", label="客户级别", type="select",
+                        default="B",
+                        options=[
+                            {"value": "A", "label": "A级（战略客户）"},
+                            {"value": "B", "label": "B级（重点客户）"},
+                            {"value": "C", "label": "C级（普通客户）"},
+                        ]),
+            FormFieldDef(name="amount", label="预估金额(万)", type="number",
+                        placeholder="0"),
+        ],
+        initial_values=prefill or {},
+        submit_label="创建客户",
+        submit_action="submit_customer_form",
+    )
+
+    # events 会通过 on_custom_event("agent_data") 注入到 AG-UI 事件流
+    return f"已弹出客户创建表单（预填: {prefill or '无'}）"
+</code></pre>
+
+<h3>6.3 A2UIInboundHandler 路由增强</h3>
+<pre><code># src/a2ui/inbound.py — 增加表单专用路由
+
+FORM_ACTIONS = frozenset({
+    "field_change",
+    "submit_form",
+    "submit_customer_form",
+    "submit_opportunity_form",
+    "cancel_form",
+})
+
+def _format_ua_text(ua: UserAction) -> str:
+    """给 LLM 看的简洁文本（表单操作自动附带结构化数据）。"""
+    ctx = json.dumps(ua.context, ensure_ascii=False) if ua.context else "{}"
+
+    # 表单操作用更友好的文本
+    if ua.name == "field_change":
+        form_id = ua.context.get("formId", "")
+        field = ua.context.get("field", "")
+        value = ua.context.get("value", "")
+        return f"[ui-action] 用户修改了表单 {form_id} 的 {field} 字段为: {value}"
+
+    if ua.name.startswith("submit_"):
+        form_id = ua.context.get("formId", "")
+        return f"[ui-action] 用户提交了表单 {form_id}"
+
+    if ua.name == "cancel_form":
+        form_id = ua.context.get("formId", "")
+        return f"[ui-action] 用户取消了表单 {form_id}"
+
+    return f"[ui-action] {ua.name} on surface={ua.surface_id} context={ctx}"
+</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2 id="sec7"><span class="section-num">7.</span> Demo 示例</h2>
+
+<h3>7.1 完整 Demo 脚本</h3>
+<pre><code># demo_form_chat_linkage.py
+"""
+端到端示例：表单与对话框联动
+
+演示链路：
+  1. Agent 初始化表单 → 产出 STATE_SNAPSHOT + ACTIVITY_SNAPSHOT
+  2. 模拟用户填写字段 → 产出 STATE_DELTA
+  3. 模拟提交（含校验失败 + 成功）→ 产出 STATE_DELTA
+
+运行：
+    .venv/bin/python demo_form_chat_linkage.py
+"""
+import json
+import sys
+import uuid
+
+sys.path.insert(0, ".")
+
+from src.a2ui import A2UIRenderHelper, CatalogRegistry, STANDARD_V08
+from src.a2ui.form_builder import FormBuilder
+from src.a2ui.form_state import FormState, FormFieldDef
+
+
+def run_demo():
+    run_id = uuid.uuid4().hex
+    thread_id = "t-form-demo"
+
+    # 初始化
+    reg = CatalogRegistry()
+    reg.register_standard()
+    helper = A2UIRenderHelper(run_id=run_id, thread_id=thread_id, catalog_registry=reg)
+
+    # ══ 步骤 1: Agent 初始化表单 ══
+    print("=" * 60)
+    print("步骤 1: Agent 初始化客户创建表单")
+    print("=" * 60)
+
+    field_defs = [
+        FormFieldDef(name="name", label="客户名称", type="text",
+                    required=True, placeholder="请输入客户全称"),
+        FormFieldDef(name="industry", label="行业", type="select",
+                    options=[
+                        {"value": "tech", "label": "科技"},
+                        {"value": "finance", "label": "金融"},
+                    ]),
+        FormFieldDef(name="amount", label="预估金额(万)", type="number"),
+    ]
+
+    fb = FormBuilder(form_id="customer_create", title="创建客户")
+    for fd in field_defs:
+        fb.add_field(fd)
+    fb.add_submit(label="创建客户", action="submit_customer_form")
+
+    state = FormState(
+        form_id="customer_create",
+        title="创建客户",
+        fields=fb.default_values(),
+    )
+
+    events = helper.render(
+        render_type="form/customer_create",
+        data=state.to_shared_state(),
+        surface_fn=fb.build_surface_fn(),
+        notification_message="📝 创建客户",
+    )
+    _print_events("表单初始化", events)
+
+    # ══ 步骤 2: 用户填写 name 字段 ══
+    print("\n" + "=" * 60)
+    print("步骤 2: 用户填写 name = '工商银行'")
+    print("=" * 60)
+
+    state.update_field("name", "工商银行")
+    events = helper.update_data("form/customer_create", state.to_shared_state())
+    _print_events("字段更新", events)
+
+    # ══ 步骤 3: 用户填写 industry ══
+    print("\n" + "=" * 60)
+    print("步骤 3: 用户选择 industry = 'finance'")
+    print("=" * 60)
+
+    state.update_field("industry", "finance")
+    events = helper.update_data("form/customer_create", state.to_shared_state())
+    _print_events("字段更新", events)
+
+    # ══ 步骤 4: 用户提交（缺少 amount，但 amount 非必填，通过）══
+    print("\n" + "=" * 60)
+    print("步骤 4: 用户点击提交")
+    print("=" * 60)
+
+    valid = state.validate(field_defs)
+    print(f"  校验结果: {'通过' if valid else '失败'}")
+    if valid:
+        state.status = "submitted"
+    events = helper.update_data("form/customer_create", state.to_shared_state())
+    _print_events("提交", events)
+
+    print("\n✅ 表单数据:", json.dumps(state.fields, ensure_ascii=False))
+
+
+def _print_events(phase: str, events):
+    print(f"\n  产出 {len(events)} 个事件 ({phase}):")
+    for i, ev in enumerate(events, 1):
+        t = getattr(ev.type, "value", ev.type)
+        detail = ""
+        if t == "STATE_SNAPSHOT":
+            keys = list((ev.data.get("snapshot", {}).get("data") or {}).keys())
+            detail = f" data keys={keys}"
+        elif t == "STATE_DELTA":
+            ops = ev.data.get("delta", [])
+            detail = f" {len(ops)} patches"
+            for op in ops[:3]:
+                detail += f"\n      {op['op']} {op['path']} = {json.dumps(op.get('value',''), ensure_ascii=False)[:50]}"
+        elif t == "ACTIVITY_SNAPSHOT":
+            ops = (ev.data.get("content") or {}).get("operations", [])
+            detail = f" {len(ops)} operations"
+        print(f"    [{i}] {t}{detail}")
+
+
+if __name__ == "__main__":
+    run_demo()
+</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2 id="sec8"><span class="section-num">8.</span> 统一业务组件模型</h2>
+
+<h3>8.1 支持范围</h3>
+<table>
+<tr><th>组件</th><th>创建方式</th><th>更新方式</th><th>标准操作</th></tr>
+<tr><td><strong>Form</strong></td><td>根据字段 Schema 动态生成创建/编辑表单</td><td>STATE_DELTA 更新值、错误、状态</td><td>字段变更、校验、保存、提交、取消</td></tr>
+<tr><td><strong>DataTable</strong></td><td>根据 columns + rows 创建表格 Surface</td><td>更新行、分页、排序、选择态</td><td>新建、查看、编辑、删除、刷新、批量操作</td></tr>
+<tr><td><strong>RecordList</strong></td><td>根据 itemTemplate + items 创建卡片列表</td><td>追加、替换、删除列表项</td><td>查看、编辑、收藏、加载更多、刷新</td></tr>
+<tr><td><strong>RecordDetail</strong></td><td>根据 sections + fields 创建详情页</td><td>字段增量更新、状态刷新</td><td>编辑、删除、审批、返回、关联操作</td></tr>
+<tr><td><strong>ActionBar</strong></td><td>由页面级/行级 ActionDefinition 生成</td><td>按权限和业务状态动态启停</td><td>工具栏、行按钮、详情按钮、批量按钮</td></tr>
+</table>
+
+<h3>8.2 统一 View State</h3>
+<p>所有组件都使用同一套视图状态模型。<code>viewId</code> 是 Chat Surface、真实页面 Surface 与业务数据之间的稳定关联键；<code>surfaceId</code> 只表示渲染位置。</p>
+<pre><code>{
+  "data": {
+    "table_customer": {
+      "viewId": "customerTable",
+      "kind": "table",
+      "entityApiKey": "customer",
+      "status": "ready",
+      "query": {"keyword":"", "filters":{}, "sort":[], "page":1, "pageSize":20},
+      "columns": [
+        {"key":"name", "label":"客户名称", "type":"text"},
+        {"key":"level", "label":"级别", "type":"tag"},
+        {"key":"amount", "label":"金额", "type":"currency"}
+      ],
+      "rows": [{"apiKey":"C1", "name":"工商银行", "level":"A", "amount":58, "version":3}],
+      "selectedRowKeys": [],
+      "pagination": {"page":1, "pageSize":20, "total":137},
+      "permissions": {"create":true, "update":true, "delete":false},
+      "error": null
+    },
+    "detail_customer_C1": {
+      "viewId": "customerDetail:C1",
+      "kind": "detail",
+      "entityApiKey": "customer",
+      "recordApiKey": "C1",
+      "record": {"apiKey":"C1", "name":"工商银行", "level":"A", "version":3},
+      "status": "ready",
+      "permissions": {"update":true, "delete":false}
+    },
+    "form_customer_edit_C1": {
+      "viewId": "customerEdit:C1",
+      "kind": "form",
+      "mode": "update",
+      "entityApiKey": "customer",
+      "recordApiKey": "C1",
+      "expectedVersion": 3,
+      "fields": {"name":"工商银行", "level":"A"},
+      "errors": {},
+      "dirty": [],
+      "status": "editing"
+    }
+  }
+}</code></pre>
+
+<div class="card card-yellow">
+<h4>命名约束</h4>
+<ul>
+<li><code>render_type</code> 使用无斜杠稳定键：<code>table_customer</code>、<code>list_customer</code>、<code>detail_customer_C1</code>、<code>form_customer_edit_C1</code>，避免 JSON Pointer 转义歧义。</li>
+<li>业务记录之间统一使用 <code>apiKey</code> 关联；禁止让 Agent 使用数据库自增 ID。</li>
+<li><code>version</code> / <code>expectedVersion</code> 用于乐观锁，防止页面与对话同时编辑造成覆盖。</li>
+</ul>
+</div>
+
+<h3>8.3 统一组件定义</h3>
+<pre><code># src/a2ui/view_models.py
+
+@dataclass
+class ActionDefinition:
+    name: str                         # view_record / edit_record / delete_record ...
+    label: str
+    scope: str = "record"             # page | record | selection | form
+    style: str = "default"            # primary | default | danger
+    requires_confirmation: bool = False
+    permission: str | None = None
+    agent_mode: str = "deterministic"  # deterministic | conversational
+
+@dataclass
+class ColumnDefinition:
+    key: str
+    label: str
+    value_type: str = "text"
+    sortable: bool = False
+    width: int | None = None
+
+@dataclass
+class ViewDefinition:
+    view_id: str
+    kind: str                         # form | table | list | detail
+    entity_api_key: str
+    title: str
+    columns: list[ColumnDefinition] = field(default_factory=list)
+    fields: list[FormFieldDef] = field(default_factory=list)
+    actions: list[ActionDefinition] = field(default_factory=list)
+    row_actions: list[ActionDefinition] = field(default_factory=list)
+</code></pre>
+
+<h3>8.4 Builder 扩展</h3>
+<table>
+<tr><th>Builder API</th><th>输出组件</th><th>说明</th></tr>
+<tr><td><code>ui.data_table(...)</code></td><td>DataTable</td><td>绑定 rows、columns、selection、pagination，并携带 toolbar/row actions</td></tr>
+<tr><td><code>ui.record_list(...)</code></td><td>List + RecordCard</td><td>支持模板列表、加载更多和卡片操作</td></tr>
+<tr><td><code>ui.record_detail(...)</code></td><td>DetailView</td><td>支持分组字段、状态标签和详情操作栏</td></tr>
+<tr><td><code>ui.action_bar(...)</code></td><td>ActionBar</td><td>统一页面级、详情级、批量操作按钮</td></tr>
+<tr><td><code>ui.form(...)</code></td><td>Form</td><td>复用前文 FormBuilder，支持 create/update 两种模式</td></tr>
+</table>
+
+<pre><code># src/a2ui/builder.py 新增示意
+
+def data_table(self, id: str, rows_path: str, columns_path: str,
+               actions: list[dict], row_actions: list[dict],
+               selection_path: str, pagination_path: str) -&gt; str:
+    return self.add(Component(id=id, type="DataTable", props={
+        "rows": {"path": rows_path},
+        "columns": {"path": columns_path},
+        "selectedRowKeys": {"path": selection_path},
+        "pagination": {"path": pagination_path},
+        "actions": actions,
+        "rowActions": row_actions,
+    }), is_container=True)
+
+def record_detail(self, id: str, record_path: str,
+                  sections: list[dict], actions: list[dict]) -&gt; str:
+    return self.add(Component(id=id, type="RecordDetail", props={
+        "record": {"path": record_path},
+        "sections": sections,
+        "actions": actions,
+    }), is_container=True)
+</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2 id="sec9"><span class="section-num">9.</span> 组件操作与 Agent 联动</h2>
+
+<h3>9.1 统一 Action Envelope</h3>
+<p>所有按钮和组件交互统一转换为 <code>userAction</code>。前端必须先解析 BoundValue，再发送实际值；后端不可相信前端传入的权限、实体类型和可写字段，必须重新校验。</p>
+<pre><code>{
+  "threadId": "t-123",
+  "userAction": {
+    "name": "edit_record",
+    "surfaceId": "page-main",
+    "sourceComponentId": "customer-table/row/C1/edit",
+    "timestamp": "2026-07-29T10:30:00Z",
+    "context": {
+      "actionId": "act-7f24",
+      "viewId": "customerTable",
+      "placement": "page",
+      "entityApiKey": "customer",
+      "recordApiKey": "C1",
+      "selectedRowKeys": [],
+      "expectedVersion": 3,
+      "idempotencyKey": "t-123:act-7f24"
+    }
+  }
+}</code></pre>
+
+<h3>9.2 Action 分类与执行策略</h3>
+<table>
+<tr><th>类型</th><th>动作示例</th><th>是否经过 LLM</th><th>处理方式</th></tr>
+<tr><td>纯 UI 状态</td><td>选择行、切页、排序、展开</td><td>否</td><td>ActionDispatcher 直接更新 View State，必要时查询后端</td></tr>
+<tr><td>查询导航</td><td>查看详情、刷新、打开编辑表单</td><td>否</td><td>确定性 Handler 调业务查询 Tool，再生成/更新 Surface</td></tr>
+<tr><td>业务变更</td><td>创建、更新、删除、审批</td><td>默认否</td><td>权限→校验→确认→调用 agent-system 内部 RecordActionService→刷新相关 View</td></tr>
+<tr><td>语义动作</td><td>分析该客户、解释风险、生成建议</td><td>是</td><td>注入 Agent 新一轮 Run，结果通过 Chat + 页面返回</td></tr>
+</table>
+
+<div class="card card-blue">
+<h4>关键决策：确定性 CRUD 不交给 LLM 自由编排</h4>
+<p>创建、更新、删除、翻页、刷新等动作由 <code>ActionDispatcher</code> 按白名单路由执行。LLM 只负责理解自然语言、补齐意图和生成说明，避免同一按钮因模型输出差异导致不可预测行为。</p>
+</div>
+
+<h3>9.3 标准 Action 清单</h3>
+<table>
+<tr><th>作用域</th><th>Action Name</th><th>输入</th><th>结果</th></tr>
+<tr><td>页面</td><td><code>create_record</code></td><td>entityApiKey, defaults?</td><td>创建 Form Surface，Chat 提示用户补充信息</td></tr>
+<tr><td>页面</td><td><code>refresh_view</code></td><td>viewId, query</td><td>重新查询并 STATE_DELTA 更新表格/列表</td></tr>
+<tr><td>表格</td><td><code>change_page</code></td><td>page, pageSize</td><td>更新 query + rows + pagination</td></tr>
+<tr><td>表格</td><td><code>change_selection</code></td><td>selectedRowKeys</td><td>更新选择态，批量按钮动态启停</td></tr>
+<tr><td>行/卡片</td><td><code>view_record</code></td><td>recordApiKey</td><td>查询并创建 Detail Surface</td></tr>
+<tr><td>行/详情</td><td><code>edit_record</code></td><td>recordApiKey, expectedVersion</td><td>查询最新记录并创建 Update Form</td></tr>
+<tr><td>行/详情</td><td><code>delete_record</code></td><td>recordApiKey, confirmationToken</td><td>二次确认后删除，刷新表格/列表并关闭详情</td></tr>
+<tr><td>表单</td><td><code>field_change</code></td><td>formId, field, value</td><td>字段级校验并更新表单状态</td></tr>
+<tr><td>表单</td><td><code>submit_create</code></td><td>formId, idempotencyKey</td><td>调用创建 API，刷新列表/表格，打开详情</td></tr>
+<tr><td>表单</td><td><code>submit_update</code></td><td>formId, expectedVersion</td><td>调用更新 API，同时更新详情、列表、表格</td></tr>
+<tr><td>业务</td><td><code>analyze_record</code></td><td>recordApiKey, prompt?</td><td>启动 Agent Run，在 Chat 中流式输出分析</td></tr>
+</table>
+
+<h3>9.4 ActionDispatcher</h3>
+<pre><code># src/a2ui/action_dispatcher.py
+
+class ActionDispatcher:
+    def __init__(self, view_service, form_service, agent_adapter, stream_hub):
+        self._handlers = {
+            "create_record": view_service.open_create_form,
+            "view_record": view_service.open_detail,
+            "edit_record": view_service.open_update_form,
+            "refresh_view": view_service.refresh,
+            "change_page": view_service.change_page,
+            "change_selection": view_service.change_selection,
+            "field_change": form_service.change_field,
+            "submit_create": form_service.submit_create,
+            "submit_update": form_service.submit_update,
+            "delete_record": view_service.delete_record,
+        }
+        self._agent_adapter = agent_adapter
+        self._stream_hub = stream_hub
+
+    async def dispatch(self, thread_id: str, action: UserAction) -&gt; str:
+        self._validate_envelope(action)
+        handler = self._handlers.get(action.name)
+
+        if handler:
+            # 确定性操作：不经过 LLM
+            events = await handler(thread_id, action.context)
+            await self._stream_hub.publish_many(thread_id, events)
+            return "accepted"
+
+        # 语义操作：转换为 HumanMessage 并立即启动新一轮 Agent Run
+        message = A2UIInboundHandler.to_human_message(action)
+        await self._agent_adapter.start_injected_run(thread_id, message, self._stream_hub)
+        return "accepted"
+</code></pre>
+
+<h3>9.5 当前实现缺口：入站事件不会自动继续执行</h3>
+<div class="card card-yellow">
+<p>当前 <code>/agent/a2ui/event</code> 只调用 <code>adapter.inject_message()</code> 放入 pending 队列，必须等下一次 <code>/api/chat/agui</code> 请求才会被消费；因此按钮点击后不能可靠地在“原 SSE”上立即回流。</p>
+<p><strong>必须新增：</strong></p>
+<ul>
+<li><code>ThreadStreamHub</code>：按 thread_id 维护事件发布/订阅队列，页面和 Chat 共用。</li>
+<li><code>ActionDispatcher</code>：收到 userAction 后立即执行确定性 Handler 或启动注入式 Agent Run。</li>
+<li><code>GET /api/chat/agui/tail?threadId=...</code> 或改造现有长连接：持续订阅 StreamHub，接收按钮操作后的后续事件。</li>
+<li>同一 thread 的业务变更串行化；新动作到来时按策略排队、拒绝或取消旧 Run。</li>
+</ul>
+</div>
+
+<div class="diagram">
+POST /agent/a2ui/event
+          │
+          ▼
+  A2UIInboundHandler ── 去重/格式校验
+          │
+          ▼
+  ActionDispatcher
+     ┌────┴─────────────────────┐
+     │                          │
+     ▼                          ▼
+确定性 Handler             Agent 新 Run
+(CRUD/查询/翻页)            (分析/解释/建议)
+     │                          │
+     └────────────┬─────────────┘
+                  ▼
+           ThreadStreamHub
+          ┌───────┴────────┐
+          ▼                ▼
+    Chat SSE Client    Page SSE Client
+          │                │
+          └──── Shared State ────► 所有 Surface 响应式更新
+</div>
+
+<h3>9.6 页面操作必须镜像到对话框</h3>
+<p>真实页面上的关键操作不仅要改变 Shared State，还必须形成可见、可恢复的对话活动。推荐使用 AG-UI <code>ACTIVITY_SNAPSHOT</code>，其中 <code>activity_type="ui-action"</code>；同一个 <code>actionId</code> 始终映射到同一个 <code>message_id</code>，用 <code>replace=true</code> 从“已接收”更新为“执行中/成功/失败”，避免一项操作生成多条重复消息。</p>
+
+<div class="diagram">
+用户在真实页面点击“编辑工商银行”
+            │
+            ▼
+POST /agent/a2ui/event
+            │
+            ├── ① 立即发布 ui-action Activity（phase=accepted）
+            │       Chat 显示：你在「客户列表」点击了“编辑工商银行”
+            │
+            ├── ② ActionDispatcher 执行（phase=running）
+            │       Chat 卡片更新：正在加载最新客户数据…
+            │
+            ├── ③ STATE_DELTA + ACTIVITY_SNAPSHOT(a2ui-surface)
+            │       页面和 Chat 内组件同步打开编辑表单
+            │
+            └── ④ 更新同一 ui-action Activity（phase=succeeded）
+                    Chat 卡片更新：已打开“工商银行”编辑表单
+</div>
+
+<h4>对话中的推荐展示</h4>
+<div class="card card-blue">
+<p><strong>页面操作活动卡</strong></p>
+<p>👤 你在「客户列表」中点击了 <strong>编辑“工商银行”</strong></p>
+<p style="color: var(--success);">✓ 已打开编辑表单</p>
+</div>
+<div class="card card-green">
+<p><strong>业务变更结果</strong></p>
+<p>👤 你提交了 <strong>更新客户“工商银行”</strong></p>
+<p>🤖 已更新 2 个字段：客户名称、客户级别。表格、列表和详情已同步刷新。</p>
+</div>
+<div class="card card-yellow">
+<p><strong>失败或冲突</strong></p>
+<p>👤 你提交了 <strong>更新客户“工商银行”</strong></p>
+<p style="color: var(--danger);">✕ 更新失败：该记录已被其他用户修改。请重新加载后再提交。</p>
+</div>
+
+<h4>消息可见性策略</h4>
+<p>不能把每次输入、选行和分页都转换为对话气泡，否则会淹没真正的业务对话。每个 ActionDefinition 增加 <code>chat_visibility</code>：</p>
+<table>
+<tr><th>级别</th><th>适用操作</th><th>对话框表现</th></tr>
+<tr><td><code>hidden</code></td><td>字段每次输入、选择行、展开、排序、普通分页</td><td>不创建对话消息；只更新 Shared State 和操作日志</td></tr>
+<tr><td><code>compact</code></td><td>刷新、筛选、加载更多、查看详情、打开编辑</td><td>显示一张可折叠活动卡，成功后保持紧凑</td></tr>
+<tr><td><code>full</code></td><td>创建、更新、删除、提交审批、批量操作</td><td>显示用户动作 + 执行进度 + Agent 结果摘要</td></tr>
+<tr><td><code>agent</code></td><td>AI 分析、解释、生成建议</td><td>先显示用户动作，再启动 Agent Run 并流式输出正式回答</td></tr>
+</table>
+
+<pre><code>@dataclass
+class ActionDefinition:
+    name: str
+    label: str
+    scope: str = "record"
+    agent_mode: str = "deterministic"
+    chat_visibility: str = "compact"       # hidden | compact | full | agent
+    chat_label_template: str | None = None # 如：编辑“{record.name}”
+    result_template: str | None = None     # 如：已打开“{record.name}”编辑表单
+</code></pre>
+
+<h4>ui-action Activity 协议</h4>
+<pre><code>event: ACTIVITY_SNAPSHOT
+data: {
+  "message_id": "ui-action-act-7f24",
+  "activity_type": "ui-action",
+  "replace": true,
+  "content": {
+    "actionId": "act-7f24",
+    "threadId": "t-123",
+    "phase": "succeeded",
+    "actor": {"type":"user", "displayName":"当前用户"},
+    "source": {
+      "placement":"page",
+      "viewId":"customerTable",
+      "surfaceId":"page-main",
+      "componentId":"customer-table/row/C1/edit"
+    },
+    "action": {
+      "name":"edit_record",
+      "label":"编辑“工商银行”",
+      "entityApiKey":"customer",
+      "recordApiKey":"C1"
+    },
+    "display": {
+      "visibility":"compact",
+      "userText":"你在客户列表中点击了编辑“工商银行”",
+      "statusText":"已打开编辑表单",
+      "icon":"edit"
+    },
+    "result": {"viewId":"customerEdit:C1"},
+    "startedAt":1785292200000,
+    "finishedAt":1785292200320
+  }
+}</code></pre>
+
+<h4>后端事件工厂与发布顺序</h4>
+<pre><code># src/a2ui/action_messages.py
+
+def ui_action_activity(action, phase: str, *, status_text: str,
+                       result: dict | None = None, error: dict | None = None):
+    return activity_snapshot(
+        message_id=f"ui-action-{action.action_id}",
+        activity_type="ui-action",
+        replace=True,
+        content={
+            "actionId": action.action_id,
+            "phase": phase,
+            "actor": {"type": "user"},
+            "source": action.source_dict(),
+            "action": action.action_dict(),
+            "display": {
+                "visibility": action.chat_visibility,
+                "userText": action.user_text,
+                "statusText": status_text,
+            },
+            "result": result,
+            "error": error,
+        },
+    )
+
+async def dispatch(self, thread_id: str, action: UserAction) -&gt; str:
+    normalized = await self._normalize_and_authorize(thread_id, action)
+
+    # hidden 操作不发 Chat Activity，其余操作立即在对话框占位
+    if normalized.chat_visibility != "hidden":
+        accepted = ui_action_activity(normalized, "accepted", status_text="已接收")
+        await self._stream_hub.publish(thread_id, accepted)
+        await self._action_writer.create(normalized, accepted)
+
+    try:
+        if normalized.chat_visibility != "hidden":
+            await self._stream_hub.publish(
+                thread_id,
+                ui_action_activity(normalized, "running", status_text="正在处理…"),
+            )
+
+        events, result = await self._execute(normalized)
+        await self._stream_hub.publish_many(thread_id, events)
+
+        if normalized.chat_visibility != "hidden":
+            finished = ui_action_activity(
+                normalized, "succeeded",
+                status_text=result.display_text,
+                result=result.to_dict(),
+            )
+            await self._stream_hub.publish(thread_id, finished)
+            await self._action_writer.finish(normalized.action_id, result)
+        return "accepted"
+    except Exception as exc:
+        failed = ui_action_activity(
+            normalized, "failed",
+            status_text=self._safe_error_text(exc),
+            error={"code": self._error_code(exc)},
+        )
+        await self._stream_hub.publish(thread_id, failed)
+        await self._action_writer.fail(normalized.action_id, exc)
+        return "accepted"
+</code></pre>
+
+<h4>对话历史持久化与刷新恢复</h4>
+<p>现有数据库已经具备 <code>ai_message.role</code>、<code>ai_message.ext_info</code> 和 <code>ai_message_ext</code>，无需新增主表：</p>
+<ul>
+<li>在 <code>ai_message</code> 新增一条 <code>role="activity"</code> 的记录，<code>query</code> 保存用户可读操作摘要，<code>answer</code> 保存最终结果摘要，<code>ext_info</code> 保存 actionId、phase、viewId 等索引信息。</li>
+<li>在 <code>ai_message_ext</code> 写入 <code>ext_type="ui_action"</code>，<code>ext_data</code> 保存完整 Action Activity JSON。</li>
+<li>同一 actionId 只对应一条 ai_message；phase 变化使用 UPDATE，不重复 INSERT。</li>
+<li><code>ThreadStore.messages</code> 同步保存 role=activity 消息；断线重连时通过 <code>MESSAGES_SNAPSHOT</code> 恢复。</li>
+<li><code>adapter._load_history_from_db()</code> 给 LLM 加载上下文时默认过滤 <code>role="activity"</code>，仅当 <code>chat_visibility="agent"</code> 时把规范化动作摘要注入 Agent，避免分页、刷新等 UI 噪声污染推理上下文。</li>
+</ul>
+
+<pre><code># ai_message
+role     = "activity"
+query    = "你在客户列表中点击了编辑“工商银行”"
+answer   = "已打开编辑表单"
+status   = "success"
+ext_info = {
+  "messageType":"ui_action",
+  "actionId":"act-7f24",
+  "phase":"succeeded",
+  "viewId":"customerTable",
+  "chatVisibility":"compact"
+}
+
+# ai_message_ext
+ext_type = "ui_action"
+ext_data = { ...完整 ACTIVITY_SNAPSHOT.content... }
+</code></pre>
+
+<h4>前端 Chat Renderer</h4>
+<pre><code>const renderActivityMessages = [
+  {
+    activityType: 'a2ui-surface',
+    render: ({ content }) =&gt; &lt;A2UIActivityMessageRenderer content={content} /&gt;,
+  },
+  {
+    activityType: 'ui-action',
+    render: ({ content }) =&gt; (
+      &lt;ActionActivityCard
+        phase={content.phase}
+        userText={content.display.userText}
+        statusText={content.display.statusText}
+        error={content.error}
+        onOpenTarget={() =&gt; navigateToView(content.result?.viewId)}
+      /&gt;
+    ),
+  },
+];
+</code></pre>
+
+<div class="card card-yellow">
+<h4>展示和安全约束</h4>
+<ul>
+<li>对话文案中的记录名称、权限和结果必须由后端根据业务服务返回值生成，不直接信任前端 context。</li>
+<li>密码、Token、完整身份证号等敏感字段禁止写入活动消息和 ext_data；表单 field_change 仅记录字段名，不记录敏感值。</li>
+<li>失败消息对用户显示安全错误文案，详细堆栈只进入 Trace。</li>
+<li>删除等高风险动作在“请求确认”和“确认执行”两个阶段各形成一张可追溯活动卡，且必须关联 confirmationToken。</li>
+</ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2 id="sec10"><span class="section-num">10.</span> 创建与更新完整流程</h2>
+
+<h3>10.1 创建记录</h3>
+<ol>
+<li>用户在 Chat 输入“创建客户”，或点击表格工具栏“新建”。</li>
+<li><code>create_record</code> Handler 获取实体字段元数据和当前用户权限。</li>
+<li>创建 <code>form_customer_create</code> View State，并同时向 Chat 或真实页面目标 Surface 下发表单结构。</li>
+<li>用户输入触发 <code>field_change</code>，后端执行字段校验并发 STATE_DELTA；页面预览和 Chat 表单同步更新。</li>
+<li>点击提交触发 <code>submit_create</code>，由 <code>RecordActionService</code> 在 agent-system 内完成字段白名单、必填和权限校验。</li>
+<li><code>BusinessRecordDAO</code> 在同一逻辑事务内写入本地 PostgreSQL <code>ai_business_record</code>；Agent、路由和前端不得绕过 Service 直接写库。</li>
+<li>创建成功后以一个逻辑事务顺序更新：表格/列表插入记录 → 打开详情 → 表单标记 submitted → Chat 输出成功消息。</li>
+</ol>
+<pre><code># 创建成功事件顺序
+STATE_DELTA   /data/table_customer/rows/0       = new_record
+STATE_DELTA   /data/table_customer/pagination/total += 1
+STATE_SNAPSHOT or DELTA  detail_customer_C108   = new_record
+ACTIVITY_SNAPSHOT         create detail surface
+STATE_DELTA   /data/form_customer_create/status = "submitted"
+TEXT_MESSAGE_*            "客户工商银行已创建成功"
+CUSTOM ui.navigate        {"viewId":"customerDetail:C108"}</code></pre>
+
+<h3>10.2 更新记录</h3>
+<ol>
+<li>从表格行、列表卡片、详情页或 Chat 指令触发 <code>edit_record</code>。</li>
+<li>后端重新查询最新记录，创建 <code>mode=update</code> 表单，并记录 <code>expectedVersion</code>。</li>
+<li>用户修改字段，所有同路径组件同步显示。</li>
+<li>提交时仅发送 dirty 字段到业务更新 API，并携带 expectedVersion。</li>
+<li>成功后将服务端返回的完整最新记录投影到所有关联视图。</li>
+<li>若版本冲突，表单状态设为 <code>conflict</code>，返回差异并让用户选择“重新加载”或“覆盖”（覆盖需额外权限和确认）。</li>
+</ol>
+<pre><code># 更新请求（ActionDispatcher 调 agent-system RecordActionService）
+await record_service.submit_update(
+    tenant_id=292193,
+    entity_api_key="account",
+    record_api_key="C1",
+    expected_version=3,
+    action_id="act-7f24",
+    changes={
+      "accountName": "中国工商银行",
+      "level": "A"
+    }
+)
+
+# agent-system 服务返回
+{
+  "apiKey": "C1",
+  "name": "中国工商银行",
+  "level": "A",
+  "version": 4,
+  "updatedAt": 1785292200000
+}</code></pre>
+
+<h3>10.3 多视图一致性投影</h3>
+<p>业务服务返回最新记录后，由 <code>ViewProjectionService</code> 查找当前 thread 中所有引用该记录的视图，并生成一批原子顺序事件：</p>
+<pre><code># src/a2ui/view_projection.py
+
+class ViewProjectionService:
+    def project_record_updated(self, entity_api_key: str, record: dict) -&gt; list[AGUIEvent]:
+        patches = []
+        record_key = record["apiKey"]
+
+        # 详情视图
+        patches += self._replace_detail_records(entity_api_key, record_key, record)
+        # 表格视图中的对应行
+        patches += self._replace_table_rows(entity_api_key, record_key, record)
+        # 列表视图中的对应卡片
+        patches += self._replace_list_items(entity_api_key, record_key, record)
+        # 编辑表单回填服务端最终值和新版本
+        patches += self._sync_open_forms(entity_api_key, record_key, record)
+
+        return [state_delta(patches)] if patches else []
+</code></pre>
+
+<h3>10.4 删除和高风险操作</h3>
+<ul>
+<li>删除、批量删除、审批驳回等动作必须先返回确认 Surface，不直接执行。</li>
+<li>确认上下文包含一次性 <code>confirmationToken</code>，绑定 thread、用户、action、记录及过期时间。</li>
+<li>后端再次检查 RBAC 和记录当前状态，不信任前端按钮是否可见。</li>
+<li>删除成功后移除表格行/列表项、关闭详情 Surface，并在 Chat 中生成可追踪结果消息。</li>
+</ul>
+
+<h3>10.5 表格、列表与详情结构示例</h3>
+<pre><code># 表格 Surface
+ui.data_table(
+    "customer_table",
+    rows_path="/data/table_customer/rows",
+    columns_path="/data/table_customer/columns",
+    selection_path="/data/table_customer/selectedRowKeys",
+    pagination_path="/data/table_customer/pagination",
+    actions=[
+        action("create_record", "新建客户", scope="page", style="primary"),
+        action("refresh_view", "刷新", scope="page"),
+        action("delete_selected", "批量删除", scope="selection",
+               style="danger", requires_confirmation=True),
+    ],
+    row_actions=[
+        action("view_record", "查看"),
+        action("edit_record", "编辑", permission="customer:update"),
+        action("analyze_record", "AI分析", agent_mode="conversational"),
+    ],
+)
+
+# 列表 Surface
+ui.record_list(
+    "customer_list",
+    items_path="/data/list_customer/items",
+    item_key="apiKey",
+    item_component="CustomerCard",
+    actions=[action("load_more", "加载更多")],
+    item_actions=[action("view_record", "详情"), action("edit_record", "编辑")],
+)
+
+# 详情 Surface
+ui.record_detail(
+    "customer_detail",
+    record_path="/data/detail_customer_C1/record",
+    sections=[
+        {"title":"基本信息", "fields":["name","level","industry"]},
+        {"title":"经营信息", "fields":["amount","ownerName","updatedAt"]},
+    ],
+    actions=[
+        action("edit_record", "编辑", style="primary"),
+        action("analyze_record", "AI分析", agent_mode="conversational"),
+        action("delete_record", "删除", style="danger", requires_confirmation=True),
+    ],
+)</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2 id="sec11"><span class="section-num">11.</span> 工程实现与协议扩展</h2>
+
+<h3>11.1 模块结构</h3>
+<pre><code>src/a2ui/
+├── models.py                    # 现有 A2UI 消息模型
+├── builder.py                   # 扩展 table/list/detail/action API
+├── aggregator.py                # 现有 Shared State 聚合
+├── render_helper.py             # 扩展多 placement / viewId
+├── form_state.py                # 新增：表单状态
+├── form_builder.py              # 新增：Form Builder
+├── view_models.py               # 新增：统一 View/Column/Action 定义
+├── view_state.py                # 新增：Table/List/Detail 状态容器
+├── view_builder.py              # 新增：业务视图构建器
+├── view_projection.py           # 新增：记录变更投影到所有视图
+├── action_dispatcher.py         # 新增：确定性动作路由
+├── action_handlers.py           # 新增：CRUD/查询/分页/选择 Handler
+├── stream_hub.py                # 新增：thread 事件发布订阅
+├── mutation_coordinator.py      # 新增：幂等、串行、乐观锁协调
+└── thread_store.py              # 扩展：view 索引、action 状态、持久化接口
+
+src/skills/
+└── form_skill.py                # 表单生命周期
+
+src/tools/
+└── view_tools.py                # Agent 可调用的 show_table/show_detail/open_form
+
+resources/a2ui/components/
+├── data_table.json
+├── record_list.json
+├── record_detail.json
+├── action_bar.json
+└── form.json
+
+demo_view_chat_linkage.py        # 表格→详情→编辑→回写联动 Demo
+</code></pre>
+
+<h3>11.2 RenderHelper 扩展</h3>
+<pre><code>helper.render_view(
+    render_type="table_customer",
+    view_id="customerTable",
+    data=table_state,
+    surface_fn=build_customer_table,
+    placements=[
+        SurfaceTarget(surface_id="chat-customer-table", placement="chat"),
+        SurfaceTarget(surface_id="page-main", placement="page"),
+    ],
+)
+
+# 同一份 Shared State 数据只推一次；结构可按渲染位置分别下发。
+# ACTIVITY content 需要附加：
+{
+  "viewId": "customerTable",
+  "renderType": "table_customer",
+  "placement": "chat",
+  "operations": [...]
+}</code></pre>
+
+<h3>11.3 API 扩展</h3>
+<table>
+<tr><th>Method</th><th>Path</th><th>用途</th></tr>
+<tr><td>POST</td><td><code>/api/chat/agui</code></td><td>启动自然语言 Agent Run（已有）</td></tr>
+<tr><td>GET</td><td><code>/api/chat/agui/tail?threadId=...</code></td><td>持续订阅该 thread 的按钮操作及后台事件</td></tr>
+<tr><td>POST</td><td><code>/agent/a2ui/event</code></td><td>组件 action 入站，改为进入 ActionDispatcher</td></tr>
+<tr><td>POST</td><td><code>/agent/chat/reconnect</code></td><td>恢复消息、Shared State、全部活动 Surface（已有，需持久化增强）</td></tr>
+<tr><td>GET</td><td><code>/.well-known/agent-card</code></td><td>声明 DataTable/RecordList/RecordDetail/Form Catalog</td></tr>
+</table>
+
+<h3>11.4 agent-system 内部业务服务边界</h3>
+<div class="card card-yellow">
+<ul>
+<li>全部业务能力由 agent-system 实现：ActionDispatcher 负责白名单调度，<code>RecordActionService</code> 负责校验和业务规则，<code>BusinessRecordDAO</code> 负责 PostgreSQL 持久化。</li>
+<li>自然语言 Agent Tool 与页面 Action Handler 必须共用同一个 <code>PersistentCrmBackend</code> 和 <code>ai_business_record</code>，禁止形成两套业务真值。</li>
+<li>前端不存储业务真值，不在 localStorage 或内存中实现业务规则；Shared State 是会话展示态，不替代 agent-system PostgreSQL。</li>
+<li>字段白名单、必填、格式、租户隔离、确认和乐观锁必须在 RecordActionService 中校验；路由、Agent 和前端禁止直接调用 DAO。</li>
+<li>Service 返回持久化后的完整标准记录，再由 ProjectionService 更新 Chat 和页面视图，禁止以前端提交值作为最终真值。</li>
+</ul>
+</div>
+
+<h3>11.5 并发、幂等与事件顺序</h3>
+<ul>
+<li><strong>幂等：</strong>所有变更 Action 必须携带 <code>idempotencyKey</code>；相同 key 返回原执行结果。</li>
+<li><strong>串行：</strong>同一 thread + entity + record 的变更操作进入串行队列。</li>
+<li><strong>乐观锁：</strong>更新必须携带 expectedVersion；冲突返回 409 并生成 conflict 状态。</li>
+<li><strong>事件顺序：</strong><code>operation_started → business_result → STATE_DELTA → ACTIVITY → TEXT_MESSAGE → operation_finished</code>。</li>
+<li><strong>失败回滚：</strong>前端可以乐观展示 loading，但业务失败后必须用服务端快照恢复并展示错误。</li>
+</ul>
+
+<h3>11.6 Catalog 组件定义示例</h3>
+<pre><code>{
+  "type": "DataTable",
+  "description": "支持分页、选择、工具栏和行操作的业务数据表格",
+  "input_schema": {
+    "type": "object",
+    "required": ["rows", "columns"],
+    "properties": {
+      "rows": {"type": "array"},
+      "columns": {"type": "array"},
+      "selectedRowKeys": {"type": "array"},
+      "pagination": {"type": "object"},
+      "actions": {"type": "array"},
+      "rowActions": {"type": "array"}
+    }
+  },
+  "supported_model_names": ["component", "relevantData", "searchResults"]
+}</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2 id="sec12"><span class="section-num">12.</span> 实施计划、验收与风险</h2>
+
+<h3>12.1 文件清单</h3>
+<table>
+<tr><th>文件</th><th>操作</th><th>说明</th></tr>
+<tr><td><code>src/a2ui/form_state.py</code></td><td><span class="badge badge-green">新增</span></td><td>表单状态与字段定义</td></tr>
+<tr><td><code>src/a2ui/form_builder.py</code></td><td><span class="badge badge-green">新增</span></td><td>创建/更新表单构建器</td></tr>
+<tr><td><code>src/a2ui/view_models.py</code></td><td><span class="badge badge-green">新增</span></td><td>View、Column、Action 统一模型</td></tr>
+<tr><td><code>src/a2ui/view_state.py</code></td><td><span class="badge badge-green">新增</span></td><td>表格、列表、详情运行时状态</td></tr>
+<tr><td><code>src/a2ui/view_builder.py</code></td><td><span class="badge badge-green">新增</span></td><td>表格、列表、详情结构生成</td></tr>
+<tr><td><code>src/a2ui/view_projection.py</code></td><td><span class="badge badge-green">新增</span></td><td>变更结果同步所有相关视图</td></tr>
+<tr><td><code>src/a2ui/action_dispatcher.py</code></td><td><span class="badge badge-green">新增</span></td><td>组件 Action 确定性路由</td></tr>
+<tr><td><code>src/a2ui/action_messages.py</code></td><td><span class="badge badge-green">新增</span></td><td>页面操作在 Chat 中的 Activity 事件工厂</td></tr>
+<tr><td><code>src/store/action_message_writer.py</code></td><td><span class="badge badge-green">新增</span></td><td>ui_action 消息及扩展数据持久化</td></tr>
+<tr><td><code>src/a2ui/stream_hub.py</code></td><td><span class="badge badge-green">新增</span></td><td>按钮操作后事件持续回流</td></tr>
+<tr><td><code>src/a2ui/mutation_coordinator.py</code></td><td><span class="badge badge-green">新增</span></td><td>幂等、串行和乐观锁协调</td></tr>
+<tr><td><code>src/a2ui/builder.py</code></td><td><span class="badge badge-blue">修改</span></td><td>增加 DataTable/List/Detail/ActionBar API</td></tr>
+<tr><td><code>src/a2ui/render_helper.py</code></td><td><span class="badge badge-blue">修改</span></td><td>增加 viewId、placement、多 Surface 下发</td></tr>
+<tr><td><code>src/a2ui/inbound.py</code></td><td><span class="badge badge-blue">修改</span></td><td>校验统一 Action Envelope</td></tr>
+<tr><td><code>src/a2ui/thread_store.py</code></td><td><span class="badge badge-blue">修改</span></td><td>记录 View 索引、Action 状态和 Surface</td></tr>
+<tr><td><code>src/api/a2ui_routes.py</code></td><td><span class="badge badge-blue">修改</span></td><td>接入 Dispatcher 和 tail SSE</td></tr>
+<tr><td><code>src/agents/adapter.py</code></td><td><span class="badge badge-blue">修改</span></td><td>支持注入式 Run 和语义 Action</td></tr>
+<tr><td><code>demo_view_chat_linkage.py</code></td><td><span class="badge badge-green">新增</span></td><td>表格→详情→编辑→回写联动 Demo</td></tr>
+</table>
+
+<h3>12.2 分阶段计划</h3>
+<table>
+<tr><th>阶段</th><th>内容</th><th>工时</th><th>产出</th></tr>
+<tr><td><span class="badge badge-blue">Phase 1</span></td><td>View/Action 模型、Catalog、Builder 扩展</td><td>3 天</td><td>可生成 Form/Table/List/Detail 结构</td></tr>
+<tr><td><span class="badge badge-blue">Phase 2</span></td><td>View State + ProjectionService + ThreadStore 扩展</td><td>3 天</td><td>多视图共享状态和一致性更新</td></tr>
+<tr><td><span class="badge badge-purple">Phase 3</span></td><td>ActionDispatcher + CRUD Handler + 业务 Tool</td><td>3 天</td><td>按钮可执行查询、创建和更新</td></tr>
+<tr><td><span class="badge badge-purple">Phase 4</span></td><td>ThreadStreamHub + tail SSE + 注入式 Agent Run</td><td>2.5 天</td><td>页面操作可立即驱动 Chat 后续输出</td></tr>
+<tr><td><span class="badge badge-green">Phase 5</span></td><td>前端四类组件、Action Bridge、页面挂载</td><td>4 天</td><td>Chat 与真实页面完整双向联动</td></tr>
+<tr><td><span class="badge badge-yellow">Phase 6</span></td><td>权限、确认、幂等、乐观锁、重连和联调</td><td>3 天</td><td>生产级可靠性</td></tr>
+</table>
+<p><strong>总计：约 18.5 人天</strong>（后端 11.5 天 + 前端 4 天 + 联调与可靠性 3 天）。可先用 9～10 人天完成“表格→详情→编辑→回写”的 MVP。</p>
+
+<h3>12.3 MVP 范围</h3>
+<div class="card card-green">
+<ul>
+<li>支持客户表格和卡片列表查询、分页、刷新。</li>
+<li>支持从 Chat 指令或组件按钮打开详情。</li>
+<li>支持创建表单、更新表单、字段校验和提交。</li>
+<li>创建/更新成功后同步刷新表格、列表、详情和 Chat 消息。</li>
+<li>支持“AI 分析”按钮触发新的 Agent Run。</li>
+<li>支持断线重连恢复 Shared State 和活动 Surface。</li>
+</ul>
+</div>
+
+<h3>12.4 验收标准</h3>
+<table>
+<tr><th>编号</th><th>验收项</th><th>通过条件</th></tr>
+<tr><td>AC-01</td><td>Chat 创建表格/列表/详情</td><td>自然语言指令后 1 个 Run 内渲染对应组件，字段与 Catalog 一致</td></tr>
+<tr><td>AC-02</td><td>页面按钮驱动 Chat</td><td>点击“AI分析”后无需再次发送文本，Chat 自动流式输出结果</td></tr>
+<tr><td>AC-03</td><td>创建联动</td><td>提交创建后表格/列表出现新记录，详情打开，Chat 显示成功结果</td></tr>
+<tr><td>AC-04</td><td>更新联动</td><td>任一入口更新后，所有已打开组件在同一事件批次内显示最新服务端值</td></tr>
+<tr><td>AC-05</td><td>并发冲突</td><td>版本不一致时不覆盖数据，表单显示 conflict 并提供重新加载</td></tr>
+<tr><td>AC-06</td><td>权限</td><td>无权限按钮不展示；伪造 Action 仍被后端拒绝</td></tr>
+<tr><td>AC-07</td><td>幂等</td><td>重复提交相同 idempotencyKey 只产生一次业务变更</td></tr>
+<tr><td>AC-08</td><td>重连</td><td>刷新后消息、表格/列表/详情数据、表单草稿和 Surface 全部恢复</td></tr>
+<tr><td>AC-09</td><td>性能</td><td>字段更新到页面同步 P95 &lt; 300ms；业务变更完成后的 UI 刷新 P95 &lt; 1s（不含业务 API 耗时）</td></tr>
+<tr><td>AC-10</td><td>页面操作对话可见</td><td>页面关键操作立即生成一张 ui-action 活动卡，并在同一 messageId 上更新执行结果；刷新后可恢复</td></tr>
+<tr><td>AC-11</td><td>对话降噪</td><td>字段输入、选行、普通分页不刷屏；创建、更新、删除、审批和 AI 操作完整展示</td></tr>
+</table>
+
+<h3>12.5 主要风险</h3>
+<table>
+<tr><th>风险</th><th>影响</th><th>缓解措施</th></tr>
+<tr><td>当前 userAction 仅排队，不自动执行</td><td>按钮点击后无响应</td><td>优先实现 Dispatcher + StreamHub，作为联动 MVP 的阻塞项</td></tr>
+<tr><td>Shared State 频繁全量重渲染</td><td>大表格性能下降</td><td>按 JSON Pointer 路径订阅、React memo、虚拟滚动</td></tr>
+<tr><td>多 Surface 状态漂移</td><td>Chat 和页面显示不一致</td><td>服务端唯一 View State + ProjectionService，禁止各 Surface 私有业务副本</td></tr>
+<tr><td>LLM 生成非法组件或 Action</td><td>渲染失败或越权</td><td>Catalog 白名单、Props schema 校验、Action 白名单</td></tr>
+<tr><td>多实例部署丢失 ThreadStore</td><td>重连或按钮事件丢失</td><td>生产迁移 Redis/持久化事件流，不使用进程内单例作为最终方案</td></tr>
+<tr><td>更新覆盖</td><td>数据丢失</td><td>expectedVersion + 409 conflict + 差异确认</td></tr>
+</table>
+
+<h3>12.6 已有能力与新增能力边界</h3>
+<div class="card card-green">
+<h4>可直接复用</h4>
+<ul>
+<li><code>A2UIRenderHelper</code>、<code>SnapshotAggregator</code>、<code>A2UIBuilder</code> 基础能力。</li>
+<li><code>STATE_SNAPSHOT/STATE_DELTA</code>、<code>ACTIVITY_SNAPSHOT</code> 和 Catalog 协商。</li>
+<li><code>A2UIInboundHandler</code> 的解析、去重和 UserAction 模型。</li>
+<li><code>ThreadStore</code> 的消息和 Surface 重连基础。</li>
+</ul>
+</div>
+<div class="card card-yellow">
+<h4>本次必须新增</h4>
+<ul>
+<li>DataTable、RecordList、RecordDetail、Form、ActionBar 的业务 Catalog 和 Builder。</li>
+<li>统一 View State、Action Envelope、ActionDispatcher、ProjectionService。</li>
+<li>agent-system 内部 RecordActionService、BusinessRecordDAO、PersistentCrmBackend 与 PostgreSQL 业务记录表。</li>
+<li>StreamHub / tail SSE，保证页面按钮无需等待下一条用户消息即可驱动 Agent 和 Chat。</li>
+<li>幂等、权限、确认、乐观锁、多实例持久化。</li>
+</ul>
+</div>
+
+<hr style="margin-top: 40px;">
+<p style="text-align: center; color: var(--gray-600); font-size: 0.85em; margin-top: 20px;">
+  Generated by AI PM Team · product-specs/agent-system · 2026-07-29
+</p>
+
+</div>
+</body>
+</html>

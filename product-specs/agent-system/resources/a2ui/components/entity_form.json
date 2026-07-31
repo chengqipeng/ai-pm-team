@@ -1,0 +1,20 @@
+{
+  "type": "EntityForm",
+  "description": "agent-system 元数据驱动的通用业务记录创建/编辑表单。",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "mode": {"type": "string", "enum": ["create", "update"]},
+      "entityApiKey": {"type": "string"},
+      "recordApiKey": {"type": "string"},
+      "version": {"type": "integer"},
+      "fields": {"type": "array"},
+      "values": {"type": "object"},
+      "errors": {"type": "object"}
+    },
+    "required": ["mode", "entityApiKey", "fields"]
+  },
+  "skill_bindings": {"bind": [], "prefer": []},
+  "supported_model_names": [],
+  "rendering_hints": {"display_mode": "panel", "interactive": true}
+}
