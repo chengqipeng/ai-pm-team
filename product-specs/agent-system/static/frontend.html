@@ -520,19 +520,34 @@ body { margin: 0; }
         <div id="chatArea" class="flex-1 overflow-y-auto custom-scrollbar px-6 pt-10 pb-4" role="log" aria-live="polite" aria-label="对话消息">
           <div id="chatInner" class="max-w-4xl mx-auto w-full space-y-10 pb-6">
             <!-- 欢迎页 -->
-            <div id="welcomeBlock" class="text-center py-20">
-              <h1 class="text-2xl font-bold mb-2">你好，我是 CRM 智能助手 👋</h1>
-              <p class="text-gray-500 text-sm mb-8">我可以帮你查询客户数据、分析商机 Pipeline、校验配置等</p>
-              <div class="flex gap-3 flex-wrap justify-center max-w-xl mx-auto">
+            <div id="welcomeBlock" class="text-center py-12">
+              <div id="greetingArea">
+                <h1 id="greetingTitle" class="text-2xl font-bold mb-2">你好，我是 CRM 智能助手 👋</h1>
+                <p id="greetingSummary" class="text-gray-500 text-sm mb-8">我可以帮你查询客户数据、分析商机 Pipeline、校验配置等</p>
+              </div>
+              <div id="quickActionCards" class="flex gap-3 flex-wrap justify-center max-w-xl mx-auto mb-6">
                 <div onclick="sq('帮我查一下活跃客户，按营收排序')" class="bg-white border border-gray-200 rounded-2xl px-5 py-3 text-sm text-gray-600 cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:shadow-md transition-all">🏢 查看活跃客户</div>
                 <div onclick="sq('帮我分析商机 Pipeline，按阶段统计金额')" class="bg-white border border-gray-200 rounded-2xl px-5 py-3 text-sm text-gray-600 cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:shadow-md transition-all">📈 Pipeline 分析</div>
                 <div onclick="sq('系统中有多少个客户？')" class="bg-white border border-gray-200 rounded-2xl px-5 py-3 text-sm text-gray-600 cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:shadow-md transition-all">📊 客户统计</div>
                 <div onclick="sq('帮我校验商机的元数据配置')" class="bg-white border border-gray-200 rounded-2xl px-5 py-3 text-sm text-gray-600 cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:shadow-md transition-all">🔍 配置校验</div>
               </div>
+              <!-- AI 行动建议预览 -->
+              <div id="actionSuggestionsPreview" class="hidden max-w-2xl mx-auto text-left">
+                <div class="flex items-center justify-between mb-3 px-2">
+                  <span class="text-xs font-bold text-gray-500">💡 AI 建议</span>
+                  <button onclick="toggleActionSuggestions()" class="text-[10px] text-blue-600 hover:text-blue-700">查看全部 →</button>
+                </div>
+                <div id="actionSuggestionsList" class="space-y-2"></div>
+              </div>
             </div>
           </div>
         </div>
 
+        <!-- 推荐浮条（对话进行中时出现在输入框上方） -->
+        <div id="recommendBar" class="hidden px-8 pb-2 w-full max-w-5xl mx-auto">
+          <div class="flex items-center gap-2 overflow-x-auto pb-1" style="scrollbar-width:none;-ms-overflow-style:none;">
+          </div>
+        </div>
         <!-- 输入框 -->
         <div class="px-8 pb-8 pt-2 w-full max-w-5xl mx-auto">
           <div class="rounded-[32px] bg-white/95 backdrop-blur-md border border-white/50 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] overflow-hidden transition-all focus-within:ring-4 focus-within:ring-blue-500/5">
@@ -849,6 +864,103 @@ function resetCrmThreadContext() {
   document.getElementById('crmContextCard')?.classList.add('hidden');
   closeCrmDialog();
 }
+
+// ═══ AI 工作台推荐卡片 ═══
+function _updateRecommendations(cards) {
+  const isWelcome = document.getElementById('welcomeBlock') && !document.getElementById('welcomeBlock').classList.contains('hidden');
+  if (isWelcome) {
+    _renderWelcomeRecommendations(cards);
+  } else {
+    _renderRecommendBar(cards);
+  }
+}
+
+function _renderWelcomeRecommendations(cards) {
+  const container = document.getElementById('quickActionCards');
+  if (!container) return;
+  const items = Array.isArray(cards) ? cards : [];
+  if (!items.length) return; // 保留 HTML 中的默认卡片
+  container.innerHTML = items.slice(0, 4).map(card => `
+    <div onclick="sq('${_escapeAttr(card.command || card.title)}')"
+         class="bg-white border border-gray-200 rounded-2xl px-5 py-3 text-sm text-gray-600
+                cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:shadow-md transition-all">
+      ${_escapeHtmlText(card.icon || '💡')} ${_escapeHtmlText(card.title)}
+    </div>
+  `).join('');
+  // AI 建议详情（有 reason 的卡片）
+  const detailed = items.filter(c => c.reason);
+  const preview = document.getElementById('actionSuggestionsPreview');
+  const list = document.getElementById('actionSuggestionsList');
+  if (preview && list && detailed.length) {
+    preview.classList.remove('hidden');
+    list.innerHTML = detailed.slice(0, 3).map(card => `
+      <div class="p-3 rounded-xl border border-gray-100 bg-white/80 hover:shadow-sm transition-all">
+        <div class="flex items-start gap-2">
+          <span class="text-sm mt-0.5">${_escapeHtmlText(card.icon || '💡')}</span>
+          <div class="flex-1 min-w-0">
+            <p class="text-xs font-bold text-gray-800 mb-1">${_escapeHtmlText(card.title)}</p>
+            <p class="text-[10px] text-gray-500 leading-relaxed">${_escapeHtmlText(card.reason)}</p>
+            ${card.deadline ? `<p class="text-[9px] text-orange-500 mt-1">${_escapeHtmlText(card.deadline)}</p>` : ''}
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <button onclick="event.stopPropagation();_dismissRecommend('${_escapeAttr(card.cardId)}')"
+              class="px-2 py-1 text-[9px] text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">忽略</button>
+            <button onclick="event.stopPropagation();sq('${_escapeAttr(card.command || card.title)}')"
+              class="px-2 py-1 text-[9px] font-bold text-blue-600 hover:text-blue-700 rounded-lg hover:bg-blue-50">采纳</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  } else if (preview) {
+    preview.classList.add('hidden');
+  }
+}
+
+function _renderRecommendBar(cards) {
+  const bar = document.getElementById('recommendBar');
+  if (!bar) return;
+  const items = Array.isArray(cards) ? cards.filter(c => c.status === 'pending' || !c.status) : [];
+  if (!items.length) {
+    bar.classList.add('hidden');
+    return;
+  }
+  bar.classList.remove('hidden');
+  const inner = bar.querySelector('.flex');
+  if (!inner) return;
+  inner.innerHTML = items.slice(0, 4).map(card => `
+    <button onclick="sq('${_escapeAttr(card.command || card.title)}')"
+      class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full
+             bg-blue-50 border border-blue-100 text-xs text-blue-700
+             hover:bg-blue-100 transition-all whitespace-nowrap">
+      <span>${_escapeHtmlText(card.icon || '💡')}</span>
+      <span>${_escapeHtmlText(card.title)}</span>
+      <span onclick="event.stopPropagation();_dismissRecommend('${_escapeAttr(card.cardId)}')"
+            class="ml-1 text-blue-300 hover:text-blue-600 text-[10px] cursor-pointer">✕</span>
+    </button>
+  `).join('');
+}
+
+function _dismissRecommend(cardId) {
+  // 前端立即移除
+  const recs = ((crmSharedState || {}).data || {}).recommendations;
+  if (Array.isArray(recs)) {
+    const idx = recs.findIndex(c => c.cardId === cardId);
+    if (idx >= 0) { recs.splice(idx, 1); _updateRecommendations(recs); }
+  }
+  // 通知后端（fire-and-forget）
+  fetch(API + '/api/recommendations/dismiss', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({threadId: tid, cardId}),
+  }).catch(() => {});
+}
+
+function toggleActionSuggestions() {
+  const list = document.getElementById('actionSuggestionsList');
+  if (list) list.classList.toggle('hidden');
+}
+
+function _escapeAttr(s) { return String(s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+function _escapeHtmlText(s) { const d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; }
 
 function crmEntityName(entity) {
   return ({account:'客户', contact:'联系人', opportunity:'商机', lead:'线索', activity:'活动'})[entity] || entity || 'CRM';
@@ -1201,7 +1313,6 @@ function handleCrmAguiEvent(type, data) {
     restoreContextDataArtifacts(crmSharedState);
     const views = ((crmSharedState || {}).data || {}).views || {};
     if (crmInsightPinnedView) {
-      // 洞察执行期间只静默更新 pinned value，不渲染客户详情到右侧
       const pinnedModel = views[crmInsightPinnedView.viewId];
       if (pinnedModel && typeof pinnedModel === 'object') crmInsightPinnedView.value = pinnedModel;
     } else {
@@ -1209,8 +1320,17 @@ function handleCrmAguiEvent(type, data) {
         if (crmIsUserRequestedView(id, {promote: false})) renderCrmView(id, value);
       });
     }
+    // 推荐卡片恢复
+    const recs = ((crmSharedState || {}).data || {}).recommendations;
+    if (recs) _updateRecommendations(recs);
   } else if (type === 'STATE_DELTA') {
     crmApplyDelta(data.delta || []);
+    // 检查推荐更新
+    const recsChanged = (data.delta || []).some(op => (op.path || '').startsWith('/data/recommendations'));
+    if (recsChanged) {
+      const recs = ((crmSharedState || {}).data || {}).recommendations;
+      if (recs) _updateRecommendations(recs);
+    }
   } else if (type === 'ACTIVITY_SNAPSHOT') {
     if (data.activity_type === 'ui-action') {
       const content = data.content || {};
@@ -1348,6 +1468,7 @@ function ensureCrmTail(afterSequence = null) {
   crmTail.onerror = () => setCrmStatus('AG-UI 连接中断，等待自动重连', true);
 }
 function initializeCrmConnection() {
+  ensureCrmTail();
   return restoreCrmSnapshot(typeof tid === 'undefined' ? '' : tid);
 }
 async function postCrmAction(name, context, sourceComponentId) {
@@ -4667,6 +4788,10 @@ async function sendAgui(text, extra) {
           // MESSAGES_SNAPSHOT (忽略)
           else if (type === 'MESSAGES_SNAPSHOT') {
             // 历史消息快照，AG-UI 断线重连用
+          }
+          // STATE_SNAPSHOT / STATE_DELTA / ACTIVITY_SNAPSHOT — 分发给 CRM 联动处理
+          else if (['STATE_SNAPSHOT', 'STATE_DELTA', 'ACTIVITY_SNAPSHOT'].includes(type)) {
+            handleCrmAguiEvent(type, data);
           }
         } catch(e) { /* skip parse errors */ }
       }

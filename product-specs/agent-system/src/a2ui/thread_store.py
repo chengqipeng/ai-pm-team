@@ -267,15 +267,36 @@ class ThreadState:
         patch_ops = list(data.get("delta") or [])
         if not patch_ops:
             return
+        base = deepcopy(self.shared_state)
+        # 自动创建 patch 路径中缺失的中间节点，并将 replace 降级为 add
+        # （避免空 state 时 JsonPointerException）
+        normalized_ops = []
+        for op in patch_ops:
+            path = op.get("path", "")
+            parts = [p for p in path.split("/") if p]
+            if parts:
+                node = base
+                for part in parts[:-1]:
+                    if isinstance(node, dict) and part not in node:
+                        node[part] = {}
+                    node = node.get(part) if isinstance(node, dict) else node
+                # 如果叶节点不存在且 op 是 replace，降级为 add
+                leaf = parts[-1]
+                if (op.get("op") == "replace"
+                        and isinstance(node, dict) and leaf not in node):
+                    normalized_ops.append({**op, "op": "add"})
+                else:
+                    normalized_ops.append(op)
+            else:
+                normalized_ops.append(op)
         try:
             self.shared_state = jsonpatch.apply_patch(
-                deepcopy(self.shared_state), patch_ops, in_place=False)
-        except jsonpatch.JsonPatchException:
-            # Keep the previous valid snapshot. Applying a partial patch would
-            # make every later delta use an invalid base.
-            logger.exception(
-                "invalid STATE_DELTA: thread=%s operations=%s",
-                self.thread_id, len(patch_ops),
+                base, normalized_ops, in_place=False)
+        except (jsonpatch.JsonPatchException, Exception) as exc:
+            # 无法应用 patch 时静默降级，不打 exception 栈
+            logger.warning(
+                "STATE_DELTA skipped: thread=%s ops=%d reason=%s",
+                self.thread_id, len(patch_ops), str(exc)[:120],
             )
             return
         self._record_snapshot_views()

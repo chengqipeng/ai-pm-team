@@ -45,6 +45,10 @@ from src.a2ui import (
 from src.a2ui.models import A2UIMessage
 from src.agui.protocol import OfficialRunAgentInput, encode_official_sse
 from src.agui.run_registry import run_registry
+from src.recommendation.engine import (
+    evaluate_recommendations,
+    collect_ui_action_signal,
+)
 
 # Trace 埋点（可选：若 tracer 不可用则降级为 no-op）
 try:
@@ -243,6 +247,11 @@ async def a2ui_event(req: Request) -> JSONResponse:
 
 async def _deliver_user_action(thread_id: str, ua: UserAction) -> dict[str, str]:
     """经白名单 ActionDispatcher 即时发布活动并启动处理。"""
+    # 旁路采集 UI 操作信号（不阻塞主流程）
+    try:
+        collect_ui_action_signal(thread_id, ua.name, ua.context)
+    except Exception:
+        pass
     return await action_dispatcher.dispatch(thread_id, ua)
 
 
@@ -485,6 +494,48 @@ def _is_failed_insight_content(content: str) -> bool:
         and bool(re.search(r"没有找到|未找到|不存在|not\s+found", text, re.IGNORECASE))
     )
     return missing or explicit_failure or redacted_missing
+
+
+class RecommendDismissRequest(BaseModel):
+    thread_id: str = Field(alias="threadId")
+    card_id: str = Field(alias="cardId")
+    model_config = {"populate_by_name": True}
+
+
+@a2ui_router.post("/api/recommendations/dismiss", status_code=202)
+async def recommendations_dismiss(req: RecommendDismissRequest) -> JSONResponse:
+    """前端忽略推荐卡片，后端记录负反馈并从卡片池移除。"""
+    from src.recommendation.cards import card_store as _cs
+    _cs.dismiss(req.thread_id, req.card_id)
+    return JSONResponse({"status": "dismissed"}, status_code=202)
+
+
+async def _async_evaluate_recommendations(
+    thread_id: str,
+    user_message: str,
+    tool_calls: list[str],
+    origin_intent: str,
+) -> None:
+    """Run recommendation engine asynchronously and push via STATE_DELTA."""
+    try:
+        from src.agui.models import state_delta as _state_delta
+        from src.a2ui import thread_store as _ts
+        cards = await evaluate_recommendations(
+            thread_id, user_message, tool_calls, origin_intent)
+        if not cards:
+            return
+        # Ensure shared_state has /data before applying delta
+        state = _ts.get(thread_id)
+        if state and not state.shared_state.get("data"):
+            # Initialize /data if missing (avoids JsonPointer error)
+            from src.agui.models import state_snapshot as _state_snapshot
+            init_snapshot = {"data": {"recommendations": cards}}
+            await stream_hub.publish(thread_id, _state_snapshot(init_snapshot))
+        else:
+            delta = [{"op": "replace", "path": "/data/recommendations", "value": cards}]
+            await stream_hub.publish(thread_id, _state_delta(delta))
+    except Exception:
+        logger.debug("_async_evaluate_recommendations failed", exc_info=True)
 
 
 def _standard_message_text(req: OfficialRunAgentInput) -> str:
@@ -772,6 +823,27 @@ async def _chat_agui_response(
                         "[AG-UI] [thread=%s] RUN_FINISHED: events=%d, text_chars=%d, tool_calls=%s, elapsed=%.1fs",
                         req.thread_id, _event_count, _text_chars, _tool_calls, elapsed,
                     )
+                    # ── 在 RUN_FINISHED 之前注入推荐卡片 ──
+                    try:
+                        rec_cards = await evaluate_recommendations(
+                            req.thread_id, req.message or "", _tool_calls, origin_intent)
+                        if rec_cards:
+                            from src.agui.models import state_snapshot as _rec_ss
+                            from src.agui.models import state_delta as _rec_sd
+                            _rec_state = thread_store.get(req.thread_id)
+                            if _rec_state and _rec_state.shared_state.get("data"):
+                                rec_event = _rec_sd([{
+                                    "op": "replace", "path": "/data/recommendations",
+                                    "value": rec_cards}])
+                            else:
+                                rec_event = _rec_ss({"data": {"recommendations": rec_cards}})
+                            pub = await stream_hub.publish(req.thread_id, rec_event)
+                            enc = (encode_official_sse(rec_event, pub.sequence)
+                                   if standard_wire else rec_event.to_sse(pub.sequence))
+                            if enc:
+                                yield enc
+                    except Exception:
+                        logger.debug("pre-RUN_FINISHED recommendation failed", exc_info=True)
                 elif t_val == "RUN_ERROR":
                     _run_failed = True
                     _document_failed = True
