@@ -519,38 +519,101 @@ body { margin: 0; }
       <div id="chatPane" class="flex-1 flex flex-col min-w-0 relative">
         <div id="chatArea" class="flex-1 overflow-y-auto custom-scrollbar px-6 pt-10 pb-4" role="log" aria-live="polite" aria-label="对话消息">
           <div id="chatInner" class="max-w-4xl mx-auto w-full space-y-10 pb-6">
-            <!-- 欢迎页 -->
-            <div id="welcomeBlock" class="text-center py-12">
-              <div id="greetingArea">
-                <h1 id="greetingTitle" class="text-2xl font-bold mb-2">你好，我是 CRM 智能助手 👋</h1>
-                <p id="greetingSummary" class="text-gray-500 text-sm mb-8">我可以帮你查询客户数据、分析商机 Pipeline、校验配置等</p>
-              </div>
-              <div id="quickActionCards" class="flex gap-3 flex-wrap justify-center max-w-xl mx-auto mb-6">
-                <div onclick="sq('帮我查一下活跃客户，按营收排序')" class="bg-white border border-gray-200 rounded-2xl px-5 py-3 text-sm text-gray-600 cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:shadow-md transition-all">🏢 查看活跃客户</div>
-                <div onclick="sq('帮我分析商机 Pipeline，按阶段统计金额')" class="bg-white border border-gray-200 rounded-2xl px-5 py-3 text-sm text-gray-600 cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:shadow-md transition-all">📈 Pipeline 分析</div>
-                <div onclick="sq('系统中有多少个客户？')" class="bg-white border border-gray-200 rounded-2xl px-5 py-3 text-sm text-gray-600 cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:shadow-md transition-all">📊 客户统计</div>
-                <div onclick="sq('帮我校验商机的元数据配置')" class="bg-white border border-gray-200 rounded-2xl px-5 py-3 text-sm text-gray-600 cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:shadow-md transition-all">🔍 配置校验</div>
-              </div>
-              <!-- AI 行动建议预览 -->
-              <div id="actionSuggestionsPreview" class="hidden max-w-2xl mx-auto text-left">
-                <div class="flex items-center justify-between mb-3 px-2">
-                  <span class="text-xs font-bold text-gray-500">💡 AI 建议</span>
-                  <button onclick="toggleActionSuggestions()" class="text-[10px] text-blue-600 hover:text-blue-700">查看全部 →</button>
+            <!-- AI 工作台欢迎页 -->
+            <div id="welcomeBlock" class="py-6">
+              <!-- 顶部：问候 + Agent 统计 -->
+              <div class="max-w-3xl mx-auto mb-6">
+                <div class="flex items-start justify-between">
+                  <div class="flex items-center gap-4">
+                    <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    </div>
+                    <div>
+                      <h1 id="greetingTitle" class="text-xl font-bold text-gray-900">节奏不错，继续推进 💪</h1>
+                      <p id="greetingSummary" class="text-sm text-gray-500 mt-1">今天可以跟进待处理的客户和商机</p>
+                    </div>
+                  </div>
+                  <div id="agentAutoStats" class="hidden shrink-0 px-3 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-[11px] font-bold text-blue-700 cursor-pointer hover:bg-blue-100 transition-all">
+                    Agent自动为您完成: <span id="agentAutoCount">0</span>项操作 ▾
+                  </div>
                 </div>
-                <div id="actionSuggestionsList" class="space-y-2"></div>
               </div>
+
+              <!-- 输入框区（工作台模式下真实输入框内嵌于此，居中） -->
+              <div class="max-w-3xl mx-auto mb-6">
+                <!-- 真实输入框 dock 在工作台态被移动到此占位槽 -->
+                <div id="composerSlotWelcome"></div>
+                <!-- 快捷推荐芯片 -->
+                <div id="quickActionCards" class="mt-3 flex items-center gap-2 overflow-x-auto" style="scrollbar-width:none;">
+                  <button onclick="sq('帮我查一下活跃客户，按营收排序')" class="shrink-0 px-3 py-1.5 rounded-full bg-white border border-gray-200 text-xs text-gray-600 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-all whitespace-nowrap">🏢 查看活跃客户</button>
+                  <button onclick="sq('帮我分析商机 Pipeline，按阶段统计金额')" class="shrink-0 px-3 py-1.5 rounded-full bg-white border border-gray-200 text-xs text-gray-600 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-all whitespace-nowrap">📈 Pipeline 分析</button>
+                  <button onclick="sq('系统中有多少个客户？')" class="shrink-0 px-3 py-1.5 rounded-full bg-white border border-gray-200 text-xs text-gray-600 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-all whitespace-nowrap">📊 客户统计</button>
+                  <button onclick="sq('帮我校验商机的元数据配置')" class="shrink-0 px-3 py-1.5 rounded-full bg-white border border-gray-200 text-xs text-gray-600 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-all whitespace-nowrap">🔍 配置校验</button>
+                </div>
+              </div>
+
+              <!-- 主体：左侧 AI 建议 / 右侧日程 -->
+              <div class="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-5 gap-4">
+                <!-- 左：AI 行动建议 -->
+                <div class="lg:col-span-3">
+                  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <!-- Tab 切换 -->
+                    <div class="flex border-b border-gray-100">
+                      <button id="wbTabSuggestions" onclick="switchWorkbenchTab('suggestions')" class="flex-1 py-3 text-xs font-bold text-blue-600 border-b-2 border-blue-600 transition-all">
+                        AI 行动建议 <span id="wbSuggestCount" class="ml-1 px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[10px]">0</span>
+                      </button>
+                      <button id="wbTabReviews" onclick="switchWorkbenchTab('reviews')" class="flex-1 py-3 text-xs font-bold text-gray-400 border-b-2 border-transparent hover:text-gray-600 transition-all">
+                        AI 行动审核 <span id="wbReviewCount" class="ml-1 px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 text-[10px]">0</span>
+                      </button>
+                    </div>
+                    <!-- 建议列表 -->
+                    <div id="wbSuggestionsPanel" class="p-4 space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar">
+                      <div id="actionSuggestionsList" class="space-y-3">
+                        <div class="text-center text-gray-400 text-xs py-8">暂无 AI 建议，开始对话后将自动生成</div>
+                      </div>
+                    </div>
+                    <!-- 审核列表 -->
+                    <div id="wbReviewsPanel" class="hidden p-4 space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar">
+                      <div id="actionReviewsList" class="space-y-3">
+                        <div class="text-center text-gray-400 text-xs py-8">暂无待审核操作</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- 右：日程 -->
+                <div class="lg:col-span-2">
+                  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                      <div class="flex items-center gap-2">
+                        <span class="text-sm">📅</span>
+                        <span class="text-xs font-bold text-gray-800">日程</span>
+                      </div>
+                      <div class="flex items-center gap-1 text-[10px] text-gray-400">
+                        <span id="wbScheduleDate"></span>
+                      </div>
+                    </div>
+                    <div id="wbScheduleList" class="p-4 space-y-2 max-h-[360px] overflow-y-auto custom-scrollbar">
+                      <div class="text-center text-gray-400 text-xs py-8">暂无日程安排</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 隐藏旧预览区（兼容） -->
+              <div id="actionSuggestionsPreview" class="hidden"></div>
+              <div id="greetingArea" class="hidden"></div>
             </div>
           </div>
         </div>
 
         <!-- 推荐浮条（对话进行中时出现在输入框上方） -->
-        <div id="recommendBar" class="hidden px-8 pb-2 w-full max-w-5xl mx-auto">
+        <div id="recommendBar" class="hidden px-8 pb-2 w-full max-w-4xl mx-auto">
           <div class="flex items-center gap-2 overflow-x-auto pb-1" style="scrollbar-width:none;-ms-overflow-style:none;">
           </div>
         </div>
-        <!-- 输入框 -->
-        <div class="px-8 pb-8 pt-2 w-full max-w-5xl mx-auto">
-          <div class="rounded-[32px] bg-white/95 backdrop-blur-md border border-white/50 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] overflow-hidden transition-all focus-within:ring-4 focus-within:ring-blue-500/5">
+        <!-- 输入框 dock（工作台态移入 #composerSlotWelcome，对话态回到底部） -->
+        <div id="composerDock" class="px-8 pb-8 pt-2 w-full max-w-4xl mx-auto">
+          <div class="rounded-[28px] bg-white/95 backdrop-blur-md border border-white/50 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] overflow-hidden transition-all focus-within:ring-4 focus-within:ring-blue-500/5">
             <div id="filePv" class="px-6 pt-2 hidden"></div>
             <div class="px-6 pt-5">
               <textarea id="inp" rows="1" placeholder="在此输入您的 CRM 查询指令..."
@@ -877,42 +940,49 @@ function _updateRecommendations(cards) {
 
 function _renderWelcomeRecommendations(cards) {
   const container = document.getElementById('quickActionCards');
-  if (!container) return;
+  const suggestList = document.getElementById('actionSuggestionsList');
+  const suggestCount = document.getElementById('wbSuggestCount');
   const items = Array.isArray(cards) ? cards : [];
-  if (!items.length) return; // 保留 HTML 中的默认卡片
-  container.innerHTML = items.slice(0, 4).map(card => `
-    <div onclick="sq('${_escapeAttr(card.command || card.title)}')"
-         class="bg-white border border-gray-200 rounded-2xl px-5 py-3 text-sm text-gray-600
-                cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:shadow-md transition-all">
-      ${_escapeHtmlText(card.icon || '💡')} ${_escapeHtmlText(card.title)}
-    </div>
-  `).join('');
-  // AI 建议详情（有 reason 的卡片）
-  const detailed = items.filter(c => c.reason);
-  const preview = document.getElementById('actionSuggestionsPreview');
-  const list = document.getElementById('actionSuggestionsList');
-  if (preview && list && detailed.length) {
-    preview.classList.remove('hidden');
-    list.innerHTML = detailed.slice(0, 3).map(card => `
-      <div class="p-3 rounded-xl border border-gray-100 bg-white/80 hover:shadow-sm transition-all">
-        <div class="flex items-start gap-2">
-          <span class="text-sm mt-0.5">${_escapeHtmlText(card.icon || '💡')}</span>
+
+  // 快捷芯片（输入框下方）
+  if (container && items.length) {
+    container.innerHTML = items.slice(0, 5).map(card => `
+      <button onclick="sq('${_escapeAttr(card.command || card.title)}')"
+        class="shrink-0 px-3 py-1.5 rounded-full bg-gray-50 border border-gray-200 text-xs text-gray-600
+               hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-all whitespace-nowrap">
+        ${_escapeHtmlText(card.icon || '💡')} ${_escapeHtmlText(card.title)}
+      </button>
+    `).join('');
+  }
+
+  // AI 行动建议列表
+  if (suggestList && items.length) {
+    if (suggestCount) suggestCount.textContent = String(items.length);
+    suggestList.innerHTML = items.map(card => `
+      <div class="p-3 rounded-xl border border-gray-100 bg-white hover:shadow-sm transition-all group">
+        <div class="flex items-start gap-3">
+          <span class="text-lg mt-0.5 shrink-0">${_escapeHtmlText(card.icon || '💡')}</span>
           <div class="flex-1 min-w-0">
-            <p class="text-xs font-bold text-gray-800 mb-1">${_escapeHtmlText(card.title)}</p>
-            <p class="text-[10px] text-gray-500 leading-relaxed">${_escapeHtmlText(card.reason)}</p>
-            ${card.deadline ? `<p class="text-[9px] text-orange-500 mt-1">${_escapeHtmlText(card.deadline)}</p>` : ''}
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-[13px] font-bold text-gray-800">${_escapeHtmlText(card.title)}</p>
+              ${card.deadline ? `<span class="text-[9px] text-orange-500 shrink-0">${_escapeHtmlText(card.deadline)}</span>` : ''}
+            </div>
+            ${card.reason ? `<p class="text-[11px] text-gray-500 mt-1 leading-relaxed"><span class="text-blue-600 font-bold">建议理由</span>　${_escapeHtmlText(card.reason)}</p>` : ''}
           </div>
-          <div class="flex items-center gap-1 shrink-0">
-            <button onclick="event.stopPropagation();_dismissRecommend('${_escapeAttr(card.cardId)}')"
-              class="px-2 py-1 text-[9px] text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">忽略</button>
-            <button onclick="event.stopPropagation();sq('${_escapeAttr(card.command || card.title)}')"
-              class="px-2 py-1 text-[9px] font-bold text-blue-600 hover:text-blue-700 rounded-lg hover:bg-blue-50">采纳</button>
-          </div>
+        </div>
+        <div class="flex items-center justify-end gap-2 mt-2 pt-2 border-t border-gray-50">
+          <button onclick="_dismissRecommend('${_escapeAttr(card.cardId)}')"
+            class="px-3 py-1 text-[10px] text-gray-400 hover:text-gray-600 rounded-lg border border-gray-200 hover:bg-gray-50 transition-all">
+            ◁ 忽略</button>
+          <button onclick="sq('${_escapeAttr(card.command || card.title)}')"
+            class="px-3 py-1 text-[10px] font-bold text-gray-700 rounded-lg border border-gray-200 hover:bg-gray-50 transition-all">
+            ✓ 采纳</button>
+          <button onclick="sq('${_escapeAttr(card.command || card.title)}，并给出详细建议')"
+            class="px-3 py-1 text-[10px] font-bold text-blue-600 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 transition-all">
+            ✧ 采纳并建议</button>
         </div>
       </div>
     `).join('');
-  } else if (preview) {
-    preview.classList.add('hidden');
   }
 }
 
@@ -958,6 +1028,78 @@ function toggleActionSuggestions() {
   const list = document.getElementById('actionSuggestionsList');
   if (list) list.classList.toggle('hidden');
 }
+
+function switchWorkbenchTab(tab) {
+  const sugBtn = document.getElementById('wbTabSuggestions');
+  const revBtn = document.getElementById('wbTabReviews');
+  const sugPanel = document.getElementById('wbSuggestionsPanel');
+  const revPanel = document.getElementById('wbReviewsPanel');
+  if (!sugBtn || !revBtn || !sugPanel || !revPanel) return;
+  if (tab === 'suggestions') {
+    sugBtn.className = sugBtn.className.replace('text-gray-400 border-transparent', '').replace('text-blue-600 border-blue-600', '') + ' text-blue-600 border-blue-600';
+    revBtn.className = revBtn.className.replace('text-blue-600 border-blue-600', '').replace('text-gray-400 border-transparent', '') + ' text-gray-400 border-transparent';
+    sugPanel.classList.remove('hidden');
+    revPanel.classList.add('hidden');
+  } else {
+    revBtn.className = revBtn.className.replace('text-gray-400 border-transparent', '').replace('text-blue-600 border-blue-600', '') + ' text-blue-600 border-blue-600';
+    sugBtn.className = sugBtn.className.replace('text-blue-600 border-blue-600', '').replace('text-gray-400 border-transparent', '') + ' text-gray-400 border-transparent';
+    revPanel.classList.remove('hidden');
+    sugPanel.classList.add('hidden');
+  }
+}
+
+function focusWorkbenchInput() {
+  const inp = document.getElementById('inp');
+  if (inp) { inp.focus(); send(); }
+}
+
+// ═══ 输入框 dock 在工作台首页/对话底部之间移动 ═══
+// 保证全局只有一个 #inp，避免双输入框割裂。
+let WELCOME_TEMPLATE = '';
+function captureWelcomeTemplate() {
+  if (WELCOME_TEMPLATE) return;
+  const wb = document.getElementById('welcomeBlock');
+  if (wb) WELCOME_TEMPLATE = wb.outerHTML;
+}
+function mountComposer(location) {
+  const dock = document.getElementById('composerDock');
+  if (!dock) return;
+  if (location === 'welcome') {
+    const slot = document.getElementById('composerSlotWelcome');
+    if (slot && dock.parentElement !== slot) {
+      dock.classList.remove('px-8', 'pb-8', 'pt-2');
+      dock.classList.add('px-0', 'pb-0', 'pt-0');
+      slot.appendChild(dock);
+    }
+  } else {
+    // 回到 chatPane 底部（recommendBar 之后）
+    const pane = document.getElementById('chatPane');
+    const bar = document.getElementById('recommendBar');
+    if (pane && dock.parentElement !== pane) {
+      dock.classList.remove('px-0', 'pb-0', 'pt-0');
+      dock.classList.add('px-8', 'pb-8', 'pt-2');
+      if (bar && bar.parentElement === pane) {
+        bar.after(dock);
+      } else {
+        pane.appendChild(dock);
+      }
+    }
+  }
+}
+// 对话开始前把 dock 移回底部，随后 welcomeBlock 会被移除
+function detachComposerBeforeChat() {
+  mountComposer('dock');
+}
+
+// 初始化工作台日期
+(function initWorkbenchSchedule() {
+  const el = document.getElementById('wbScheduleDate');
+  if (el) {
+    const now = new Date();
+    const days = ['周日','周一','周二','周三','周四','周五','周六'];
+    el.textContent = `${now.getMonth()+1}月${now.getDate()}日，${days[now.getDay()]}`;
+  }
+})();
 
 function _escapeAttr(s) { return String(s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
 function _escapeHtmlText(s) { const d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; }
@@ -2049,6 +2191,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const sel = document.getElementById('apiModeSelect');
   if (sel) sel.value = apiMode;
   applySidebarState(false);
+  // 捕获工作台欢迎页模板（此时 slot 为空），再把输入框内嵌到工作台
+  captureWelcomeTemplate();
+  if (document.getElementById('welcomeBlock')) {
+    mountComposer('welcome');
+  }
 });
 
 // ═══ Interrupt UI 渲染 ═══
@@ -2431,17 +2578,15 @@ function newChat() {
   renderChatList();
   refreshGeneratedFiles();
   closeDocPreview();
-  document.getElementById('chatInner').innerHTML = `
-    <div id="welcomeBlock" class="text-center py-20">
-      <h1 class="text-2xl font-bold mb-2">你好，我是 CRM 智能助手 👋</h1>
-      <p class="text-gray-500 text-sm mb-8">我可以帮你查询客户数据、分析商机 Pipeline、校验配置等</p>
-      <div class="flex gap-3 flex-wrap justify-center max-w-xl mx-auto">
-        <div onclick="sq('帮我查一下活跃客户')" class="bg-white border border-gray-200 rounded-2xl px-5 py-3 text-sm text-gray-600 cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:shadow-md transition-all">🏢 查看活跃客户</div>
-        <div onclick="sq('分析商机 Pipeline')" class="bg-white border border-gray-200 rounded-2xl px-5 py-3 text-sm text-gray-600 cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:shadow-md transition-all">📈 Pipeline 分析</div>
-        <div onclick="sq('系统有多少客户')" class="bg-white border border-gray-200 rounded-2xl px-5 py-3 text-sm text-gray-600 cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:shadow-md transition-all">📊 客户统计</div>
-        <div onclick="sq('校验商机配置')" class="bg-white border border-gray-200 rounded-2xl px-5 py-3 text-sm text-gray-600 cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:shadow-md transition-all">🔍 配置校验</div>
-      </div>
-    </div>`;
+  // 先把输入框 dock 移回底部（避免被 innerHTML 重建销毁）
+  mountComposer('dock');
+  // 复用工作台欢迎页模板重建
+  if (WELCOME_TEMPLATE) {
+    document.getElementById('chatInner').innerHTML = WELCOME_TEMPLATE;
+    mountComposer('welcome');
+  } else {
+    document.getElementById('chatInner').innerHTML = '';
+  }
   document.getElementById('headerTitle').textContent = '新对话';
   resetTrace();
   initializeCrmConnection();
@@ -2450,7 +2595,7 @@ function newChat() {
 // ═══ 消息气泡 ═══
 function addUserBubble(content, opts) {
   const w = document.getElementById('welcomeBlock');
-  if (w) w.remove();
+  if (w) { detachComposerBeforeChat(); w.remove(); }
   const inner = document.getElementById('chatInner');
   // 格式化时间
   let timeHtml = '';
@@ -2611,7 +2756,7 @@ let _aguiStreamEl = null;
 function addAiBubbleStart() {
   const inner = document.getElementById('chatInner');
   const w = document.getElementById('welcomeBlock');
-  if (w) w.remove();
+  if (w) { detachComposerBeforeChat(); w.remove(); }
   inner.insertAdjacentHTML('beforeend', `
     <div class="flex justify-start w-full animate-fade-in" id="agui-stream-bubble">
       <div class="max-w-[85%] flex gap-4 flex-row">
@@ -5408,6 +5553,8 @@ async function loadChat(chatId) {
   renderChatList();
   resetTrace();
 
+  // 加载会话前把输入框移回底部，避免 innerHTML 重建销毁 dock
+  mountComposer('dock');
   const inner = document.getElementById('chatInner');
   inner.innerHTML = '<div class="text-center text-gray-400 text-xs py-10">加载中...</div>';
 

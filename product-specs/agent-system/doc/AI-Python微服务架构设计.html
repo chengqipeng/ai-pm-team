@@ -697,6 +697,143 @@ neo_ai_registry/
       <li><strong>自动发现</strong>：discover_tools/discover_middlewares 递归扫描目录，自动实例化 BaseTool / AgentMiddleware 子类</li>
     </ul>
   </div>
+
+  <!-- Provider Handler 三种响应模式 -->
+  <h3 style="font-size:1rem;margin:1.5rem 0 0.6rem;color:#334155;">Provider Handler 三种响应模式</h3>
+  <p style="font-size:0.82rem;color:#64748b;margin-bottom:0.8rem;">
+    业务域 Provider 的 Tool handler 支持三种响应方式，由 handler 的返回形式决定。SDK 路由层自动识别并封装为对应协议，Agent Runtime 侧无差别消费。
+  </p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.8rem;margin-bottom:1rem;">
+    <div style="background:#ecfdf5;border:1.5px solid var(--platform);border-radius:8px;padding:0.8rem;">
+      <div style="font-weight:600;font-size:0.78rem;color:var(--platform);margin-bottom:0.4rem;">① 普通 JSON 响应</div>
+      <div style="font-size:0.68rem;color:#64748b;line-height:1.6;">
+        handler <code>return dict</code><br>
+        路由层封装为 <code>{code:0, data:{result, state_patch, agent_data}}</code><br>
+        Agent 侧 ToolMessage = json.dumps(result)
+      </div>
+    </div>
+    <div style="background:#eff6ff;border:1.5px solid #3b82f6;border-radius:8px;padding:0.8rem;">
+      <div style="font-weight:600;font-size:0.78rem;color:#3b82f6;margin-bottom:0.4rem;">② 流式消息（AsyncGenerator）</div>
+      <div style="font-size:0.68rem;color:#64748b;line-height:1.6;">
+        handler <code>async yield chunks</code><br>
+        FeignClient 收集完整结果 <code>{result:[chunks], state_patch, agent_data}</code><br>
+        前端直连时转 SSE（<code>event: chunk/agent_data/state_patch/done</code>）
+      </div>
+    </div>
+    <div style="background:#fdf2f8;border:1.5px solid #ec4899;border-radius:8px;padding:0.8rem;">
+      <div style="font-weight:600;font-size:0.78rem;color:#ec4899;margin-bottom:0.4rem;">③ AG-UI 业务卡片</div>
+      <div style="font-size:0.68rem;color:#64748b;line-height:1.6;">
+        handler 调 <code>emit_card(data_key, data=...)</code><br>
+        Agent 侧自动补发 <code>adispatch_custom_event("agent_data", card)</code><br>
+        V2AGUIConverter 渲染为前端组件卡片
+      </div>
+    </div>
+  </div>
+
+  <!-- 代码示例 -->
+  <h4 style="font-size:0.9rem;margin:1rem 0 0.5rem;color:#475569;">① 普通 JSON 响应（默认）</h4>
+  <div style="background:#1e293b;color:#e2e8f0;padding:1.2rem;border-radius:8px;font-family:monospace;font-size:0.72rem;overflow-x:auto;white-space:pre;line-height:1.7;margin:0.5rem 0;">
+<span style="color:#94a3b8;"># 最简模式：handler 返回 dict，SDK 自动序列化为 JSON 响应</span>
+from neo_ai_registry.state import ToolState, set_state
+
+async def query_customer(input_data: dict, state: ToolState, configurable: dict) -> dict:
+    keyword = input_data.get("keyword", "")
+    tenant_id = configurable.get("tenant_id")
+
+    records = await crm_service.search(keyword, tenant_id)  <span style="color:#94a3b8;"># 业务逻辑</span>
+
+    set_state("last_query_keyword", keyword)  <span style="color:#94a3b8;"># 回写 Agent 图 state</span>
+
+    return {"status": "success", "records": records, "total": len(records)}
+    <span style="color:#94a3b8;"># → Agent ToolMessage = '{"status":"success","records":[...],"total":3}'</span>
+    <span style="color:#94a3b8;"># → 响应: {code:0, data:{result:{...}, state_patch:{last_query_keyword:"..."}, agent_data:[]}}</span></div>
+
+  <h4 style="font-size:0.9rem;margin:1rem 0 0.5rem;color:#475569;">② 流式消息（AsyncGenerator）</h4>
+  <div style="background:#1e293b;color:#e2e8f0;padding:1.2rem;border-radius:8px;font-family:monospace;font-size:0.72rem;overflow-x:auto;white-space:pre;line-height:1.7;margin:0.5rem 0;">
+<span style="color:#94a3b8;"># handler 返回 AsyncGenerator → SDK 自动转 SSE / 收集结果</span>
+<span style="color:#94a3b8;"># FeignClient 模式：收集所有 chunk 为 list 返回</span>
+<span style="color:#94a3b8;"># 前端直连模式（Accept: text/event-stream）：逐 chunk 推 SSE</span>
+from neo_ai_registry.state import ToolState, set_state
+from typing import AsyncGenerator
+
+async def stream_analysis(input_data: dict, state: ToolState, configurable: dict) -> AsyncGenerator:
+    query = input_data.get("query", "")
+
+    <span style="color:#94a3b8;"># 逐步产出分析结果片段</span>
+    async for chunk in llm_service.stream_analyze(query):
+        yield {"type": "text_chunk", "content": chunk}
+
+    <span style="color:#94a3b8;"># 最终产出结构化摘要</span>
+    yield {"type": "summary", "data": {"conclusion": "...", "confidence": 0.92}}
+
+    set_state("analysis_completed", True)
+    <span style="color:#94a3b8;"># → FeignClient 收到: {result:[{type:"text_chunk",...},{type:"summary",...}], state_patch:{...}, agent_data:[]}</span>
+    <span style="color:#94a3b8;"># → 前端直连 SSE:</span>
+    <span style="color:#94a3b8;">#   event: chunk  data: {"type":"text_chunk","content":"..."}</span>
+    <span style="color:#94a3b8;">#   event: chunk  data: {"type":"summary","data":{...}}</span>
+    <span style="color:#94a3b8;">#   event: state_patch  data: {"analysis_completed":true}</span>
+    <span style="color:#94a3b8;">#   event: done   data: {}</span></div>
+
+  <h4 style="font-size:0.9rem;margin:1rem 0 0.5rem;color:#475569;">③ AG-UI 业务卡片（emit_card + set_result_text）</h4>
+  <div style="background:#1e293b;color:#e2e8f0;padding:1.2rem;border-radius:8px;font-family:monospace;font-size:0.72rem;overflow-x:auto;white-space:pre;line-height:1.7;margin:0.5rem 0;">
+<span style="color:#94a3b8;"># 推送 AG-UI 业务卡片：卡片渲染 + LLM 文本分离</span>
+<span style="color:#94a3b8;"># emit_card → 前端渲染组件卡片（CrmDataCard / 自定义组件）</span>
+<span style="color:#94a3b8;"># set_result_text → 控制给 LLM 的文本（避免复述卡片内容）</span>
+from neo_ai_registry.state import ToolState, set_state, emit_card, set_result_text
+
+async def search_crm_record(input_data: dict, state: ToolState, configurable: dict) -> dict:
+    entity = input_data.get("entity", "account")
+    keyword = input_data.get("keyword", "")
+    tenant_id = configurable.get("tenant_id")
+
+    records = await crm_service.search(entity, keyword, tenant_id)
+
+    set_state("last_search_entity", entity)
+    set_state("last_search_keyword", keyword)
+
+    <span style="color:#94a3b8;"># ① 推卡片：data_key 需与前端 chat_component_registry 注册的组件对齐</span>
+    emit_card("crm_data", data=records)
+    <span style="color:#94a3b8;"># 等价于: emit_card("crm_data", payload={"data": records})</span>
+    <span style="color:#94a3b8;"># 支持一次推多张: emit_card("doc_data", data=doc_list)</span>
+
+    <span style="color:#94a3b8;"># ② 指定给 LLM 的文本（可选）：避免 LLM 用文字复述已展示的卡片内容</span>
+    set_result_text(f"已为用户展示 {len(records)} 条「{keyword}」相关的 CRM {entity} 记录卡片。")
+    <span style="color:#94a3b8;"># 不调用 set_result_text 时，LLM 拿到的是 return 值的 JSON 序列化</span>
+
+    return {"status": "success", "total": len(records)}
+    <span style="color:#94a3b8;"># → 响应: {code:0, data:{</span>
+    <span style="color:#94a3b8;">#     result: {status:"success", total:3},</span>
+    <span style="color:#94a3b8;">#     state_patch: {last_search_entity:"account", last_search_keyword:"仁科"},</span>
+    <span style="color:#94a3b8;">#     agent_data: [{data_key:"crm_data", payload:{data:[...]}}],</span>
+    <span style="color:#94a3b8;">#     result_text: "已为用户展示 3 条「仁科」相关的 CRM account 记录卡片。"</span>
+    <span style="color:#94a3b8;"># }}</span>
+    <span style="color:#94a3b8;">#</span>
+    <span style="color:#94a3b8;"># Agent Runtime 侧自动：</span>
+    <span style="color:#94a3b8;">#   1. adispatch_custom_event("agent_data", {data_key, payload}) → V2AGUIConverter 渲染卡片</span>
+    <span style="color:#94a3b8;">#   2. ToolMessage = result_text（而非序列化 result）→ LLM 不复述卡片</span></div>
+
+  <h4 style="font-size:0.9rem;margin:1rem 0 0.5rem;color:#475569;">AG-UI 卡片事件流转全景</h4>
+  <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:1rem;font-size:0.72rem;font-family:monospace;line-height:1.8;overflow-x:auto;white-space:pre;">
+Provider handler                          Agent Runtime (tool_adapter)              V2AGUIConverter → 前端
+    │                                         │                                         │
+    │ emit_card("crm_data", data=[...])       │                                         │
+    │ set_result_text("已展示...")             │                                         │
+    │ return {"status":"success"}             │                                         │
+    │                                         │                                         │
+    │─── HTTP 响应 ──────────────────────────→│                                         │
+    │  {result, state_patch,                  │                                         │
+    │   agent_data:[{data_key,payload}],      │                                         │
+    │   result_text:"..."}                    │                                         │
+    │                                         │── adispatch_custom_event ──────────────→│
+    │                                         │   ("agent_data", {data_key, payload})    │
+    │                                         │                                         │─→ chat: ACTIVITY_SNAPSHOT (CrmDataCard)
+    │                                         │                                         │─→ layout: CUSTOM(component_data)
+    │                                         │                                         │
+    │                                         │── ToolMessage = result_text ────────────→│ (LLM 看到简短文本)
+    │                                         │   "已为用户展示 3 条..."                  │
+    │                                         │── state_patch → write_back(图 state) ──→│ (状态持久化)</div>
+
 </section>
 
 
@@ -710,37 +847,55 @@ neo_ai_registry/
 
   <h3 style="font-size:1rem;margin:1rem 0 0.6rem;color:#334155;">调用链路时序</h3>
   <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:1rem;font-size:0.72rem;font-family:monospace;line-height:1.8;overflow-x:auto;white-space:pre;">
-Agent Runtime                      Provider Service                  MCP Service
-    │                                    │                                │
-    │── startup ──────────────────────── │                                │
-    │  ConfigLoader.from_yaml()          │                                │
-    │  AgentRegistry(NeoApiTransport())  │                                │
-    │  registry.load(config)             │                                │
-    │    ├─ discover_tools(app/tools)    │                                │
-    │    ├─ discover_middlewares(app/mw) │                                │
-    │    └─ 注册 remote ToolDef/MwDef    │                                │
-    │  get_base_tools() → BaseTool[]     │                                │
-    │  get_middlewares() → AgentMW[]     │                                │
-    │  create_agent(model,tools,mw)      │                                │
-    │                                    │                                │
-    │── Remote Tool 调用 ────────────────→│                                │
-    │  ToolFeignClient.async_execute     │                                │
-    │  POST /v2/tools/{key}/execute      │                                │
-    │  body: {input, state, configurable}│── handler(input, state, cfg)   │
-    │                                    │   set_state("key", value)      │
-    │  ←── {result, state_patch} ────────│                                │
-    │  ToolState.write_back(agent_state) │                                │
-    │                                    │                                │
-    │── Remote Middleware 调用 ──────────→│                                │
-    │  POST /v2/middlewares/{key}/execute │                                │
-    │  body: {hook, payload, state, cfg} │── handler(hook, payload, state)│
-    │  ←── {result, state_patch} ────────│   {action:"modify", patch}     │
-    │                                    │                                │
-    │── MCP Tool 调用 ──────────────────────────────────────────────────→ │
-    │  McpFeignClient.call_tool()        │                                │
-    │  POST /v2/mcp/tools/call           │                                │
-    │  body: {tool_name, arguments, server_api_key, context}              │
-    │  ←── {content, records, ...} ──────────────────────────────────────  │</div>
+Agent Runtime                                         Provider Service
+    │                                                       │
+    │── startup ─────────────────────────────────────────── │
+    │  ConfigLoader.from_yaml_dir()                         │
+    │  AgentRegistry(NeoApiTransport())                     │
+    │  registry.load(config)                                │
+    │    ├─ discover_tools(scan.tools_dir)   [仅 scan 配置非空时]
+    │    ├─ discover_middlewares(scan.mw_dir) [仅 scan 配置非空时]
+    │    └─ 注册 remote ToolDef/MwDef                       │
+    │  get_base_tools() → BaseTool[]                        │
+    │  get_middlewares() → AgentMW[]                        │
+    │  create_agent(model,tools,mw)                         │
+    │                                                       │
+    │── Remote Tool 调用 ──────────────────────────────────→│
+    │  ToolFeignClient.async_execute_tool                   │
+    │  POST /v2/tools/{key}/execute                         │
+    │  body: {input, state, configurable}      handler(input, state, cfg)
+    │                                            set_state("key", value)
+    │                                            emit_card("data_key", data)
+    │                                            set_result_text("...")
+    │  ←── {result, state_patch, agent_data, result_text?} ─│
+    │                                                       │
+    │  [1] ToolState.write_back(state)                      │
+    │  [2] for card in agent_data:                          │
+    │        adispatch_custom_event("agent_data", card)     │
+    │      → V2AGUIConverter 渲染卡片                       │
+    │  [3] ToolMessage = result_text                        │
+    │      (未设置时 = json.dumps(result))                   │
+    │                                                       │
+    │── Remote Middleware 调用 ────────────────────────────→│
+    │  POST /v2/middlewares/{key}/execute                    │
+    │  body: {hook, payload, state, configurable}  handler(hook, payload,
+    │                                                    state, configurable)
+    │  ←── {result, state_patch} ───────────────────────────│
+    │                                      {action:"modify", patch}
+
+
+MCP Service                                           Provider Service
+    │                                                       │
+    │── MCP Tool 调用（经 MCP Service 对外暴露）────────────→│
+    │  收到外部请求 POST /mcp/v2.0/open/{domain}            │
+    │  或内部 POST /v2/mcp/tools/call                       │
+    │                                                       │
+    │  ToolFeignClient(app_name=service_name)               │
+    │  POST /v2/tools/{key}/execute                         │
+    │  body: {input, state, configurable}      handler(input, state, cfg)
+    │  ←── {result, state_patch} ───────────────────────────│
+    │                                                       │
+    │  封装为 MCP 协议响应返回调用方                         │</div>
 
   <h3 style="font-size:1rem;margin:1.5rem 0 0.6rem;color:#334155;">Agent 消费端接入（Runtime 侧）</h3>
   <div style="background:#1e293b;color:#e2e8f0;padding:1.2rem;border-radius:8px;font-family:monospace;font-size:0.72rem;overflow-x:auto;white-space:pre;line-height:1.7;margin:0.5rem 0;">

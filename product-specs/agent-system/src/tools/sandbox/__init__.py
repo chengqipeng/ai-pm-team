@@ -20,6 +20,11 @@ from .aws_agentcore_backend import (
     AWSAgentCoreConfig,
     create_aws_backend_from_env,
 )
+from .aws_runtime_backend import (
+    AWSRuntimeSandboxBackend,
+    AWSRuntimeConfig,
+    create_aws_runtime_backend_from_env,
+)
 from .terminal_tool import TerminalTool
 from .file_tools import ReadFileTool, WriteFileTool, SearchFilesTool
 from .code_execution_tool import CodeExecutionTool
@@ -38,6 +43,9 @@ __all__ = [
     "AWSAgentCoreSandboxBackend",
     "AWSAgentCoreConfig",
     "create_aws_backend_from_env",
+    "AWSRuntimeSandboxBackend",
+    "AWSRuntimeConfig",
+    "create_aws_runtime_backend_from_env",
     "create_backend",
     # Tools
     "TerminalTool",
@@ -181,10 +189,19 @@ def create_backend(config_override: dict[str, str] | None = None) -> Backend:
         )
         return create_aws_backend_from_env(config)
 
+    elif backend_type == "aws_runtime":
+        logger.info(
+            "[sandbox] 配置加载: SANDBOX_BACKEND=aws_runtime | region=%s | arn=%s | name=%s",
+            config.get("AWS_RUNTIME_REGION", "ap-southeast-1"),
+            config.get("AWS_RUNTIME_ARN", "")[:50] or "(未设)",
+            config.get("AWS_RUNTIME_NAME", "") or "(未设)",
+        )
+        return create_aws_runtime_backend_from_env(config)
+
     else:
         raise ValueError(
             f"不支持的 SANDBOX_BACKEND 值: '{backend_type}'。"
-            f"可选: ssh / tencent / aws"
+            f"可选: ssh / tencent / aws / aws_runtime"
         )
 
 
